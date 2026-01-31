@@ -12,8 +12,8 @@ add_executable(app)
 
 target_sources(app
     PUBLIC
-        main.cpp
+        src/main.cpp
     PUBLIC
         FILE_SET CXX_MODULES FILES
-            math.cppm
+            src/math.cppm
 )
