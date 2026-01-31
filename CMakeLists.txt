@@ -8,6 +8,16 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Enable modules (CMake 3.28+)
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
+# Include CPM.cmake
+include(cmake/CPM.cmake)
+
+# Add dependencies via CPM
+CPMAddPackage(
+    NAME fmt
+    GITHUB_REPOSITORY fmtlib/fmt
+    GIT_TAG 11.0.2
+)
+
 add_executable(app)
 
 target_sources(app
@@ -17,3 +27,5 @@ target_sources(app
         FILE_SET CXX_MODULES FILES
             src/math.cppm
 )
+
+target_link_libraries(app PRIVATE fmt::fmt)

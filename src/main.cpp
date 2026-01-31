@@ -1,12 +1,12 @@
 import math;
 
-#include <iostream>
+#include <fmt/core.h>
 
 int main()
 {
-    std::cout << "5 + 3 = " << add(5, 3) << std::endl;
-    std::cout << "4 * 7 = " << multiply(4, 7) << std::endl;
-    std::cout << "Circle area (r=5): " << math::circle_area(5.0) << std::endl;
+    fmt::println("5 + 3 = {}", add(5, 3));
+    fmt::println("4 * 7 = {}", multiply(4, 7));
+    fmt::println("Circle area (r=5): {}", math::circle_area(5.0));
 
     return 0;
 }
