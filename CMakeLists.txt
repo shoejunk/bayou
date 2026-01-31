@@ -18,6 +18,15 @@ CPMAddPackage(
     GIT_TAG 11.0.2
 )
 
+CPMAddPackage(
+    NAME SFML
+    GITHUB_REPOSITORY SFML/SFML
+    GIT_TAG 3.0.0
+    OPTIONS
+        "SFML_BUILD_AUDIO OFF"
+        "SFML_BUILD_NETWORK OFF"
+)
+
 add_executable(app)
 
 target_sources(app
@@ -28,4 +37,4 @@ target_sources(app
             src/math.cppm
 )
 
-target_link_libraries(app PRIVATE fmt::fmt)
+target_link_libraries(app PRIVATE fmt::fmt SFML::Graphics SFML::Window SFML::System)
