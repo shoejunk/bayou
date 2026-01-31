@@ -1,47 +1,139 @@
 #include <SFML/Graphics.hpp>
 
+struct Button
+{
+    sf::RectangleShape shape;
+    sf::Text text;
+    bool hovered = false;
+
+    Button(const sf::Vector2f& position, const sf::Vector2f& size, const std::string& label, sf::Font& font)
+        : text(font, label, 24)
+    {
+        shape.setPosition(position);
+        shape.setSize(size);
+        shape.setFillColor(sf::Color(70, 70, 70));
+        shape.setOutlineThickness(2);
+        shape.setOutlineColor(sf::Color::White);
+
+        text.setFillColor(sf::Color::White);
+
+        sf::FloatRect textBounds = text.getLocalBounds();
+        text.setOrigin({textBounds.position.x + textBounds.size.x / 2.0f, textBounds.position.y + textBounds.size.y / 2.0f});
+        text.setPosition({position.x + size.x / 2.0f, position.y + size.y / 2.0f});
+    }
+
+    void update(const sf::Vector2f& mousePos)
+    {
+        hovered = shape.getGlobalBounds().contains(mousePos);
+        shape.setFillColor(hovered ? sf::Color(100, 100, 100) : sf::Color(70, 70, 70));
+    }
+
+    bool isClicked(const sf::Vector2f& mousePos) const
+    {
+        return shape.getGlobalBounds().contains(mousePos);
+    }
+
+    void draw(sf::RenderWindow& window) const
+    {
+        window.draw(shape);
+        window.draw(text);
+    }
+};
+
+enum class GameState
+{
+    Menu,
+    Login,
+    CreateAccount
+};
+
 int main()
 {
-    sf::RenderWindow window(sf::VideoMode({800, 600}), "SFML Window");
+    sf::RenderWindow window(sf::VideoMode({800, 600}), "Main Menu");
     window.setFramerateLimit(60);
 
-    sf::CircleShape circle(50.0f);
-    circle.setFillColor(sf::Color::Green);
-    circle.setPosition({375.0f, 275.0f});
+    sf::Font font;
+    if (!font.openFromFile("C:/Windows/Fonts/arial.ttf"))
+    {
+        return 1;
+    }
 
-    sf::RectangleShape rect(sf::Vector2f(100.0f, 80.0f));
-    rect.setFillColor(sf::Color::Blue);
-    rect.setPosition({150.0f, 100.0f});
+    sf::Text title(font, "Main Menu", 48);
+    title.setFillColor(sf::Color::White);
+    sf::FloatRect titleBounds = title.getLocalBounds();
+    title.setOrigin({titleBounds.position.x + titleBounds.size.x / 2.0f, 0});
+    title.setPosition({400.0f, 80.0f});
 
-    sf::RectangleShape movingRect(sf::Vector2f(60.0f, 60.0f));
-    movingRect.setFillColor(sf::Color::Red);
-    float xPos = 600.0f;
-    float yPos = 400.0f;
-    float xVel = 3.0f;
-    float yVel = 2.5f;
+    Button loginButton({300.0f, 200.0f}, {200.0f, 60.0f}, "Login", font);
+    Button createButton({300.0f, 300.0f}, {200.0f, 60.0f}, "Create Account", font);
+
+    GameState currentState = GameState::Menu;
+
+    sf::Text statusText(font, "", 24);
+    statusText.setFillColor(sf::Color::Yellow);
+    statusText.setPosition({400.0f, 450.0f});
 
     while (window.isOpen())
     {
+        sf::Vector2f mousePos = window.mapPixelToCoords(sf::Mouse::getPosition(window));
+
         while (const std::optional event = window.pollEvent())
         {
             if (event->is<sf::Event::Closed>())
+            {
                 window.close();
+            }
+
+            if (event->is<sf::Event::MouseButtonPressed>())
+            {
+                if (currentState == GameState::Menu)
+                {
+                    if (loginButton.isClicked(mousePos))
+                    {
+                        currentState = GameState::Login;
+                        statusText.setString("Login screen - Press ESC to go back");
+                        sf::FloatRect bounds = statusText.getLocalBounds();
+                        statusText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
+                    }
+                    else if (createButton.isClicked(mousePos))
+                    {
+                        currentState = GameState::CreateAccount;
+                        statusText.setString("Create Account screen - Press ESC to go back");
+                        sf::FloatRect bounds = statusText.getLocalBounds();
+                        statusText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
+                    }
+                }
+            }
+
+            if (event->is<sf::Event::KeyPressed>())
+            {
+                if (event->getIf<sf::Event::KeyPressed>()->code == sf::Keyboard::Key::Escape)
+                {
+                    currentState = GameState::Menu;
+                    statusText.setString("");
+                }
+            }
         }
 
-        xPos += xVel;
-        yPos += yVel;
+        if (currentState == GameState::Menu)
+        {
+            loginButton.update(mousePos);
+            createButton.update(mousePos);
+        }
 
-        if (xPos <= 0 || xPos >= 740)
-            xVel = -xVel;
-        if (yPos <= 0 || yPos >= 540)
-            yVel = -yVel;
+        window.clear(sf::Color(30, 30, 30));
 
-        movingRect.setPosition({xPos, yPos});
+        if (currentState == GameState::Menu)
+        {
+            window.draw(title);
+            loginButton.draw(window);
+            createButton.draw(window);
+        }
+        else
+        {
+            window.draw(statusText);
+        }
 
-        window.clear(sf::Color::Black);
-        window.draw(circle);
-        window.draw(rect);
-        window.draw(movingRect);
         window.display();
     }
 
