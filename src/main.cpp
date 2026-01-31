@@ -15,7 +15,7 @@ int main()
     window.setFramerateLimit(60);
 
     sf::Font font;
-    if (!font.openFromFile("C:/Windows/Fonts/arial.ttf"))
+    if (!font.openFromFile("assets/Roboto.ttf"))
     {
         return 1;
     }
