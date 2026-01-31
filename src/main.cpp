@@ -1,6 +1,7 @@
 #include <SFML/Graphics.hpp>
 
 import button;
+import inputbox;
 
 enum class GameState
 {
@@ -29,11 +30,22 @@ int main()
     Button loginButton({300.0f, 200.0f}, {200.0f, 60.0f}, "Login", font);
     Button createButton({300.0f, 300.0f}, {200.0f, 60.0f}, "Create Account", font);
 
+    sf::Clock clock;
+
     GameState currentState = GameState::Menu;
+
+    InputBox usernameInput({300.0f, 140.0f}, {200.0f, 40.0f}, "Username", font);
+    InputBox passwordInput({300.0f, 220.0f}, {200.0f, 40.0f}, "Password", font, true);
+    InputBox confirmInput({300.0f, 300.0f}, {200.0f, 40.0f}, "Confirm Password", font, true);
+    Button submitButton({300.0f, 380.0f}, {200.0f, 50.0f}, "Create Account", font);
+
+    sf::Text errorText(font, "", 20);
+    errorText.setFillColor(sf::Color::Red);
+    errorText.setPosition({400.0f, 450.0f});
 
     sf::Text statusText(font, "", 24);
     statusText.setFillColor(sf::Color::Yellow);
-    statusText.setPosition({400.0f, 450.0f});
+    statusText.setPosition({400.0f, 520.0f});
 
     while (window.isOpen())
     {
@@ -60,11 +72,45 @@ int main()
                     else if (createButton.isClicked(mousePos))
                     {
                         currentState = GameState::CreateAccount;
-                        statusText.setString("Create Account screen - Press ESC to go back");
-                        sf::FloatRect bounds = statusText.getLocalBounds();
-                        statusText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
+                        errorText.setString("");
                     }
                 }
+                else if (currentState == GameState::CreateAccount)
+                {
+                    usernameInput.update(mousePos);
+                    passwordInput.update(mousePos);
+                    confirmInput.update(mousePos);
+
+                    if (submitButton.isClicked(mousePos))
+                    {
+                        if (passwordInput.getContent() != confirmInput.getContent())
+                        {
+                            errorText.setString("Passwords do not match!");
+                            sf::FloatRect bounds = errorText.getLocalBounds();
+                            errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
+                        }
+                        else if (passwordInput.getContent().empty())
+                        {
+                            errorText.setString("Password cannot be empty!");
+                            sf::FloatRect bounds = errorText.getLocalBounds();
+                            errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
+                        }
+                        else
+                        {
+                            errorText.setString("Account created successfully!");
+                            errorText.setFillColor(sf::Color::Green);
+                            sf::FloatRect bounds = errorText.getLocalBounds();
+                            errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
+                        }
+                    }
+                }
+            }
+
+            if (currentState == GameState::CreateAccount)
+            {
+                usernameInput.handleEvent(*event);
+                passwordInput.handleEvent(*event);
+                confirmInput.handleEvent(*event);
             }
 
             if (event->is<sf::Event::KeyPressed>())
@@ -73,6 +119,11 @@ int main()
                 {
                     currentState = GameState::Menu;
                     statusText.setString("");
+                    errorText.setString("");
+                    errorText.setFillColor(sf::Color::Red);
+                    usernameInput.clear();
+                    passwordInput.clear();
+                    confirmInput.clear();
                 }
             }
         }
@@ -81,6 +132,18 @@ int main()
         {
             loginButton.update(mousePos);
             createButton.update(mousePos);
+        }
+        else if (currentState == GameState::CreateAccount)
+        {
+            usernameInput.update(mousePos);
+            passwordInput.update(mousePos);
+            confirmInput.update(mousePos);
+            submitButton.update(mousePos);
+
+            float deltaTime = clock.restart().asSeconds();
+            usernameInput.updateCursor(deltaTime);
+            passwordInput.updateCursor(deltaTime);
+            confirmInput.updateCursor(deltaTime);
         }
 
         window.clear(sf::Color(30, 30, 30));
@@ -91,9 +154,13 @@ int main()
             loginButton.draw(window);
             createButton.draw(window);
         }
-        else
+        else if (currentState == GameState::CreateAccount)
         {
-            window.draw(statusText);
+            usernameInput.draw(window);
+            passwordInput.draw(window);
+            confirmInput.draw(window);
+            submitButton.draw(window);
+            window.draw(errorText);
         }
 
         window.display();

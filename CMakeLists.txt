@@ -36,6 +36,7 @@ target_sources(app
         FILE_SET CXX_MODULES FILES
             src/math.cppm
             src/button.cppm
+            src/inputbox.cppm
 )
 
 target_link_libraries(app PRIVATE fmt::fmt SFML::Graphics SFML::Window SFML::System)
