@@ -1,2 +1,2 @@
 @echo off
-cmake --build build
+cmake --build build --target client accounts

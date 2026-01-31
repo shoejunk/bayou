@@ -24,19 +24,38 @@ CPMAddPackage(
     GIT_TAG 3.0.0
     OPTIONS
         "SFML_BUILD_AUDIO OFF"
-        "SFML_BUILD_NETWORK OFF"
+        "SFML_BUILD_NETWORK ON"
 )
 
-add_executable(app)
+# Shared modules
+set(SHARED_MODULES
+    src/shared/network.cppm
+)
 
-target_sources(app
+# Client executable
+add_executable(client)
+
+target_sources(client
     PUBLIC
-        src/main.cpp
+        src/client/main.cpp
     PUBLIC
         FILE_SET CXX_MODULES FILES
-            src/math.cppm
-            src/button.cppm
-            src/inputbox.cppm
+            src/shared/network.cppm
+            src/client/button.cppm
+            src/client/inputbox.cppm
 )
 
-target_link_libraries(app PRIVATE fmt::fmt SFML::Graphics SFML::Window SFML::System)
+target_link_libraries(client PRIVATE fmt::fmt SFML::Graphics SFML::Window SFML::System SFML::Network)
+
+# Accounts server executable
+add_executable(accounts)
+
+target_sources(accounts
+    PUBLIC
+        src/accounts/main.cpp
+    PUBLIC
+        FILE_SET CXX_MODULES FILES
+            src/shared/network.cppm
+)
+
+target_link_libraries(accounts PRIVATE fmt::fmt SFML::System SFML::Network)
