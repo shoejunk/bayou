@@ -1,7 +1,9 @@
 #include <SFML/Graphics.hpp>
+#include <SFML/Network.hpp>
 
 import button;
 import inputbox;
+import network;
 
 enum class GameState
 {
@@ -47,6 +49,9 @@ int main()
     statusText.setFillColor(sf::Color::Yellow);
     statusText.setPosition({400.0f, 520.0f});
 
+    sf::TcpSocket serverSocket;
+    bool connected = false;
+
     while (window.isOpen())
     {
         sf::Vector2f mousePos = window.mapPixelToCoords(sf::Mouse::getPosition(window));
@@ -86,21 +91,82 @@ int main()
                         if (passwordInput.getContent() != confirmInput.getContent())
                         {
                             errorText.setString("Passwords do not match!");
+                            errorText.setFillColor(sf::Color::Red);
                             sf::FloatRect bounds = errorText.getLocalBounds();
                             errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
                         }
                         else if (passwordInput.getContent().empty())
                         {
                             errorText.setString("Password cannot be empty!");
+                            errorText.setFillColor(sf::Color::Red);
                             sf::FloatRect bounds = errorText.getLocalBounds();
                             errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
                         }
                         else
                         {
-                            errorText.setString("Account created successfully!");
-                            errorText.setFillColor(sf::Color::Green);
-                            sf::FloatRect bounds = errorText.getLocalBounds();
-                            errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
+                            if (!connected)
+                            {
+                                if (serverSocket.connect(sf::IpAddress::LocalHost, 55000) == sf::Socket::Status::Done)
+                                {
+                                    connected = true;
+                                }
+                                else
+                                {
+                                    errorText.setString("Failed to connect to server!");
+                                    errorText.setFillColor(sf::Color::Red);
+                                    sf::FloatRect bounds = errorText.getLocalBounds();
+                                    errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
+                                }
+                            }
+
+                            if (connected)
+                            {
+                                sf::Packet packet;
+                                packet << static_cast<uint8_t>(network::MessageType::CreateAccount);
+                                packet << usernameInput.getContent();
+                                packet << passwordInput.getContent();
+
+                                if (serverSocket.send(packet) == sf::Socket::Status::Done)
+                                {
+                                    sf::Packet response;
+                                    if (serverSocket.receive(response) == sf::Socket::Status::Done)
+                                    {
+                                        uint8_t msgType;
+                                        bool success;
+                                        std::string message;
+                                        response >> msgType >> success >> message;
+
+                                        if (success)
+                                        {
+                                            errorText.setString(message);
+                                            errorText.setFillColor(sf::Color::Green);
+                                        }
+                                        else
+                                        {
+                                            errorText.setString(message);
+                                            errorText.setFillColor(sf::Color::Red);
+                                        }
+                                        sf::FloatRect bounds = errorText.getLocalBounds();
+                                        errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
+                                    }
+                                    else
+                                    {
+                                        errorText.setString("No response from server!");
+                                        errorText.setFillColor(sf::Color::Red);
+                                        sf::FloatRect bounds = errorText.getLocalBounds();
+                                        errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
+                                        connected = false;
+                                    }
+                                }
+                                else
+                                {
+                                    errorText.setString("Failed to send to server!");
+                                    errorText.setFillColor(sf::Color::Red);
+                                    sf::FloatRect bounds = errorText.getLocalBounds();
+                                    errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
+                                    connected = false;
+                                }
+                            }
                         }
                     }
                 }
@@ -117,6 +183,14 @@ int main()
             {
                 if (event->getIf<sf::Event::KeyPressed>()->code == sf::Keyboard::Key::Escape)
                 {
+                    if (connected)
+                    {
+                        sf::Packet disconnectPacket;
+                        disconnectPacket << static_cast<uint8_t>(network::MessageType::Disconnect);
+                        serverSocket.send(disconnectPacket);
+                        serverSocket.disconnect();
+                        connected = false;
+                    }
                     currentState = GameState::Menu;
                     statusText.setString("");
                     errorText.setString("");
