@@ -19,6 +19,15 @@ CPMAddPackage(
 )
 
 CPMAddPackage(
+    NAME SQLiteCpp
+    GITHUB_REPOSITORY SRombauts/SQLiteCpp
+    GIT_TAG 3.3.3
+    OPTIONS
+        "SQLITECPP_BUILD_EXAMPLES OFF"
+        "SQLITECPP_BUILD_TESTS OFF"
+)
+
+CPMAddPackage(
     NAME SFML
     GITHUB_REPOSITORY SFML/SFML
     GIT_TAG 3.0.0
@@ -58,4 +67,4 @@ target_sources(accounts
             src/shared/network.cppm
 )
 
-target_link_libraries(accounts PRIVATE fmt::fmt SFML::System SFML::Network)
+target_link_libraries(accounts PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network)

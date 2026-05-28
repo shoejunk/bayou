@@ -1,9 +1,9 @@
 #include <SFML/Network.hpp>
+#include <SQLiteCpp/SQLiteCpp.h>
 #include <fmt/core.h>
 #include <atomic>
-#include <cstddef>
-#include <functional>
-#include <map>
+#include <cstdint>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -19,6 +19,18 @@ public:
     AccountServer(unsigned short port)
         : listener(std::make_unique<sf::TcpListener>())
     {
+        try
+        {
+            database = std::make_unique<SQLite::Database>("accounts.db", SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
+            initializeDatabase();
+            fmt::println("Using accounts database: accounts.db");
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Failed to initialize accounts database: {}", error.what());
+            return;
+        }
+
         if (listener->listen(port) != sf::Socket::Status::Done)
         {
             fmt::println("Failed to listen on port {}", port);
@@ -61,10 +73,20 @@ public:
 
 private:
     std::unique_ptr<sf::TcpListener> listener;
-    std::map<std::string, std::size_t> accounts;
-    std::mutex accountsMutex;
+    std::unique_ptr<SQLite::Database> database;
+    std::mutex databaseMutex;
     std::atomic<bool> running{false};
     bool listening = false;
+
+    void initializeDatabase()
+    {
+        database->exec(
+            "CREATE TABLE IF NOT EXISTS accounts ("
+            "username TEXT PRIMARY KEY NOT NULL,"
+            "password_hash TEXT NOT NULL,"
+            "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"
+            ")");
+    }
 
     void handleClient(std::unique_ptr<sf::TcpSocket> client)
     {
@@ -121,18 +143,32 @@ private:
             return;
         }
 
+        try
         {
-            std::lock_guard<std::mutex> lock(accountsMutex);
-            if (accounts.contains(username))
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            if (accountExists(username))
             {
                 response << false << std::string("Username already exists");
             }
             else
             {
-                accounts[username] = hashPassword(password);
+                SQLite::Statement insert(
+                    *database,
+                    "INSERT INTO accounts (username, password_hash) VALUES (?, ?)");
+                insert.bind(1, username);
+                insert.bind(2, hashPassword(password));
+                insert.exec();
+
                 response << true << std::string("Account created successfully");
                 fmt::println("Created account for user: {}", username);
             }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while creating account: {}", error.what());
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::CreateAccountResponse);
+            response << false << std::string("Database error while creating account");
         }
 
         [[maybe_unused]] auto result = client.send(response);
@@ -150,16 +186,21 @@ private:
             return;
         }
 
-        const std::size_t passwordHash = hashPassword(password);
+        const std::string passwordHash = hashPassword(password);
 
+        try
         {
-            std::lock_guard<std::mutex> lock(accountsMutex);
-            auto it = accounts.find(username);
-            if (it == accounts.end())
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            SQLite::Statement query(
+                *database,
+                "SELECT password_hash FROM accounts WHERE username = ?");
+            query.bind(1, username);
+
+            if (!query.executeStep())
             {
                 response << false << std::string("Username not found");
             }
-            else if (it->second != passwordHash)
+            else if (query.getColumn(0).getString() != passwordHash)
             {
                 response << false << std::string("Invalid password");
             }
@@ -169,13 +210,36 @@ private:
                 fmt::println("User logged in: {}", username);
             }
         }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while logging in: {}", error.what());
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::LoginResponse);
+            response << false << std::string("Database error while logging in");
+        }
 
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    static std::size_t hashPassword(const std::string& password)
+    bool accountExists(const std::string& username)
     {
-        return std::hash<std::string>{}(password);
+        SQLite::Statement query(
+            *database,
+            "SELECT 1 FROM accounts WHERE username = ? LIMIT 1");
+        query.bind(1, username);
+        return query.executeStep();
+    }
+
+    static std::string hashPassword(const std::string& password)
+    {
+        std::uint64_t hash = 14695981039346656037ull;
+        for (unsigned char c : password)
+        {
+            hash ^= c;
+            hash *= 1099511628211ull;
+        }
+
+        return fmt::format("{:016x}", hash);
     }
 };
 
