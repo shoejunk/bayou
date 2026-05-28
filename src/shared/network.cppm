@@ -15,6 +15,10 @@ enum class MessageType : uint8_t
     LoginResponse,
     JoinMatchmaking,
     MatchFound,
+    CreateGameSession,
+    GameSessionCreated,
+    JoinGame,
+    GameReady,
     Disconnect
 };
 
@@ -46,6 +50,22 @@ struct MatchFoundResponse
 {
     int matchId;
     int playerNumber;
+    unsigned short gamePort;
+};
+
+struct GameSessionCreatedResponse
+{
+    bool success;
+    int matchId;
+    unsigned short port;
+    std::string message;
+};
+
+struct GameReadyResponse
+{
+    int matchId;
+    int playerNumber;
+    std::string message;
 };
 
 } // namespace network

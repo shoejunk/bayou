@@ -81,3 +81,16 @@ target_sources(matchmaking
 )
 
 target_link_libraries(matchmaking PRIVATE fmt::fmt SFML::System SFML::Network)
+
+# Game server executable
+add_executable(gameserver)
+
+target_sources(gameserver
+    PUBLIC
+        src/gameserver/main.cpp
+    PUBLIC
+        FILE_SET CXX_MODULES FILES
+            src/shared/network.cppm
+)
+
+target_link_libraries(gameserver PRIVATE fmt::fmt SFML::System SFML::Network)

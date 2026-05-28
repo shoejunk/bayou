@@ -4,8 +4,10 @@
 #include <chrono>
 #include <cstdint>
 #include <future>
+#include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 
 import button;
 import inputbox;
@@ -30,6 +32,7 @@ struct ServerResult
 {
     bool success = false;
     std::string message;
+    std::shared_ptr<sf::TcpSocket> gameSocket;
 };
 
 void centerText(sf::Text& text, float x)
@@ -95,6 +98,66 @@ ServerResult sendAccountRequest(
     return {success, message};
 }
 
+ServerResult joinGameServer(int matchId, int playerNumber, unsigned short gamePort)
+{
+    if (gamePort == 0)
+    {
+        return {false, "Game server did not assign a game"};
+    }
+
+    auto socket = std::make_shared<sf::TcpSocket>();
+    bool connected = false;
+    for (int attempt = 0; attempt < 30; ++attempt)
+    {
+        if (socket->connect(sf::IpAddress::LocalHost, gamePort) == sf::Socket::Status::Done)
+        {
+            connected = true;
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    if (!connected)
+    {
+        socket->disconnect();
+        return {false, "Failed to connect to game server"};
+    }
+
+    sf::Packet joinRequest;
+    joinRequest << static_cast<uint8_t>(network::MessageType::JoinGame);
+    joinRequest << matchId;
+    joinRequest << playerNumber;
+
+    if (socket->send(joinRequest) != sf::Socket::Status::Done)
+    {
+        socket->disconnect();
+        return {false, "Failed to join game"};
+    }
+
+    sf::Packet response;
+    if (socket->receive(response) != sf::Socket::Status::Done)
+    {
+        socket->disconnect();
+        return {false, "No game server response"};
+    }
+
+    uint8_t responseType = 0;
+    int responseMatchId = 0;
+    int responsePlayerNumber = 0;
+    std::string message;
+    response >> responseType >> responseMatchId >> responsePlayerNumber >> message;
+    if (static_cast<network::MessageType>(responseType) != network::MessageType::GameReady ||
+        responseMatchId != matchId ||
+        responsePlayerNumber != playerNumber)
+    {
+        socket->disconnect();
+        return {false, "Unexpected game server response"};
+    }
+
+    return {true, message, socket};
+}
+
 ServerResult joinMatchmaking()
 {
     sf::TcpSocket socket;
@@ -122,7 +185,8 @@ ServerResult joinMatchmaking()
     uint8_t responseType = 0;
     int matchId = 0;
     int playerNumber = 0;
-    response >> responseType >> matchId >> playerNumber;
+    unsigned short gamePort = 0;
+    response >> responseType >> matchId >> playerNumber >> gamePort;
     socket.disconnect();
 
     if (static_cast<network::MessageType>(responseType) != network::MessageType::MatchFound)
@@ -130,7 +194,7 @@ ServerResult joinMatchmaking()
         return {false, "Unexpected matchmaking response"};
     }
 
-    return {true, "Matched! Starting game"};
+    return joinGameServer(matchId, playerNumber, gamePort);
 }
 
 void resetForm(InputBox& usernameInput, InputBox& passwordInput, InputBox& confirmInput, sf::Text& messageText)
@@ -177,6 +241,7 @@ int main()
     GameState currentState = GameState::Menu;
     std::optional<std::future<ServerResult>> pendingRequest;
     std::optional<std::future<ServerResult>> pendingMatchmaking;
+    std::shared_ptr<sf::TcpSocket> activeGameSocket;
     int focusedInput = 0;
 
     auto clearFocus = [&]() {
@@ -212,6 +277,11 @@ int main()
 
     auto returnToMenu = [&]() {
         currentState = GameState::Menu;
+        if (activeGameSocket)
+        {
+            activeGameSocket->disconnect();
+            activeGameSocket.reset();
+        }
         title.setString("Main Menu");
         centerText(title, 400.0f);
         resetForm(usernameInput, passwordInput, confirmInput, messageText);
@@ -225,7 +295,8 @@ int main()
         clearFocus();
     };
 
-    auto showGameScreen = [&]() {
+    auto showGameScreen = [&](std::shared_ptr<sf::TcpSocket> gameSocket) {
+        activeGameSocket = std::move(gameSocket);
         currentState = GameState::Game;
         title.setString("Game");
         centerText(title, 400.0f);
@@ -293,7 +364,7 @@ int main()
             pendingMatchmaking.reset();
             if (result.success)
             {
-                showGameScreen();
+                showGameScreen(result.gameSocket);
             }
             else
             {
