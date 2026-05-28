@@ -35,9 +35,21 @@ export struct InputBox
     {
         if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
         {
-            active = shape.getGlobalBounds().contains(mousePos);
-            shape.setOutlineColor(active ? sf::Color(100, 200, 255) : sf::Color::White);
+            setActive(shape.getGlobalBounds().contains(mousePos));
         }
+    }
+
+    bool contains(const sf::Vector2f& point) const
+    {
+        return shape.getGlobalBounds().contains(point);
+    }
+
+    void setActive(bool isActive)
+    {
+        active = isActive;
+        cursorTimer = 0.0f;
+        showCursor = active;
+        shape.setOutlineColor(active ? sf::Color(100, 200, 255) : sf::Color::White);
     }
 
     void handleEvent(const sf::Event& event)

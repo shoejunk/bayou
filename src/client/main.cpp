@@ -133,6 +133,27 @@ int main()
     sf::Clock clock;
     GameState currentState = GameState::Menu;
     std::optional<std::future<ServerResult>> pendingRequest;
+    int focusedInput = 0;
+
+    auto clearFocus = [&]() {
+        usernameInput.setActive(false);
+        passwordInput.setActive(false);
+        confirmInput.setActive(false);
+    };
+
+    auto focusLoginInput = [&](int index) {
+        focusedInput = (index + 2) % 2;
+        usernameInput.setActive(focusedInput == 0);
+        passwordInput.setActive(focusedInput == 1);
+        confirmInput.setActive(false);
+    };
+
+    auto focusCreateInput = [&](int index) {
+        focusedInput = (index + 3) % 3;
+        usernameInput.setActive(focusedInput == 0);
+        passwordInput.setActive(focusedInput == 1);
+        confirmInput.setActive(focusedInput == 2);
+    };
 
     auto startRequest = [&](network::MessageType requestType, network::MessageType expectedResponseType) {
         setMessage(messageText, requestType == network::MessageType::Login ? "Logging in..." : "Creating account...", sf::Color::Yellow);
@@ -150,6 +171,33 @@ int main()
         title.setString("Main Menu");
         centerText(title, 400.0f);
         resetForm(usernameInput, passwordInput, confirmInput, messageText);
+        clearFocus();
+    };
+
+    auto submitLogin = [&]() {
+        if (usernameInput.getContent().empty() || passwordInput.getContent().empty())
+        {
+            setMessage(messageText, "Username and password cannot be empty", sf::Color::Red);
+        }
+        else
+        {
+            startRequest(network::MessageType::Login, network::MessageType::LoginResponse);
+        }
+    };
+
+    auto submitCreateAccount = [&]() {
+        if (usernameInput.getContent().empty() || passwordInput.getContent().empty())
+        {
+            setMessage(messageText, "Username and password cannot be empty", sf::Color::Red);
+        }
+        else if (passwordInput.getContent() != confirmInput.getContent())
+        {
+            setMessage(messageText, "Passwords do not match", sf::Color::Red);
+        }
+        else
+        {
+            startRequest(network::MessageType::CreateAccount, network::MessageType::CreateAccountResponse);
+        }
     };
 
     while (window.isOpen())
@@ -182,6 +230,7 @@ int main()
                         title.setString("Login");
                         centerText(title, 400.0f);
                         resetForm(usernameInput, passwordInput, confirmInput, messageText);
+                        focusLoginInput(0);
                     }
                     else if (createButton.isClicked(clickPos))
                     {
@@ -189,53 +238,57 @@ int main()
                         title.setString("Create Account");
                         centerText(title, 400.0f);
                         resetForm(usernameInput, passwordInput, confirmInput, messageText);
+                        focusCreateInput(0);
                     }
                 }
                 else if (currentState == GameState::Login)
                 {
-                    usernameInput.update(clickPos);
-                    passwordInput.update(clickPos);
-
                     if (backButton.isClicked(clickPos))
                     {
                         returnToMenu();
                     }
                     else if (loginSubmitButton.isClicked(clickPos))
                     {
-                        if (usernameInput.getContent().empty() || passwordInput.getContent().empty())
-                        {
-                            setMessage(messageText, "Username and password cannot be empty", sf::Color::Red);
-                        }
-                        else
-                        {
-                            startRequest(network::MessageType::Login, network::MessageType::LoginResponse);
-                        }
+                        submitLogin();
+                    }
+                    else if (usernameInput.contains(clickPos))
+                    {
+                        focusLoginInput(0);
+                    }
+                    else if (passwordInput.contains(clickPos))
+                    {
+                        focusLoginInput(1);
+                    }
+                    else
+                    {
+                        clearFocus();
                     }
                 }
                 else if (currentState == GameState::CreateAccount)
                 {
-                    usernameInput.update(clickPos);
-                    passwordInput.update(clickPos);
-                    confirmInput.update(clickPos);
-
                     if (backButton.isClicked(clickPos))
                     {
                         returnToMenu();
                     }
                     else if (createSubmitButton.isClicked(clickPos))
                     {
-                        if (usernameInput.getContent().empty() || passwordInput.getContent().empty())
-                        {
-                            setMessage(messageText, "Username and password cannot be empty", sf::Color::Red);
-                        }
-                        else if (passwordInput.getContent() != confirmInput.getContent())
-                        {
-                            setMessage(messageText, "Passwords do not match", sf::Color::Red);
-                        }
-                        else
-                        {
-                            startRequest(network::MessageType::CreateAccount, network::MessageType::CreateAccountResponse);
-                        }
+                        submitCreateAccount();
+                    }
+                    else if (usernameInput.contains(clickPos))
+                    {
+                        focusCreateInput(0);
+                    }
+                    else if (passwordInput.contains(clickPos))
+                    {
+                        focusCreateInput(1);
+                    }
+                    else if (confirmInput.contains(clickPos))
+                    {
+                        focusCreateInput(2);
+                    }
+                    else
+                    {
+                        clearFocus();
                     }
                 }
             }
@@ -251,11 +304,33 @@ int main()
                 confirmInput.handleEvent(*event);
             }
 
-            if (event->is<sf::Event::KeyPressed>())
+            if (const auto* keyPressed = event->getIf<sf::Event::KeyPressed>())
             {
-                if (event->getIf<sf::Event::KeyPressed>()->code == sf::Keyboard::Key::Escape)
+                if (keyPressed->code == sf::Keyboard::Key::Escape)
                 {
                     returnToMenu();
+                }
+                else if (!pendingRequest && currentState == GameState::Login)
+                {
+                    if (keyPressed->code == sf::Keyboard::Key::Tab)
+                    {
+                        focusLoginInput(focusedInput + (keyPressed->shift ? -1 : 1));
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter)
+                    {
+                        submitLogin();
+                    }
+                }
+                else if (!pendingRequest && currentState == GameState::CreateAccount)
+                {
+                    if (keyPressed->code == sf::Keyboard::Key::Tab)
+                    {
+                        focusCreateInput(focusedInput + (keyPressed->shift ? -1 : 1));
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter)
+                    {
+                        submitCreateAccount();
+                    }
                 }
             }
         }
@@ -267,8 +342,6 @@ int main()
         }
         else if (currentState == GameState::Login)
         {
-            usernameInput.update(mousePos);
-            passwordInput.update(mousePos);
             loginSubmitButton.update(mousePos);
             backButton.update(mousePos);
 
@@ -278,9 +351,6 @@ int main()
         }
         else if (currentState == GameState::CreateAccount)
         {
-            usernameInput.update(mousePos);
-            passwordInput.update(mousePos);
-            confirmInput.update(mousePos);
             createSubmitButton.update(mousePos);
             backButton.update(mousePos);
 
