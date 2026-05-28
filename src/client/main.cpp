@@ -1,9 +1,19 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/Network.hpp>
 
+#include <chrono>
+#include <cstdint>
+#include <future>
+#include <optional>
+#include <string>
+
 import button;
 import inputbox;
 import network;
+
+namespace
+{
+constexpr unsigned short AccountServerPort = 55000;
 
 enum class GameState
 {
@@ -11,6 +21,84 @@ enum class GameState
     Login,
     CreateAccount
 };
+
+struct ServerResult
+{
+    bool success = false;
+    std::string message;
+};
+
+void centerText(sf::Text& text, float x)
+{
+    sf::FloatRect bounds = text.getLocalBounds();
+    text.setOrigin({bounds.position.x + bounds.size.x / 2.0f, text.getOrigin().y});
+    text.setPosition({x, text.getPosition().y});
+}
+
+void setMessage(sf::Text& text, const std::string& message, const sf::Color& color)
+{
+    text.setString(message);
+    text.setFillColor(color);
+    centerText(text, 400.0f);
+}
+
+ServerResult sendAccountRequest(
+    network::MessageType requestType,
+    network::MessageType expectedResponseType,
+    const std::string& username,
+    const std::string& password)
+{
+    sf::TcpSocket socket;
+    if (socket.connect(sf::IpAddress::LocalHost, AccountServerPort) != sf::Socket::Status::Done)
+    {
+        return {false, "Failed to connect to server"};
+    }
+
+    sf::Packet packet;
+    packet << static_cast<uint8_t>(requestType);
+    packet << username;
+    packet << password;
+
+    if (socket.send(packet) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send to server"};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No response from server"};
+    }
+
+    uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    response >> responseType >> success >> message;
+
+    if (static_cast<network::MessageType>(responseType) != expectedResponseType)
+    {
+        socket.disconnect();
+        return {false, "Unexpected response from server"};
+    }
+
+    sf::Packet disconnectPacket;
+    disconnectPacket << static_cast<uint8_t>(network::MessageType::Disconnect);
+    [[maybe_unused]] auto disconnectResult = socket.send(disconnectPacket);
+    socket.disconnect();
+
+    return {success, message};
+}
+
+void resetForm(InputBox& usernameInput, InputBox& passwordInput, InputBox& confirmInput, sf::Text& messageText)
+{
+    usernameInput.clear();
+    passwordInput.clear();
+    confirmInput.clear();
+    setMessage(messageText, "", sf::Color::Red);
+}
+}
 
 int main()
 {
@@ -25,36 +113,48 @@ int main()
 
     sf::Text title(font, "Main Menu", 48);
     title.setFillColor(sf::Color::White);
-    sf::FloatRect titleBounds = title.getLocalBounds();
-    title.setOrigin({titleBounds.position.x + titleBounds.size.x / 2.0f, 0});
     title.setPosition({400.0f, 80.0f});
+    centerText(title, 400.0f);
 
     Button loginButton({300.0f, 200.0f}, {200.0f, 60.0f}, "Login", font);
     Button createButton({300.0f, 300.0f}, {200.0f, 60.0f}, "Create Account", font);
 
-    sf::Clock clock;
-
-    GameState currentState = GameState::Menu;
-
     InputBox usernameInput({300.0f, 140.0f}, {200.0f, 40.0f}, "Username", font);
     InputBox passwordInput({300.0f, 220.0f}, {200.0f, 40.0f}, "Password", font, true);
     InputBox confirmInput({300.0f, 300.0f}, {200.0f, 40.0f}, "Confirm Password", font, true);
-    Button submitButton({300.0f, 380.0f}, {200.0f, 50.0f}, "Create Account", font);
+    Button loginSubmitButton({300.0f, 300.0f}, {200.0f, 50.0f}, "Login", font);
+    Button createSubmitButton({300.0f, 380.0f}, {200.0f, 50.0f}, "Create Account", font);
 
-    sf::Text errorText(font, "", 20);
-    errorText.setFillColor(sf::Color::Red);
-    errorText.setPosition({400.0f, 450.0f});
+    sf::Text messageText(font, "", 20);
+    messageText.setFillColor(sf::Color::Red);
+    messageText.setPosition({400.0f, 450.0f});
 
-    sf::Text statusText(font, "", 24);
-    statusText.setFillColor(sf::Color::Yellow);
-    statusText.setPosition({400.0f, 520.0f});
+    sf::Clock clock;
+    GameState currentState = GameState::Menu;
+    std::optional<std::future<ServerResult>> pendingRequest;
 
-    sf::TcpSocket serverSocket;
-    bool connected = false;
+    auto startRequest = [&](network::MessageType requestType, network::MessageType expectedResponseType) {
+        setMessage(messageText, requestType == network::MessageType::Login ? "Logging in..." : "Creating account...", sf::Color::Yellow);
+        pendingRequest = std::async(
+            std::launch::async,
+            sendAccountRequest,
+            requestType,
+            expectedResponseType,
+            usernameInput.getContent(),
+            passwordInput.getContent());
+    };
 
     while (window.isOpen())
     {
         sf::Vector2f mousePos = window.mapPixelToCoords(sf::Mouse::getPosition(window));
+
+        if (pendingRequest &&
+            pendingRequest->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            ServerResult result = pendingRequest->get();
+            pendingRequest.reset();
+            setMessage(messageText, result.message, result.success ? sf::Color::Green : sf::Color::Red);
+        }
 
         while (const std::optional event = window.pollEvent())
         {
@@ -63,21 +163,40 @@ int main()
                 window.close();
             }
 
-            if (event->is<sf::Event::MouseButtonPressed>())
+            if (event->is<sf::Event::MouseButtonPressed>() && !pendingRequest)
             {
                 if (currentState == GameState::Menu)
                 {
                     if (loginButton.isClicked(mousePos))
                     {
                         currentState = GameState::Login;
-                        statusText.setString("Login screen - Press ESC to go back");
-                        sf::FloatRect bounds = statusText.getLocalBounds();
-                        statusText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
+                        title.setString("Login");
+                        centerText(title, 400.0f);
+                        resetForm(usernameInput, passwordInput, confirmInput, messageText);
                     }
                     else if (createButton.isClicked(mousePos))
                     {
                         currentState = GameState::CreateAccount;
-                        errorText.setString("");
+                        title.setString("Create Account");
+                        centerText(title, 400.0f);
+                        resetForm(usernameInput, passwordInput, confirmInput, messageText);
+                    }
+                }
+                else if (currentState == GameState::Login)
+                {
+                    usernameInput.update(mousePos);
+                    passwordInput.update(mousePos);
+
+                    if (loginSubmitButton.isClicked(mousePos))
+                    {
+                        if (usernameInput.getContent().empty() || passwordInput.getContent().empty())
+                        {
+                            setMessage(messageText, "Username and password cannot be empty", sf::Color::Red);
+                        }
+                        else
+                        {
+                            startRequest(network::MessageType::Login, network::MessageType::LoginResponse);
+                        }
                     }
                 }
                 else if (currentState == GameState::CreateAccount)
@@ -86,96 +205,32 @@ int main()
                     passwordInput.update(mousePos);
                     confirmInput.update(mousePos);
 
-                    if (submitButton.isClicked(mousePos))
+                    if (createSubmitButton.isClicked(mousePos))
                     {
-                        if (passwordInput.getContent() != confirmInput.getContent())
+                        if (usernameInput.getContent().empty() || passwordInput.getContent().empty())
                         {
-                            errorText.setString("Passwords do not match!");
-                            errorText.setFillColor(sf::Color::Red);
-                            sf::FloatRect bounds = errorText.getLocalBounds();
-                            errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
+                            setMessage(messageText, "Username and password cannot be empty", sf::Color::Red);
                         }
-                        else if (passwordInput.getContent().empty())
+                        else if (passwordInput.getContent() != confirmInput.getContent())
                         {
-                            errorText.setString("Password cannot be empty!");
-                            errorText.setFillColor(sf::Color::Red);
-                            sf::FloatRect bounds = errorText.getLocalBounds();
-                            errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
+                            setMessage(messageText, "Passwords do not match", sf::Color::Red);
                         }
                         else
                         {
-                            if (!connected)
-                            {
-                                if (serverSocket.connect(sf::IpAddress::LocalHost, 55000) == sf::Socket::Status::Done)
-                                {
-                                    connected = true;
-                                }
-                                else
-                                {
-                                    errorText.setString("Failed to connect to server!");
-                                    errorText.setFillColor(sf::Color::Red);
-                                    sf::FloatRect bounds = errorText.getLocalBounds();
-                                    errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
-                                }
-                            }
-
-                            if (connected)
-                            {
-                                sf::Packet packet;
-                                packet << static_cast<uint8_t>(network::MessageType::CreateAccount);
-                                packet << usernameInput.getContent();
-                                packet << passwordInput.getContent();
-
-                                if (serverSocket.send(packet) == sf::Socket::Status::Done)
-                                {
-                                    sf::Packet response;
-                                    if (serverSocket.receive(response) == sf::Socket::Status::Done)
-                                    {
-                                        uint8_t msgType;
-                                        bool success;
-                                        std::string message;
-                                        response >> msgType >> success >> message;
-
-                                        if (success)
-                                        {
-                                            errorText.setString(message);
-                                            errorText.setFillColor(sf::Color::Green);
-                                        }
-                                        else
-                                        {
-                                            errorText.setString(message);
-                                            errorText.setFillColor(sf::Color::Red);
-                                        }
-                                        sf::FloatRect bounds = errorText.getLocalBounds();
-                                        errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
-                                    }
-                                    else
-                                    {
-                                        errorText.setString("No response from server!");
-                                        errorText.setFillColor(sf::Color::Red);
-                                        sf::FloatRect bounds = errorText.getLocalBounds();
-                                        errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
-                                        connected = false;
-                                    }
-                                }
-                                else
-                                {
-                                    errorText.setString("Failed to send to server!");
-                                    errorText.setFillColor(sf::Color::Red);
-                                    sf::FloatRect bounds = errorText.getLocalBounds();
-                                    errorText.setOrigin({bounds.position.x + bounds.size.x / 2.0f, 0});
-                                    connected = false;
-                                }
-                            }
+                            startRequest(network::MessageType::CreateAccount, network::MessageType::CreateAccountResponse);
                         }
                     }
                 }
             }
 
-            if (currentState == GameState::CreateAccount)
+            if (currentState == GameState::Login || currentState == GameState::CreateAccount)
             {
                 usernameInput.handleEvent(*event);
                 passwordInput.handleEvent(*event);
+            }
+
+            if (currentState == GameState::CreateAccount)
+            {
                 confirmInput.handleEvent(*event);
             }
 
@@ -183,21 +238,10 @@ int main()
             {
                 if (event->getIf<sf::Event::KeyPressed>()->code == sf::Keyboard::Key::Escape)
                 {
-                    if (connected)
-                    {
-                        sf::Packet disconnectPacket;
-                        disconnectPacket << static_cast<uint8_t>(network::MessageType::Disconnect);
-                        serverSocket.send(disconnectPacket);
-                        serverSocket.disconnect();
-                        connected = false;
-                    }
                     currentState = GameState::Menu;
-                    statusText.setString("");
-                    errorText.setString("");
-                    errorText.setFillColor(sf::Color::Red);
-                    usernameInput.clear();
-                    passwordInput.clear();
-                    confirmInput.clear();
+                    title.setString("Main Menu");
+                    centerText(title, 400.0f);
+                    resetForm(usernameInput, passwordInput, confirmInput, messageText);
                 }
             }
         }
@@ -207,12 +251,22 @@ int main()
             loginButton.update(mousePos);
             createButton.update(mousePos);
         }
+        else if (currentState == GameState::Login)
+        {
+            usernameInput.update(mousePos);
+            passwordInput.update(mousePos);
+            loginSubmitButton.update(mousePos);
+
+            float deltaTime = clock.restart().asSeconds();
+            usernameInput.updateCursor(deltaTime);
+            passwordInput.updateCursor(deltaTime);
+        }
         else if (currentState == GameState::CreateAccount)
         {
             usernameInput.update(mousePos);
             passwordInput.update(mousePos);
             confirmInput.update(mousePos);
-            submitButton.update(mousePos);
+            createSubmitButton.update(mousePos);
 
             float deltaTime = clock.restart().asSeconds();
             usernameInput.updateCursor(deltaTime);
@@ -221,20 +275,27 @@ int main()
         }
 
         window.clear(sf::Color(30, 30, 30));
+        window.draw(title);
 
         if (currentState == GameState::Menu)
         {
-            window.draw(title);
             loginButton.draw(window);
             createButton.draw(window);
+        }
+        else if (currentState == GameState::Login)
+        {
+            usernameInput.draw(window);
+            passwordInput.draw(window);
+            loginSubmitButton.draw(window);
+            window.draw(messageText);
         }
         else if (currentState == GameState::CreateAccount)
         {
             usernameInput.draw(window);
             passwordInput.draw(window);
             confirmInput.draw(window);
-            submitButton.draw(window);
-            window.draw(errorText);
+            createSubmitButton.draw(window);
+            window.draw(messageText);
         }
 
         window.display();

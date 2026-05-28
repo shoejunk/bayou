@@ -1,5 +1,7 @@
-#include <string>
+module;
+
 #include <cstdint>
+#include <string>
 
 export module network;
 

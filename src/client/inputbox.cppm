@@ -1,3 +1,5 @@
+module;
+
 #include <SFML/Graphics.hpp>
 
 export module inputbox;

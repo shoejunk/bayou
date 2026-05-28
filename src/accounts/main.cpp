@@ -1,9 +1,13 @@
 #include <SFML/Network.hpp>
 #include <fmt/core.h>
+#include <atomic>
+#include <cstddef>
+#include <functional>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
-#include <atomic>
 
 import network;
 
@@ -20,11 +24,17 @@ public:
             fmt::println("Failed to listen on port {}", port);
             return;
         }
+        listening = true;
         fmt::println("Account server listening on port {}", port);
     }
 
     void run()
     {
+        if (!listening)
+        {
+            return;
+        }
+
         running = true;
         while (running)
         {
@@ -51,8 +61,10 @@ public:
 
 private:
     std::unique_ptr<sf::TcpListener> listener;
-    std::map<std::string, std::string> accounts; // username -> password
+    std::map<std::string, std::size_t> accounts;
+    std::mutex accountsMutex;
     std::atomic<bool> running{false};
+    bool listening = false;
 
     void handleClient(std::unique_ptr<sf::TcpSocket> client)
     {
@@ -105,16 +117,22 @@ private:
         if (username.empty() || password.empty())
         {
             response << false << std::string("Username and password cannot be empty");
+            [[maybe_unused]] auto result = client.send(response);
+            return;
         }
-        else if (accounts.contains(username))
+
         {
-            response << false << std::string("Username already exists");
-        }
-        else
-        {
-            accounts[username] = password;
-            response << true << std::string("Account created successfully");
-            fmt::println("Created account for user: {}", username);
+            std::lock_guard<std::mutex> lock(accountsMutex);
+            if (accounts.contains(username))
+            {
+                response << false << std::string("Username already exists");
+            }
+            else
+            {
+                accounts[username] = hashPassword(password);
+                response << true << std::string("Account created successfully");
+                fmt::println("Created account for user: {}", username);
+            }
         }
 
         [[maybe_unused]] auto result = client.send(response);
@@ -125,22 +143,39 @@ private:
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::LoginResponse);
 
-        auto it = accounts.find(username);
-        if (it == accounts.end())
+        if (username.empty() || password.empty())
         {
-            response << false << std::string("Username not found");
+            response << false << std::string("Username and password cannot be empty");
+            [[maybe_unused]] auto result = client.send(response);
+            return;
         }
-        else if (it->second != password)
+
+        const std::size_t passwordHash = hashPassword(password);
+
         {
-            response << false << std::string("Invalid password");
-        }
-        else
-        {
-            response << true << std::string("Login successful");
-            fmt::println("User logged in: {}", username);
+            std::lock_guard<std::mutex> lock(accountsMutex);
+            auto it = accounts.find(username);
+            if (it == accounts.end())
+            {
+                response << false << std::string("Username not found");
+            }
+            else if (it->second != passwordHash)
+            {
+                response << false << std::string("Invalid password");
+            }
+            else
+            {
+                response << true << std::string("Login successful");
+                fmt::println("User logged in: {}", username);
+            }
         }
 
         [[maybe_unused]] auto result = client.send(response);
+    }
+
+    static std::size_t hashPassword(const std::string& password)
+    {
+        return std::hash<std::string>{}(password);
     }
 };
 
