@@ -113,7 +113,7 @@ int main()
 
     sf::Text title(font, "Main Menu", 48);
     title.setFillColor(sf::Color::White);
-    title.setPosition({400.0f, 80.0f});
+    title.setPosition({400.0f, 45.0f});
     centerText(title, 400.0f);
 
     Button loginButton({300.0f, 200.0f}, {200.0f, 60.0f}, "Login", font);
@@ -124,6 +124,7 @@ int main()
     InputBox confirmInput({300.0f, 300.0f}, {200.0f, 40.0f}, "Confirm Password", font, true);
     Button loginSubmitButton({300.0f, 300.0f}, {200.0f, 50.0f}, "Login", font);
     Button createSubmitButton({300.0f, 380.0f}, {200.0f, 50.0f}, "Create Account", font);
+    Button backButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Back", font);
 
     sf::Text messageText(font, "", 20);
     messageText.setFillColor(sf::Color::Red);
@@ -142,6 +143,13 @@ int main()
             expectedResponseType,
             usernameInput.getContent(),
             passwordInput.getContent());
+    };
+
+    auto returnToMenu = [&]() {
+        currentState = GameState::Menu;
+        title.setString("Main Menu");
+        centerText(title, 400.0f);
+        resetForm(usernameInput, passwordInput, confirmInput, messageText);
     };
 
     while (window.isOpen())
@@ -163,18 +171,19 @@ int main()
                 window.close();
             }
 
-            if (event->is<sf::Event::MouseButtonPressed>() && !pendingRequest)
+            if (const auto* mousePressed = event->getIf<sf::Event::MouseButtonPressed>(); mousePressed && !pendingRequest)
             {
+                sf::Vector2f clickPos = window.mapPixelToCoords(mousePressed->position);
                 if (currentState == GameState::Menu)
                 {
-                    if (loginButton.isClicked(mousePos))
+                    if (loginButton.isClicked(clickPos))
                     {
                         currentState = GameState::Login;
                         title.setString("Login");
                         centerText(title, 400.0f);
                         resetForm(usernameInput, passwordInput, confirmInput, messageText);
                     }
-                    else if (createButton.isClicked(mousePos))
+                    else if (createButton.isClicked(clickPos))
                     {
                         currentState = GameState::CreateAccount;
                         title.setString("Create Account");
@@ -184,10 +193,14 @@ int main()
                 }
                 else if (currentState == GameState::Login)
                 {
-                    usernameInput.update(mousePos);
-                    passwordInput.update(mousePos);
+                    usernameInput.update(clickPos);
+                    passwordInput.update(clickPos);
 
-                    if (loginSubmitButton.isClicked(mousePos))
+                    if (backButton.isClicked(clickPos))
+                    {
+                        returnToMenu();
+                    }
+                    else if (loginSubmitButton.isClicked(clickPos))
                     {
                         if (usernameInput.getContent().empty() || passwordInput.getContent().empty())
                         {
@@ -201,11 +214,15 @@ int main()
                 }
                 else if (currentState == GameState::CreateAccount)
                 {
-                    usernameInput.update(mousePos);
-                    passwordInput.update(mousePos);
-                    confirmInput.update(mousePos);
+                    usernameInput.update(clickPos);
+                    passwordInput.update(clickPos);
+                    confirmInput.update(clickPos);
 
-                    if (createSubmitButton.isClicked(mousePos))
+                    if (backButton.isClicked(clickPos))
+                    {
+                        returnToMenu();
+                    }
+                    else if (createSubmitButton.isClicked(clickPos))
                     {
                         if (usernameInput.getContent().empty() || passwordInput.getContent().empty())
                         {
@@ -238,10 +255,7 @@ int main()
             {
                 if (event->getIf<sf::Event::KeyPressed>()->code == sf::Keyboard::Key::Escape)
                 {
-                    currentState = GameState::Menu;
-                    title.setString("Main Menu");
-                    centerText(title, 400.0f);
-                    resetForm(usernameInput, passwordInput, confirmInput, messageText);
+                    returnToMenu();
                 }
             }
         }
@@ -256,6 +270,7 @@ int main()
             usernameInput.update(mousePos);
             passwordInput.update(mousePos);
             loginSubmitButton.update(mousePos);
+            backButton.update(mousePos);
 
             float deltaTime = clock.restart().asSeconds();
             usernameInput.updateCursor(deltaTime);
@@ -267,6 +282,7 @@ int main()
             passwordInput.update(mousePos);
             confirmInput.update(mousePos);
             createSubmitButton.update(mousePos);
+            backButton.update(mousePos);
 
             float deltaTime = clock.restart().asSeconds();
             usernameInput.updateCursor(deltaTime);
@@ -287,6 +303,7 @@ int main()
             usernameInput.draw(window);
             passwordInput.draw(window);
             loginSubmitButton.draw(window);
+            backButton.draw(window);
             window.draw(messageText);
         }
         else if (currentState == GameState::CreateAccount)
@@ -295,6 +312,7 @@ int main()
             passwordInput.draw(window);
             confirmInput.draw(window);
             createSubmitButton.draw(window);
+            backButton.draw(window);
             window.draw(messageText);
         }
 
