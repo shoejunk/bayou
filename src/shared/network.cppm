@@ -13,6 +13,8 @@ enum class MessageType : uint8_t
     CreateAccountResponse,
     Login,
     LoginResponse,
+    JoinMatchmaking,
+    MatchFound,
     Disconnect
 };
 
@@ -38,6 +40,12 @@ struct LoginResponse
 {
     bool success;
     std::string message;
+};
+
+struct MatchFoundResponse
+{
+    int matchId;
+    int playerNumber;
 };
 
 } // namespace network

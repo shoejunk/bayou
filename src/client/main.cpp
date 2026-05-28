@@ -14,13 +14,16 @@ import network;
 namespace
 {
 constexpr unsigned short AccountServerPort = 55000;
+constexpr unsigned short MatchmakingServerPort = 55001;
 
 enum class GameState
 {
     Menu,
     Login,
     CreateAccount,
-    Authenticated
+    Authenticated,
+    Matchmaking,
+    Game
 };
 
 struct ServerResult
@@ -92,6 +95,44 @@ ServerResult sendAccountRequest(
     return {success, message};
 }
 
+ServerResult joinMatchmaking()
+{
+    sf::TcpSocket socket;
+    if (socket.connect(sf::IpAddress::LocalHost, MatchmakingServerPort) != sf::Socket::Status::Done)
+    {
+        return {false, "Failed to connect to matchmaking"};
+    }
+
+    sf::Packet packet;
+    packet << static_cast<uint8_t>(network::MessageType::JoinMatchmaking);
+
+    if (socket.send(packet) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to join matchmaking"};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Disconnected from matchmaking"};
+    }
+
+    uint8_t responseType = 0;
+    int matchId = 0;
+    int playerNumber = 0;
+    response >> responseType >> matchId >> playerNumber;
+    socket.disconnect();
+
+    if (static_cast<network::MessageType>(responseType) != network::MessageType::MatchFound)
+    {
+        return {false, "Unexpected matchmaking response"};
+    }
+
+    return {true, "Matched! Starting game"};
+}
+
 void resetForm(InputBox& usernameInput, InputBox& passwordInput, InputBox& confirmInput, sf::Text& messageText)
 {
     usernameInput.clear();
@@ -135,6 +176,7 @@ int main()
     sf::Clock clock;
     GameState currentState = GameState::Menu;
     std::optional<std::future<ServerResult>> pendingRequest;
+    std::optional<std::future<ServerResult>> pendingMatchmaking;
     int focusedInput = 0;
 
     auto clearFocus = [&]() {
@@ -183,6 +225,22 @@ int main()
         clearFocus();
     };
 
+    auto showGameScreen = [&]() {
+        currentState = GameState::Game;
+        title.setString("Game");
+        centerText(title, 400.0f);
+        setMessage(messageText, "", sf::Color::Red);
+        clearFocus();
+    };
+
+    auto startMatchmaking = [&]() {
+        currentState = GameState::Matchmaking;
+        title.setString("Matchmaking");
+        centerText(title, 400.0f);
+        setMessage(messageText, "Finding match...", sf::Color::Yellow);
+        pendingMatchmaking = std::async(std::launch::async, joinMatchmaking);
+    };
+
     auto submitLogin = [&]() {
         if (usernameInput.getContent().empty() || passwordInput.getContent().empty())
         {
@@ -228,6 +286,23 @@ int main()
             }
         }
 
+        if (pendingMatchmaking &&
+            pendingMatchmaking->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            ServerResult result = pendingMatchmaking->get();
+            pendingMatchmaking.reset();
+            if (result.success)
+            {
+                showGameScreen();
+            }
+            else
+            {
+                currentState = GameState::Authenticated;
+                title.setString("");
+                setMessage(messageText, result.message, sf::Color::Red);
+            }
+        }
+
         while (const std::optional event = window.pollEvent())
         {
             if (event->is<sf::Event::Closed>())
@@ -235,7 +310,7 @@ int main()
                 window.close();
             }
 
-            if (const auto* mousePressed = event->getIf<sf::Event::MouseButtonPressed>(); mousePressed && !pendingRequest)
+            if (const auto* mousePressed = event->getIf<sf::Event::MouseButtonPressed>(); mousePressed && !pendingRequest && !pendingMatchmaking)
             {
                 sf::Vector2f clickPos = window.mapPixelToCoords(mousePressed->position);
                 if (currentState == GameState::Menu)
@@ -311,7 +386,7 @@ int main()
                 {
                     if (playButton.isClicked(clickPos))
                     {
-                        // Play screen is not implemented yet.
+                        startMatchmaking();
                     }
                 }
             }
@@ -331,9 +406,12 @@ int main()
             {
                 if (keyPressed->code == sf::Keyboard::Key::Escape)
                 {
-                    returnToMenu();
+                    if (!pendingMatchmaking)
+                    {
+                        returnToMenu();
+                    }
                 }
-                else if (!pendingRequest && currentState == GameState::Login)
+                else if (!pendingRequest && !pendingMatchmaking && currentState == GameState::Login)
                 {
                     if (keyPressed->code == sf::Keyboard::Key::Tab)
                     {
@@ -344,7 +422,7 @@ int main()
                         submitLogin();
                     }
                 }
-                else if (!pendingRequest && currentState == GameState::CreateAccount)
+                else if (!pendingRequest && !pendingMatchmaking && currentState == GameState::CreateAccount)
                 {
                     if (keyPressed->code == sf::Keyboard::Key::Tab)
                     {
@@ -386,6 +464,12 @@ int main()
         {
             playButton.update(mousePos);
         }
+        else if (currentState == GameState::Matchmaking)
+        {
+        }
+        else if (currentState == GameState::Game)
+        {
+        }
 
         window.clear(sf::Color(30, 30, 30));
         window.draw(title);
@@ -415,6 +499,14 @@ int main()
         else if (currentState == GameState::Authenticated)
         {
             playButton.draw(window);
+            window.draw(messageText);
+        }
+        else if (currentState == GameState::Matchmaking)
+        {
+            window.draw(messageText);
+        }
+        else if (currentState == GameState::Game)
+        {
         }
 
         window.display();

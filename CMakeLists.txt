@@ -68,3 +68,16 @@ target_sources(accounts
 )
 
 target_link_libraries(accounts PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network)
+
+# Matchmaking server executable
+add_executable(matchmaking)
+
+target_sources(matchmaking
+    PUBLIC
+        src/matchmaking/main.cpp
+    PUBLIC
+        FILE_SET CXX_MODULES FILES
+            src/shared/network.cppm
+)
+
+target_link_libraries(matchmaking PRIVATE fmt::fmt SFML::System SFML::Network)
