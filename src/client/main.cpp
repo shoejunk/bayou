@@ -19,7 +19,8 @@ enum class GameState
 {
     Menu,
     Login,
-    CreateAccount
+    CreateAccount,
+    Authenticated
 };
 
 struct ServerResult
@@ -125,6 +126,7 @@ int main()
     Button loginSubmitButton({300.0f, 300.0f}, {200.0f, 50.0f}, "Login", font);
     Button createSubmitButton({300.0f, 380.0f}, {200.0f, 50.0f}, "Create Account", font);
     Button backButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Back", font);
+    Button playButton({300.0f, 270.0f}, {200.0f, 60.0f}, "Play", font);
 
     sf::Text messageText(font, "", 20);
     messageText.setFillColor(sf::Color::Red);
@@ -174,6 +176,13 @@ int main()
         clearFocus();
     };
 
+    auto showAuthenticatedScreen = [&]() {
+        currentState = GameState::Authenticated;
+        title.setString("");
+        resetForm(usernameInput, passwordInput, confirmInput, messageText);
+        clearFocus();
+    };
+
     auto submitLogin = [&]() {
         if (usernameInput.getContent().empty() || passwordInput.getContent().empty())
         {
@@ -209,7 +218,14 @@ int main()
         {
             ServerResult result = pendingRequest->get();
             pendingRequest.reset();
-            setMessage(messageText, result.message, result.success ? sf::Color::Green : sf::Color::Red);
+            if (result.success)
+            {
+                showAuthenticatedScreen();
+            }
+            else
+            {
+                setMessage(messageText, result.message, sf::Color::Red);
+            }
         }
 
         while (const std::optional event = window.pollEvent())
@@ -291,6 +307,13 @@ int main()
                         clearFocus();
                     }
                 }
+                else if (currentState == GameState::Authenticated)
+                {
+                    if (playButton.isClicked(clickPos))
+                    {
+                        // Play screen is not implemented yet.
+                    }
+                }
             }
 
             if (currentState == GameState::Login || currentState == GameState::CreateAccount)
@@ -359,6 +382,10 @@ int main()
             passwordInput.updateCursor(deltaTime);
             confirmInput.updateCursor(deltaTime);
         }
+        else if (currentState == GameState::Authenticated)
+        {
+            playButton.update(mousePos);
+        }
 
         window.clear(sf::Color(30, 30, 30));
         window.draw(title);
@@ -384,6 +411,10 @@ int main()
             createSubmitButton.draw(window);
             backButton.draw(window);
             window.draw(messageText);
+        }
+        else if (currentState == GameState::Authenticated)
+        {
+            playButton.draw(window);
         }
 
         window.display();
