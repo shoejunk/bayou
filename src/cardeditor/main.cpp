@@ -21,6 +21,19 @@ namespace
 constexpr unsigned short CardServerPort = 55004;
 constexpr float WindowWidth = 1280.0f;
 constexpr float WindowHeight = 760.0f;
+constexpr float ListPanelX = 24.0f;
+constexpr float ListPanelY = 100.0f;
+constexpr float ListPanelWidth = 276.0f;
+constexpr float PanelHeight = 640.0f;
+constexpr float EditorPanelX = 318.0f;
+constexpr float EditorPanelY = 100.0f;
+constexpr float EditorPanelWidth = 520.0f;
+constexpr float PreviewPanelX = 856.0f;
+constexpr float PreviewPanelY = 100.0f;
+constexpr float PreviewPanelWidth = 400.0f;
+constexpr float ListRowStartY = 176.0f;
+constexpr float ListRowHeight = 56.0f;
+constexpr std::size_t VisibleCardRows = 8;
 
 const sf::Color Ink(236, 239, 244);
 const sf::Color Muted(152, 164, 181);
@@ -357,6 +370,40 @@ void drawText(sf::RenderWindow& window, sf::Font& font, const std::string& value
     window.draw(text);
 }
 
+std::string elideToWidth(sf::Font& font, const std::string& value, unsigned int size, float maxWidth)
+{
+    sf::Text text(font, value, size);
+    if (text.getLocalBounds().size.x <= maxWidth)
+    {
+        return value;
+    }
+
+    std::string display = value;
+    while (!display.empty())
+    {
+        display.pop_back();
+        text.setString(display + "...");
+        if (text.getLocalBounds().size.x <= maxWidth)
+        {
+            return display + "...";
+        }
+    }
+
+    return "...";
+}
+
+void drawText(
+    sf::RenderWindow& window,
+    sf::Font& font,
+    const std::string& value,
+    unsigned int size,
+    sf::Vector2f position,
+    sf::Color color,
+    float maxWidth)
+{
+    drawText(window, font, elideToWidth(font, value, size, maxWidth), size, position, color);
+}
+
 void drawRoundedPanel(sf::RenderWindow& window, const sf::Vector2f& position, const sf::Vector2f& size, sf::Color fill, sf::Color outline = Line)
 {
     sf::RectangleShape shape(size);
@@ -382,6 +429,7 @@ public:
         box.setFillColor(Field);
         box.setOutlineThickness(1.0f);
         box.setOutlineColor(Line);
+        maxTextWidth = size.x - 24.0f;
 
         labelText->setFillColor(Muted);
         labelText->setPosition({position.x, position.y - 22.0f});
@@ -456,17 +504,21 @@ private:
     std::optional<sf::Text> valueText;
     sf::RectangleShape box;
     std::string value;
+    float maxTextWidth = 0.0f;
     bool active = false;
 
     void refreshText()
     {
         std::string display = value;
-        constexpr std::size_t MaxDisplayChars = 74;
-        if (display.size() > MaxDisplayChars)
+        if (valueText)
         {
-            display = display.substr(display.size() - MaxDisplayChars);
+            valueText->setString(display);
+            while (!display.empty() && valueText->getLocalBounds().size.x > maxTextWidth)
+            {
+                display.erase(display.begin());
+                valueText->setString("..." + display);
+            }
         }
-        valueText->setString(display);
     }
 };
 
@@ -544,6 +596,7 @@ private:
     sf::Font font;
     std::vector<card_data::Card> cards;
     std::optional<std::size_t> selectedCard;
+    std::size_t listOffset = 0;
     card_data::CardType selectedType = card_data::CardType::Unit;
     std::string status = "Ready";
     sf::Color statusColor = Muted;
@@ -564,16 +617,16 @@ private:
 
     void buildControls()
     {
-        newButton = Button(font, "New", {34.0f, 688.0f}, {92.0f, 42.0f}, sf::Color(45, 70, 83));
-        refreshButton = Button(font, "Refresh", {138.0f, 688.0f}, {116.0f, 42.0f}, sf::Color(45, 70, 83));
-        saveButton = Button(font, "Save Card", {830.0f, 688.0f}, {166.0f, 44.0f}, AccentDark);
+        newButton = Button(font, "New", {42.0f, 690.0f}, {96.0f, 42.0f}, sf::Color(45, 70, 83));
+        refreshButton = Button(font, "Refresh", {150.0f, 690.0f}, {120.0f, 42.0f}, sf::Color(45, 70, 83));
+        saveButton = Button(font, "Save Card", {660.0f, 690.0f}, {156.0f, 42.0f}, AccentDark);
 
-        titleField = TextField(font, "Title", {332.0f, 116.0f}, {470.0f, 46.0f});
-        imageField = TextField(font, "Image Path", {332.0f, 198.0f}, {470.0f, 46.0f});
-        keywordsField = TextField(font, "Keywords (comma separated)", {332.0f, 280.0f}, {470.0f, 46.0f});
-        intPairsField = TextField(font, "Integer Fields (cost=2; power=3)", {332.0f, 392.0f}, {470.0f, 46.0f});
-        stringPairsField = TextField(font, "String Fields (faction=bayou; rules=text)", {332.0f, 474.0f}, {470.0f, 46.0f});
-        listsField = TextField(font, "String Lists (tags=a,b; slots=hand,board)", {332.0f, 556.0f}, {470.0f, 46.0f});
+        titleField = TextField(font, "Title", {340.0f, 178.0f}, {470.0f, 42.0f});
+        imageField = TextField(font, "Image Path", {340.0f, 254.0f}, {470.0f, 42.0f});
+        keywordsField = TextField(font, "Keywords (comma separated)", {340.0f, 330.0f}, {470.0f, 42.0f});
+        intPairsField = TextField(font, "Integer Fields (cost=2; power=3)", {340.0f, 478.0f}, {470.0f, 42.0f});
+        stringPairsField = TextField(font, "String Fields (faction=bayou; rules=text)", {340.0f, 554.0f}, {470.0f, 42.0f});
+        listsField = TextField(font, "String Lists (tags=a,b; slots=hand,board)", {340.0f, 630.0f}, {470.0f, 42.0f});
         focusOrder = {&titleField, &imageField, &keywordsField, &intPairsField, &stringPairsField, &listsField};
         focusOrder.front()->setActive(true);
     }
@@ -585,11 +638,13 @@ private:
         {
             cards.clear();
             selectedCard.reset();
+            listOffset = 0;
             setStatus(result.message, Warn);
             return;
         }
 
         cards = result.cards;
+        listOffset = 0;
         if (!cards.empty())
         {
             selectCard(0);
@@ -623,6 +678,7 @@ private:
         }
 
         selectedCard = index;
+        ensureCardVisible(index);
         const card_data::Card& card = cards[index];
         selectedType = card.type;
         titleField.setValue(card.title);
@@ -675,14 +731,47 @@ private:
             if (found != cards.end())
             {
                 selectedCard = static_cast<std::size_t>(found - cards.begin());
+                ensureCardVisible(*selectedCard);
             }
         }
+    }
+
+    void ensureCardVisible(std::size_t index)
+    {
+        if (index < listOffset)
+        {
+            listOffset = index;
+        }
+        else if (index >= listOffset + VisibleCardRows)
+        {
+            listOffset = index - VisibleCardRows + 1;
+        }
+    }
+
+    void scrollCardList(int rows)
+    {
+        if (cards.size() <= VisibleCardRows)
+        {
+            listOffset = 0;
+            return;
+        }
+
+        const int maxOffset = static_cast<int>(cards.size() - VisibleCardRows);
+        const int next = std::clamp(static_cast<int>(listOffset) + rows, 0, maxOffset);
+        listOffset = static_cast<std::size_t>(next);
     }
 
     void loadPreviewImage()
     {
         const std::string path = trim(imageField.getValue());
-        hasPreviewImage = !path.empty() && previewTexture.loadFromFile(path);
+        if (path.empty() || !previewTexture.loadFromFile(path))
+        {
+            previewTexture = sf::Texture();
+            hasPreviewImage = false;
+            return;
+        }
+
+        hasPreviewImage = true;
     }
 
     void processEvents()
@@ -724,6 +813,15 @@ private:
                 if (mousePressed->button == sf::Mouse::Button::Left)
                 {
                     handleClick(mouse);
+                }
+            }
+
+            if (const auto* wheel = event->getIf<sf::Event::MouseWheelScrolled>())
+            {
+                const sf::Vector2f mouse = window.mapPixelToCoords(wheel->position);
+                if (isInListPanel(mouse))
+                {
+                    scrollCardList(wheel->delta < 0.0f ? 1 : -1);
                 }
             }
         }
@@ -783,19 +881,24 @@ private:
 
     std::optional<std::size_t> cardIndexAt(sf::Vector2f mouse) const
     {
-        const float startY = 116.0f;
-        const float rowHeight = 58.0f;
-        if (mouse.x < 28.0f || mouse.x > 286.0f || mouse.y < startY)
+        if (mouse.x < 42.0f || mouse.x > 272.0f || mouse.y < ListRowStartY)
         {
             return std::nullopt;
         }
 
-        const std::size_t index = static_cast<std::size_t>((mouse.y - startY) / rowHeight);
-        if (index < cards.size() && index < 9)
+        const std::size_t visibleIndex = static_cast<std::size_t>((mouse.y - ListRowStartY) / ListRowHeight);
+        const std::size_t index = listOffset + visibleIndex;
+        if (visibleIndex < VisibleCardRows && index < cards.size())
         {
             return index;
         }
         return std::nullopt;
+    }
+
+    bool isInListPanel(sf::Vector2f mouse) const
+    {
+        return mouse.x >= ListPanelX && mouse.x <= ListPanelX + ListPanelWidth &&
+            mouse.y >= ListPanelY && mouse.y <= ListPanelY + PanelHeight;
     }
 
     std::optional<card_data::CardType> typeAt(sf::Vector2f mouse) const
@@ -809,7 +912,7 @@ private:
 
         for (std::size_t i = 0; i < types.size(); ++i)
         {
-            sf::FloatRect bounds({332.0f + static_cast<float>(i) * 116.0f, 324.0f}, {104.0f, 40.0f});
+            sf::FloatRect bounds({340.0f + static_cast<float>(i) * 116.0f, 402.0f}, {104.0f, 40.0f});
             if (bounds.contains(mouse))
             {
                 return types[i];
@@ -848,13 +951,14 @@ private:
 
     void drawListPanel()
     {
-        drawRoundedPanel(window, {24.0f, 100.0f}, {266.0f, 640.0f}, Panel);
+        drawRoundedPanel(window, {ListPanelX, ListPanelY}, {ListPanelWidth, PanelHeight}, Panel);
         drawText(window, font, "Library", 22, {42.0f, 124.0f}, Ink);
-        drawText(window, font, fmt::format("{} cards", cards.size()), 14, {220.0f, 131.0f}, Muted);
+        drawText(window, font, fmt::format("{} cards", cards.size()), 14, {218.0f, 131.0f}, Muted);
 
-        for (std::size_t i = 0; i < cards.size() && i < 9; ++i)
+        const std::size_t lastVisible = std::min(cards.size(), listOffset + VisibleCardRows);
+        for (std::size_t i = listOffset; i < lastVisible; ++i)
         {
-            const float y = 166.0f + static_cast<float>(i) * 58.0f;
+            const float y = ListRowStartY + static_cast<float>(i - listOffset) * ListRowHeight;
             sf::RectangleShape row({230.0f, 48.0f});
             row.setPosition({42.0f, y});
             row.setFillColor(selectedCard && *selectedCard == i ? sf::Color(49, 68, 78) : PanelAlt);
@@ -862,8 +966,20 @@ private:
             row.setOutlineColor(selectedCard && *selectedCard == i ? Accent : sf::Color(48, 56, 70));
             window.draw(row);
 
-            drawText(window, font, cards[i].title, 17, {54.0f, y + 8.0f}, Ink);
+            drawText(window, font, cards[i].title, 17, {54.0f, y + 8.0f}, Ink, 206.0f);
             drawText(window, font, card_data::toString(cards[i].type), 13, {54.0f, y + 29.0f}, Muted);
+        }
+
+        if (cards.size() > VisibleCardRows)
+        {
+            drawText(
+                window,
+                font,
+                fmt::format("{}-{} of {}  mouse wheel", listOffset + 1, lastVisible, cards.size()),
+                12,
+                {46.0f, 660.0f},
+                Muted,
+                220.0f);
         }
 
         newButton.draw(window);
@@ -872,9 +988,9 @@ private:
 
     void drawEditorPanel()
     {
-        drawRoundedPanel(window, {310.0f, 100.0f}, {520.0f, 640.0f}, Panel);
-        drawText(window, font, "Edit Card", 22, {332.0f, 124.0f}, Ink);
-        drawText(window, font, "Enter creates or updates the current title.", 14, {578.0f, 131.0f}, Muted);
+        drawRoundedPanel(window, {EditorPanelX, EditorPanelY}, {EditorPanelWidth, PanelHeight}, Panel);
+        drawText(window, font, "Edit Card", 22, {340.0f, 124.0f}, Ink);
+        drawText(window, font, "Tab moves fields. Enter saves.", 14, {610.0f, 131.0f}, Muted, 206.0f);
 
         titleField.draw(window);
         imageField.draw(window);
@@ -884,12 +1000,12 @@ private:
         stringPairsField.draw(window);
         listsField.draw(window);
         saveButton.draw(window);
-        drawText(window, font, status, 16, {332.0f, 696.0f}, statusColor);
+        drawText(window, font, status, 16, {340.0f, 702.0f}, statusColor, 300.0f);
     }
 
     void drawTypePicker()
     {
-        drawText(window, font, "Type", 15, {332.0f, 306.0f}, Muted);
+        drawText(window, font, "Type", 15, {340.0f, 380.0f}, Muted);
         const std::vector<card_data::CardType> types = {
             card_data::CardType::Unit,
             card_data::CardType::Spell,
@@ -899,7 +1015,7 @@ private:
 
         for (std::size_t i = 0; i < types.size(); ++i)
         {
-            const sf::Vector2f position{332.0f + static_cast<float>(i) * 116.0f, 324.0f};
+            const sf::Vector2f position{340.0f + static_cast<float>(i) * 116.0f, 402.0f};
             sf::RectangleShape pill({104.0f, 40.0f});
             pill.setPosition(position);
             pill.setFillColor(types[i] == selectedType ? AccentDark : Field);
@@ -916,8 +1032,8 @@ private:
 
     void drawPreviewPanel()
     {
-        drawRoundedPanel(window, {850.0f, 100.0f}, {406.0f, 640.0f}, Panel);
-        drawText(window, font, "Preview", 22, {876.0f, 124.0f}, Ink);
+        drawRoundedPanel(window, {PreviewPanelX, PreviewPanelY}, {PreviewPanelWidth, PanelHeight}, Panel);
+        drawText(window, font, "Preview", 22, {882.0f, 124.0f}, Ink);
 
         drawRoundedPanel(window, {938.0f, 160.0f}, {230.0f, 322.0f}, sf::Color(46, 52, 64), AccentDark);
         if (hasPreviewImage)
@@ -941,7 +1057,7 @@ private:
         }
 
         const card_data::Card card = cardFromForm();
-        sf::Text title(font, card.title.empty() ? "Untitled Card" : card.title, 22);
+        sf::Text title(font, elideToWidth(font, card.title.empty() ? "Untitled Card" : card.title, 22, 210.0f), 22);
         title.setFillColor(Ink);
         centerText(title, {1053.0f, 414.0f});
         window.draw(title);
@@ -952,14 +1068,17 @@ private:
         window.draw(type);
 
         float y = 512.0f;
-        drawText(window, font, "Keywords", 15, {876.0f, y}, Muted);
-        drawText(window, font, joinStrings(card.keywords, ", "), 16, {876.0f, y + 22.0f}, Ink);
-        y += 72.0f;
-        drawText(window, font, "Integer Fields", 15, {876.0f, y}, Muted);
-        drawText(window, font, integerPairsToText(card.integerValues), 16, {876.0f, y + 22.0f}, Ink);
-        y += 72.0f;
-        drawText(window, font, "String Fields", 15, {876.0f, y}, Muted);
-        drawText(window, font, stringPairsToText(card.stringValues), 16, {876.0f, y + 22.0f}, Ink);
+        drawText(window, font, "Keywords", 15, {882.0f, y}, Muted);
+        drawText(window, font, joinStrings(card.keywords, ", "), 16, {882.0f, y + 22.0f}, Ink, 336.0f);
+        y += 54.0f;
+        drawText(window, font, "Integer Fields", 15, {882.0f, y}, Muted);
+        drawText(window, font, integerPairsToText(card.integerValues), 16, {882.0f, y + 22.0f}, Ink, 336.0f);
+        y += 54.0f;
+        drawText(window, font, "String Fields", 15, {882.0f, y}, Muted);
+        drawText(window, font, stringPairsToText(card.stringValues), 16, {882.0f, y + 22.0f}, Ink, 336.0f);
+        y += 54.0f;
+        drawText(window, font, "String Lists", 15, {882.0f, y}, Muted);
+        drawText(window, font, stringListsToText(card.stringLists), 16, {882.0f, y + 22.0f}, Ink, 336.0f);
     }
 
     void setStatus(const std::string& message, sf::Color color)
