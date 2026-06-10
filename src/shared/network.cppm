@@ -19,6 +19,10 @@ enum class MessageType : uint8_t
     GameSessionCreated,
     JoinGame,
     GameReady,
+    CardListRequest,
+    CardListResponse,
+    CardUpsertRequest,
+    CardUpsertResponse,
     Disconnect
 };
 

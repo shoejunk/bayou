@@ -94,3 +94,29 @@ target_sources(gameserver
 )
 
 target_link_libraries(gameserver PRIVATE fmt::fmt SFML::System SFML::Network)
+
+# Card server executable
+add_executable(cardserver)
+
+target_sources(cardserver
+    PUBLIC
+        src/cardserver/main.cpp
+    PUBLIC
+        FILE_SET CXX_MODULES FILES
+            src/shared/network.cppm
+)
+
+target_link_libraries(cardserver PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network)
+
+# Card editor executable
+add_executable(cardeditor)
+
+target_sources(cardeditor
+    PUBLIC
+        src/cardeditor/main.cpp
+    PUBLIC
+        FILE_SET CXX_MODULES FILES
+            src/shared/network.cppm
+)
+
+target_link_libraries(cardeditor PRIVATE fmt::fmt SFML::System SFML::Network)
