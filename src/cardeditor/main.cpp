@@ -1,13 +1,12 @@
+#include <SFML/Graphics.hpp>
 #include <SFML/Network.hpp>
 #include <fmt/core.h>
 
 #include "../shared/card_data.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
-#include <cstdlib>
-#include <iostream>
-#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -20,6 +19,18 @@ using namespace network;
 namespace
 {
 constexpr unsigned short CardServerPort = 55004;
+constexpr float WindowWidth = 1280.0f;
+constexpr float WindowHeight = 760.0f;
+
+const sf::Color Ink(236, 239, 244);
+const sf::Color Muted(152, 164, 181);
+const sf::Color Panel(31, 36, 46);
+const sf::Color PanelAlt(39, 46, 59);
+const sf::Color Field(22, 27, 36);
+const sf::Color Accent(89, 183, 169);
+const sf::Color AccentDark(31, 106, 104);
+const sf::Color Warn(221, 112, 92);
+const sf::Color Line(75, 85, 102);
 
 struct CardListResult
 {
@@ -57,6 +68,23 @@ std::vector<std::string> splitCommaSeparated(const std::string& line)
     std::stringstream stream(line);
     std::string item;
     while (std::getline(stream, item, ','))
+    {
+        item = trim(item);
+        if (!item.empty())
+        {
+            values.push_back(item);
+        }
+    }
+
+    return values;
+}
+
+std::vector<std::string> splitSemicolonSeparated(const std::string& line)
+{
+    std::vector<std::string> values;
+    std::stringstream stream(line);
+    std::string item;
+    while (std::getline(stream, item, ';'))
     {
         item = trim(item);
         if (!item.empty())
@@ -153,224 +181,118 @@ CommandResult saveCard(const card_data::Card& card)
     return {success, message};
 }
 
-void printCard(const card_data::Card& card)
+std::string joinStrings(const std::vector<std::string>& values, const std::string& separator)
 {
-    fmt::println("Title: {}", card.title);
-    fmt::println("  Type: {}", card_data::toString(card.type));
-    fmt::println("  Image: {}", card.imagePath);
-
-    fmt::print("  Keywords:");
-    for (const std::string& keyword : card.keywords)
+    std::string result;
+    for (std::size_t i = 0; i < values.size(); ++i)
     {
-        fmt::print(" {}", keyword);
-    }
-    fmt::println("");
-
-    for (const card_data::KeyIntPair& item : card.integerValues)
-    {
-        fmt::println("  Int {} = {}", item.key, item.value);
-    }
-
-    for (const card_data::KeyStringPair& item : card.stringValues)
-    {
-        fmt::println("  Text {} = {}", item.key, item.value);
-    }
-
-    for (const card_data::KeyStringList& item : card.stringLists)
-    {
-        fmt::print("  List {} =", item.key);
-        for (const std::string& value : item.values)
+        if (i > 0)
         {
-            fmt::print(" {}", value);
+            result += separator;
         }
-        fmt::println("");
+        result += values[i];
     }
+    return result;
 }
 
-void printCards(const std::vector<card_data::Card>& cards)
+std::string integerPairsToText(const std::vector<card_data::KeyIntPair>& values)
 {
-    if (cards.empty())
+    std::vector<std::string> parts;
+    for (const card_data::KeyIntPair& item : values)
     {
-        fmt::println("No cards found.");
-        return;
+        parts.push_back(fmt::format("{}={}", item.key, item.value));
     }
-
-    for (std::size_t i = 0; i < cards.size(); ++i)
-    {
-        fmt::println("{}. {}", i + 1, cards[i].title);
-        printCard(cards[i]);
-    }
+    return joinStrings(parts, "; ");
 }
 
-std::string readLine(const std::string& prompt, const std::string& currentValue = "")
+std::string stringPairsToText(const std::vector<card_data::KeyStringPair>& values)
 {
-    if (currentValue.empty())
+    std::vector<std::string> parts;
+    for (const card_data::KeyStringPair& item : values)
     {
-        fmt::print("{}", prompt);
+        parts.push_back(fmt::format("{}={}", item.key, item.value));
     }
-    else
-    {
-        fmt::print("{} [{}]: ", prompt, currentValue);
-    }
-
-    std::string line;
-    std::getline(std::cin, line);
-    if (line.empty())
-    {
-        return currentValue;
-    }
-
-    return line;
+    return joinStrings(parts, "; ");
 }
 
-int readInt(const std::string& prompt, int currentValue = 0)
+std::string stringListsToText(const std::vector<card_data::KeyStringList>& values)
 {
-    while (true)
+    std::vector<std::string> parts;
+    for (const card_data::KeyStringList& item : values)
     {
-        const std::string line = readLine(prompt, std::to_string(currentValue));
+        parts.push_back(fmt::format("{}={}", item.key, joinStrings(item.values, ",")));
+    }
+    return joinStrings(parts, "; ");
+}
+
+std::vector<card_data::KeyIntPair> parseIntegerPairs(const std::string& text)
+{
+    std::vector<card_data::KeyIntPair> values;
+    for (const std::string& entry : splitSemicolonSeparated(text))
+    {
+        const std::size_t delimiter = entry.find('=');
+        if (delimiter == std::string::npos)
+        {
+            continue;
+        }
+
+        const std::string key = trim(entry.substr(0, delimiter));
+        const std::string value = trim(entry.substr(delimiter + 1));
+        if (key.empty())
+        {
+            continue;
+        }
+
         try
         {
-            return std::stoi(line);
+            values.push_back({key, std::stoi(value)});
         }
         catch (const std::exception&)
         {
-            fmt::println("Enter a whole number.");
         }
     }
+    return values;
 }
 
-card_data::CardType readCardType(card_data::CardType currentType)
-{
-    while (true)
-    {
-        fmt::println("Card type:");
-        fmt::println("  1. Unit");
-        fmt::println("  2. Spell");
-        fmt::println("  3. Artifact");
-        fmt::println("  4. Reaction");
-        const std::string line = readLine("Choose type", std::to_string(static_cast<int>(currentType) + 1));
-        const std::optional<card_data::CardType> type = card_data::cardTypeFromIndex(std::atoi(line.c_str()));
-        if (type)
-        {
-            return *type;
-        }
-        fmt::println("Choose a type from 1 to 4.");
-    }
-}
-
-std::vector<std::string> readKeywords(const std::vector<std::string>& current)
-{
-    fmt::print("Keywords comma separated");
-    if (!current.empty())
-    {
-        fmt::print(" [");
-        for (std::size_t i = 0; i < current.size(); ++i)
-        {
-            fmt::print("{}{}", i == 0 ? "" : ",", current[i]);
-        }
-        fmt::print("]");
-    }
-    fmt::print(": ");
-
-    std::string line;
-    std::getline(std::cin, line);
-    if (line.empty())
-    {
-        return current;
-    }
-    return splitCommaSeparated(line);
-}
-
-std::vector<card_data::KeyIntPair> readIntegerPairs(const std::vector<card_data::KeyIntPair>& current)
-{
-    std::vector<card_data::KeyIntPair> values;
-    fmt::println("Integer fields. Leave key empty when done.");
-    for (const card_data::KeyIntPair& item : current)
-    {
-        fmt::println("  Existing: {} = {}", item.key, item.value);
-    }
-
-    while (true)
-    {
-        const std::string key = trim(readLine("  Key: "));
-        if (key.empty())
-        {
-            break;
-        }
-        values.push_back({key, readInt("  Value", 0)});
-    }
-
-    return values.empty() ? current : values;
-}
-
-std::vector<card_data::KeyStringPair> readStringPairs(const std::vector<card_data::KeyStringPair>& current)
+std::vector<card_data::KeyStringPair> parseStringPairs(const std::string& text)
 {
     std::vector<card_data::KeyStringPair> values;
-    fmt::println("String fields. Leave key empty when done.");
-    for (const card_data::KeyStringPair& item : current)
+    for (const std::string& entry : splitSemicolonSeparated(text))
     {
-        fmt::println("  Existing: {} = {}", item.key, item.value);
-    }
-
-    while (true)
-    {
-        const std::string key = trim(readLine("  Key: "));
-        if (key.empty())
+        const std::size_t delimiter = entry.find('=');
+        if (delimiter == std::string::npos)
         {
-            break;
+            continue;
         }
-        values.push_back({key, readLine("  Value: ")});
-    }
 
-    return values.empty() ? current : values;
+        const std::string key = trim(entry.substr(0, delimiter));
+        const std::string value = trim(entry.substr(delimiter + 1));
+        if (!key.empty())
+        {
+            values.push_back({key, value});
+        }
+    }
+    return values;
 }
 
-std::vector<card_data::KeyStringList> readStringLists(const std::vector<card_data::KeyStringList>& current)
+std::vector<card_data::KeyStringList> parseStringLists(const std::string& text)
 {
     std::vector<card_data::KeyStringList> values;
-    fmt::println("String lists. Leave key empty when done. Enter list values comma separated.");
-    for (const card_data::KeyStringList& item : current)
+    for (const std::string& entry : splitSemicolonSeparated(text))
     {
-        fmt::print("  Existing: {} =", item.key);
-        for (const std::string& value : item.values)
+        const std::size_t delimiter = entry.find('=');
+        if (delimiter == std::string::npos)
         {
-            fmt::print(" {}", value);
+            continue;
         }
-        fmt::println("");
-    }
 
-    while (true)
-    {
-        const std::string key = trim(readLine("  Key: "));
-        if (key.empty())
+        const std::string key = trim(entry.substr(0, delimiter));
+        if (!key.empty())
         {
-            break;
-        }
-        values.push_back({key, splitCommaSeparated(readLine("  Values: "))});
-    }
-
-    return values.empty() ? current : values;
-}
-
-card_data::Card readCardFromConsole(const card_data::Card& current = {})
-{
-    card_data::Card card = current;
-    while (card.title.empty())
-    {
-        card.title = trim(readLine("Title: ", current.title));
-        if (card.title.empty())
-        {
-            fmt::println("Title is required.");
+            values.push_back({key, splitCommaSeparated(entry.substr(delimiter + 1))});
         }
     }
-
-    card.type = readCardType(current.type);
-    card.imagePath = readLine("Image path: ", current.imagePath);
-    card.keywords = readKeywords(current.keywords);
-    card.integerValues = readIntegerPairs(current.integerValues);
-    card.stringValues = readStringPairs(current.stringValues);
-    card.stringLists = readStringLists(current.stringLists);
-    return card;
+    return values;
 }
 
 card_data::Card makeSampleCard(const std::string& title, int revision)
@@ -395,7 +317,21 @@ int handleListCommand()
         return 1;
     }
 
-    printCards(result.cards);
+    if (result.cards.empty())
+    {
+        fmt::println("No cards found.");
+        return 0;
+    }
+
+    for (const card_data::Card& card : result.cards)
+    {
+        fmt::println("{} ({})", card.title, card_data::toString(card.type));
+        fmt::println("  image: {}", card.imagePath);
+        fmt::println("  keywords: {}", joinStrings(card.keywords, ", "));
+        fmt::println("  ints: {}", integerPairsToText(card.integerValues));
+        fmt::println("  strings: {}", stringPairsToText(card.stringValues));
+        fmt::println("  lists: {}", stringListsToText(card.stringLists));
+    }
     return 0;
 }
 
@@ -406,74 +342,632 @@ int handleSaveCommand(const card_data::Card& card)
     return result.success ? 0 : 1;
 }
 
-std::optional<card_data::Card> chooseCardForEdit()
+void centerText(sf::Text& text, const sf::Vector2f& center)
 {
-    const CardListResult result = fetchCards();
-    if (!result.success)
-    {
-        fmt::println("{}", result.message);
-        return std::nullopt;
-    }
-
-    if (result.cards.empty())
-    {
-        fmt::println("No cards exist yet.");
-        return std::nullopt;
-    }
-
-    for (std::size_t i = 0; i < result.cards.size(); ++i)
-    {
-        fmt::println("{}. {}", i + 1, result.cards[i].title);
-    }
-
-    const int choice = readInt("Choose card", 1);
-    if (choice < 1 || static_cast<std::size_t>(choice) > result.cards.size())
-    {
-        fmt::println("Invalid card selection.");
-        return std::nullopt;
-    }
-
-    return result.cards[static_cast<std::size_t>(choice - 1)];
+    const sf::FloatRect bounds = text.getLocalBounds();
+    text.setOrigin({bounds.position.x + bounds.size.x / 2.0f, bounds.position.y + bounds.size.y / 2.0f});
+    text.setPosition(center);
 }
 
-int runInteractive()
+void drawText(sf::RenderWindow& window, sf::Font& font, const std::string& value, unsigned int size, sf::Vector2f position, sf::Color color)
 {
-    while (true)
-    {
-        fmt::println("");
-        fmt::println("Card Editor");
-        fmt::println("1. View all cards");
-        fmt::println("2. Create new card");
-        fmt::println("3. Edit existing card");
-        fmt::println("4. Quit");
+    sf::Text text(font, value, size);
+    text.setFillColor(color);
+    text.setPosition(position);
+    window.draw(text);
+}
 
-        const int choice = readInt("Choose option", 1);
-        if (choice == 1)
+void drawRoundedPanel(sf::RenderWindow& window, const sf::Vector2f& position, const sf::Vector2f& size, sf::Color fill, sf::Color outline = Line)
+{
+    sf::RectangleShape shape(size);
+    shape.setPosition(position);
+    shape.setFillColor(fill);
+    shape.setOutlineThickness(1.0f);
+    shape.setOutlineColor(outline);
+    window.draw(shape);
+}
+
+class TextField
+{
+public:
+    TextField() = default;
+
+    TextField(sf::Font& font, std::string label, sf::Vector2f position, sf::Vector2f size)
+        : box(size)
+    {
+        labelText.emplace(font, label, 15);
+        valueText.emplace(font, "", 18);
+
+        box.setPosition(position);
+        box.setFillColor(Field);
+        box.setOutlineThickness(1.0f);
+        box.setOutlineColor(Line);
+
+        labelText->setFillColor(Muted);
+        labelText->setPosition({position.x, position.y - 22.0f});
+
+        valueText->setFillColor(Ink);
+        valueText->setPosition({position.x + 12.0f, position.y + 10.0f});
+    }
+
+    void setValue(const std::string& newValue)
+    {
+        value = newValue;
+        refreshText();
+    }
+
+    const std::string& getValue() const
+    {
+        return value;
+    }
+
+    bool contains(sf::Vector2f point) const
+    {
+        return box.getGlobalBounds().contains(point);
+    }
+
+    void setActive(bool next)
+    {
+        active = next;
+        box.setOutlineColor(active ? Accent : Line);
+    }
+
+    bool isActive() const
+    {
+        return active;
+    }
+
+    void handleText(sf::Event::TextEntered textEvent)
+    {
+        if (!active)
         {
-            (void)handleListCommand();
+            return;
         }
-        else if (choice == 2)
+
+        const char c = static_cast<char>(textEvent.unicode);
+        if (c == 8 && !value.empty())
         {
-            (void)handleSaveCommand(readCardFromConsole());
+            value.pop_back();
         }
-        else if (choice == 3)
+        else if (c >= 32 && c < 127)
         {
-            std::optional<card_data::Card> card = chooseCardForEdit();
-            if (card)
-            {
-                (void)handleSaveCommand(readCardFromConsole(*card));
-            }
+            value.push_back(c);
         }
-        else if (choice == 4)
+        refreshText();
+    }
+
+    void draw(sf::RenderWindow& window) const
+    {
+        window.draw(*labelText);
+        window.draw(box);
+        window.draw(*valueText);
+        if (active)
         {
-            return 0;
+            sf::RectangleShape cursor({1.5f, 22.0f});
+            const sf::FloatRect textBounds = valueText->getGlobalBounds();
+            cursor.setPosition({std::min(textBounds.position.x + textBounds.size.x + 2.0f, box.getPosition().x + box.getSize().x - 12.0f), box.getPosition().y + 9.0f});
+            cursor.setFillColor(Accent);
+            window.draw(cursor);
+        }
+    }
+
+private:
+    std::optional<sf::Text> labelText;
+    std::optional<sf::Text> valueText;
+    sf::RectangleShape box;
+    std::string value;
+    bool active = false;
+
+    void refreshText()
+    {
+        std::string display = value;
+        constexpr std::size_t MaxDisplayChars = 74;
+        if (display.size() > MaxDisplayChars)
+        {
+            display = display.substr(display.size() - MaxDisplayChars);
+        }
+        valueText->setString(display);
+    }
+};
+
+class Button
+{
+public:
+    Button() = default;
+
+    Button(sf::Font& font, std::string label, sf::Vector2f position, sf::Vector2f size, sf::Color color)
+        : shape(size), base(color)
+    {
+        text.emplace(font, label, 18);
+        shape.setPosition(position);
+        shape.setFillColor(base);
+        shape.setOutlineThickness(1.0f);
+        shape.setOutlineColor(sf::Color(base.r + 20, base.g + 20, base.b + 20));
+        text->setFillColor(Ink);
+        centerText(*text, {position.x + size.x / 2.0f, position.y + size.y / 2.0f - 1.0f});
+    }
+
+    bool contains(sf::Vector2f point) const
+    {
+        return shape.getGlobalBounds().contains(point);
+    }
+
+    void update(sf::Vector2f mouse)
+    {
+        const bool hovered = contains(mouse);
+        shape.setFillColor(hovered ? sf::Color(std::min(base.r + 22, 255), std::min(base.g + 22, 255), std::min(base.b + 22, 255)) : base);
+    }
+
+    void draw(sf::RenderWindow& window) const
+    {
+        window.draw(shape);
+        window.draw(*text);
+    }
+
+private:
+    std::optional<sf::Text> text;
+    sf::RectangleShape shape;
+    sf::Color base = AccentDark;
+};
+
+class CardEditorApp
+{
+public:
+    CardEditorApp()
+        : window(sf::VideoMode({static_cast<unsigned int>(WindowWidth), static_cast<unsigned int>(WindowHeight)}), "Bayou Card Editor")
+    {
+        window.setFramerateLimit(60);
+    }
+
+    int run()
+    {
+        if (!font.openFromFile("assets/Roboto.ttf"))
+        {
+            return 1;
+        }
+
+        buildControls();
+        loadCards();
+
+        while (window.isOpen())
+        {
+            processEvents();
+            update();
+            render();
+        }
+
+        return 0;
+    }
+
+private:
+    sf::RenderWindow window;
+    sf::Font font;
+    std::vector<card_data::Card> cards;
+    std::optional<std::size_t> selectedCard;
+    card_data::CardType selectedType = card_data::CardType::Unit;
+    std::string status = "Ready";
+    sf::Color statusColor = Muted;
+    std::vector<TextField*> focusOrder;
+    std::size_t focusIndex = 0;
+    sf::Texture previewTexture;
+    bool hasPreviewImage = false;
+
+    TextField titleField;
+    TextField imageField;
+    TextField keywordsField;
+    TextField intPairsField;
+    TextField stringPairsField;
+    TextField listsField;
+    Button newButton;
+    Button refreshButton;
+    Button saveButton;
+
+    void buildControls()
+    {
+        newButton = Button(font, "New", {34.0f, 688.0f}, {92.0f, 42.0f}, sf::Color(45, 70, 83));
+        refreshButton = Button(font, "Refresh", {138.0f, 688.0f}, {116.0f, 42.0f}, sf::Color(45, 70, 83));
+        saveButton = Button(font, "Save Card", {830.0f, 688.0f}, {166.0f, 44.0f}, AccentDark);
+
+        titleField = TextField(font, "Title", {332.0f, 116.0f}, {470.0f, 46.0f});
+        imageField = TextField(font, "Image Path", {332.0f, 198.0f}, {470.0f, 46.0f});
+        keywordsField = TextField(font, "Keywords (comma separated)", {332.0f, 280.0f}, {470.0f, 46.0f});
+        intPairsField = TextField(font, "Integer Fields (cost=2; power=3)", {332.0f, 392.0f}, {470.0f, 46.0f});
+        stringPairsField = TextField(font, "String Fields (faction=bayou; rules=text)", {332.0f, 474.0f}, {470.0f, 46.0f});
+        listsField = TextField(font, "String Lists (tags=a,b; slots=hand,board)", {332.0f, 556.0f}, {470.0f, 46.0f});
+        focusOrder = {&titleField, &imageField, &keywordsField, &intPairsField, &stringPairsField, &listsField};
+        focusOrder.front()->setActive(true);
+    }
+
+    void loadCards()
+    {
+        const CardListResult result = fetchCards();
+        if (!result.success)
+        {
+            cards.clear();
+            selectedCard.reset();
+            setStatus(result.message, Warn);
+            return;
+        }
+
+        cards = result.cards;
+        if (!cards.empty())
+        {
+            selectCard(0);
         }
         else
         {
-            fmt::println("Choose an option from 1 to 4.");
+            createNewCard();
+        }
+        setStatus(fmt::format("Loaded {} card{}", cards.size(), cards.size() == 1 ? "" : "s"), Muted);
+    }
+
+    void createNewCard()
+    {
+        selectedCard.reset();
+        selectedType = card_data::CardType::Unit;
+        titleField.setValue("");
+        imageField.setValue("");
+        keywordsField.setValue("");
+        intPairsField.setValue("");
+        stringPairsField.setValue("");
+        listsField.setValue("");
+        hasPreviewImage = false;
+        setStatus("Draft card", Muted);
+    }
+
+    void selectCard(std::size_t index)
+    {
+        if (index >= cards.size())
+        {
+            return;
+        }
+
+        selectedCard = index;
+        const card_data::Card& card = cards[index];
+        selectedType = card.type;
+        titleField.setValue(card.title);
+        imageField.setValue(card.imagePath);
+        keywordsField.setValue(joinStrings(card.keywords, ", "));
+        intPairsField.setValue(integerPairsToText(card.integerValues));
+        stringPairsField.setValue(stringPairsToText(card.stringValues));
+        listsField.setValue(stringListsToText(card.stringLists));
+        loadPreviewImage();
+    }
+
+    card_data::Card cardFromForm() const
+    {
+        card_data::Card card;
+        card.title = trim(titleField.getValue());
+        card.type = selectedType;
+        card.imagePath = trim(imageField.getValue());
+        card.keywords = splitCommaSeparated(keywordsField.getValue());
+        card.integerValues = parseIntegerPairs(intPairsField.getValue());
+        card.stringValues = parseStringPairs(stringPairsField.getValue());
+        card.stringLists = parseStringLists(listsField.getValue());
+        return card;
+    }
+
+    void saveCurrentCard()
+    {
+        card_data::Card card = cardFromForm();
+        if (card.title.empty())
+        {
+            setStatus("Title is required before saving", Warn);
+            return;
+        }
+
+        const CommandResult result = saveCard(card);
+        if (!result.success)
+        {
+            setStatus(result.message, Warn);
+            return;
+        }
+
+        setStatus("Saved card", Accent);
+        loadPreviewImage();
+        const CardListResult listResult = fetchCards();
+        if (listResult.success)
+        {
+            cards = listResult.cards;
+            const auto found = std::find_if(cards.begin(), cards.end(), [&](const card_data::Card& item) {
+                return item.title == card.title;
+            });
+            if (found != cards.end())
+            {
+                selectedCard = static_cast<std::size_t>(found - cards.begin());
+            }
         }
     }
-}
+
+    void loadPreviewImage()
+    {
+        const std::string path = trim(imageField.getValue());
+        hasPreviewImage = !path.empty() && previewTexture.loadFromFile(path);
+    }
+
+    void processEvents()
+    {
+        while (const std::optional event = window.pollEvent())
+        {
+            if (event->is<sf::Event::Closed>())
+            {
+                window.close();
+            }
+
+            if (const auto* textEvent = event->getIf<sf::Event::TextEntered>())
+            {
+                for (TextField* field : focusOrder)
+                {
+                    field->handleText(*textEvent);
+                }
+                if (&imageField == focusOrder[focusIndex])
+                {
+                    loadPreviewImage();
+                }
+            }
+
+            if (const auto* keyEvent = event->getIf<sf::Event::KeyPressed>())
+            {
+                if (keyEvent->code == sf::Keyboard::Key::Tab)
+                {
+                    moveFocus(keyEvent->shift ? -1 : 1);
+                }
+                else if (keyEvent->code == sf::Keyboard::Key::Enter)
+                {
+                    saveCurrentCard();
+                }
+            }
+
+            if (const auto* mousePressed = event->getIf<sf::Event::MouseButtonPressed>())
+            {
+                const sf::Vector2f mouse = window.mapPixelToCoords(mousePressed->position);
+                if (mousePressed->button == sf::Mouse::Button::Left)
+                {
+                    handleClick(mouse);
+                }
+            }
+        }
+    }
+
+    void moveFocus(int delta)
+    {
+        focusOrder[focusIndex]->setActive(false);
+        focusIndex = static_cast<std::size_t>((static_cast<int>(focusIndex) + delta + static_cast<int>(focusOrder.size())) % static_cast<int>(focusOrder.size()));
+        focusOrder[focusIndex]->setActive(true);
+    }
+
+    void handleClick(sf::Vector2f mouse)
+    {
+        if (newButton.contains(mouse))
+        {
+            createNewCard();
+            return;
+        }
+
+        if (refreshButton.contains(mouse))
+        {
+            loadCards();
+            return;
+        }
+
+        if (saveButton.contains(mouse))
+        {
+            saveCurrentCard();
+            return;
+        }
+
+        const std::optional<std::size_t> listIndex = cardIndexAt(mouse);
+        if (listIndex)
+        {
+            selectCard(*listIndex);
+            return;
+        }
+
+        const std::optional<card_data::CardType> type = typeAt(mouse);
+        if (type)
+        {
+            selectedType = *type;
+            return;
+        }
+
+        for (std::size_t i = 0; i < focusOrder.size(); ++i)
+        {
+            const bool active = focusOrder[i]->contains(mouse);
+            focusOrder[i]->setActive(active);
+            if (active)
+            {
+                focusIndex = i;
+            }
+        }
+    }
+
+    std::optional<std::size_t> cardIndexAt(sf::Vector2f mouse) const
+    {
+        const float startY = 116.0f;
+        const float rowHeight = 58.0f;
+        if (mouse.x < 28.0f || mouse.x > 286.0f || mouse.y < startY)
+        {
+            return std::nullopt;
+        }
+
+        const std::size_t index = static_cast<std::size_t>((mouse.y - startY) / rowHeight);
+        if (index < cards.size() && index < 9)
+        {
+            return index;
+        }
+        return std::nullopt;
+    }
+
+    std::optional<card_data::CardType> typeAt(sf::Vector2f mouse) const
+    {
+        const std::vector<card_data::CardType> types = {
+            card_data::CardType::Unit,
+            card_data::CardType::Spell,
+            card_data::CardType::Artifact,
+            card_data::CardType::Reaction,
+        };
+
+        for (std::size_t i = 0; i < types.size(); ++i)
+        {
+            sf::FloatRect bounds({332.0f + static_cast<float>(i) * 116.0f, 324.0f}, {104.0f, 40.0f});
+            if (bounds.contains(mouse))
+            {
+                return types[i];
+            }
+        }
+        return std::nullopt;
+    }
+
+    void update()
+    {
+        const sf::Vector2f mouse = window.mapPixelToCoords(sf::Mouse::getPosition(window));
+        newButton.update(mouse);
+        refreshButton.update(mouse);
+        saveButton.update(mouse);
+    }
+
+    void render()
+    {
+        window.clear(sf::Color(18, 22, 30));
+        drawHeader();
+        drawListPanel();
+        drawEditorPanel();
+        drawPreviewPanel();
+        window.display();
+    }
+
+    void drawHeader()
+    {
+        sf::RectangleShape bar({WindowWidth, 80.0f});
+        bar.setFillColor(sf::Color(24, 29, 38));
+        window.draw(bar);
+
+        drawText(window, font, "Bayou Card Editor", 30, {30.0f, 22.0f}, Ink);
+        drawText(window, font, "Card server localhost:55004", 15, {1036.0f, 31.0f}, Muted);
+    }
+
+    void drawListPanel()
+    {
+        drawRoundedPanel(window, {24.0f, 100.0f}, {266.0f, 640.0f}, Panel);
+        drawText(window, font, "Library", 22, {42.0f, 124.0f}, Ink);
+        drawText(window, font, fmt::format("{} cards", cards.size()), 14, {220.0f, 131.0f}, Muted);
+
+        for (std::size_t i = 0; i < cards.size() && i < 9; ++i)
+        {
+            const float y = 166.0f + static_cast<float>(i) * 58.0f;
+            sf::RectangleShape row({230.0f, 48.0f});
+            row.setPosition({42.0f, y});
+            row.setFillColor(selectedCard && *selectedCard == i ? sf::Color(49, 68, 78) : PanelAlt);
+            row.setOutlineThickness(1.0f);
+            row.setOutlineColor(selectedCard && *selectedCard == i ? Accent : sf::Color(48, 56, 70));
+            window.draw(row);
+
+            drawText(window, font, cards[i].title, 17, {54.0f, y + 8.0f}, Ink);
+            drawText(window, font, card_data::toString(cards[i].type), 13, {54.0f, y + 29.0f}, Muted);
+        }
+
+        newButton.draw(window);
+        refreshButton.draw(window);
+    }
+
+    void drawEditorPanel()
+    {
+        drawRoundedPanel(window, {310.0f, 100.0f}, {520.0f, 640.0f}, Panel);
+        drawText(window, font, "Edit Card", 22, {332.0f, 124.0f}, Ink);
+        drawText(window, font, "Enter creates or updates the current title.", 14, {578.0f, 131.0f}, Muted);
+
+        titleField.draw(window);
+        imageField.draw(window);
+        keywordsField.draw(window);
+        drawTypePicker();
+        intPairsField.draw(window);
+        stringPairsField.draw(window);
+        listsField.draw(window);
+        saveButton.draw(window);
+        drawText(window, font, status, 16, {332.0f, 696.0f}, statusColor);
+    }
+
+    void drawTypePicker()
+    {
+        drawText(window, font, "Type", 15, {332.0f, 306.0f}, Muted);
+        const std::vector<card_data::CardType> types = {
+            card_data::CardType::Unit,
+            card_data::CardType::Spell,
+            card_data::CardType::Artifact,
+            card_data::CardType::Reaction,
+        };
+
+        for (std::size_t i = 0; i < types.size(); ++i)
+        {
+            const sf::Vector2f position{332.0f + static_cast<float>(i) * 116.0f, 324.0f};
+            sf::RectangleShape pill({104.0f, 40.0f});
+            pill.setPosition(position);
+            pill.setFillColor(types[i] == selectedType ? AccentDark : Field);
+            pill.setOutlineThickness(1.0f);
+            pill.setOutlineColor(types[i] == selectedType ? Accent : Line);
+            window.draw(pill);
+
+            sf::Text label(font, card_data::toString(types[i]), 16);
+            label.setFillColor(Ink);
+            centerText(label, {position.x + 52.0f, position.y + 20.0f});
+            window.draw(label);
+        }
+    }
+
+    void drawPreviewPanel()
+    {
+        drawRoundedPanel(window, {850.0f, 100.0f}, {406.0f, 640.0f}, Panel);
+        drawText(window, font, "Preview", 22, {876.0f, 124.0f}, Ink);
+
+        drawRoundedPanel(window, {938.0f, 160.0f}, {230.0f, 322.0f}, sf::Color(46, 52, 64), AccentDark);
+        if (hasPreviewImage)
+        {
+            sf::Sprite sprite(previewTexture);
+            const sf::Vector2u imageSize = previewTexture.getSize();
+            const float scale = std::min(210.0f / static_cast<float>(imageSize.x), 250.0f / static_cast<float>(imageSize.y));
+            sprite.setScale({scale, scale});
+            sprite.setPosition({948.0f, 176.0f});
+            window.draw(sprite);
+        }
+        else
+        {
+            sf::RectangleShape imageSlot({190.0f, 188.0f});
+            imageSlot.setPosition({958.0f, 184.0f});
+            imageSlot.setFillColor(sf::Color(28, 34, 44));
+            imageSlot.setOutlineThickness(1.0f);
+            imageSlot.setOutlineColor(Line);
+            window.draw(imageSlot);
+            drawText(window, font, "No Image", 20, {1016.0f, 264.0f}, Muted);
+        }
+
+        const card_data::Card card = cardFromForm();
+        sf::Text title(font, card.title.empty() ? "Untitled Card" : card.title, 22);
+        title.setFillColor(Ink);
+        centerText(title, {1053.0f, 414.0f});
+        window.draw(title);
+
+        sf::Text type(font, card_data::toString(card.type), 16);
+        type.setFillColor(Accent);
+        centerText(type, {1053.0f, 445.0f});
+        window.draw(type);
+
+        float y = 512.0f;
+        drawText(window, font, "Keywords", 15, {876.0f, y}, Muted);
+        drawText(window, font, joinStrings(card.keywords, ", "), 16, {876.0f, y + 22.0f}, Ink);
+        y += 72.0f;
+        drawText(window, font, "Integer Fields", 15, {876.0f, y}, Muted);
+        drawText(window, font, integerPairsToText(card.integerValues), 16, {876.0f, y + 22.0f}, Ink);
+        y += 72.0f;
+        drawText(window, font, "String Fields", 15, {876.0f, y}, Muted);
+        drawText(window, font, stringPairsToText(card.stringValues), 16, {876.0f, y + 22.0f}, Ink);
+    }
+
+    void setStatus(const std::string& message, sf::Color color)
+    {
+        status = message;
+        statusColor = color;
+    }
+};
 }
 
 int main(int argc, char** argv)
@@ -493,6 +987,6 @@ int main(int argc, char** argv)
         return handleSaveCommand(makeSampleCard(argv[2], 2));
     }
 
-    fmt::println("Connects to cardserver.exe on localhost:{}.", CardServerPort);
-    return runInteractive();
+    CardEditorApp app;
+    return app.run();
 }

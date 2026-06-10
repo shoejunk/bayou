@@ -119,4 +119,4 @@ target_sources(cardeditor
             src/shared/network.cppm
 )
 
-target_link_libraries(cardeditor PRIVATE fmt::fmt SFML::System SFML::Network)
+target_link_libraries(cardeditor PRIVATE fmt::fmt SFML::Graphics SFML::Window SFML::System SFML::Network)
