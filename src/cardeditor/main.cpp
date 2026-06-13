@@ -6,9 +6,13 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <cstdint>
+#include <exception>
+#include <filesystem>
+#include <fstream>
+#include <limits>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -19,6 +23,8 @@ using namespace network;
 namespace
 {
 constexpr unsigned short CardServerPort = 55004;
+constexpr const char* DefaultCardServerHost = "127.0.0.1";
+constexpr const char* CardEditorConfigFileName = "cardeditor.cfg";
 constexpr float WindowWidth = 1280.0f;
 constexpr float WindowHeight = 760.0f;
 constexpr float ListPanelX = 24.0f;
@@ -58,6 +64,14 @@ struct CommandResult
     std::string message;
 };
 
+struct CardServerConfig
+{
+    std::string host = DefaultCardServerHost;
+    unsigned short port = CardServerPort;
+};
+
+std::filesystem::path executableDirectory;
+
 std::string trim(const std::string& value)
 {
     const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) {
@@ -75,43 +89,197 @@ std::string trim(const std::string& value)
     return std::string(first, last);
 }
 
-std::vector<std::string> splitCommaSeparated(const std::string& line)
+std::string lowerKey(std::string value)
 {
-    std::vector<std::string> values;
-    std::stringstream stream(line);
-    std::string item;
-    while (std::getline(stream, item, ','))
-    {
-        item = trim(item);
-        if (!item.empty())
-        {
-            values.push_back(item);
-        }
-    }
-
-    return values;
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
 }
 
-std::vector<std::string> splitSemicolonSeparated(const std::string& line)
+std::optional<unsigned short> parsePort(const std::string& value)
 {
-    std::vector<std::string> values;
-    std::stringstream stream(line);
-    std::string item;
-    while (std::getline(stream, item, ';'))
+    const std::string trimmed = trim(value);
+    if (trimmed.empty())
     {
-        item = trim(item);
-        if (!item.empty())
+        return std::nullopt;
+    }
+
+    try
+    {
+        std::size_t parsed = 0;
+        const unsigned long port = std::stoul(trimmed, &parsed);
+        if (parsed != trimmed.size() || port == 0 || port > std::numeric_limits<unsigned short>::max())
         {
-            values.push_back(item);
+            return std::nullopt;
+        }
+
+        return static_cast<unsigned short>(port);
+    }
+    catch (const std::exception&)
+    {
+        return std::nullopt;
+    }
+}
+
+void applyServerValue(CardServerConfig& config, const std::string& value)
+{
+    const std::string server = trim(value);
+    if (server.empty())
+    {
+        return;
+    }
+
+    if (server.front() == '[')
+    {
+        const std::size_t closeBracket = server.find(']');
+        if (closeBracket != std::string::npos)
+        {
+            const std::string host = trim(server.substr(1, closeBracket - 1));
+            if (!host.empty())
+            {
+                config.host = host;
+            }
+
+            if (closeBracket + 1 < server.size() && server[closeBracket + 1] == ':')
+            {
+                if (const std::optional<unsigned short> port = parsePort(server.substr(closeBracket + 2)))
+                {
+                    config.port = *port;
+                }
+            }
+            return;
         }
     }
 
-    return values;
+    const std::size_t delimiter = server.rfind(':');
+    if (delimiter != std::string::npos && server.find(':') == delimiter)
+    {
+        const std::string host = trim(server.substr(0, delimiter));
+        if (!host.empty())
+        {
+            config.host = host;
+        }
+
+        if (const std::optional<unsigned short> port = parsePort(server.substr(delimiter + 1)))
+        {
+            config.port = *port;
+        }
+        return;
+    }
+
+    config.host = server;
+}
+
+void applyConfigEntry(CardServerConfig& config, const std::string& key, const std::string& value)
+{
+    const std::string normalizedKey = lowerKey(trim(key));
+    if (normalizedKey == "server" || normalizedKey == "card_server" || normalizedKey == "cardserver")
+    {
+        applyServerValue(config, value);
+    }
+    else if (normalizedKey == "host" || normalizedKey == "card_server_host" || normalizedKey == "cardserver_host")
+    {
+        const std::string host = trim(value);
+        if (!host.empty())
+        {
+            config.host = host;
+        }
+    }
+    else if (normalizedKey == "port" || normalizedKey == "card_server_port" || normalizedKey == "cardserver_port")
+    {
+        if (const std::optional<unsigned short> port = parsePort(value))
+        {
+            config.port = *port;
+        }
+    }
+}
+
+std::optional<CardServerConfig> loadCardServerConfigFrom(const std::filesystem::path& path)
+{
+    std::ifstream stream(path);
+    if (!stream)
+    {
+        return std::nullopt;
+    }
+
+    CardServerConfig config;
+    std::string line;
+    while (std::getline(stream, line))
+    {
+        line = trim(line);
+        if (line.empty() || line.front() == '#' || line.front() == ';')
+        {
+            continue;
+        }
+
+        const std::size_t delimiter = line.find('=');
+        if (delimiter == std::string::npos)
+        {
+            continue;
+        }
+
+        applyConfigEntry(config, line.substr(0, delimiter), line.substr(delimiter + 1));
+    }
+
+    return config;
+}
+
+CardServerConfig loadCardServerConfig()
+{
+    if (const std::optional<CardServerConfig> config = loadCardServerConfigFrom(CardEditorConfigFileName))
+    {
+        return *config;
+    }
+
+    if (!executableDirectory.empty())
+    {
+        if (const std::optional<CardServerConfig> config =
+                loadCardServerConfigFrom(executableDirectory / CardEditorConfigFileName))
+        {
+            return *config;
+        }
+    }
+
+    return {};
+}
+
+const CardServerConfig& cardServerConfig()
+{
+    static const CardServerConfig config = loadCardServerConfig();
+    return config;
+}
+
+void setExecutableDirectory(const char* executablePath)
+{
+    if (executablePath == nullptr)
+    {
+        return;
+    }
+
+    const std::filesystem::path path(executablePath);
+    if (path.has_parent_path())
+    {
+        executableDirectory = path.parent_path();
+    }
 }
 
 bool connectToServer(sf::TcpSocket& socket)
 {
-    return socket.connect(sf::IpAddress::LocalHost, CardServerPort) == sf::Socket::Status::Done;
+    const CardServerConfig& config = cardServerConfig();
+    const std::optional<sf::IpAddress> address = sf::IpAddress::resolve(config.host);
+    if (!address)
+    {
+        return false;
+    }
+
+    return socket.connect(*address, config.port) == sf::Socket::Status::Done;
+}
+
+std::string cardServerEndpoint()
+{
+    const CardServerConfig& config = cardServerConfig();
+    return fmt::format("{}:{}", config.host, config.port);
 }
 
 CardListResult fetchCards()
@@ -160,6 +328,26 @@ CardListResult fetchCards()
     return {success, message, cards};
 }
 
+CommandResult readCommandResponse(sf::TcpSocket& socket, MessageType expectedResponseType, const std::string& action)
+{
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        return {false, fmt::format("No response from card server while {}", action)};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    response >> responseType >> success >> message;
+    if (!response || static_cast<MessageType>(responseType) != expectedResponseType)
+    {
+        return {false, fmt::format("Unexpected card server response while {}", action)};
+    }
+
+    return {success, message};
+}
+
 CommandResult saveCard(const card_data::Card& card)
 {
     sf::TcpSocket socket;
@@ -176,22 +364,46 @@ CommandResult saveCard(const card_data::Card& card)
         return {false, "Failed to send card save request"};
     }
 
-    sf::Packet response;
-    if (socket.receive(response) != sf::Socket::Status::Done)
+    return readCommandResponse(socket, MessageType::CardUpsertResponse, "saving card");
+}
+
+CommandResult updateCard(const std::string& originalTitle, const card_data::Card& card)
+{
+    sf::TcpSocket socket;
+    if (!connectToServer(socket))
     {
-        return {false, "No response from card server"};
+        return {false, "Failed to connect to card server"};
     }
 
-    std::uint8_t responseType = 0;
-    bool success = false;
-    std::string message;
-    response >> responseType >> success >> message;
-    if (!response || static_cast<MessageType>(responseType) != MessageType::CardUpsertResponse)
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(MessageType::CardUpdateRequest);
+    request << originalTitle;
+    card_data::writeCard(request, card);
+    if (socket.send(request) != sf::Socket::Status::Done)
     {
-        return {false, "Unexpected card save response"};
+        return {false, "Failed to send card update request"};
     }
 
-    return {success, message};
+    return readCommandResponse(socket, MessageType::CardUpdateResponse, "updating card");
+}
+
+CommandResult deleteCard(const std::string& title)
+{
+    sf::TcpSocket socket;
+    if (!connectToServer(socket))
+    {
+        return {false, "Failed to connect to card server"};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(MessageType::CardDeleteRequest);
+    request << title;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        return {false, "Failed to send card delete request"};
+    }
+
+    return readCommandResponse(socket, MessageType::CardDeleteResponse, "deleting card");
 }
 
 std::string joinStrings(const std::vector<std::string>& values, const std::string& separator)
@@ -238,81 +450,11 @@ std::string stringListsToText(const std::vector<card_data::KeyStringList>& value
     return joinStrings(parts, "; ");
 }
 
-std::vector<card_data::KeyIntPair> parseIntegerPairs(const std::string& text)
-{
-    std::vector<card_data::KeyIntPair> values;
-    for (const std::string& entry : splitSemicolonSeparated(text))
-    {
-        const std::size_t delimiter = entry.find('=');
-        if (delimiter == std::string::npos)
-        {
-            continue;
-        }
-
-        const std::string key = trim(entry.substr(0, delimiter));
-        const std::string value = trim(entry.substr(delimiter + 1));
-        if (key.empty())
-        {
-            continue;
-        }
-
-        try
-        {
-            values.push_back({key, std::stoi(value)});
-        }
-        catch (const std::exception&)
-        {
-        }
-    }
-    return values;
-}
-
-std::vector<card_data::KeyStringPair> parseStringPairs(const std::string& text)
-{
-    std::vector<card_data::KeyStringPair> values;
-    for (const std::string& entry : splitSemicolonSeparated(text))
-    {
-        const std::size_t delimiter = entry.find('=');
-        if (delimiter == std::string::npos)
-        {
-            continue;
-        }
-
-        const std::string key = trim(entry.substr(0, delimiter));
-        const std::string value = trim(entry.substr(delimiter + 1));
-        if (!key.empty())
-        {
-            values.push_back({key, value});
-        }
-    }
-    return values;
-}
-
-std::vector<card_data::KeyStringList> parseStringLists(const std::string& text)
-{
-    std::vector<card_data::KeyStringList> values;
-    for (const std::string& entry : splitSemicolonSeparated(text))
-    {
-        const std::size_t delimiter = entry.find('=');
-        if (delimiter == std::string::npos)
-        {
-            continue;
-        }
-
-        const std::string key = trim(entry.substr(0, delimiter));
-        if (!key.empty())
-        {
-            values.push_back({key, splitCommaSeparated(entry.substr(delimiter + 1))});
-        }
-    }
-    return values;
-}
-
 card_data::Card makeSampleCard(const std::string& title, int revision)
 {
     card_data::Card card;
     card.title = title;
-    card.type = revision == 1 ? card_data::CardType::Unit : card_data::CardType::Spell;
+    card.type = revision == 1 ? "Unit" : "Spell";
     card.imagePath = fmt::format("assets/cards/{}_rev_{}.png", title, revision);
     card.keywords = {"starter", "sample", fmt::format("revision{}", revision)};
     card.integerValues = {{"cost", revision}, {"power", revision + 1}};
@@ -338,7 +480,7 @@ int handleListCommand()
 
     for (const card_data::Card& card : result.cards)
     {
-        fmt::println("{} ({})", card.title, card_data::toString(card.type));
+        fmt::println("{} ({})", card.title, card.type);
         fmt::println("  image: {}", card.imagePath);
         fmt::println("  keywords: {}", joinStrings(card.keywords, ", "));
         fmt::println("  ints: {}", integerPairsToText(card.integerValues));
@@ -454,6 +596,24 @@ public:
         return box.getGlobalBounds().contains(point);
     }
 
+    sf::FloatRect bounds() const
+    {
+        return box.getGlobalBounds();
+    }
+
+    void setPosition(sf::Vector2f position)
+    {
+        box.setPosition(position);
+        if (labelText)
+        {
+            labelText->setPosition({position.x, position.y - 22.0f});
+        }
+        if (valueText)
+        {
+            valueText->setPosition({position.x + 12.0f, position.y + 10.0f});
+        }
+    }
+
     void setActive(bool next)
     {
         active = next;
@@ -544,6 +704,20 @@ public:
         return shape.getGlobalBounds().contains(point);
     }
 
+    sf::FloatRect bounds() const
+    {
+        return shape.getGlobalBounds();
+    }
+
+    void setPosition(sf::Vector2f position)
+    {
+        shape.setPosition(position);
+        if (text)
+        {
+            centerText(*text, {position.x + shape.getSize().x / 2.0f, position.y + shape.getSize().y / 2.0f - 1.0f});
+        }
+    }
+
     void update(sf::Vector2f mouse)
     {
         const bool hovered = contains(mouse);
@@ -592,43 +766,170 @@ public:
     }
 
 private:
+    struct StringListEditor
+    {
+        TextField keyField;
+        std::vector<TextField> valueFields;
+    };
+
+    static constexpr float ArrayViewportTop = 372.0f;
+    static constexpr float ArrayViewportBottom = 676.0f;
+    static constexpr float ArrayViewportHeight = ArrayViewportBottom - ArrayViewportTop;
+
     sf::RenderWindow window;
     sf::Font font;
     std::vector<card_data::Card> cards;
     std::optional<std::size_t> selectedCard;
     std::size_t listOffset = 0;
-    card_data::CardType selectedType = card_data::CardType::Unit;
     std::string status = "Ready";
     sf::Color statusColor = Muted;
     std::vector<TextField*> focusOrder;
     std::size_t focusIndex = 0;
+    float editorScroll = 0.0f;
+    float editorContentHeight = 0.0f;
+    std::vector<std::pair<std::string, sf::Vector2f>> arraySectionLabels;
     sf::Texture previewTexture;
     bool hasPreviewImage = false;
 
     TextField titleField;
     TextField imageField;
-    TextField keywordsField;
-    TextField intPairsField;
-    TextField stringPairsField;
-    TextField listsField;
+    TextField typeField;
+    std::vector<TextField> keywordFields;
+    std::vector<TextField> intKeyFields;
+    std::vector<TextField> intValueFields;
+    std::vector<TextField> stringKeyFields;
+    std::vector<TextField> stringValueFields;
+    std::vector<StringListEditor> listEditors;
     Button newButton;
     Button refreshButton;
     Button saveButton;
+    Button deleteButton;
+    Button addKeywordButton;
+    Button addIntegerButton;
+    Button addStringButton;
+    Button addListButton;
+    std::vector<Button> removeKeywordButtons;
+    std::vector<Button> removeIntegerButtons;
+    std::vector<Button> removeStringButtons;
+    std::vector<Button> removeListButtons;
+    std::vector<Button> addListValueButtons;
+    std::vector<std::vector<Button>> removeListValueButtons;
 
     void buildControls()
     {
         newButton = Button(font, "New", {42.0f, 690.0f}, {96.0f, 42.0f}, sf::Color(45, 70, 83));
         refreshButton = Button(font, "Refresh", {150.0f, 690.0f}, {120.0f, 42.0f}, sf::Color(45, 70, 83));
         saveButton = Button(font, "Save Card", {660.0f, 690.0f}, {156.0f, 42.0f}, AccentDark);
+        deleteButton = Button(font, "Delete", {528.0f, 690.0f}, {120.0f, 42.0f}, Warn);
+        addKeywordButton = Button(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
+        addIntegerButton = Button(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
+        addStringButton = Button(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
+        addListButton = Button(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
 
-        titleField = TextField(font, "Title", {340.0f, 178.0f}, {470.0f, 42.0f});
-        imageField = TextField(font, "Image Path", {340.0f, 254.0f}, {470.0f, 42.0f});
-        keywordsField = TextField(font, "Keywords (comma separated)", {340.0f, 330.0f}, {470.0f, 42.0f});
-        intPairsField = TextField(font, "Integer Fields (cost=2; power=3)", {340.0f, 478.0f}, {470.0f, 42.0f});
-        stringPairsField = TextField(font, "String Fields (faction=bayou; rules=text)", {340.0f, 554.0f}, {470.0f, 42.0f});
-        listsField = TextField(font, "String Lists (tags=a,b; slots=hand,board)", {340.0f, 630.0f}, {470.0f, 42.0f});
-        focusOrder = {&titleField, &imageField, &keywordsField, &intPairsField, &stringPairsField, &listsField};
-        focusOrder.front()->setActive(true);
+        titleField = TextField(font, "Title", {340.0f, 168.0f}, {470.0f, 42.0f});
+        imageField = TextField(font, "Image Path", {340.0f, 238.0f}, {470.0f, 42.0f});
+        typeField = TextField(font, "Type", {340.0f, 308.0f}, {470.0f, 42.0f});
+        rebuildFocusOrder();
+        activateField(&titleField);
+    }
+
+    TextField makeCompactField(const std::string& value, sf::Vector2f size)
+    {
+        TextField field(font, "", {0.0f, 0.0f}, size);
+        field.setValue(value);
+        return field;
+    }
+
+    Button makeMiniButton(const std::string& label, sf::Color color)
+    {
+        return Button(font, label, {0.0f, 0.0f}, {32.0f, 28.0f}, color);
+    }
+
+    void loadArrayFields(const card_data::Card& card)
+    {
+        keywordFields.clear();
+        intKeyFields.clear();
+        intValueFields.clear();
+        stringKeyFields.clear();
+        stringValueFields.clear();
+        listEditors.clear();
+
+        for (const std::string& keyword : card.keywords)
+        {
+            keywordFields.push_back(makeCompactField(keyword, {392.0f, 32.0f}));
+        }
+
+        for (const card_data::KeyIntPair& item : card.integerValues)
+        {
+            intKeyFields.push_back(makeCompactField(item.key, {182.0f, 32.0f}));
+            intValueFields.push_back(makeCompactField(std::to_string(item.value), {210.0f, 32.0f}));
+        }
+
+        for (const card_data::KeyStringPair& item : card.stringValues)
+        {
+            stringKeyFields.push_back(makeCompactField(item.key, {182.0f, 32.0f}));
+            stringValueFields.push_back(makeCompactField(item.value, {210.0f, 32.0f}));
+        }
+
+        for (const card_data::KeyStringList& item : card.stringLists)
+        {
+            StringListEditor editor;
+            editor.keyField = makeCompactField(item.key, {210.0f, 32.0f});
+            for (const std::string& value : item.values)
+            {
+                editor.valueFields.push_back(makeCompactField(value, {366.0f, 32.0f}));
+            }
+            listEditors.push_back(std::move(editor));
+        }
+    }
+
+    void rebuildFocusOrder()
+    {
+        focusOrder.clear();
+        focusOrder.push_back(&titleField);
+        focusOrder.push_back(&imageField);
+        focusOrder.push_back(&typeField);
+        for (TextField& field : keywordFields)
+        {
+            focusOrder.push_back(&field);
+        }
+        for (std::size_t i = 0; i < intKeyFields.size() && i < intValueFields.size(); ++i)
+        {
+            focusOrder.push_back(&intKeyFields[i]);
+            focusOrder.push_back(&intValueFields[i]);
+        }
+        for (std::size_t i = 0; i < stringKeyFields.size() && i < stringValueFields.size(); ++i)
+        {
+            focusOrder.push_back(&stringKeyFields[i]);
+            focusOrder.push_back(&stringValueFields[i]);
+        }
+        for (StringListEditor& editor : listEditors)
+        {
+            focusOrder.push_back(&editor.keyField);
+            for (TextField& field : editor.valueFields)
+            {
+                focusOrder.push_back(&field);
+            }
+        }
+        focusIndex = std::min(focusIndex, focusOrder.empty() ? 0 : focusOrder.size() - 1);
+    }
+
+    void activateField(TextField* target)
+    {
+        if (focusOrder.empty())
+        {
+            return;
+        }
+
+        for (std::size_t i = 0; i < focusOrder.size(); ++i)
+        {
+            const bool active = focusOrder[i] == target;
+            focusOrder[i]->setActive(active);
+            if (active)
+            {
+                focusIndex = i;
+            }
+        }
     }
 
     void loadCards()
@@ -659,13 +960,18 @@ private:
     void createNewCard()
     {
         selectedCard.reset();
-        selectedType = card_data::CardType::Unit;
         titleField.setValue("");
         imageField.setValue("");
-        keywordsField.setValue("");
-        intPairsField.setValue("");
-        stringPairsField.setValue("");
-        listsField.setValue("");
+        typeField.setValue("Unit");
+        keywordFields.clear();
+        intKeyFields.clear();
+        intValueFields.clear();
+        stringKeyFields.clear();
+        stringValueFields.clear();
+        listEditors.clear();
+        editorScroll = 0.0f;
+        rebuildFocusOrder();
+        activateField(&titleField);
         hasPreviewImage = false;
         setStatus("Draft card", Muted);
     }
@@ -680,13 +986,12 @@ private:
         selectedCard = index;
         ensureCardVisible(index);
         const card_data::Card& card = cards[index];
-        selectedType = card.type;
         titleField.setValue(card.title);
         imageField.setValue(card.imagePath);
-        keywordsField.setValue(joinStrings(card.keywords, ", "));
-        intPairsField.setValue(integerPairsToText(card.integerValues));
-        stringPairsField.setValue(stringPairsToText(card.stringValues));
-        listsField.setValue(stringListsToText(card.stringLists));
+        typeField.setValue(card.type);
+        loadArrayFields(card);
+        editorScroll = 0.0f;
+        rebuildFocusOrder();
         loadPreviewImage();
     }
 
@@ -694,12 +999,62 @@ private:
     {
         card_data::Card card;
         card.title = trim(titleField.getValue());
-        card.type = selectedType;
+        card.type = trim(typeField.getValue());
         card.imagePath = trim(imageField.getValue());
-        card.keywords = splitCommaSeparated(keywordsField.getValue());
-        card.integerValues = parseIntegerPairs(intPairsField.getValue());
-        card.stringValues = parseStringPairs(stringPairsField.getValue());
-        card.stringLists = parseStringLists(listsField.getValue());
+        for (const TextField& field : keywordFields)
+        {
+            const std::string value = trim(field.getValue());
+            if (!value.empty())
+            {
+                card.keywords.push_back(value);
+            }
+        }
+
+        for (std::size_t i = 0; i < intKeyFields.size() && i < intValueFields.size(); ++i)
+        {
+            const std::string key = trim(intKeyFields[i].getValue());
+            if (key.empty())
+            {
+                continue;
+            }
+
+            try
+            {
+                card.integerValues.push_back({key, std::stoi(trim(intValueFields[i].getValue()))});
+            }
+            catch (const std::exception&)
+            {
+            }
+        }
+
+        for (std::size_t i = 0; i < stringKeyFields.size() && i < stringValueFields.size(); ++i)
+        {
+            const std::string key = trim(stringKeyFields[i].getValue());
+            if (!key.empty())
+            {
+                card.stringValues.push_back({key, trim(stringValueFields[i].getValue())});
+            }
+        }
+
+        for (const StringListEditor& editor : listEditors)
+        {
+            card_data::KeyStringList item;
+            item.key = trim(editor.keyField.getValue());
+            if (item.key.empty())
+            {
+                continue;
+            }
+
+            for (const TextField& field : editor.valueFields)
+            {
+                const std::string value = trim(field.getValue());
+                if (!value.empty())
+                {
+                    item.values.push_back(value);
+                }
+            }
+            card.stringLists.push_back(item);
+        }
         return card;
     }
 
@@ -712,7 +1067,8 @@ private:
             return;
         }
 
-        const CommandResult result = saveCard(card);
+        const std::optional<std::string> originalTitle = selectedCardTitle();
+        const CommandResult result = originalTitle ? updateCard(*originalTitle, card) : saveCard(card);
         if (!result.success)
         {
             setStatus(result.message, Warn);
@@ -734,6 +1090,56 @@ private:
                 ensureCardVisible(*selectedCard);
             }
         }
+    }
+
+    void deleteCurrentCard()
+    {
+        const std::optional<std::string> title = selectedCardTitle();
+        if (!title)
+        {
+            setStatus("Select a saved card before deleting", Warn);
+            return;
+        }
+
+        const CommandResult result = deleteCard(*title);
+        if (!result.success)
+        {
+            setStatus(result.message, Warn);
+            return;
+        }
+
+        const std::size_t deletedIndex = *selectedCard;
+        const CardListResult listResult = fetchCards();
+        if (!listResult.success)
+        {
+            cards.clear();
+            selectedCard.reset();
+            createNewCard();
+            setStatus(listResult.message, Warn);
+            return;
+        }
+
+        cards = listResult.cards;
+        if (cards.empty())
+        {
+            listOffset = 0;
+            createNewCard();
+        }
+        else
+        {
+            selectCard(std::min(deletedIndex, cards.size() - 1));
+        }
+        setStatus("Deleted card", Accent);
+    }
+
+    std::optional<std::string> selectedCardTitle() const
+    {
+        if (!selectedCard || *selectedCard >= cards.size())
+        {
+            return std::nullopt;
+        }
+
+        return cards[*selectedCard].title;
     }
 
     void ensureCardVisible(std::size_t index)
@@ -761,6 +1167,144 @@ private:
         listOffset = static_cast<std::size_t>(next);
     }
 
+    bool isInArrayViewport(sf::Vector2f point) const
+    {
+        return point.x >= 330.0f && point.x <= 824.0f && point.y >= ArrayViewportTop && point.y <= ArrayViewportBottom;
+    }
+
+    bool isVisibleInArrayViewport(const sf::FloatRect& bounds) const
+    {
+        return bounds.position.y >= ArrayViewportTop && bounds.position.y + bounds.size.y <= ArrayViewportBottom;
+    }
+
+    void clampEditorScroll()
+    {
+        const float maxScroll = std::max(0.0f, editorContentHeight - ArrayViewportHeight);
+        editorScroll = std::clamp(editorScroll, 0.0f, maxScroll);
+    }
+
+    void scrollEditorForm(int rows)
+    {
+        layoutArrayControls();
+        editorScroll += static_cast<float>(rows) * 42.0f;
+        clampEditorScroll();
+        layoutArrayControls();
+    }
+
+    void layoutArrayControls()
+    {
+        arraySectionLabels.clear();
+        removeKeywordButtons.clear();
+        removeIntegerButtons.clear();
+        removeStringButtons.clear();
+        removeListButtons.clear();
+        addListValueButtons.clear();
+        removeListValueButtons.clear();
+
+        float y = ArrayViewportTop - editorScroll;
+        auto addSection = [&](const std::string& title, Button& addButton) {
+            arraySectionLabels.push_back({title, {340.0f, y}});
+            addButton.setPosition({778.0f, y + 1.0f});
+            y += 30.0f;
+        };
+
+        addSection("Keywords", addKeywordButton);
+        if (keywordFields.empty())
+        {
+            arraySectionLabels.push_back({"No keywords", {354.0f, y + 6.0f}});
+            y += 34.0f;
+        }
+        for (TextField& field : keywordFields)
+        {
+            field.setPosition({340.0f, y});
+            Button button = makeMiniButton("X", Warn);
+            button.setPosition({778.0f, y + 2.0f});
+            removeKeywordButtons.push_back(std::move(button));
+            y += 40.0f;
+        }
+        y += 12.0f;
+
+        addSection("Integer Fields", addIntegerButton);
+        if (intKeyFields.empty())
+        {
+            arraySectionLabels.push_back({"No integer fields", {354.0f, y + 6.0f}});
+            y += 34.0f;
+        }
+        for (std::size_t i = 0; i < intKeyFields.size() && i < intValueFields.size(); ++i)
+        {
+            intKeyFields[i].setPosition({340.0f, y});
+            intValueFields[i].setPosition({532.0f, y});
+            Button button = makeMiniButton("X", Warn);
+            button.setPosition({778.0f, y + 2.0f});
+            removeIntegerButtons.push_back(std::move(button));
+            y += 40.0f;
+        }
+        y += 12.0f;
+
+        addSection("String Fields", addStringButton);
+        if (stringKeyFields.empty())
+        {
+            arraySectionLabels.push_back({"No string fields", {354.0f, y + 6.0f}});
+            y += 34.0f;
+        }
+        for (std::size_t i = 0; i < stringKeyFields.size() && i < stringValueFields.size(); ++i)
+        {
+            stringKeyFields[i].setPosition({340.0f, y});
+            stringValueFields[i].setPosition({532.0f, y});
+            Button button = makeMiniButton("X", Warn);
+            button.setPosition({778.0f, y + 2.0f});
+            removeStringButtons.push_back(std::move(button));
+            y += 40.0f;
+        }
+        y += 12.0f;
+
+        addSection("String Lists", addListButton);
+        if (listEditors.empty())
+        {
+            arraySectionLabels.push_back({"No string lists", {354.0f, y + 6.0f}});
+            y += 34.0f;
+        }
+        for (StringListEditor& editor : listEditors)
+        {
+            editor.keyField.setPosition({340.0f, y});
+
+            Button addValue = makeMiniButton("+", AccentDark);
+            addValue.setPosition({560.0f, y + 2.0f});
+            addListValueButtons.push_back(std::move(addValue));
+
+            Button removeList = makeMiniButton("X", Warn);
+            removeList.setPosition({778.0f, y + 2.0f});
+            removeListButtons.push_back(std::move(removeList));
+            y += 40.0f;
+
+            std::vector<Button> valueButtons;
+            if (editor.valueFields.empty())
+            {
+                arraySectionLabels.push_back({"No values", {368.0f, y + 6.0f}});
+                y += 34.0f;
+            }
+            for (TextField& field : editor.valueFields)
+            {
+                field.setPosition({368.0f, y});
+                Button removeValue = makeMiniButton("X", Warn);
+                removeValue.setPosition({778.0f, y + 2.0f});
+                valueButtons.push_back(std::move(removeValue));
+                y += 38.0f;
+            }
+            removeListValueButtons.push_back(std::move(valueButtons));
+            y += 8.0f;
+        }
+
+        editorContentHeight = y - (ArrayViewportTop - editorScroll);
+        const float maxScroll = std::max(0.0f, editorContentHeight - ArrayViewportHeight);
+        const float clampedScroll = std::clamp(editorScroll, 0.0f, maxScroll);
+        if (clampedScroll != editorScroll)
+        {
+            editorScroll = clampedScroll;
+            layoutArrayControls();
+        }
+    }
+
     void loadPreviewImage()
     {
         const std::string path = trim(imageField.getValue());
@@ -772,6 +1316,187 @@ private:
         }
 
         hasPreviewImage = true;
+    }
+
+    void addKeyword()
+    {
+        keywordFields.push_back(makeCompactField("", {392.0f, 32.0f}));
+        rebuildFocusOrder();
+        activateField(&keywordFields.back());
+        ensureActiveFieldVisible();
+    }
+
+    void addIntegerField()
+    {
+        intKeyFields.push_back(makeCompactField("", {182.0f, 32.0f}));
+        intValueFields.push_back(makeCompactField("0", {210.0f, 32.0f}));
+        rebuildFocusOrder();
+        activateField(&intKeyFields.back());
+        ensureActiveFieldVisible();
+    }
+
+    void addStringField()
+    {
+        stringKeyFields.push_back(makeCompactField("", {182.0f, 32.0f}));
+        stringValueFields.push_back(makeCompactField("", {210.0f, 32.0f}));
+        rebuildFocusOrder();
+        activateField(&stringKeyFields.back());
+        ensureActiveFieldVisible();
+    }
+
+    void addStringList()
+    {
+        StringListEditor editor;
+        editor.keyField = makeCompactField("", {210.0f, 32.0f});
+        editor.valueFields.push_back(makeCompactField("", {366.0f, 32.0f}));
+        listEditors.push_back(std::move(editor));
+        rebuildFocusOrder();
+        activateField(&listEditors.back().keyField);
+        ensureActiveFieldVisible();
+    }
+
+    void addStringListValue(std::size_t listIndex)
+    {
+        if (listIndex >= listEditors.size())
+        {
+            return;
+        }
+
+        listEditors[listIndex].valueFields.push_back(makeCompactField("", {366.0f, 32.0f}));
+        rebuildFocusOrder();
+        activateField(&listEditors[listIndex].valueFields.back());
+        ensureActiveFieldVisible();
+    }
+
+    void removeKeyword(std::size_t index)
+    {
+        if (index < keywordFields.size())
+        {
+            keywordFields.erase(keywordFields.begin() + static_cast<std::ptrdiff_t>(index));
+            rebuildFocusOrder();
+            activateField(&titleField);
+        }
+    }
+
+    void removeIntegerField(std::size_t index)
+    {
+        if (index < intKeyFields.size() && index < intValueFields.size())
+        {
+            intKeyFields.erase(intKeyFields.begin() + static_cast<std::ptrdiff_t>(index));
+            intValueFields.erase(intValueFields.begin() + static_cast<std::ptrdiff_t>(index));
+            rebuildFocusOrder();
+            activateField(&titleField);
+        }
+    }
+
+    void removeStringField(std::size_t index)
+    {
+        if (index < stringKeyFields.size() && index < stringValueFields.size())
+        {
+            stringKeyFields.erase(stringKeyFields.begin() + static_cast<std::ptrdiff_t>(index));
+            stringValueFields.erase(stringValueFields.begin() + static_cast<std::ptrdiff_t>(index));
+            rebuildFocusOrder();
+            activateField(&titleField);
+        }
+    }
+
+    void removeStringList(std::size_t index)
+    {
+        if (index < listEditors.size())
+        {
+            listEditors.erase(listEditors.begin() + static_cast<std::ptrdiff_t>(index));
+            rebuildFocusOrder();
+            activateField(&titleField);
+        }
+    }
+
+    void removeStringListValue(std::size_t listIndex, std::size_t valueIndex)
+    {
+        if (listIndex < listEditors.size() && valueIndex < listEditors[listIndex].valueFields.size())
+        {
+            listEditors[listIndex].valueFields.erase(listEditors[listIndex].valueFields.begin() + static_cast<std::ptrdiff_t>(valueIndex));
+            rebuildFocusOrder();
+            activateField(&titleField);
+        }
+    }
+
+    void ensureActiveFieldVisible()
+    {
+        if (focusOrder.empty())
+        {
+            return;
+        }
+
+        layoutArrayControls();
+        const sf::FloatRect bounds = focusOrder[focusIndex]->bounds();
+        if (focusOrder[focusIndex] == &titleField || focusOrder[focusIndex] == &imageField || focusOrder[focusIndex] == &typeField)
+        {
+            return;
+        }
+
+        if (bounds.position.y < ArrayViewportTop)
+        {
+            editorScroll -= ArrayViewportTop - bounds.position.y;
+        }
+        else if (bounds.position.y + bounds.size.y > ArrayViewportBottom)
+        {
+            editorScroll += bounds.position.y + bounds.size.y - ArrayViewportBottom;
+        }
+        clampEditorScroll();
+        layoutArrayControls();
+    }
+
+    TextField* dynamicFieldAt(sf::Vector2f mouse)
+    {
+        if (!isInArrayViewport(mouse))
+        {
+            return nullptr;
+        }
+
+        for (TextField& field : keywordFields)
+        {
+            if (isVisibleInArrayViewport(field.bounds()) && field.contains(mouse))
+            {
+                return &field;
+            }
+        }
+        for (std::size_t i = 0; i < intKeyFields.size() && i < intValueFields.size(); ++i)
+        {
+            if (isVisibleInArrayViewport(intKeyFields[i].bounds()) && intKeyFields[i].contains(mouse))
+            {
+                return &intKeyFields[i];
+            }
+            if (isVisibleInArrayViewport(intValueFields[i].bounds()) && intValueFields[i].contains(mouse))
+            {
+                return &intValueFields[i];
+            }
+        }
+        for (std::size_t i = 0; i < stringKeyFields.size() && i < stringValueFields.size(); ++i)
+        {
+            if (isVisibleInArrayViewport(stringKeyFields[i].bounds()) && stringKeyFields[i].contains(mouse))
+            {
+                return &stringKeyFields[i];
+            }
+            if (isVisibleInArrayViewport(stringValueFields[i].bounds()) && stringValueFields[i].contains(mouse))
+            {
+                return &stringValueFields[i];
+            }
+        }
+        for (StringListEditor& editor : listEditors)
+        {
+            if (isVisibleInArrayViewport(editor.keyField.bounds()) && editor.keyField.contains(mouse))
+            {
+                return &editor.keyField;
+            }
+            for (TextField& field : editor.valueFields)
+            {
+                if (isVisibleInArrayViewport(field.bounds()) && field.contains(mouse))
+                {
+                    return &field;
+                }
+            }
+        }
+        return nullptr;
     }
 
     void processEvents()
@@ -800,6 +1525,7 @@ private:
                 if (keyEvent->code == sf::Keyboard::Key::Tab)
                 {
                     moveFocus(keyEvent->shift ? -1 : 1);
+                    ensureActiveFieldVisible();
                 }
                 else if (keyEvent->code == sf::Keyboard::Key::Enter)
                 {
@@ -823,6 +1549,10 @@ private:
                 {
                     scrollCardList(wheel->delta < 0.0f ? 1 : -1);
                 }
+                else if (isInArrayViewport(mouse))
+                {
+                    scrollEditorForm(wheel->delta < 0.0f ? 1 : -1);
+                }
             }
         }
     }
@@ -836,6 +1566,8 @@ private:
 
     void handleClick(sf::Vector2f mouse)
     {
+        layoutArrayControls();
+
         if (newButton.contains(mouse))
         {
             createNewCard();
@@ -854,6 +1586,95 @@ private:
             return;
         }
 
+        if (deleteButton.contains(mouse))
+        {
+            deleteCurrentCard();
+            return;
+        }
+
+        if (isInArrayViewport(mouse))
+        {
+            if (isVisibleInArrayViewport(addKeywordButton.bounds()) && addKeywordButton.contains(mouse))
+            {
+                addKeyword();
+                return;
+            }
+            if (isVisibleInArrayViewport(addIntegerButton.bounds()) && addIntegerButton.contains(mouse))
+            {
+                addIntegerField();
+                return;
+            }
+            if (isVisibleInArrayViewport(addStringButton.bounds()) && addStringButton.contains(mouse))
+            {
+                addStringField();
+                return;
+            }
+            if (isVisibleInArrayViewport(addListButton.bounds()) && addListButton.contains(mouse))
+            {
+                addStringList();
+                return;
+            }
+
+            for (std::size_t i = 0; i < removeKeywordButtons.size(); ++i)
+            {
+                if (isVisibleInArrayViewport(removeKeywordButtons[i].bounds()) && removeKeywordButtons[i].contains(mouse))
+                {
+                    removeKeyword(i);
+                    return;
+                }
+            }
+            for (std::size_t i = 0; i < removeIntegerButtons.size(); ++i)
+            {
+                if (isVisibleInArrayViewport(removeIntegerButtons[i].bounds()) && removeIntegerButtons[i].contains(mouse))
+                {
+                    removeIntegerField(i);
+                    return;
+                }
+            }
+            for (std::size_t i = 0; i < removeStringButtons.size(); ++i)
+            {
+                if (isVisibleInArrayViewport(removeStringButtons[i].bounds()) && removeStringButtons[i].contains(mouse))
+                {
+                    removeStringField(i);
+                    return;
+                }
+            }
+            for (std::size_t i = 0; i < addListValueButtons.size(); ++i)
+            {
+                if (isVisibleInArrayViewport(addListValueButtons[i].bounds()) && addListValueButtons[i].contains(mouse))
+                {
+                    addStringListValue(i);
+                    return;
+                }
+            }
+            for (std::size_t i = 0; i < removeListButtons.size(); ++i)
+            {
+                if (isVisibleInArrayViewport(removeListButtons[i].bounds()) && removeListButtons[i].contains(mouse))
+                {
+                    removeStringList(i);
+                    return;
+                }
+            }
+            for (std::size_t listIndex = 0; listIndex < removeListValueButtons.size(); ++listIndex)
+            {
+                for (std::size_t valueIndex = 0; valueIndex < removeListValueButtons[listIndex].size(); ++valueIndex)
+                {
+                    Button& button = removeListValueButtons[listIndex][valueIndex];
+                    if (isVisibleInArrayViewport(button.bounds()) && button.contains(mouse))
+                    {
+                        removeStringListValue(listIndex, valueIndex);
+                        return;
+                    }
+                }
+            }
+
+            if (TextField* field = dynamicFieldAt(mouse))
+            {
+                activateField(field);
+                return;
+            }
+        }
+
         const std::optional<std::size_t> listIndex = cardIndexAt(mouse);
         if (listIndex)
         {
@@ -861,21 +1682,27 @@ private:
             return;
         }
 
-        const std::optional<card_data::CardType> type = typeAt(mouse);
-        if (type)
+        if (titleField.contains(mouse))
         {
-            selectedType = *type;
+            activateField(&titleField);
             return;
         }
 
-        for (std::size_t i = 0; i < focusOrder.size(); ++i)
+        if (imageField.contains(mouse))
         {
-            const bool active = focusOrder[i]->contains(mouse);
-            focusOrder[i]->setActive(active);
-            if (active)
-            {
-                focusIndex = i;
-            }
+            activateField(&imageField);
+            return;
+        }
+
+        if (typeField.contains(mouse))
+        {
+            activateField(&typeField);
+            return;
+        }
+
+        for (TextField* field : focusOrder)
+        {
+            field->setActive(false);
         }
     }
 
@@ -901,32 +1728,45 @@ private:
             mouse.y >= ListPanelY && mouse.y <= ListPanelY + PanelHeight;
     }
 
-    std::optional<card_data::CardType> typeAt(sf::Vector2f mouse) const
-    {
-        const std::vector<card_data::CardType> types = {
-            card_data::CardType::Unit,
-            card_data::CardType::Spell,
-            card_data::CardType::Artifact,
-            card_data::CardType::Reaction,
-        };
-
-        for (std::size_t i = 0; i < types.size(); ++i)
-        {
-            sf::FloatRect bounds({340.0f + static_cast<float>(i) * 116.0f, 402.0f}, {104.0f, 40.0f});
-            if (bounds.contains(mouse))
-            {
-                return types[i];
-            }
-        }
-        return std::nullopt;
-    }
-
     void update()
     {
+        layoutArrayControls();
         const sf::Vector2f mouse = window.mapPixelToCoords(sf::Mouse::getPosition(window));
         newButton.update(mouse);
         refreshButton.update(mouse);
         saveButton.update(mouse);
+        deleteButton.update(mouse);
+        addKeywordButton.update(mouse);
+        addIntegerButton.update(mouse);
+        addStringButton.update(mouse);
+        addListButton.update(mouse);
+        for (Button& button : removeKeywordButtons)
+        {
+            button.update(mouse);
+        }
+        for (Button& button : removeIntegerButtons)
+        {
+            button.update(mouse);
+        }
+        for (Button& button : removeStringButtons)
+        {
+            button.update(mouse);
+        }
+        for (Button& button : removeListButtons)
+        {
+            button.update(mouse);
+        }
+        for (Button& button : addListValueButtons)
+        {
+            button.update(mouse);
+        }
+        for (std::vector<Button>& buttons : removeListValueButtons)
+        {
+            for (Button& button : buttons)
+            {
+                button.update(mouse);
+            }
+        }
     }
 
     void render()
@@ -946,7 +1786,7 @@ private:
         window.draw(bar);
 
         drawText(window, font, "Bayou Card Editor", 30, {30.0f, 22.0f}, Ink);
-        drawText(window, font, "Card server localhost:55004", 15, {1036.0f, 31.0f}, Muted);
+        drawText(window, font, fmt::format("Card server {}", cardServerEndpoint()), 15, {980.0f, 31.0f}, Muted);
     }
 
     void drawListPanel()
@@ -967,7 +1807,7 @@ private:
             window.draw(row);
 
             drawText(window, font, cards[i].title, 17, {54.0f, y + 8.0f}, Ink, 206.0f);
-            drawText(window, font, card_data::toString(cards[i].type), 13, {54.0f, y + 29.0f}, Muted);
+            drawText(window, font, cards[i].type, 13, {54.0f, y + 29.0f}, Muted);
         }
 
         if (cards.size() > VisibleCardRows)
@@ -994,39 +1834,106 @@ private:
 
         titleField.draw(window);
         imageField.draw(window);
-        keywordsField.draw(window);
-        drawTypePicker();
-        intPairsField.draw(window);
-        stringPairsField.draw(window);
-        listsField.draw(window);
+        typeField.draw(window);
+        drawArrayEditor();
+        deleteButton.draw(window);
         saveButton.draw(window);
-        drawText(window, font, status, 16, {340.0f, 702.0f}, statusColor, 300.0f);
+        drawText(window, font, status, 16, {340.0f, 702.0f}, statusColor, 174.0f);
     }
 
-    void drawTypePicker()
+    void drawArrayEditor()
     {
-        drawText(window, font, "Type", 15, {340.0f, 380.0f}, Muted);
-        const std::vector<card_data::CardType> types = {
-            card_data::CardType::Unit,
-            card_data::CardType::Spell,
-            card_data::CardType::Artifact,
-            card_data::CardType::Reaction,
-        };
+        layoutArrayControls();
+        sf::RectangleShape viewport({482.0f, ArrayViewportHeight});
+        viewport.setPosition({334.0f, ArrayViewportTop});
+        viewport.setFillColor(sf::Color(26, 31, 40));
+        viewport.setOutlineThickness(1.0f);
+        viewport.setOutlineColor(Line);
+        window.draw(viewport);
 
-        for (std::size_t i = 0; i < types.size(); ++i)
+        for (const auto& [label, position] : arraySectionLabels)
         {
-            const sf::Vector2f position{340.0f + static_cast<float>(i) * 116.0f, 402.0f};
-            sf::RectangleShape pill({104.0f, 40.0f});
-            pill.setPosition(position);
-            pill.setFillColor(types[i] == selectedType ? AccentDark : Field);
-            pill.setOutlineThickness(1.0f);
-            pill.setOutlineColor(types[i] == selectedType ? Accent : Line);
-            window.draw(pill);
+            if (position.y >= ArrayViewportTop && position.y <= ArrayViewportBottom - 16.0f)
+            {
+                drawText(window, font, label, 14, position, label.rfind("No ", 0) == 0 ? Muted : Ink, 320.0f);
+            }
+        }
 
-            sf::Text label(font, card_data::toString(types[i]), 16);
-            label.setFillColor(Ink);
-            centerText(label, {position.x + 52.0f, position.y + 20.0f});
-            window.draw(label);
+        drawVisibleButton(addKeywordButton);
+        drawVisibleButton(addIntegerButton);
+        drawVisibleButton(addStringButton);
+        drawVisibleButton(addListButton);
+
+        for (TextField& field : keywordFields)
+        {
+            drawVisibleField(field);
+        }
+        for (std::size_t i = 0; i < intKeyFields.size() && i < intValueFields.size(); ++i)
+        {
+            drawVisibleField(intKeyFields[i]);
+            drawVisibleField(intValueFields[i]);
+        }
+        for (std::size_t i = 0; i < stringKeyFields.size() && i < stringValueFields.size(); ++i)
+        {
+            drawVisibleField(stringKeyFields[i]);
+            drawVisibleField(stringValueFields[i]);
+        }
+        for (StringListEditor& editor : listEditors)
+        {
+            drawVisibleField(editor.keyField);
+            for (TextField& field : editor.valueFields)
+            {
+                drawVisibleField(field);
+            }
+        }
+
+        for (Button& button : removeKeywordButtons)
+        {
+            drawVisibleButton(button);
+        }
+        for (Button& button : removeIntegerButtons)
+        {
+            drawVisibleButton(button);
+        }
+        for (Button& button : removeStringButtons)
+        {
+            drawVisibleButton(button);
+        }
+        for (Button& button : removeListButtons)
+        {
+            drawVisibleButton(button);
+        }
+        for (Button& button : addListValueButtons)
+        {
+            drawVisibleButton(button);
+        }
+        for (std::vector<Button>& buttons : removeListValueButtons)
+        {
+            for (Button& button : buttons)
+            {
+                drawVisibleButton(button);
+            }
+        }
+
+        if (editorContentHeight > ArrayViewportHeight)
+        {
+            drawText(window, font, "mouse wheel", 12, {730.0f, 656.0f}, Muted);
+        }
+    }
+
+    void drawVisibleField(TextField& field)
+    {
+        if (isVisibleInArrayViewport(field.bounds()))
+        {
+            field.draw(window);
+        }
+    }
+
+    void drawVisibleButton(Button& button)
+    {
+        if (isVisibleInArrayViewport(button.bounds()))
+        {
+            button.draw(window);
         }
     }
 
@@ -1062,7 +1969,7 @@ private:
         centerText(title, {1053.0f, 414.0f});
         window.draw(title);
 
-        sf::Text type(font, card_data::toString(card.type), 16);
+        sf::Text type(font, card.type, 16);
         type.setFillColor(Accent);
         centerText(type, {1053.0f, 445.0f});
         window.draw(type);
@@ -1091,6 +1998,8 @@ private:
 
 int main(int argc, char** argv)
 {
+    setExecutableDirectory(argc > 0 ? argv[0] : nullptr);
+
     if (argc == 2 && std::string(argv[1]) == "--list")
     {
         return handleListCommand();

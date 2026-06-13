@@ -3,6 +3,7 @@
 #include <fmt/core.h>
 
 #include "../shared/card_data.hpp"
+#include "../shared/network.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -11,8 +12,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-
-import network;
 
 using namespace network;
 
@@ -139,6 +138,12 @@ private:
             case MessageType::CardUpsertRequest:
                 handleUpsertCard(client, request);
                 break;
+            case MessageType::CardUpdateRequest:
+                handleUpdateCard(client, request);
+                break;
+            case MessageType::CardDeleteRequest:
+                handleDeleteCard(client, request);
+                break;
             case MessageType::Disconnect:
                 break;
             default:
@@ -193,10 +198,76 @@ private:
         }
     }
 
+    void handleUpdateCard(sf::TcpSocket& client, sf::Packet& request)
+    {
+        std::string originalTitle;
+        card_data::Card card;
+        request >> originalTitle;
+        if (!request || !card_data::readCard(request, card))
+        {
+            sendCommandResponse(client, MessageType::CardUpdateResponse, false, "Invalid card update payload");
+            return;
+        }
+
+        if (originalTitle.empty())
+        {
+            sendCommandResponse(client, MessageType::CardUpdateResponse, false, "Original card title cannot be empty");
+            return;
+        }
+
+        if (card.title.empty())
+        {
+            sendCommandResponse(client, MessageType::CardUpdateResponse, false, "Card title cannot be empty");
+            return;
+        }
+
+        try
+        {
+            saveCard(originalTitle, card);
+            sendCommandResponse(client, MessageType::CardUpdateResponse, true, "Card saved");
+        }
+        catch (const std::exception& error)
+        {
+            sendCommandResponse(client, MessageType::CardUpdateResponse, false, error.what());
+        }
+    }
+
+    void handleDeleteCard(sf::TcpSocket& client, sf::Packet& request)
+    {
+        std::string title;
+        request >> title;
+        if (!request)
+        {
+            sendCommandResponse(client, MessageType::CardDeleteResponse, false, "Invalid card delete payload");
+            return;
+        }
+
+        if (title.empty())
+        {
+            sendCommandResponse(client, MessageType::CardDeleteResponse, false, "Card title cannot be empty");
+            return;
+        }
+
+        try
+        {
+            deleteCard(title);
+            sendCommandResponse(client, MessageType::CardDeleteResponse, true, "Card deleted");
+        }
+        catch (const std::exception& error)
+        {
+            sendCommandResponse(client, MessageType::CardDeleteResponse, false, error.what());
+        }
+    }
+
     void sendUpsertResponse(sf::TcpSocket& client, bool success, const std::string& message)
     {
+        sendCommandResponse(client, MessageType::CardUpsertResponse, success, message);
+    }
+
+    void sendCommandResponse(sf::TcpSocket& client, MessageType responseType, bool success, const std::string& message)
+    {
         sf::Packet response;
-        response << static_cast<uint8_t>(MessageType::CardUpsertResponse);
+        response << static_cast<uint8_t>(responseType);
         response << success;
         response << message;
         [[maybe_unused]] auto result = client.send(response);
@@ -204,14 +275,24 @@ private:
 
     void saveCard(const card_data::Card& card)
     {
+        saveCard("", card);
+    }
+
+    void saveCard(const std::string& originalTitle, const card_data::Card& card)
+    {
         SQLite::Transaction transaction(*database);
+
+        if (!originalTitle.empty() && originalTitle != card.title)
+        {
+            deleteCardRows(originalTitle);
+        }
 
         SQLite::Statement upsert(
             *database,
             "INSERT INTO cards (title, type, image_path) VALUES (?, ?, ?) "
             "ON CONFLICT(title) DO UPDATE SET type = excluded.type, image_path = excluded.image_path");
         upsert.bind(1, card.title);
-        upsert.bind(2, card_data::toString(card.type));
+        upsert.bind(2, card.type);
         upsert.bind(3, card.imagePath);
         upsert.exec();
 
@@ -222,6 +303,22 @@ private:
         insertStringLists(card);
 
         transaction.commit();
+    }
+
+    void deleteCard(const std::string& title)
+    {
+        SQLite::Transaction transaction(*database);
+        deleteCardRows(title);
+        transaction.commit();
+    }
+
+    void deleteCardRows(const std::string& title)
+    {
+        deleteChildRows(title);
+
+        SQLite::Statement statement(*database, "DELETE FROM cards WHERE title = ?");
+        statement.bind(1, title);
+        statement.exec();
     }
 
     void deleteChildRows(const std::string& title)
@@ -304,7 +401,7 @@ private:
         {
             card_data::Card card;
             card.title = query.getColumn(0).getString();
-            card.type = card_data::cardTypeFromString(query.getColumn(1).getString());
+            card.type = query.getColumn(1).getString();
             card.imagePath = query.getColumn(2).getString();
             card.keywords = loadKeywords(card.title);
             card.integerValues = loadIntegerValues(card.title);

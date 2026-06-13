@@ -1,13 +1,11 @@
-module;
+#pragma once
 
 #include <cstdint>
 #include <string>
 
-export module network;
-
-export namespace network {
-
-enum class MessageType : uint8_t
+namespace network
+{
+enum class MessageType : std::uint8_t
 {
     CreateAccount,
     CreateAccountResponse,
@@ -38,7 +36,7 @@ struct CreateAccountRequest
 
 struct CreateAccountResponse
 {
-    bool success;
+    bool success = false;
     std::string message;
 };
 
@@ -50,30 +48,29 @@ struct LoginRequest
 
 struct LoginResponse
 {
-    bool success;
+    bool success = false;
     std::string message;
 };
 
 struct MatchFoundResponse
 {
-    int matchId;
-    int playerNumber;
-    unsigned short gamePort;
+    int matchId = 0;
+    int playerNumber = 0;
+    unsigned short gamePort = 0;
 };
 
 struct GameSessionCreatedResponse
 {
-    bool success;
-    int matchId;
-    unsigned short port;
+    bool success = false;
+    int matchId = 0;
+    unsigned short port = 0;
     std::string message;
 };
 
 struct GameReadyResponse
 {
-    int matchId;
-    int playerNumber;
+    int matchId = 0;
+    int playerNumber = 0;
     std::string message;
 };
-
 } // namespace network

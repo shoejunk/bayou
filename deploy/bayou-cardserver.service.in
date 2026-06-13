@@ -1,0 +1,21 @@
+[Unit]
+Description=Bayou Card Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@APP_USER@
+Group=@APP_USER@
+WorkingDirectory=@DATA_DIR@
+ExecStart=@INSTALL_PREFIX@/bin/cardserver
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=@DATA_DIR@
+
+[Install]
+WantedBy=multi-user.target

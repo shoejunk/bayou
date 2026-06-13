@@ -3,20 +3,11 @@
 #include <SFML/Network.hpp>
 
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <vector>
 
 namespace card_data
 {
-enum class CardType : std::uint8_t
-{
-    Unit,
-    Spell,
-    Artifact,
-    Reaction
-};
-
 struct KeyIntPair
 {
     std::string key;
@@ -38,46 +29,13 @@ struct KeyStringList
 struct Card
 {
     std::string title;
-    CardType type = CardType::Unit;
+    std::string type = "Unit";
     std::string imagePath;
     std::vector<std::string> keywords;
     std::vector<KeyIntPair> integerValues;
     std::vector<KeyStringPair> stringValues;
     std::vector<KeyStringList> stringLists;
 };
-
-inline std::string toString(CardType type)
-{
-    switch (type)
-    {
-        case CardType::Unit: return "Unit";
-        case CardType::Spell: return "Spell";
-        case CardType::Artifact: return "Artifact";
-        case CardType::Reaction: return "Reaction";
-    }
-
-    return "Unit";
-}
-
-inline std::optional<CardType> cardTypeFromIndex(int index)
-{
-    switch (index)
-    {
-        case 1: return CardType::Unit;
-        case 2: return CardType::Spell;
-        case 3: return CardType::Artifact;
-        case 4: return CardType::Reaction;
-        default: return std::nullopt;
-    }
-}
-
-inline CardType cardTypeFromString(const std::string& value)
-{
-    if (value == "Spell") return CardType::Spell;
-    if (value == "Artifact") return CardType::Artifact;
-    if (value == "Reaction") return CardType::Reaction;
-    return CardType::Unit;
-}
 
 inline void writeStringVector(sf::Packet& packet, const std::vector<std::string>& values)
 {
@@ -116,7 +74,7 @@ inline bool readStringVector(sf::Packet& packet, std::vector<std::string>& value
 inline void writeCard(sf::Packet& packet, const Card& card)
 {
     packet << card.title;
-    packet << toString(card.type);
+    packet << card.type;
     packet << card.imagePath;
 
     writeStringVector(packet, card.keywords);
@@ -143,13 +101,11 @@ inline void writeCard(sf::Packet& packet, const Card& card)
 
 inline bool readCard(sf::Packet& packet, Card& card)
 {
-    std::string typeName;
-    packet >> card.title >> typeName >> card.imagePath;
+    packet >> card.title >> card.type >> card.imagePath;
     if (!packet)
     {
         return false;
     }
-    card.type = cardTypeFromString(typeName);
 
     if (!readStringVector(packet, card.keywords))
     {
