@@ -17,6 +17,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 import button;
@@ -156,6 +157,71 @@ std::string lowerKey(std::string value)
         return static_cast<char>(std::tolower(ch));
     });
     return value;
+}
+
+std::string assetRelativePath(const std::string& value)
+{
+    const std::string trimmed = trim(value);
+    if (trimmed.empty())
+    {
+        return "";
+    }
+
+    std::filesystem::path path(trimmed);
+    if (path.is_absolute() || path.has_root_name() || path.has_root_directory())
+    {
+        return path.lexically_normal().generic_string();
+    }
+
+    std::filesystem::path normalizedPath;
+    bool checkedFirstComponent = false;
+    for (const std::filesystem::path& component : path)
+    {
+        if (!checkedFirstComponent)
+        {
+            checkedFirstComponent = true;
+            if (lowerKey(component.string()) == "assets")
+            {
+                continue;
+            }
+        }
+
+        normalizedPath /= component;
+    }
+
+    return normalizedPath.lexically_normal().generic_string();
+}
+
+std::optional<std::filesystem::path> resolveAssetPath(const std::string& value)
+{
+    const std::string relativeValue = assetRelativePath(value);
+    if (relativeValue.empty())
+    {
+        return std::nullopt;
+    }
+
+    const std::filesystem::path relativePath(relativeValue);
+    if (relativePath.is_absolute())
+    {
+        return relativePath;
+    }
+
+    const std::filesystem::path cwdCandidate = (std::filesystem::path("assets") / relativePath).lexically_normal();
+    if (std::filesystem::exists(cwdCandidate))
+    {
+        return cwdCandidate;
+    }
+
+    if (!executableDirectory.empty())
+    {
+        const std::filesystem::path exeCandidate = (executableDirectory / "assets" / relativePath).lexically_normal();
+        if (std::filesystem::exists(exeCandidate))
+        {
+            return exeCandidate;
+        }
+    }
+
+    return cwdCandidate;
 }
 
 std::optional<unsigned short> parsePort(const std::string& value)
@@ -452,10 +518,17 @@ void drawPanel(sf::RenderWindow& window, sf::Vector2f position, sf::Vector2f siz
 {
     sf::RectangleShape panel(size);
     panel.setPosition(position);
-    panel.setFillColor(sf::Color(38, 42, 52));
-    panel.setOutlineThickness(1.0f);
-    panel.setOutlineColor(sf::Color(82, 90, 108));
+    panel.setFillColor(sf::Color(15, 23, 26, 222));
+    panel.setOutlineThickness(2.0f);
+    panel.setOutlineColor(sf::Color(142, 101, 53));
     window.draw(panel);
+
+    sf::RectangleShape inner({size.x - 8.0f, size.y - 8.0f});
+    inner.setPosition({position.x + 4.0f, position.y + 4.0f});
+    inner.setFillColor(sf::Color::Transparent);
+    inner.setOutlineThickness(1.0f);
+    inner.setOutlineColor(sf::Color(44, 108, 101, 150));
+    window.draw(inner);
 }
 
 void drawRow(
@@ -469,15 +542,15 @@ void drawRow(
 {
     sf::RectangleShape row(size);
     row.setPosition(position);
-    row.setFillColor(selected ? sf::Color(54, 86, 92) : sf::Color(50, 55, 68));
+    row.setFillColor(selected ? sf::Color(42, 112, 103, 230) : sf::Color(28, 39, 42, 224));
     row.setOutlineThickness(1.0f);
-    row.setOutlineColor(selected ? sf::Color(103, 198, 184) : sf::Color(68, 76, 92));
+    row.setOutlineColor(selected ? sf::Color(111, 226, 200) : sf::Color(102, 76, 46));
     window.draw(row);
 
-    drawText(window, font, primary, 16, {position.x + 8.0f, position.y + 5.0f}, sf::Color::White, size.x - 16.0f);
+    drawText(window, font, primary, 16, {position.x + 8.0f, position.y + 5.0f}, sf::Color(246, 238, 218), size.x - 16.0f);
     if (!secondary.empty())
     {
-        drawText(window, font, secondary, 12, {position.x + 8.0f, position.y + 22.0f}, sf::Color(176, 184, 198), size.x - 16.0f);
+        drawText(window, font, secondary, 12, {position.x + 8.0f, position.y + 22.0f}, sf::Color(198, 180, 142), size.x - 16.0f);
     }
 }
 
@@ -951,7 +1024,7 @@ int main(int argc, char** argv)
 {
     setExecutableDirectory(argc > 0 ? argv[0] : nullptr);
 
-    sf::RenderWindow window(sf::VideoMode({800, 600}), "Main Menu");
+    sf::RenderWindow window(sf::VideoMode({800, 600}), "Steam Tactics");
     window.setFramerateLimit(60);
 
     sf::Font font;
@@ -960,8 +1033,81 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    sf::Text title(font, "Main Menu", 48);
-    title.setFillColor(sf::Color::White);
+    std::unordered_map<std::string, std::shared_ptr<sf::Texture>> textureCache;
+    auto loadTexture = [&](const std::string& assetPath) -> sf::Texture* {
+        const std::string key = assetRelativePath(assetPath);
+        if (key.empty())
+        {
+            return nullptr;
+        }
+
+        if (const auto found = textureCache.find(key); found != textureCache.end())
+        {
+            return found->second.get();
+        }
+
+        const std::optional<std::filesystem::path> resolvedPath = resolveAssetPath(key);
+        auto texture = std::make_shared<sf::Texture>();
+        if (!resolvedPath || !texture->loadFromFile(*resolvedPath))
+        {
+            return nullptr;
+        }
+
+        texture->setSmooth(true);
+        sf::Texture* loaded = texture.get();
+        textureCache.emplace(key, std::move(texture));
+        return loaded;
+    };
+
+    sf::Texture* backdropTexture = loadTexture("ui/steampunk-bayou-backdrop.png");
+
+    auto drawCoverSprite = [&](sf::Texture& texture, sf::FloatRect target, sf::Color color = sf::Color::White) {
+        sf::Sprite sprite(texture);
+        const sf::Vector2u imageSize = texture.getSize();
+        const float scale = std::max(target.size.x / static_cast<float>(imageSize.x),
+                                     target.size.y / static_cast<float>(imageSize.y));
+        sprite.setScale({scale, scale});
+        sprite.setColor(color);
+        sprite.setPosition({
+            target.position.x + (target.size.x - static_cast<float>(imageSize.x) * scale) * 0.5f,
+            target.position.y + (target.size.y - static_cast<float>(imageSize.y) * scale) * 0.5f});
+        window.draw(sprite);
+    };
+
+    auto drawContainSprite = [&](sf::Texture& texture, sf::FloatRect target, sf::Color color = sf::Color::White) {
+        sf::Sprite sprite(texture);
+        const sf::Vector2u imageSize = texture.getSize();
+        const float scale = std::min(target.size.x / static_cast<float>(imageSize.x),
+                                     target.size.y / static_cast<float>(imageSize.y));
+        sprite.setScale({scale, scale});
+        sprite.setColor(color);
+        sprite.setPosition({
+            target.position.x + (target.size.x - static_cast<float>(imageSize.x) * scale) * 0.5f,
+            target.position.y + (target.size.y - static_cast<float>(imageSize.y) * scale) * 0.5f});
+        window.draw(sprite);
+    };
+
+    auto drawBackdrop = [&]() {
+        if (backdropTexture)
+        {
+            drawCoverSprite(*backdropTexture, {{0.0f, 0.0f}, {800.0f, 600.0f}});
+        }
+        else
+        {
+            window.clear(sf::Color(9, 17, 19));
+        }
+
+        sf::RectangleShape wash({800.0f, 600.0f});
+        wash.setFillColor(sf::Color(5, 12, 15, 118));
+        window.draw(wash);
+
+        sf::RectangleShape topShade({800.0f, 124.0f});
+        topShade.setFillColor(sf::Color(4, 9, 11, 156));
+        window.draw(topShade);
+    };
+
+    sf::Text title(font, "Steam Tactics", 48);
+    title.setFillColor(sf::Color(248, 224, 172));
     title.setPosition({400.0f, 45.0f});
     centerText(title, 400.0f);
 
@@ -1142,7 +1288,7 @@ int main(int argc, char** argv)
         selectedLibraryCard.reset();
         draggingLibraryCard.reset();
         dragActive = false;
-        title.setString("Main Menu");
+        title.setString("Steam Tactics");
         centerText(title, 400.0f);
         setMessageY(messageText, 450.0f);
         resetForm(usernameInput, passwordInput, confirmInput, messageText);
@@ -1576,9 +1722,9 @@ int main(int argc, char** argv)
     };
 
     auto ownerTint = [](int owner) -> sf::Color {
-        if (owner == 1) return sf::Color(38, 52, 76);
-        if (owner == 2) return sf::Color(74, 44, 40);
-        return sf::Color(42, 46, 56);
+        if (owner == 1) return sf::Color(24, 64, 72, 226);
+        if (owner == 2) return sf::Color(88, 48, 36, 226);
+        return sf::Color(38, 48, 43, 214);
     };
 
     auto cellTopLeft = [&](int row, int column) -> sf::Vector2f {
@@ -1616,6 +1762,10 @@ int main(int argc, char** argv)
             }
         }
         return nullptr;
+    };
+
+    auto cardArtTexture = [&](const std::string& imagePath) -> sf::Texture* {
+        return loadTexture(imagePath);
     };
 
     auto handCardAtPixel = [&](sf::Vector2f point) -> std::optional<std::size_t> {
@@ -1805,19 +1955,33 @@ int main(int argc, char** argv)
     auto drawGameCardFace = [&](sf::Vector2f position, const game_data::GameCard& card, bool selected, bool affordable) {
         sf::RectangleShape rect({HandCardWidth, HandCardHeight});
         rect.setPosition(position);
-        rect.setFillColor(selected ? sf::Color(54, 86, 92) : sf::Color(44, 50, 62));
+        rect.setFillColor(selected ? sf::Color(35, 97, 92, 238) : sf::Color(20, 28, 30, 236));
         rect.setOutlineThickness(selected ? 2.0f : 1.0f);
-        rect.setOutlineColor(selected ? sf::Color(120, 220, 205) : sf::Color(74, 82, 98));
+        rect.setOutlineColor(selected ? sf::Color(121, 238, 207) : sf::Color(155, 111, 59));
         window.draw(rect);
 
-        const sf::Color titleColor = affordable ? sf::Color::White : sf::Color(150, 120, 120);
-        drawText(window, font, card.title, 12, {position.x + 6.0f, position.y + 4.0f}, titleColor, HandCardWidth - 30.0f);
+        sf::RectangleShape artFrame({34.0f, 34.0f});
+        artFrame.setPosition({position.x + 5.0f, position.y + 5.0f});
+        artFrame.setFillColor(sf::Color(8, 14, 15));
+        artFrame.setOutlineThickness(1.0f);
+        artFrame.setOutlineColor(sf::Color(114, 83, 47));
+        window.draw(artFrame);
+        if (sf::Texture* art = cardArtTexture(card.imagePath))
+        {
+            drawContainSprite(*art, {{position.x + 7.0f, position.y + 7.0f}, {30.0f, 30.0f}},
+                              affordable ? sf::Color::White : sf::Color(120, 112, 104));
+        }
+
+        const sf::Color titleColor = affordable ? sf::Color(248, 239, 216) : sf::Color(158, 128, 118);
+        drawText(window, font, card.title, 12, {position.x + 43.0f, position.y + 7.0f}, titleColor, HandCardWidth - 66.0f);
 
         sf::CircleShape costBadge(11.0f);
         costBadge.setPosition({position.x + HandCardWidth - 24.0f, position.y + 3.0f});
-        costBadge.setFillColor(affordable ? sf::Color(70, 120, 170) : sf::Color(90, 70, 70));
+        costBadge.setFillColor(affordable ? sf::Color(39, 126, 139) : sf::Color(91, 66, 58));
+        costBadge.setOutlineThickness(1.0f);
+        costBadge.setOutlineColor(sf::Color(224, 174, 83));
         window.draw(costBadge);
-        drawText(window, font, std::to_string(card.cost), 13, {position.x + HandCardWidth - 21.0f, position.y + 4.0f}, sf::Color::White);
+        drawText(window, font, std::to_string(card.cost), 13, {position.x + HandCardWidth - 21.0f, position.y + 4.0f}, sf::Color(248, 239, 216));
 
         std::string line2;
         std::string line3;
@@ -1833,8 +1997,8 @@ int main(int argc, char** argv)
             else if (card.effect == "heal") line3 = "Heal " + std::to_string(card.power);
             else if (card.effect == "steam") line3 = "+" + std::to_string(card.power) + " steam";
         }
-        drawText(window, font, line2, 12, {position.x + 6.0f, position.y + 40.0f}, sf::Color(196, 204, 218), HandCardWidth - 12.0f);
-        drawText(window, font, line3, 12, {position.x + 6.0f, position.y + 57.0f}, sf::Color(160, 170, 188), HandCardWidth - 12.0f);
+        drawText(window, font, line2, 12, {position.x + 6.0f, position.y + 42.0f}, sf::Color(224, 210, 176), HandCardWidth - 12.0f);
+        drawText(window, font, line3, 12, {position.x + 6.0f, position.y + 58.0f}, sf::Color(143, 220, 205), HandCardWidth - 12.0f);
     };
 
     auto drawGame = [&]() {
@@ -1915,6 +2079,20 @@ int main(int argc, char** argv)
             }
         }
 
+        sf::RectangleShape boardBack({CellSize * game_data::BoardSize + 22.0f, CellSize * game_data::BoardSize + 22.0f});
+        boardBack.setPosition({BoardOriginX - 11.0f, BoardOriginY - 11.0f});
+        boardBack.setFillColor(sf::Color(9, 20, 21, 232));
+        boardBack.setOutlineThickness(3.0f);
+        boardBack.setOutlineColor(sf::Color(153, 105, 51));
+        window.draw(boardBack);
+
+        sf::RectangleShape boardWater({CellSize * game_data::BoardSize + 10.0f, CellSize * game_data::BoardSize + 10.0f});
+        boardWater.setPosition({BoardOriginX - 5.0f, BoardOriginY - 5.0f});
+        boardWater.setFillColor(sf::Color(13, 38, 42, 210));
+        boardWater.setOutlineThickness(1.0f);
+        boardWater.setOutlineColor(sf::Color(48, 125, 113));
+        window.draw(boardWater);
+
         // Board squares.
         for (int row = 0; row < game_data::BoardSize; ++row)
         {
@@ -1926,8 +2104,16 @@ int main(int argc, char** argv)
                 cell.setPosition({topLeft.x + 1.0f, topLeft.y + 1.0f});
                 cell.setFillColor(ownerTint(gameSnapshot.control[idx]));
                 cell.setOutlineThickness(1.0f);
-                cell.setOutlineColor(sf::Color(24, 26, 32));
+                cell.setOutlineColor(sf::Color(81, 63, 37));
                 window.draw(cell);
+
+                if ((row + column) % 2 == 0)
+                {
+                    sf::RectangleShape shade({CellSize - 4.0f, CellSize - 4.0f});
+                    shade.setPosition({topLeft.x + 2.0f, topLeft.y + 2.0f});
+                    shade.setFillColor(sf::Color(255, 239, 190, 16));
+                    window.draw(shade);
+                }
 
                 if (highlight[idx] != 0)
                 {
@@ -1949,9 +2135,8 @@ int main(int argc, char** argv)
         for (const game_data::Piece& piece : gameSnapshot.pieces)
         {
             const sf::Vector2f topLeft = cellTopLeft(piece.row, piece.column);
-            const float radius = CellSize * 0.36f;
-            sf::CircleShape body(radius);
-            body.setPosition({topLeft.x + CellSize / 2.0f - radius, topLeft.y + CellSize / 2.0f - radius});
+            sf::RectangleShape plinth({CellSize - 12.0f, CellSize - 12.0f});
+            plinth.setPosition({topLeft.x + 6.0f, topLeft.y + 6.0f});
             sf::Color color = ownerColor(piece.owner);
             if (piece.hasActed && piece.owner == gameSnapshot.activePlayer)
             {
@@ -1959,10 +2144,28 @@ int main(int argc, char** argv)
                                   static_cast<std::uint8_t>(color.g * 0.55f),
                                   static_cast<std::uint8_t>(color.b * 0.55f));
             }
-            body.setFillColor(color);
-            body.setOutlineThickness(piece.isHero ? 3.0f : 1.5f);
-            body.setOutlineColor(piece.isHero ? sf::Color(245, 210, 90) : sf::Color(20, 22, 28));
-            window.draw(body);
+            plinth.setFillColor(sf::Color(8, 15, 16, 236));
+            plinth.setOutlineThickness(piece.isHero ? 3.0f : 2.0f);
+            plinth.setOutlineColor(piece.isHero ? sf::Color(236, 190, 84) : color);
+            window.draw(plinth);
+
+            if (sf::Texture* art = cardArtTexture(piece.imagePath))
+            {
+                drawContainSprite(*art, {{topLeft.x + 9.0f, topLeft.y + 9.0f}, {CellSize - 18.0f, CellSize - 18.0f}},
+                                  piece.hasActed && piece.owner == gameSnapshot.activePlayer
+                                      ? sf::Color(130, 130, 130)
+                                      : sf::Color::White);
+            }
+            else
+            {
+                const float radius = CellSize * 0.29f;
+                sf::CircleShape body(radius);
+                body.setPosition({topLeft.x + CellSize / 2.0f - radius, topLeft.y + CellSize / 2.0f - radius});
+                body.setFillColor(color);
+                body.setOutlineThickness(1.5f);
+                body.setOutlineColor(sf::Color(20, 22, 28));
+                window.draw(body);
+            }
 
             if (selectedPiece && selectedPiece->id == piece.id)
             {
@@ -1975,9 +2178,9 @@ int main(int argc, char** argv)
             }
 
             const std::string label = piece.name.substr(0, 3);
-            drawText(window, font, label, 12, {topLeft.x + 6.0f, topLeft.y + 4.0f}, sf::Color::White, CellSize - 10.0f);
+            drawText(window, font, label, 12, {topLeft.x + 6.0f, topLeft.y + 4.0f}, sf::Color(248, 239, 216), CellSize - 10.0f);
             drawText(window, font, std::to_string(piece.health), 16,
-                     {topLeft.x + CellSize / 2.0f - 6.0f, topLeft.y + CellSize - 22.0f}, sf::Color::White);
+                     {topLeft.x + CellSize / 2.0f - 6.0f, topLeft.y + CellSize - 22.0f}, sf::Color(248, 239, 216));
         }
 
         // Info panel.
@@ -2646,7 +2849,8 @@ int main(int argc, char** argv)
             leaveGameButton.update(mousePos);
         }
 
-        window.clear(sf::Color(30, 30, 30));
+        window.clear(sf::Color(9, 17, 19));
+        drawBackdrop();
         window.draw(title);
 
         if (currentState == GameState::Menu)

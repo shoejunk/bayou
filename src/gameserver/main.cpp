@@ -441,6 +441,7 @@ private:
         piece.row = row;
         piece.column = column;
         piece.name = card.title;
+        piece.imagePath = card.imagePath;
         piece.maxHealth = card.health;
         piece.health = card.health;
         piece.attack = card.attack;

@@ -117,6 +117,7 @@ struct GameCard
 {
     std::string title;
     std::string type;      // "Unit", "Spell", or "Hero"
+    std::string imagePath;
     int cost = 1;          // steam cost (units / spells)
     int heroCost = 0;      // hero-cost budget contribution (heroes)
     int health = 1;
@@ -134,6 +135,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     GameCard g;
     g.title = card.title;
     g.type = card.type;
+    g.imagePath = card.imagePath;
     g.cost = cardInt(card, "cost", 1);
     g.heroCost = cardInt(card, "heroCost", 0);
     g.health = cardInt(card, "health", 1);
@@ -155,6 +157,7 @@ struct Piece
     int row = 0;
     int column = 0;
     std::string name;
+    std::string imagePath;
     int maxHealth = 1;
     int health = 1;
     int attack = 0;
@@ -195,7 +198,7 @@ struct Snapshot
 
 inline void writeGameCard(sf::Packet& packet, const GameCard& card)
 {
-    packet << card.title << card.type << card.cost << card.heroCost
+    packet << card.title << card.type << card.imagePath << card.cost << card.heroCost
            << card.health << card.attack << card.attackRange
            << card.movePattern << card.moveRange
            << card.effect << card.target << card.power;
@@ -203,7 +206,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
 
 inline bool readGameCard(sf::Packet& packet, GameCard& card)
 {
-    packet >> card.title >> card.type >> card.cost >> card.heroCost
+    packet >> card.title >> card.type >> card.imagePath >> card.cost >> card.heroCost
            >> card.health >> card.attack >> card.attackRange
            >> card.movePattern >> card.moveRange
            >> card.effect >> card.target >> card.power;
@@ -212,14 +215,14 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
 
 inline void writePiece(sf::Packet& packet, const Piece& piece)
 {
-    packet << piece.id << piece.owner << piece.row << piece.column << piece.name
+    packet << piece.id << piece.owner << piece.row << piece.column << piece.name << piece.imagePath
            << piece.maxHealth << piece.health << piece.attack << piece.attackRange
            << piece.movePattern << piece.moveRange << piece.isHero << piece.hasActed;
 }
 
 inline bool readPiece(sf::Packet& packet, Piece& piece)
 {
-    packet >> piece.id >> piece.owner >> piece.row >> piece.column >> piece.name
+    packet >> piece.id >> piece.owner >> piece.row >> piece.column >> piece.name >> piece.imagePath
            >> piece.maxHealth >> piece.health >> piece.attack >> piece.attackRange
            >> piece.movePattern >> piece.moveRange >> piece.isHero >> piece.hasActed;
     return static_cast<bool>(packet);

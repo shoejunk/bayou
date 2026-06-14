@@ -20,14 +20,14 @@ export struct InputBox
     {
         shape.setPosition(position);
         shape.setSize(size);
-        shape.setFillColor(sf::Color(50, 50, 50));
+        shape.setFillColor(sf::Color(16, 23, 25, 230));
         shape.setOutlineThickness(2);
-        shape.setOutlineColor(sf::Color::White);
+        shape.setOutlineColor(sf::Color(154, 112, 61));
 
-        label.setFillColor(sf::Color::White);
+        label.setFillColor(sf::Color(221, 198, 157));
         label.setPosition({position.x, position.y - 25.0f});
 
-        text.setFillColor(sf::Color::White);
+        text.setFillColor(sf::Color(246, 238, 218));
         text.setPosition({position.x + 10.0f, position.y + size.y / 2.0f - 10.0f});
     }
 
@@ -49,7 +49,7 @@ export struct InputBox
         active = isActive;
         cursorTimer = 0.0f;
         showCursor = active;
-        shape.setOutlineColor(active ? sf::Color(100, 200, 255) : sf::Color::White);
+        shape.setOutlineColor(active ? sf::Color(95, 219, 196) : sf::Color(154, 112, 61));
     }
 
     void handleEvent(const sf::Event& event)
