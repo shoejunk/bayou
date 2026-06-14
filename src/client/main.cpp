@@ -1087,6 +1087,20 @@ int main(int argc, char** argv)
         window.draw(sprite);
     };
 
+    auto drawTextureRectContain = [&](sf::Texture& texture, sf::IntRect textureRect, sf::FloatRect target, sf::Color color = sf::Color::White) {
+        sf::Sprite sprite(texture);
+        sprite.setTextureRect(textureRect);
+        const float sourceWidth = static_cast<float>(textureRect.size.x);
+        const float sourceHeight = static_cast<float>(textureRect.size.y);
+        const float scale = std::min(target.size.x / sourceWidth, target.size.y / sourceHeight);
+        sprite.setScale({scale, scale});
+        sprite.setColor(color);
+        sprite.setPosition({
+            target.position.x + (target.size.x - sourceWidth * scale) * 0.5f,
+            target.position.y + (target.size.y - sourceHeight * scale) * 0.5f});
+        window.draw(sprite);
+    };
+
     auto drawBackdrop = [&]() {
         if (backdropTexture)
         {
@@ -1138,6 +1152,7 @@ int main(int argc, char** argv)
     messageText.setPosition({400.0f, 450.0f});
 
     sf::Clock clock;
+    float animationTime = 0.0f;
     GameState currentState = GameState::Menu;
     std::optional<std::future<ServerResult>> pendingRequest;
     std::optional<std::future<ServerResult>> pendingMatchmaking;
@@ -1170,6 +1185,16 @@ int main(int argc, char** argv)
     bool haveSnapshot = false;
     std::optional<int> selectedPieceId;
     std::optional<std::size_t> selectedHandIndex;
+    struct PieceMoveAnimation
+    {
+        int fromRow = 0;
+        int fromColumn = 0;
+        int toRow = 0;
+        int toColumn = 0;
+        float startTime = 0.0f;
+        float duration = 0.95f;
+    };
+    std::unordered_map<int, PieceMoveAnimation> pieceMoveAnimations;
 
     Button findMatchButton({300.0f, 458.0f}, {200.0f, 52.0f}, "Find Match", font);
     Button endTurnButton({InfoPanelX + 64.0f, 446.0f}, {176.0f, 44.0f}, "End Turn", font);
@@ -1733,6 +1758,63 @@ int main(int argc, char** argv)
                 BoardOriginY + static_cast<float>(screenRow) * CellSize};
     };
 
+    auto cellTopLeftForViewer = [&](int row, int column, int viewer) -> sf::Vector2f {
+        const int screenRow = viewer == 1 ? (game_data::BoardSize - 1 - row) : row;
+        return {BoardOriginX + static_cast<float>(column) * CellSize,
+                BoardOriginY + static_cast<float>(screenRow) * CellSize};
+    };
+
+    auto pieceByIdInSnapshot = [](const game_data::Snapshot& snapshot, int id) -> const game_data::Piece* {
+        for (const game_data::Piece& piece : snapshot.pieces)
+        {
+            if (piece.id == id)
+            {
+                return &piece;
+            }
+        }
+        return nullptr;
+    };
+
+    auto updatePieceMoveAnimations = [&](const game_data::Snapshot& nextSnapshot) {
+        std::vector<int> staleAnimations;
+        for (auto& [pieceId, animation] : pieceMoveAnimations)
+        {
+            if (!pieceByIdInSnapshot(nextSnapshot, pieceId))
+            {
+                staleAnimations.push_back(pieceId);
+            }
+        }
+        for (int pieceId : staleAnimations)
+        {
+            pieceMoveAnimations.erase(pieceId);
+        }
+
+        if (!haveSnapshot)
+        {
+            return;
+        }
+
+        for (const game_data::Piece& nextPiece : nextSnapshot.pieces)
+        {
+            const game_data::Piece* currentPiece = pieceByIdInSnapshot(gameSnapshot, nextPiece.id);
+            if (!currentPiece)
+            {
+                continue;
+            }
+
+            if (currentPiece->row != nextPiece.row || currentPiece->column != nextPiece.column)
+            {
+                pieceMoveAnimations[nextPiece.id] = {
+                    currentPiece->row,
+                    currentPiece->column,
+                    nextPiece.row,
+                    nextPiece.column,
+                    animationTime,
+                    0.95f};
+            }
+        }
+    };
+
     auto squareAtPixel = [&](sf::Vector2f point) -> std::optional<std::pair<int, int>> {
         if (point.x < BoardOriginX || point.y < BoardOriginY)
         {
@@ -1766,6 +1848,10 @@ int main(int argc, char** argv)
 
     auto cardArtTexture = [&](const std::string& imagePath) -> sf::Texture* {
         return loadTexture(imagePath);
+    };
+
+    auto walkAnimTexture = [&](const std::string& walkAnimPath) -> sf::Texture* {
+        return loadTexture(walkAnimPath);
     };
 
     auto handCardAtPixel = [&](sf::Vector2f point) -> std::optional<std::size_t> {
@@ -1832,6 +1918,7 @@ int main(int argc, char** argv)
                 game_data::Snapshot snapshot;
                 if (game_data::readSnapshot(packet, snapshot))
                 {
+                    updatePieceMoveAnimations(snapshot);
                     gameSnapshot = snapshot;
                     haveSnapshot = true;
                 }
@@ -1850,6 +1937,7 @@ int main(int argc, char** argv)
         gameSnapshot = {};
         selectedPieceId.reset();
         selectedHandIndex.reset();
+        pieceMoveAnimations.clear();
         showAuthenticatedScreen();
     };
 
@@ -2134,9 +2222,28 @@ int main(int argc, char** argv)
         // Pieces.
         for (const game_data::Piece& piece : gameSnapshot.pieces)
         {
-            const sf::Vector2f topLeft = cellTopLeft(piece.row, piece.column);
-            sf::RectangleShape plinth({CellSize - 12.0f, CellSize - 12.0f});
-            plinth.setPosition({topLeft.x + 6.0f, topLeft.y + 6.0f});
+            sf::Vector2f topLeft = cellTopLeft(piece.row, piece.column);
+            bool isMoving = false;
+            if (const auto animation = pieceMoveAnimations.find(piece.id); animation != pieceMoveAnimations.end())
+            {
+                const float progress = std::min((animationTime - animation->second.startTime) / animation->second.duration, 1.0f);
+                if (progress < 1.0f)
+                {
+                    isMoving = true;
+                    const sf::Vector2f start = cellTopLeftForViewer(
+                        animation->second.fromRow, animation->second.fromColumn, gameSnapshot.yourPlayer);
+                    const sf::Vector2f end = cellTopLeftForViewer(
+                        animation->second.toRow, animation->second.toColumn, gameSnapshot.yourPlayer);
+                    topLeft = {
+                        start.x + (end.x - start.x) * progress,
+                        start.y + (end.y - start.y) * progress};
+                }
+                else
+                {
+                    pieceMoveAnimations.erase(piece.id);
+                }
+            }
+
             sf::Color color = ownerColor(piece.owner);
             if (piece.hasActed && piece.owner == gameSnapshot.activePlayer)
             {
@@ -2144,14 +2251,28 @@ int main(int argc, char** argv)
                                   static_cast<std::uint8_t>(color.g * 0.55f),
                                   static_cast<std::uint8_t>(color.b * 0.55f));
             }
-            plinth.setFillColor(sf::Color(8, 15, 16, 236));
-            plinth.setOutlineThickness(piece.isHero ? 3.0f : 2.0f);
-            plinth.setOutlineColor(piece.isHero ? sf::Color(236, 190, 84) : color);
-            window.draw(plinth);
 
-            if (sf::Texture* art = cardArtTexture(piece.imagePath))
+            if (sf::Texture* walkSheet = walkAnimTexture(piece.walkAnimPath))
             {
-                drawContainSprite(*art, {{topLeft.x + 9.0f, topLeft.y + 9.0f}, {CellSize - 18.0f, CellSize - 18.0f}},
+                constexpr int WalkFrameCount = 4;
+                const sf::Vector2u sheetSize = walkSheet->getSize();
+                const int frameWidth = static_cast<int>(sheetSize.x / WalkFrameCount);
+                const int frameHeight = static_cast<int>(sheetSize.y);
+                if (frameWidth > 0 && frameHeight > 0)
+                {
+                    const int frame = isMoving ? static_cast<int>(animationTime * 5.0f) % WalkFrameCount : 0;
+                    drawTextureRectContain(
+                        *walkSheet,
+                        sf::IntRect({frame * frameWidth, 0}, {frameWidth, frameHeight}),
+                        {{topLeft.x + 5.0f, topLeft.y - 1.0f}, {CellSize - 10.0f, CellSize - 6.0f}},
+                        piece.hasActed && piece.owner == gameSnapshot.activePlayer
+                            ? sf::Color(150, 150, 150, 215)
+                            : sf::Color::White);
+                }
+            }
+            else if (sf::Texture* art = cardArtTexture(piece.imagePath))
+            {
+                drawContainSprite(*art, {{topLeft.x + 7.0f, topLeft.y + 7.0f}, {CellSize - 14.0f, CellSize - 14.0f}},
                                   piece.hasActed && piece.owner == gameSnapshot.activePlayer
                                       ? sf::Color(130, 130, 130)
                                       : sf::Color::White);
@@ -2162,23 +2283,8 @@ int main(int argc, char** argv)
                 sf::CircleShape body(radius);
                 body.setPosition({topLeft.x + CellSize / 2.0f - radius, topLeft.y + CellSize / 2.0f - radius});
                 body.setFillColor(color);
-                body.setOutlineThickness(1.5f);
-                body.setOutlineColor(sf::Color(20, 22, 28));
                 window.draw(body);
             }
-
-            if (selectedPiece && selectedPiece->id == piece.id)
-            {
-                sf::RectangleShape ring({CellSize - 6.0f, CellSize - 6.0f});
-                ring.setPosition({topLeft.x + 3.0f, topLeft.y + 3.0f});
-                ring.setFillColor(sf::Color::Transparent);
-                ring.setOutlineThickness(2.5f);
-                ring.setOutlineColor(sf::Color(245, 230, 120));
-                window.draw(ring);
-            }
-
-            const std::string label = piece.name.substr(0, 3);
-            drawText(window, font, label, 12, {topLeft.x + 6.0f, topLeft.y + 4.0f}, sf::Color(248, 239, 216), CellSize - 10.0f);
             drawText(window, font, std::to_string(piece.health), 16,
                      {topLeft.x + CellSize / 2.0f - 6.0f, topLeft.y + CellSize - 22.0f}, sf::Color(248, 239, 216));
         }
@@ -2307,6 +2413,7 @@ int main(int argc, char** argv)
     while (window.isOpen())
     {
         const float deltaTime = clock.restart().asSeconds();
+        animationTime += deltaTime;
         sf::Vector2f mousePos = window.mapPixelToCoords(sf::Mouse::getPosition(window));
 
         if (currentState == GameState::Game)
