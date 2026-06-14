@@ -30,22 +30,27 @@ constexpr unsigned short CardServerPort = 55004;
 constexpr const char* DefaultServerHost = "127.0.0.1";
 constexpr const char* ClientConfigFileName = "client.cfg";
 
-constexpr float DeckListX = 25.0f;
-constexpr float DeckListY = 160.0f;
-constexpr float DeckListWidth = 250.0f;
-constexpr float DeckRowHeight = 38.0f;
+constexpr float DeckPanelX = 20.0f;
+constexpr float CurrentDeckPanelX = 290.0f;
+constexpr float LibraryPanelX = 560.0f;
+constexpr float DeckEditorPanelY = 96.0f;
+constexpr float DeckEditorPanelHeight = 400.0f;
+constexpr float DeckListX = 34.0f;
+constexpr float DeckListY = 184.0f;
+constexpr float DeckListWidth = 222.0f;
+constexpr float DeckRowHeight = 34.0f;
 constexpr std::size_t VisibleDeckRows = 8;
 
-constexpr float DeckCardsX = 310.0f;
-constexpr float DeckCardsY = 220.0f;
-constexpr float DeckCardsWidth = 220.0f;
-constexpr float DeckCardRowHeight = 30.0f;
+constexpr float DeckCardsX = 304.0f;
+constexpr float DeckCardsY = 224.0f;
+constexpr float DeckCardsWidth = 222.0f;
+constexpr float DeckCardRowHeight = 29.0f;
 constexpr std::size_t VisibleDeckCardRows = 9;
 
-constexpr float LibraryX = 555.0f;
-constexpr float LibraryY = 160.0f;
-constexpr float LibraryWidth = 220.0f;
-constexpr float LibraryRowHeight = 34.0f;
+constexpr float LibraryX = 574.0f;
+constexpr float LibraryY = 168.0f;
+constexpr float LibraryWidth = 192.0f;
+constexpr float LibraryRowHeight = 31.0f;
 constexpr std::size_t VisibleLibraryRows = 10;
 
 enum class GameState
@@ -910,7 +915,7 @@ int main(int argc, char** argv)
     InputBox usernameInput({300.0f, 140.0f}, {200.0f, 40.0f}, "Username", font);
     InputBox passwordInput({300.0f, 220.0f}, {200.0f, 40.0f}, "Password", font, true);
     InputBox confirmInput({300.0f, 300.0f}, {200.0f, 40.0f}, "Confirm Password", font, true);
-    InputBox deckNameInput({310.0f, 120.0f}, {220.0f, 40.0f}, "Deck Name", font);
+    InputBox deckNameInput({304.0f, 154.0f}, {222.0f, 40.0f}, "Deck Name", font);
 
     Button loginSubmitButton({300.0f, 300.0f}, {200.0f, 50.0f}, "Login", font);
     Button createSubmitButton({300.0f, 380.0f}, {200.0f, 50.0f}, "Create Account", font);
@@ -918,13 +923,13 @@ int main(int argc, char** argv)
     Button playButton({300.0f, 220.0f}, {200.0f, 60.0f}, "Play", font);
     Button deckEditorButton({300.0f, 300.0f}, {200.0f, 60.0f}, "Deck Editor", font);
 
-    Button deckBackButton({660.0f, 24.0f}, {115.0f, 42.0f}, "Back", font);
-    Button newDeckButton({25.0f, 100.0f}, {115.0f, 40.0f}, "New", font);
-    Button refreshDeckButton({150.0f, 100.0f}, {125.0f, 40.0f}, "Refresh", font);
-    Button deleteDeckButton({25.0f, 520.0f}, {120.0f, 45.0f}, "Delete", font);
-    Button removeCardButton({310.0f, 520.0f}, {105.0f, 45.0f}, "Remove", font);
-    Button addCardButton({555.0f, 520.0f}, {95.0f, 45.0f}, "Add", font);
-    Button saveDeckButton({655.0f, 520.0f}, {120.0f, 45.0f}, "Save", font);
+    Button deckBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
+    Button newDeckButton({34.0f, 132.0f}, {102.0f, 38.0f}, "New", font);
+    Button refreshDeckButton({146.0f, 132.0f}, {110.0f, 38.0f}, "Refresh", font);
+    Button deleteDeckButton({34.0f, 508.0f}, {110.0f, 38.0f}, "Delete", font);
+    Button removeCardButton({304.0f, 508.0f}, {110.0f, 38.0f}, "Remove", font);
+    Button addCardButton({574.0f, 508.0f}, {88.0f, 38.0f}, "Add", font);
+    Button saveDeckButton({668.0f, 508.0f}, {108.0f, 38.0f}, "Save", font);
 
     sf::Text messageText(font, "", 20);
     messageText.setFillColor(sf::Color::Red);
@@ -946,6 +951,10 @@ int main(int argc, char** argv)
     std::optional<std::size_t> selectedDeck;
     std::optional<std::size_t> selectedDeckCard;
     std::optional<std::size_t> selectedLibraryCard;
+    std::optional<std::size_t> draggingLibraryCard;
+    sf::Vector2f dragStartPos;
+    sf::Vector2f dragCurrentPos;
+    bool dragActive = false;
     std::size_t deckListOffset = 0;
     std::size_t deckCardListOffset = 0;
     std::size_t libraryOffset = 0;
@@ -1062,11 +1071,15 @@ int main(int argc, char** argv)
         selectedDeck.reset();
         selectedDeckCard.reset();
         selectedLibraryCard.reset();
+        draggingLibraryCard.reset();
+        dragActive = false;
         title.setString("Main Menu");
         centerText(title, 400.0f);
         setMessageY(messageText, 450.0f);
         resetForm(usernameInput, passwordInput, confirmInput, messageText);
         deckNameInput.clear();
+        draggingLibraryCard.reset();
+        dragActive = false;
         clearFocus();
     };
 
@@ -1100,9 +1113,9 @@ int main(int argc, char** argv)
 
     auto loadDeckEditor = [&]() {
         currentState = GameState::DeckEditor;
-        title.setString("Deck Editor");
+        title.setString("");
         centerText(title, 400.0f);
-        setMessageY(messageText, 565.0f);
+        setMessageY(messageText, 558.0f);
         setMessage(messageText, "Loading deck editor...", sf::Color::Yellow);
         clearFocus();
         cardLibrary.clear();
@@ -1112,6 +1125,8 @@ int main(int argc, char** argv)
         selectedDeck.reset();
         selectedDeckCard.reset();
         selectedLibraryCard.reset();
+        draggingLibraryCard.reset();
+        dragActive = false;
         deckListOffset = 0;
         deckCardListOffset = 0;
         libraryOffset = 0;
@@ -1183,6 +1198,22 @@ int main(int argc, char** argv)
         pendingDeckDelete = std::async(std::launch::async, deleteDeckFromAccount, loggedInUsername, activeDeckOriginalName);
     };
 
+    auto addLibraryCardToDeck = [&](std::size_t libraryIndex, const std::string& message) {
+        if (libraryIndex >= cardLibrary.size())
+        {
+            return;
+        }
+
+        editingDeck.cardTitles.push_back(cardLibrary[libraryIndex].title);
+        selectedDeckCard = editingDeck.cardTitles.size() - 1;
+        clampListOffset(deckCardListOffset, editingDeck.cardTitles.size(), VisibleDeckCardRows);
+        if (*selectedDeckCard >= deckCardListOffset + VisibleDeckCardRows)
+        {
+            deckCardListOffset = *selectedDeckCard - VisibleDeckCardRows + 1;
+        }
+        setMessage(messageText, message, sf::Color::Yellow);
+    };
+
     auto addSelectedCard = [&]() {
         if (!selectedLibraryCard || *selectedLibraryCard >= cardLibrary.size())
         {
@@ -1190,14 +1221,7 @@ int main(int argc, char** argv)
             return;
         }
 
-        editingDeck.cardTitles.push_back(cardLibrary[*selectedLibraryCard].title);
-        selectedDeckCard = editingDeck.cardTitles.size() - 1;
-        clampListOffset(deckCardListOffset, editingDeck.cardTitles.size(), VisibleDeckCardRows);
-        if (*selectedDeckCard >= deckCardListOffset + VisibleDeckCardRows)
-        {
-            deckCardListOffset = *selectedDeckCard - VisibleDeckCardRows + 1;
-        }
-        setMessage(messageText, "Card added. Save to keep changes.", sf::Color::Yellow);
+        addLibraryCardToDeck(*selectedLibraryCard, "Card added. Save to keep changes.");
     };
 
     auto removeSelectedCard = [&]() {
@@ -1221,12 +1245,13 @@ int main(int argc, char** argv)
     };
 
     auto drawDeckEditor = [&]() {
-        drawText(window, font, "Signed in as " + loggedInUsername, 14, {24.0f, 28.0f}, sf::Color(178, 186, 202), 220.0f);
-        drawText(window, font, "Card server " + endpointText(clientConfig().card), 13, {24.0f, 52.0f}, sf::Color(148, 158, 176), 260.0f);
+        drawText(window, font, "Deck Editor", 30, {24.0f, 18.0f}, sf::Color::White);
+        drawText(window, font, "Signed in as " + loggedInUsername, 14, {270.0f, 22.0f}, sf::Color(178, 186, 202), 360.0f);
+        drawText(window, font, "Card server " + endpointText(clientConfig().card), 13, {270.0f, 45.0f}, sf::Color(148, 158, 176), 360.0f);
         deckBackButton.draw(window);
 
-        drawPanel(window, {18.0f, 88.0f}, {270.0f, 410.0f});
-        drawText(window, font, "Decks", 22, {25.0f, 67.0f}, sf::Color::White);
+        drawPanel(window, {DeckPanelX, DeckEditorPanelY}, {250.0f, DeckEditorPanelHeight});
+        drawText(window, font, "Decks", 22, {34.0f, 107.0f}, sf::Color::White);
         newDeckButton.draw(window);
         refreshDeckButton.draw(window);
 
@@ -1245,19 +1270,19 @@ int main(int argc, char** argv)
         }
         if (playerDecks.empty() && !deckEditorBusy())
         {
-            drawText(window, font, "No saved decks", 16, {48.0f, 235.0f}, sf::Color(178, 186, 202));
+            drawText(window, font, "No saved decks", 16, {56.0f, 296.0f}, sf::Color(178, 186, 202));
         }
         deleteDeckButton.draw(window);
 
-        drawPanel(window, {300.0f, 88.0f}, {240.0f, 410.0f});
-        drawText(window, font, "Current Deck", 22, {310.0f, 67.0f}, sf::Color::White);
+        drawPanel(window, {CurrentDeckPanelX, DeckEditorPanelY}, {250.0f, DeckEditorPanelHeight});
+        drawText(window, font, "Current Deck", 22, {304.0f, 107.0f}, sf::Color::White);
         deckNameInput.draw(window);
         drawText(
             window,
             font,
             std::to_string(editingDeck.cardTitles.size()) + " selected cards",
             14,
-            {310.0f, 175.0f},
+            {304.0f, 204.0f},
             sf::Color(178, 186, 202));
 
         const std::size_t lastDeckCard = std::min(editingDeck.cardTitles.size(), deckCardListOffset + VisibleDeckCardRows);
@@ -1275,18 +1300,18 @@ int main(int argc, char** argv)
         }
         if (editingDeck.cardTitles.empty() && !deckEditorBusy())
         {
-            drawText(window, font, "Select cards from the library", 15, {322.0f, 292.0f}, sf::Color(178, 186, 202), 190.0f);
+            drawText(window, font, "No cards in this deck", 15, {328.0f, 320.0f}, sf::Color(178, 186, 202), 180.0f);
         }
         removeCardButton.draw(window);
 
-        drawPanel(window, {545.0f, 88.0f}, {240.0f, 410.0f});
-        drawText(window, font, "Card Library", 22, {555.0f, 67.0f}, sf::Color::White);
+        drawPanel(window, {LibraryPanelX, DeckEditorPanelY}, {220.0f, DeckEditorPanelHeight});
+        drawText(window, font, "Card Library", 22, {574.0f, 107.0f}, sf::Color::White);
         drawText(
             window,
             font,
             std::to_string(cardLibrary.size()) + " available cards",
             14,
-            {555.0f, 122.0f},
+            {574.0f, 138.0f},
             sf::Color(178, 186, 202));
 
         const std::size_t lastCard = std::min(cardLibrary.size(), libraryOffset + VisibleLibraryRows);
@@ -1304,10 +1329,42 @@ int main(int argc, char** argv)
         }
         if (cardLibrary.empty() && !deckEditorBusy())
         {
-            drawText(window, font, "No cards returned", 16, {590.0f, 265.0f}, sf::Color(178, 186, 202));
+            drawText(window, font, "No cards returned", 16, {592.0f, 296.0f}, sf::Color(178, 186, 202));
         }
         addCardButton.draw(window);
         saveDeckButton.draw(window);
+
+        const bool hoveringDropTarget = dragActive && draggingLibraryCard &&
+            isInsideRect(dragCurrentPos, CurrentDeckPanelX, DeckEditorPanelY, 250.0f, DeckEditorPanelHeight);
+        if (hoveringDropTarget)
+        {
+            sf::RectangleShape dropTarget({250.0f, DeckEditorPanelHeight});
+            dropTarget.setPosition({CurrentDeckPanelX, DeckEditorPanelY});
+            dropTarget.setFillColor(sf::Color(80, 140, 130, 45));
+            dropTarget.setOutlineThickness(3.0f);
+            dropTarget.setOutlineColor(sf::Color(103, 198, 184));
+            window.draw(dropTarget);
+        }
+
+        if (dragActive && draggingLibraryCard && *draggingLibraryCard < cardLibrary.size())
+        {
+            const sf::Vector2f ghostPosition{dragCurrentPos.x - 96.0f, dragCurrentPos.y - 15.0f};
+            sf::RectangleShape ghost({192.0f, 30.0f});
+            ghost.setPosition(ghostPosition);
+            ghost.setFillColor(sf::Color(60, 88, 102, 220));
+            ghost.setOutlineThickness(1.0f);
+            ghost.setOutlineColor(sf::Color(130, 220, 205));
+            window.draw(ghost);
+            drawText(
+                window,
+                font,
+                cardLibrary[*draggingLibraryCard].title,
+                15,
+                {ghostPosition.x + 10.0f, ghostPosition.y + 6.0f},
+                sf::Color::White,
+                172.0f);
+        }
+
         window.draw(messageText);
     };
 
@@ -1448,7 +1505,8 @@ int main(int argc, char** argv)
                 window.close();
             }
 
-            if (const auto* mousePressed = event->getIf<sf::Event::MouseButtonPressed>(); mousePressed && !pendingRequest && !pendingMatchmaking)
+            if (const auto* mousePressed = event->getIf<sf::Event::MouseButtonPressed>();
+                mousePressed && mousePressed->button == sf::Mouse::Button::Left && !pendingRequest && !pendingMatchmaking)
             {
                 sf::Vector2f clickPos = window.mapPixelToCoords(mousePressed->position);
                 if (currentState == GameState::Menu)
@@ -1535,6 +1593,9 @@ int main(int argc, char** argv)
                 }
                 else if (currentState == GameState::DeckEditor)
                 {
+                    draggingLibraryCard.reset();
+                    dragActive = false;
+
                     if (deckBackButton.isClicked(clickPos) && !deckEditorBusy())
                     {
                         showAuthenticatedScreen();
@@ -1608,6 +1669,10 @@ int main(int argc, char** argv)
                         {
                             clearFocus();
                             selectedLibraryCard = *libraryIndex;
+                            draggingLibraryCard = *libraryIndex;
+                            dragStartPos = clickPos;
+                            dragCurrentPos = clickPos;
+                            dragActive = false;
                         }
                         else
                         {
@@ -1615,6 +1680,31 @@ int main(int argc, char** argv)
                         }
                     }
                 }
+            }
+
+            if (const auto* mouseMoved = event->getIf<sf::Event::MouseMoved>();
+                mouseMoved && currentState == GameState::DeckEditor && draggingLibraryCard)
+            {
+                dragCurrentPos = window.mapPixelToCoords(mouseMoved->position);
+                const sf::Vector2f delta = dragCurrentPos - dragStartPos;
+                if (delta.x * delta.x + delta.y * delta.y > 16.0f)
+                {
+                    dragActive = true;
+                }
+            }
+
+            if (const auto* mouseReleased = event->getIf<sf::Event::MouseButtonReleased>();
+                mouseReleased && mouseReleased->button == sf::Mouse::Button::Left && currentState == GameState::DeckEditor)
+            {
+                const sf::Vector2f releasePos = window.mapPixelToCoords(mouseReleased->position);
+                if (draggingLibraryCard && dragActive &&
+                    isInsideRect(releasePos, CurrentDeckPanelX, DeckEditorPanelY, 250.0f, DeckEditorPanelHeight))
+                {
+                    addLibraryCardToDeck(*draggingLibraryCard, "Card dropped into deck. Save to keep changes.");
+                }
+
+                draggingLibraryCard.reset();
+                dragActive = false;
             }
 
             if (const auto* wheel = event->getIf<sf::Event::MouseWheelScrolled>(); wheel && currentState == GameState::DeckEditor)
