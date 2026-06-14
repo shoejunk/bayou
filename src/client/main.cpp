@@ -80,6 +80,16 @@ constexpr float HandCardWidth = 88.0f;
 constexpr float HandCardHeight = 78.0f;
 constexpr float HandGap = 6.0f;
 constexpr float HandStartX = 28.0f;
+constexpr float PiecePopupX = 150.0f;
+constexpr float PiecePopupY = 92.0f;
+constexpr float PiecePopupWidth = 500.0f;
+constexpr float PiecePopupHeight = 416.0f;
+constexpr float PiecePopupTextX = PiecePopupX + 24.0f;
+constexpr float PiecePopupTextWidth = PiecePopupWidth - 48.0f;
+constexpr float PiecePopupActionHeadingY = PiecePopupY + 186.0f;
+constexpr float PiecePopupScrollY = PiecePopupActionHeadingY + 26.0f;
+constexpr float PiecePopupScrollHeight = PiecePopupHeight - (PiecePopupScrollY - PiecePopupY) - 66.0f;
+constexpr float PieceDoubleClickSeconds = 0.38f;
 
 struct ServerEndpoint
 {
@@ -512,6 +522,86 @@ void drawText(
     text.setFillColor(color);
     text.setPosition(position);
     window.draw(text);
+}
+
+std::vector<std::string> wrapText(sf::Font& font, const std::string& value, unsigned int size, float maxWidth)
+{
+    std::vector<std::string> lines;
+    sf::Text measuringText(font, "", size);
+    std::string line;
+    std::size_t position = 0;
+
+    auto fits = [&](const std::string& text) {
+        measuringText.setString(text);
+        return measuringText.getLocalBounds().size.x <= maxWidth;
+    };
+
+    auto pushLine = [&]() {
+        lines.push_back(line);
+        line.clear();
+    };
+
+    while (position < value.size())
+    {
+        if (value[position] == '\n')
+        {
+            pushLine();
+            ++position;
+            continue;
+        }
+
+        while (position < value.size() && value[position] == ' ')
+        {
+            ++position;
+        }
+        if (position >= value.size())
+        {
+            break;
+        }
+
+        const std::size_t wordStart = position;
+        while (position < value.size() && value[position] != ' ' && value[position] != '\n')
+        {
+            ++position;
+        }
+
+        const std::string word = value.substr(wordStart, position - wordStart);
+        const std::string candidate = line.empty() ? word : line + " " + word;
+        if (line.empty() || fits(candidate))
+        {
+            line = candidate;
+        }
+        else
+        {
+            pushLine();
+            line = word;
+        }
+    }
+
+    if (!line.empty() || lines.empty())
+    {
+        lines.push_back(line);
+    }
+    return lines;
+}
+
+float drawWrappedText(
+    sf::RenderWindow& window,
+    sf::Font& font,
+    const std::string& value,
+    unsigned int size,
+    sf::Vector2f position,
+    sf::Color color,
+    float maxWidth,
+    float lineGap = 4.0f)
+{
+    float y = position.y;
+    for (const std::string& line : wrapText(font, value, size, maxWidth))
+    {
+        drawText(window, font, line, size, {position.x, y}, color);
+        y += static_cast<float>(size) + lineGap;
+    }
+    return y;
 }
 
 void drawPanel(sf::RenderWindow& window, sf::Vector2f position, sf::Vector2f size)
@@ -1185,6 +1275,11 @@ int main(int argc, char** argv)
     bool haveSnapshot = false;
     std::optional<int> selectedPieceId;
     std::optional<std::size_t> selectedHandIndex;
+    std::optional<int> inspectedPieceId;
+    std::optional<int> lastClickedPieceId;
+    sf::Vector2f lastPieceClickPosition;
+    float lastPieceClickTime = -10.0f;
+    float inspectedPieceScroll = 0.0f;
     struct PieceMoveAnimation
     {
         int fromRow = 0;
@@ -1199,6 +1294,7 @@ int main(int argc, char** argv)
     Button findMatchButton({300.0f, 458.0f}, {200.0f, 52.0f}, "Find Match", font);
     Button endTurnButton({InfoPanelX + 64.0f, 446.0f}, {176.0f, 44.0f}, "Pass Turn", font);
     Button leaveGameButton({684.0f, 14.0f}, {100.0f, 36.0f}, "Leave", font);
+    Button closePiecePopupButton({PiecePopupX + 190.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
 
     auto clearFocus = [&]() {
         usernameInput.setActive(false);
@@ -1313,6 +1409,9 @@ int main(int argc, char** argv)
         selectedLibraryCard.reset();
         draggingLibraryCard.reset();
         dragActive = false;
+        inspectedPieceId.reset();
+        lastClickedPieceId.reset();
+        inspectedPieceScroll = 0.0f;
         title.setString("Steam Tactics");
         centerText(title, 400.0f);
         setMessageY(messageText, 450.0f);
@@ -1345,6 +1444,10 @@ int main(int argc, char** argv)
         gameSnapshot = {};
         selectedPieceId.reset();
         selectedHandIndex.reset();
+        inspectedPieceId.reset();
+        lastClickedPieceId.reset();
+        inspectedPieceScroll = 0.0f;
+        pieceMoveAnimations.clear();
 
         // Submit our deck, then switch the socket to non-blocking polling.
         if (activeGameSocket)
@@ -1866,6 +1969,44 @@ int main(int argc, char** argv)
         return std::nullopt;
     };
 
+    auto gamePieceAtPixel = [&](sf::Vector2f point) -> const game_data::Piece* {
+        const std::optional<std::pair<int, int>> square = squareAtPixel(point);
+        if (!square)
+        {
+            return nullptr;
+        }
+        return gamePieceAt(square->first, square->second);
+    };
+
+    auto showPiecePopupIfDoubleClick = [&](sf::Vector2f clickPos) {
+        const game_data::Piece* clickedPiece = haveSnapshot ? gamePieceAtPixel(clickPos) : nullptr;
+        if (!clickedPiece)
+        {
+            lastClickedPieceId.reset();
+            return false;
+        }
+
+        const sf::Vector2f clickDelta = clickPos - lastPieceClickPosition;
+        const bool closeToLastClick = clickDelta.x * clickDelta.x + clickDelta.y * clickDelta.y <= 144.0f;
+        const bool isDoubleClick = lastClickedPieceId && *lastClickedPieceId == clickedPiece->id &&
+            closeToLastClick && animationTime - lastPieceClickTime <= PieceDoubleClickSeconds;
+
+        lastClickedPieceId = clickedPiece->id;
+        lastPieceClickPosition = clickPos;
+        lastPieceClickTime = animationTime;
+
+        if (!isDoubleClick)
+        {
+            return false;
+        }
+
+        inspectedPieceId = clickedPiece->id;
+        inspectedPieceScroll = 0.0f;
+        selectedHandIndex.reset();
+        lastClickedPieceId.reset();
+        return true;
+    };
+
     auto sendGamePacket = [&](sf::Packet& packet) {
         if (activeGameSocket)
         {
@@ -1937,6 +2078,9 @@ int main(int argc, char** argv)
         gameSnapshot = {};
         selectedPieceId.reset();
         selectedHandIndex.reset();
+        inspectedPieceId.reset();
+        lastClickedPieceId.reset();
+        inspectedPieceScroll = 0.0f;
         pieceMoveAnimations.clear();
         showAuthenticatedScreen();
     };
@@ -2087,6 +2231,220 @@ int main(int argc, char** argv)
         }
         drawText(window, font, line2, 12, {position.x + 6.0f, position.y + 42.0f}, sf::Color(224, 210, 176), HandCardWidth - 12.0f);
         drawText(window, font, line3, 12, {position.x + 6.0f, position.y + 58.0f}, sf::Color(143, 220, 205), HandCardWidth - 12.0f);
+    };
+
+    auto squareText = [](int count) {
+        return std::to_string(count) + (count == 1 ? " square" : " squares");
+    };
+
+    auto moveDescription = [&](const game_data::Piece& piece) {
+        const game_data::MovePattern pattern = static_cast<game_data::MovePattern>(piece.movePattern);
+        if (pattern == game_data::MovePattern::None || piece.moveRange <= 0)
+        {
+            return std::string("Move: this piece cannot move.");
+        }
+        if (pattern == game_data::MovePattern::Jump)
+        {
+            return std::string("Move: jumps in an L shape, one square on one axis and two on the other. Path blockers do not stop a jump.");
+        }
+
+        std::string direction;
+        if (pattern == game_data::MovePattern::Ortho)
+        {
+            direction = "orthogonally";
+        }
+        else if (pattern == game_data::MovePattern::Diag)
+        {
+            direction = "diagonally";
+        }
+        else
+        {
+            direction = "in any straight or diagonal direction";
+        }
+
+        return "Move: travels up to " + squareText(piece.moveRange) + " " + direction +
+            ". The path must be clear and the destination must be empty.";
+    };
+
+    auto attackDescription = [&](const game_data::Piece& piece) {
+        if (piece.attack <= 0)
+        {
+            return std::string("Attack: this piece cannot attack.");
+        }
+        return "Attack: deals " + std::to_string(piece.attack) + " damage to one enemy within " +
+            squareText(piece.attackRange) + ". Range counts distance in any direction.";
+    };
+
+    auto readinessDescription = [&](const game_data::Piece& piece) {
+        const game_data::Phase phase = static_cast<game_data::Phase>(gameSnapshot.phase);
+        if (phase == game_data::Phase::HeroPlacement)
+        {
+            return std::string("Turn status: hero placement is still in progress, so pieces cannot act yet.");
+        }
+        if (phase == game_data::Phase::GameOver)
+        {
+            return std::string("Turn status: the game is over.");
+        }
+        if (gameSnapshot.activePlayer != piece.owner)
+        {
+            return "Turn status: waits for Player " + std::to_string(piece.owner) + "'s turn.";
+        }
+        if (piece.hasActed)
+        {
+            return std::string("Turn status: already acted this turn.");
+        }
+        return std::string("Turn status: ready. It may either move or attack once this turn.");
+    };
+
+    auto piecePopupActionDescriptions = [&](const game_data::Piece& piece) {
+        std::vector<std::pair<std::string, sf::Color>> descriptions;
+        descriptions.push_back({readinessDescription(piece), sf::Color(210, 216, 228)});
+        descriptions.push_back({moveDescription(piece), sf::Color(210, 216, 228)});
+        descriptions.push_back({attackDescription(piece), sf::Color(210, 216, 228)});
+        descriptions.push_back({
+            "Territory: controls the square it occupies and influences adjacent empty squares when territory is recalculated.",
+            sf::Color(198, 180, 142)});
+        if (piece.isHero)
+        {
+            descriptions.push_back({
+                "Hero: if a player loses all heroes, they lose the match.",
+                sf::Color(225, 170, 150)});
+        }
+        return descriptions;
+    };
+
+    auto piecePopupActionContentHeight = [&](const game_data::Piece& piece) {
+        float height = 0.0f;
+        for (const auto& [description, color] : piecePopupActionDescriptions(piece))
+        {
+            (void)color;
+            height += static_cast<float>(wrapText(font, description, 14, PiecePopupTextWidth - 24.0f).size()) * 18.0f;
+            height += 8.0f;
+        }
+        return height;
+    };
+
+    auto piecePopupMaxScroll = [&](const game_data::Piece& piece) {
+        return std::max(0.0f, piecePopupActionContentHeight(piece) - PiecePopupScrollHeight);
+    };
+
+    auto drawPiecePopup = [&]() {
+        if (!inspectedPieceId)
+        {
+            return;
+        }
+
+        const game_data::Piece* piece = gamePieceById(*inspectedPieceId);
+        if (!piece)
+        {
+            inspectedPieceId.reset();
+            return;
+        }
+
+        sf::RectangleShape overlay({800.0f, 600.0f});
+        overlay.setFillColor(sf::Color(0, 0, 0, 150));
+        window.draw(overlay);
+
+        drawPanel(window, {PiecePopupX, PiecePopupY}, {PiecePopupWidth, PiecePopupHeight});
+        drawText(window, font, piece->name, 24, {PiecePopupX + 22.0f, PiecePopupY + 18.0f},
+                 sf::Color(248, 239, 216), PiecePopupWidth - 44.0f);
+
+        sf::RectangleShape artFrame({104.0f, 104.0f});
+        artFrame.setPosition({PiecePopupX + 22.0f, PiecePopupY + 62.0f});
+        artFrame.setFillColor(sf::Color(8, 14, 15));
+        artFrame.setOutlineThickness(1.0f);
+        artFrame.setOutlineColor(sf::Color(155, 111, 59));
+        window.draw(artFrame);
+
+        if (sf::Texture* walkSheet = walkAnimTexture(piece->walkAnimPath))
+        {
+            constexpr int WalkFrameCount = 4;
+            const sf::Vector2u sheetSize = walkSheet->getSize();
+            const int frameWidth = static_cast<int>(sheetSize.x / WalkFrameCount);
+            const int frameHeight = static_cast<int>(sheetSize.y);
+            if (frameWidth > 0 && frameHeight > 0)
+            {
+                drawTextureRectContain(
+                    *walkSheet,
+                    sf::IntRect({0, 0}, {frameWidth, frameHeight}),
+                    {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}});
+            }
+        }
+        else if (sf::Texture* art = cardArtTexture(piece->imagePath))
+        {
+            drawContainSprite(*art, {{PiecePopupX + 30.0f, PiecePopupY + 70.0f}, {88.0f, 88.0f}});
+        }
+
+        const std::string ownerLabel = piece->owner == gameSnapshot.yourPlayer ? "Yours" : "Opponent";
+        const std::string typeLabel = piece->isHero ? "Hero" : "Unit";
+        float y = PiecePopupY + 66.0f;
+        const float statX = PiecePopupX + 146.0f;
+        drawText(window, font, typeLabel + " - " + ownerLabel + " (Player " + std::to_string(piece->owner) + ")",
+                 15, {statX, y}, ownerColor(piece->owner), PiecePopupWidth - 174.0f);
+        y += 24.0f;
+        drawText(window, font, "Position: row " + std::to_string(piece->row + 1) +
+                     ", column " + std::to_string(piece->column + 1),
+                 14, {statX, y}, sf::Color(190, 198, 214));
+        y += 24.0f;
+        drawText(window, font, "Health: " + std::to_string(piece->health) + "/" + std::to_string(piece->maxHealth),
+                 14, {statX, y}, sf::Color(224, 210, 176));
+        y += 22.0f;
+        drawText(window, font, "Attack: " + std::to_string(piece->attack) +
+                     "   Attack range: " + std::to_string(piece->attackRange),
+                 14, {statX, y}, sf::Color(224, 210, 176));
+        y += 22.0f;
+        drawText(window, font, "Movement: " + game_data::movePatternName(piece->movePattern) +
+                     " " + std::to_string(piece->moveRange),
+                 14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+
+        inspectedPieceScroll = std::clamp(inspectedPieceScroll, 0.0f, piecePopupMaxScroll(*piece));
+
+        drawText(window, font, "Actions", 17, {PiecePopupTextX, PiecePopupActionHeadingY}, sf::Color::White);
+
+        sf::RectangleShape scrollBack({PiecePopupTextWidth, PiecePopupScrollHeight});
+        scrollBack.setPosition({PiecePopupTextX, PiecePopupScrollY});
+        scrollBack.setFillColor(sf::Color(8, 14, 15, 132));
+        scrollBack.setOutlineThickness(1.0f);
+        scrollBack.setOutlineColor(sf::Color(44, 108, 101, 120));
+        window.draw(scrollBack);
+
+        const sf::View previousView = window.getView();
+        sf::View actionView(sf::FloatRect(
+            {PiecePopupTextX, PiecePopupScrollY + inspectedPieceScroll},
+            {PiecePopupTextWidth, PiecePopupScrollHeight}));
+        actionView.setViewport(sf::FloatRect(
+            {PiecePopupTextX / 800.0f, PiecePopupScrollY / 600.0f},
+            {PiecePopupTextWidth / 800.0f, PiecePopupScrollHeight / 600.0f}));
+        window.setView(actionView);
+
+        y = PiecePopupScrollY + 8.0f;
+        for (const auto& [description, color] : piecePopupActionDescriptions(*piece))
+        {
+            y = drawWrappedText(window, font, description, 14, {PiecePopupTextX + 8.0f, y}, color, PiecePopupTextWidth - 24.0f);
+            y += 8.0f;
+        }
+
+        window.setView(previousView);
+
+        const float maxScroll = piecePopupMaxScroll(*piece);
+        if (maxScroll > 0.0f)
+        {
+            const float trackX = PiecePopupX + PiecePopupWidth - 22.0f;
+            sf::RectangleShape track({4.0f, PiecePopupScrollHeight - 12.0f});
+            track.setPosition({trackX, PiecePopupScrollY + 6.0f});
+            track.setFillColor(sf::Color(73, 96, 98, 170));
+            window.draw(track);
+
+            const float thumbHeight = std::max(28.0f, track.getSize().y * (PiecePopupScrollHeight / (PiecePopupScrollHeight + maxScroll)));
+            const float thumbY = track.getPosition().y +
+                (track.getSize().y - thumbHeight) * (inspectedPieceScroll / maxScroll);
+            sf::RectangleShape thumb({4.0f, thumbHeight});
+            thumb.setPosition({trackX, thumbY});
+            thumb.setFillColor(sf::Color(143, 220, 205, 230));
+            window.draw(thumb);
+        }
+
+        closePiecePopupButton.draw(window);
     };
 
     auto drawGame = [&]() {
@@ -2384,6 +2742,8 @@ int main(int argc, char** argv)
             drawText(window, font, result, 34, {60.0f, 224.0f}, gameSnapshot.winner == me ? sf::Color(140, 230, 160) : sf::Color(230, 130, 110));
             drawText(window, font, "Press Leave to return.", 16, {60.0f, 268.0f}, sf::Color(200, 206, 220));
         }
+
+        drawPiecePopup();
     };
 
     auto drawDeckSelect = [&]() {
@@ -2682,7 +3042,16 @@ int main(int argc, char** argv)
                 }
                 else if (currentState == GameState::Game)
                 {
-                    if (leaveGameButton.isClicked(clickPos))
+                    if (inspectedPieceId)
+                    {
+                        if (closePiecePopupButton.isClicked(clickPos) ||
+                            !isInsideRect(clickPos, PiecePopupX, PiecePopupY, PiecePopupWidth, PiecePopupHeight))
+                        {
+                            inspectedPieceId.reset();
+                            inspectedPieceScroll = 0.0f;
+                        }
+                    }
+                    else if (leaveGameButton.isClicked(clickPos))
                     {
                         leaveGame();
                     }
@@ -2697,7 +3066,10 @@ int main(int argc, char** argv)
                     }
                     else
                     {
-                        handleGameClick(clickPos);
+                        if (!showPiecePopupIfDoubleClick(clickPos))
+                        {
+                            handleGameClick(clickPos);
+                        }
                     }
                 }
                 else if (currentState == GameState::DeckEditor)
@@ -2833,6 +3205,22 @@ int main(int argc, char** argv)
                 }
             }
 
+            if (const auto* wheel = event->getIf<sf::Event::MouseWheelScrolled>();
+                wheel && currentState == GameState::Game && inspectedPieceId)
+            {
+                const sf::Vector2f wheelPos = window.mapPixelToCoords(wheel->position);
+                if (isInsideRect(wheelPos, PiecePopupTextX, PiecePopupScrollY, PiecePopupTextWidth, PiecePopupScrollHeight))
+                {
+                    if (const game_data::Piece* piece = gamePieceById(*inspectedPieceId))
+                    {
+                        inspectedPieceScroll = std::clamp(
+                            inspectedPieceScroll - wheel->delta * 34.0f,
+                            0.0f,
+                            piecePopupMaxScroll(*piece));
+                    }
+                }
+            }
+
             if (currentState == GameState::Login || currentState == GameState::CreateAccount)
             {
                 usernameInput.handleEvent(*event);
@@ -2853,7 +3241,12 @@ int main(int argc, char** argv)
             {
                 if (keyPressed->code == sf::Keyboard::Key::Escape)
                 {
-                    if (currentState == GameState::DeckEditor && !deckEditorBusy())
+                    if (currentState == GameState::Game && inspectedPieceId)
+                    {
+                        inspectedPieceId.reset();
+                        inspectedPieceScroll = 0.0f;
+                    }
+                    else if (currentState == GameState::DeckEditor && !deckEditorBusy())
                     {
                         showAuthenticatedScreen();
                     }
@@ -2952,8 +3345,15 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Game)
         {
-            endTurnButton.update(mousePos);
-            leaveGameButton.update(mousePos);
+            if (inspectedPieceId)
+            {
+                closePiecePopupButton.update(mousePos);
+            }
+            else
+            {
+                endTurnButton.update(mousePos);
+                leaveGameButton.update(mousePos);
+            }
         }
 
         window.clear(sf::Color(9, 17, 19));
