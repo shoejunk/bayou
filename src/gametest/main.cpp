@@ -334,13 +334,11 @@ int main()
         settle(p1, p2, s1, s2, 800);
         check(static_cast<int>(s1.pieces.size()) == p1PiecesBefore + 1, "deploying a unit added a piece");
         check(s1.players[0].steam == p1SteamBefore - 1, "deploying spent steam");
+        check(s1.activePlayer == 2, "playing a card immediately ended player 1's turn");
+        check(s2.activePlayer == 2, "turn passed to player 2 after player 1 played a card");
+        check(s2.players[1].steam == s2.players[1].controlledSquares, "player 2 gained steam on its turn");
     }
 
-    // --- end turn ----------------------------------------------------------
-    sendEndTurn(p1);
-    settle(p1, p2, s1, s2, 800);
-    check(s2.activePlayer == 2, "turn passed to player 2");
-    check(s2.players[1].steam == s2.players[1].controlledSquares, "player 2 gained steam on its turn");
     // Player 1's extra piece should have expanded or maintained its territory.
     check(s1.players[0].controlledSquares >= p1ControlBefore, "player 1 territory did not shrink after deploying");
 

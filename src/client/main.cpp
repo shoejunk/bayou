@@ -1197,7 +1197,7 @@ int main(int argc, char** argv)
     std::unordered_map<int, PieceMoveAnimation> pieceMoveAnimations;
 
     Button findMatchButton({300.0f, 458.0f}, {200.0f, 52.0f}, "Find Match", font);
-    Button endTurnButton({InfoPanelX + 64.0f, 446.0f}, {176.0f, 44.0f}, "End Turn", font);
+    Button endTurnButton({InfoPanelX + 64.0f, 446.0f}, {176.0f, 44.0f}, "Pass Turn", font);
     Button leaveGameButton({684.0f, 14.0f}, {100.0f, 36.0f}, "Leave", font);
 
     auto clearFocus = [&]() {

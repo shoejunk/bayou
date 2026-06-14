@@ -223,7 +223,7 @@ public:
 
         player.steam -= card.cost;
         player.hand.erase(player.hand.begin() + handIndex);
-        setStatusFor(playerNumber, fmt::format("Player {} played {}.", playerNumber, card.title));
+        advanceTurn(fmt::format("Player {} played {}.", playerNumber, card.title));
     }
 
     void movePiece(int playerNumber, int pieceId, int toRow, int toColumn)
@@ -248,7 +248,7 @@ public:
         piece->row = toRow;
         piece->column = toColumn;
         piece->hasActed = true;
-        setStatusFor(playerNumber, fmt::format("{} moved.", piece->name));
+        advanceTurn(fmt::format("{} moved.", piece->name));
     }
 
     void attackPiece(int playerNumber, int attackerId, int targetRow, int targetColumn)
@@ -281,12 +281,16 @@ public:
         {
             const int victimOwner = target->owner;
             removePiece(target->id);
-            setStatusFor(playerNumber, fmt::format("{} destroyed {}!", attackerName, targetName));
             checkForWinner(victimOwner);
+            if (phaseValue == Phase::GameOver)
+            {
+                return;
+            }
+            advanceTurn(fmt::format("{} destroyed {}!", attackerName, targetName));
         }
         else
         {
-            setStatusFor(playerNumber, fmt::format("{} hit {} for {}.", attackerName, targetName, attacker->attack));
+            advanceTurn(fmt::format("{} hit {} for {}.", attackerName, targetName, attacker->attack));
         }
     }
 
@@ -297,14 +301,7 @@ public:
             return;
         }
 
-        recomputeControl();
-        if (phaseValue == Phase::GameOver)
-        {
-            return;
-        }
-
-        activePlayer = activePlayer == 1 ? 2 : 1;
-        startTurn(activePlayer);
+        advanceTurn(fmt::format("Player {} passed.", playerNumber));
     }
 
     // Builds the view tailored to one player (their hand only).
@@ -522,6 +519,22 @@ private:
         }
         player.hand.push_back(player.drawPile.back());
         player.drawPile.pop_back();
+    }
+
+    void advanceTurn(const std::string& actionStatus)
+    {
+        recomputeControl();
+        if (phaseValue == Phase::GameOver)
+        {
+            return;
+        }
+
+        activePlayer = activePlayer == 1 ? 2 : 1;
+        startTurn(activePlayer);
+        if (!actionStatus.empty())
+        {
+            status = actionStatus + " " + status;
+        }
     }
 
     bool resolveSpell(int playerNumber, const GameCard& card, int targetRow, int targetColumn)
