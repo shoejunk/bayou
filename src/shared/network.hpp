@@ -25,7 +25,13 @@ enum class MessageType : std::uint8_t
     CardUpdateRequest,
     CardUpdateResponse,
     CardDeleteRequest,
-    CardDeleteResponse
+    CardDeleteResponse,
+    DeckListRequest,
+    DeckListResponse,
+    DeckSaveRequest,
+    DeckSaveResponse,
+    DeckDeleteRequest,
+    DeckDeleteResponse
 };
 
 struct CreateAccountRequest

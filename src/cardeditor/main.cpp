@@ -14,6 +14,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <vector>
 
 import network;
@@ -95,6 +96,118 @@ std::string lowerKey(std::string value)
         return static_cast<char>(std::tolower(ch));
     });
     return value;
+}
+
+std::string assetRelativeImagePath(const std::string& value)
+{
+    const std::string trimmed = trim(value);
+    if (trimmed.empty())
+    {
+        return "";
+    }
+
+    std::filesystem::path path(trimmed);
+    if (path.is_absolute() || path.has_root_name() || path.has_root_directory())
+    {
+        return path.generic_string();
+    }
+
+    std::filesystem::path normalizedPath;
+    bool checkedFirstComponent = false;
+    for (const std::filesystem::path& component : path)
+    {
+        if (!checkedFirstComponent)
+        {
+            checkedFirstComponent = true;
+            if (lowerKey(component.string()) == "assets")
+            {
+                continue;
+            }
+        }
+
+        normalizedPath /= component;
+    }
+
+    return normalizedPath.lexically_normal().generic_string();
+}
+
+bool escapesAssetsRoot(const std::filesystem::path& path)
+{
+    for (const std::filesystem::path& component : path)
+    {
+        if (component.string() == "..")
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::filesystem::path normalizedAbsolutePath(const std::filesystem::path& path)
+{
+    std::error_code error;
+    std::filesystem::path normalized = std::filesystem::weakly_canonical(path, error);
+    if (!error)
+    {
+        return normalized.lexically_normal();
+    }
+
+    error.clear();
+    normalized = std::filesystem::absolute(path, error);
+    if (!error)
+    {
+        return normalized.lexically_normal();
+    }
+
+    return path.lexically_normal();
+}
+
+bool isInsideAssetsRoot(const std::filesystem::path& path)
+{
+    const std::filesystem::path assetsRoot = normalizedAbsolutePath("assets");
+    const std::filesystem::path normalizedPath = normalizedAbsolutePath(path);
+    const std::filesystem::path relativePath = normalizedPath.lexically_relative(assetsRoot);
+    if (relativePath.empty())
+    {
+        return normalizedPath == assetsRoot;
+    }
+
+    if (relativePath.has_root_path())
+    {
+        return false;
+    }
+
+    const auto firstComponent = relativePath.begin();
+    return firstComponent == relativePath.end() || firstComponent->string() != "..";
+}
+
+std::optional<std::filesystem::path> resolveAssetImagePath(const std::string& value)
+{
+    const std::string relativeValue = assetRelativeImagePath(value);
+    if (relativeValue.empty())
+    {
+        return std::nullopt;
+    }
+
+    const std::filesystem::path relativePath(relativeValue);
+    if (relativePath.is_absolute() || relativePath.has_root_name() || relativePath.has_root_directory() ||
+        escapesAssetsRoot(relativePath))
+    {
+        return std::nullopt;
+    }
+
+    const std::filesystem::path resolvedPath = (std::filesystem::path("assets") / relativePath).lexically_normal();
+    if (!isInsideAssetsRoot(resolvedPath))
+    {
+        return std::nullopt;
+    }
+
+    return resolvedPath;
+}
+
+void normalizeCardImagePath(card_data::Card& card)
+{
+    card.imagePath = assetRelativeImagePath(card.imagePath);
 }
 
 std::optional<unsigned short> parsePort(const std::string& value)
@@ -322,6 +435,7 @@ CardListResult fetchCards()
         {
             return {false, "Invalid card list payload"};
         }
+        normalizeCardImagePath(card);
         cards.push_back(card);
     }
 
@@ -348,8 +462,11 @@ CommandResult readCommandResponse(sf::TcpSocket& socket, MessageType expectedRes
     return {success, message};
 }
 
-CommandResult saveCard(const card_data::Card& card)
+CommandResult saveCard(const card_data::Card& inputCard)
 {
+    card_data::Card card = inputCard;
+    normalizeCardImagePath(card);
+
     sf::TcpSocket socket;
     if (!connectToServer(socket))
     {
@@ -367,8 +484,11 @@ CommandResult saveCard(const card_data::Card& card)
     return readCommandResponse(socket, MessageType::CardUpsertResponse, "saving card");
 }
 
-CommandResult updateCard(const std::string& originalTitle, const card_data::Card& card)
+CommandResult updateCard(const std::string& originalTitle, const card_data::Card& inputCard)
 {
+    card_data::Card card = inputCard;
+    normalizeCardImagePath(card);
+
     sf::TcpSocket socket;
     if (!connectToServer(socket))
     {
@@ -455,7 +575,7 @@ card_data::Card makeSampleCard(const std::string& title, int revision)
     card_data::Card card;
     card.title = title;
     card.type = revision == 1 ? "Unit" : "Spell";
-    card.imagePath = fmt::format("assets/cards/{}_rev_{}.png", title, revision);
+    card.imagePath = fmt::format("cards/{}_rev_{}.png", title, revision);
     card.keywords = {"starter", "sample", fmt::format("revision{}", revision)};
     card.integerValues = {{"cost", revision}, {"power", revision + 1}};
     card.stringValues = {{"faction", "bayou"}, {"rules", fmt::format("Sample rules revision {}", revision)}};
@@ -987,7 +1107,7 @@ private:
         ensureCardVisible(index);
         const card_data::Card& card = cards[index];
         titleField.setValue(card.title);
-        imageField.setValue(card.imagePath);
+        imageField.setValue(assetRelativeImagePath(card.imagePath));
         typeField.setValue(card.type);
         loadArrayFields(card);
         editorScroll = 0.0f;
@@ -1000,7 +1120,7 @@ private:
         card_data::Card card;
         card.title = trim(titleField.getValue());
         card.type = trim(typeField.getValue());
-        card.imagePath = trim(imageField.getValue());
+        card.imagePath = assetRelativeImagePath(imageField.getValue());
         for (const TextField& field : keywordFields)
         {
             const std::string value = trim(field.getValue());
@@ -1066,6 +1186,12 @@ private:
             setStatus("Title is required before saving", Warn);
             return;
         }
+        if (!card.imagePath.empty() && !resolveAssetImagePath(card.imagePath))
+        {
+            setStatus("Image path must stay inside assets", Warn);
+            return;
+        }
+        imageField.setValue(card.imagePath);
 
         const std::optional<std::string> originalTitle = selectedCardTitle();
         const CommandResult result = originalTitle ? updateCard(*originalTitle, card) : saveCard(card);
@@ -1307,8 +1433,8 @@ private:
 
     void loadPreviewImage()
     {
-        const std::string path = trim(imageField.getValue());
-        if (path.empty() || !previewTexture.loadFromFile(path))
+        const std::optional<std::filesystem::path> path = resolveAssetImagePath(imageField.getValue());
+        if (!path || !previewTexture.loadFromFile(*path))
         {
             previewTexture = sf::Texture();
             hasPreviewImage = false;

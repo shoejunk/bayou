@@ -102,5 +102,6 @@ export struct InputBox
     }
 
     const std::string& getContent() const { return content; }
+    void setContent(const std::string& value) { content = value; updateDisplayText(); }
     void clear() { content.clear(); updateDisplayText(); }
 };
