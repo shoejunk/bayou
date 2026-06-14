@@ -1,5 +1,6 @@
 #include <SFML/Network.hpp>
 #include <fmt/core.h>
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -7,6 +8,7 @@
 #include <cstdlib>
 #include <memory>
 #include <optional>
+#include <random>
 #include <string>
 #include <thread>
 #include <vector>
@@ -16,99 +18,24 @@
 #include <windows.h>
 #endif
 
+#include "../shared/card_data.hpp"
+#include "../shared/game_data.hpp"
+
 import network;
 
 using namespace network;
+using namespace game_data;
 
 namespace
 {
 constexpr unsigned short GameServerPort = 55002;
 constexpr unsigned short FirstGamePort = 56000;
 
-struct CardDefinition
-{
-    std::string id;
-    std::string name;
-};
-
-struct Deck
-{
-    std::vector<CardDefinition> cards;
-};
-
-struct Piece
-{
-    std::string id;
-    std::string type;
-    int owner = 0;
-    int row = 0;
-    int column = 0;
-};
-
-struct PlayerState
-{
-    int playerNumber = 0;
-    Deck deck;
-    std::vector<Piece> startingPieces;
-};
-
-struct GameState
-{
-    int matchId = 0;
-    std::array<std::optional<Piece>, 64> board;
-    std::array<PlayerState, 2> players;
-    int activePlayer = 1;
-};
-
 struct JoinedPlayer
 {
     std::unique_ptr<sf::TcpSocket> socket;
     int playerNumber = 0;
 };
-
-Deck makeDefaultDeck()
-{
-    return {{
-        {"strike", "Strike"},
-        {"guard", "Guard"},
-        {"advance", "Advance"},
-        {"rally", "Rally"},
-    }};
-}
-
-std::vector<Piece> makeStartingPieces(int playerNumber)
-{
-    const int backRow = playerNumber == 1 ? 7 : 0;
-    const int frontRow = playerNumber == 1 ? 6 : 1;
-    return {
-        {fmt::format("p{}_king", playerNumber), "King", playerNumber, backRow, 4},
-        {fmt::format("p{}_rook_a", playerNumber), "Rook", playerNumber, backRow, 0},
-        {fmt::format("p{}_rook_h", playerNumber), "Rook", playerNumber, backRow, 7},
-        {fmt::format("p{}_pawn_d", playerNumber), "Pawn", playerNumber, frontRow, 3},
-        {fmt::format("p{}_pawn_e", playerNumber), "Pawn", playerNumber, frontRow, 4},
-    };
-}
-
-GameState createInitialGameState(int matchId)
-{
-    GameState state;
-    state.matchId = matchId;
-
-    for (int playerNumber = 1; playerNumber <= 2; ++playerNumber)
-    {
-        PlayerState& player = state.players[static_cast<std::size_t>(playerNumber - 1)];
-        player.playerNumber = playerNumber;
-        player.deck = makeDefaultDeck();
-        player.startingPieces = makeStartingPieces(playerNumber);
-
-        for (const Piece& piece : player.startingPieces)
-        {
-            state.board[static_cast<std::size_t>(piece.row * 8 + piece.column)] = piece;
-        }
-    }
-
-    return state;
-}
 
 std::string executablePath()
 {
@@ -157,6 +84,564 @@ bool spawnGameProcess(int matchId, unsigned short port)
 #endif
 }
 }
+
+// ---------------------------------------------------------------------------
+// Authoritative tactical-game engine.
+// ---------------------------------------------------------------------------
+class GameEngine
+{
+public:
+    struct EnginePlayer
+    {
+        int number = 0;
+        std::vector<GameCard> drawPile;
+        std::vector<GameCard> hand;
+        std::vector<GameCard> heroesToPlace;
+        int steam = 0;
+        bool deckSubmitted = false;
+    };
+
+    explicit GameEngine(unsigned int seed)
+        : rng(seed)
+    {
+        players[0].number = 1;
+        players[1].number = 2;
+        initializeControl();
+    }
+
+    bool bothDecksSubmitted() const
+    {
+        return players[0].deckSubmitted && players[1].deckSubmitted;
+    }
+
+    Phase phase() const { return phaseValue; }
+    int winner() const { return winnerValue; }
+
+    // Splits a submitted deck into a shuffled draw pile and a hero roster.
+    void submitDeck(int playerNumber, const std::vector<card_data::Card>& cards)
+    {
+        EnginePlayer& player = playerRef(playerNumber);
+        player.drawPile.clear();
+        player.heroesToPlace.clear();
+
+        for (const card_data::Card& card : cards)
+        {
+            GameCard resolved = toGameCard(card);
+            if (isHeroCard(card))
+            {
+                if (static_cast<int>(player.heroesToPlace.size()) < MaxHeroes)
+                {
+                    player.heroesToPlace.push_back(resolved);
+                }
+            }
+            else
+            {
+                player.drawPile.push_back(resolved);
+            }
+        }
+
+        std::shuffle(player.drawPile.begin(), player.drawPile.end(), rng);
+        player.deckSubmitted = true;
+
+        if (bothDecksSubmitted())
+        {
+            status = "Place your heroes on your starting squares.";
+        }
+    }
+
+    // Heroes are placed in deck order (the client always offers the next one),
+    // so the heroIndex hint is ignored and the front hero is consumed.
+    void placeHero(int playerNumber, int /*heroIndex*/, int row, int column)
+    {
+        if (phaseValue != Phase::HeroPlacement)
+        {
+            return;
+        }
+
+        EnginePlayer& player = playerRef(playerNumber);
+        if (player.heroesToPlace.empty())
+        {
+            return;
+        }
+
+        if (!isStartingSquare(playerNumber, row, column) || pieceAt(row, column) != nullptr)
+        {
+            setStatusFor(playerNumber, "Heroes must go on an empty starting square.");
+            return;
+        }
+
+        spawnPiece(playerNumber, player.heroesToPlace.front(), row, column, true);
+        player.heroesToPlace.erase(player.heroesToPlace.begin());
+
+        if (players[0].heroesToPlace.empty() && players[1].heroesToPlace.empty())
+        {
+            beginPlay();
+        }
+    }
+
+    void playCard(int playerNumber, int handIndex, int targetRow, int targetColumn)
+    {
+        if (phaseValue != Phase::Playing || playerNumber != activePlayer)
+        {
+            return;
+        }
+
+        EnginePlayer& player = playerRef(playerNumber);
+        if (handIndex < 0 || handIndex >= static_cast<int>(player.hand.size()))
+        {
+            return;
+        }
+
+        const GameCard card = player.hand[static_cast<std::size_t>(handIndex)];
+        if (card.cost > player.steam)
+        {
+            setStatusFor(playerNumber, "Not enough steam to play that card.");
+            return;
+        }
+
+        if (card.type == "Unit")
+        {
+            if (!inBounds(targetRow, targetColumn) ||
+                control[static_cast<std::size_t>(squareIndex(targetRow, targetColumn))] != playerNumber ||
+                pieceAt(targetRow, targetColumn) != nullptr)
+            {
+                setStatusFor(playerNumber, "Units deploy onto an empty square you control.");
+                return;
+            }
+
+            spawnPiece(playerNumber, card, targetRow, targetColumn, false);
+            // Summoned units cannot act the turn they arrive.
+            pieces.back().hasActed = true;
+        }
+        else  // Spell
+        {
+            if (!resolveSpell(playerNumber, card, targetRow, targetColumn))
+            {
+                return;
+            }
+        }
+
+        player.steam -= card.cost;
+        player.hand.erase(player.hand.begin() + handIndex);
+        setStatusFor(playerNumber, fmt::format("Player {} played {}.", playerNumber, card.title));
+    }
+
+    void movePiece(int playerNumber, int pieceId, int toRow, int toColumn)
+    {
+        if (phaseValue != Phase::Playing || playerNumber != activePlayer)
+        {
+            return;
+        }
+
+        Piece* piece = pieceById(pieceId);
+        if (piece == nullptr || piece->owner != playerNumber || piece->hasActed)
+        {
+            return;
+        }
+
+        if (!game_data::isLegalMove(pieces, *piece, toRow, toColumn))
+        {
+            setStatusFor(playerNumber, "That piece cannot reach there.");
+            return;
+        }
+
+        piece->row = toRow;
+        piece->column = toColumn;
+        piece->hasActed = true;
+        setStatusFor(playerNumber, fmt::format("{} moved.", piece->name));
+    }
+
+    void attackPiece(int playerNumber, int attackerId, int targetRow, int targetColumn)
+    {
+        if (phaseValue != Phase::Playing || playerNumber != activePlayer)
+        {
+            return;
+        }
+
+        Piece* attacker = pieceById(attackerId);
+        Piece* target = pieceAt(targetRow, targetColumn);
+        if (attacker == nullptr || target == nullptr || attacker->owner != playerNumber ||
+            attacker->hasActed)
+        {
+            return;
+        }
+
+        if (!game_data::isLegalAttack(*attacker, *target))
+        {
+            setStatusFor(playerNumber, "Target is out of range.");
+            return;
+        }
+
+        target->health -= attacker->attack;
+        attacker->hasActed = true;
+
+        const std::string attackerName = attacker->name;
+        const std::string targetName = target->name;
+        if (target->health <= 0)
+        {
+            const int victimOwner = target->owner;
+            removePiece(target->id);
+            setStatusFor(playerNumber, fmt::format("{} destroyed {}!", attackerName, targetName));
+            checkForWinner(victimOwner);
+        }
+        else
+        {
+            setStatusFor(playerNumber, fmt::format("{} hit {} for {}.", attackerName, targetName, attacker->attack));
+        }
+    }
+
+    void endTurn(int playerNumber)
+    {
+        if (phaseValue != Phase::Playing || playerNumber != activePlayer)
+        {
+            return;
+        }
+
+        recomputeControl();
+        if (phaseValue == Phase::GameOver)
+        {
+            return;
+        }
+
+        activePlayer = activePlayer == 1 ? 2 : 1;
+        startTurn(activePlayer);
+    }
+
+    // Builds the view tailored to one player (their hand only).
+    Snapshot snapshotFor(int playerNumber) const
+    {
+        Snapshot snapshot;
+        snapshot.phase = static_cast<std::uint8_t>(phaseValue);
+        snapshot.activePlayer = activePlayer;
+        snapshot.yourPlayer = playerNumber;
+        snapshot.winner = winnerValue;
+        snapshot.control = control;
+        snapshot.pieces = pieces;
+        snapshot.hand = playerRef(playerNumber).hand;
+        snapshot.status = status;
+
+        for (int p = 0; p < 2; ++p)
+        {
+            const EnginePlayer& player = players[static_cast<std::size_t>(p)];
+            PlayerSnapshot& view = snapshot.players[static_cast<std::size_t>(p)];
+            view.steam = player.steam;
+            view.controlledSquares = controlledCount(p + 1);
+            view.handCount = static_cast<int>(player.hand.size());
+            view.heroesToPlace = static_cast<int>(player.heroesToPlace.size());
+            view.heroesAlive = heroesAlive(p + 1);
+            view.drawPileCount = static_cast<int>(player.drawPile.size());
+        }
+
+        return snapshot;
+    }
+
+    void resign(int playerNumber)
+    {
+        if (phaseValue == Phase::GameOver)
+        {
+            return;
+        }
+        winnerValue = playerNumber == 1 ? 2 : 1;
+        phaseValue = Phase::GameOver;
+        status = fmt::format("Player {} left. Player {} wins!", playerNumber, winnerValue);
+    }
+
+private:
+    std::mt19937 rng;
+    Phase phaseValue = Phase::HeroPlacement;
+    int activePlayer = 1;
+    int winnerValue = 0;
+    std::array<std::uint8_t, BoardSquares> control{};
+    std::vector<Piece> pieces;
+    std::array<EnginePlayer, 2> players{};
+    int nextPieceId = 1;
+    std::string status = "Waiting for both decks...";
+
+    EnginePlayer& playerRef(int playerNumber)
+    {
+        return players[static_cast<std::size_t>(playerNumber - 1)];
+    }
+    const EnginePlayer& playerRef(int playerNumber) const
+    {
+        return players[static_cast<std::size_t>(playerNumber - 1)];
+    }
+
+    void initializeControl()
+    {
+        control.fill(0);
+        for (int playerNumber = 1; playerNumber <= 2; ++playerNumber)
+        {
+            for (const auto& [row, column] : homeSquares(playerNumber))
+            {
+                control[static_cast<std::size_t>(squareIndex(row, column))] =
+                    static_cast<std::uint8_t>(playerNumber);
+            }
+        }
+    }
+
+    bool isStartingSquare(int playerNumber, int row, int column) const
+    {
+        for (const auto& [r, c] : homeSquares(playerNumber))
+        {
+            if (r == row && c == column)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    Piece* pieceAt(int row, int column)
+    {
+        for (Piece& piece : pieces)
+        {
+            if (piece.row == row && piece.column == column)
+            {
+                return &piece;
+            }
+        }
+        return nullptr;
+    }
+    const Piece* pieceAt(int row, int column) const
+    {
+        for (const Piece& piece : pieces)
+        {
+            if (piece.row == row && piece.column == column)
+            {
+                return &piece;
+            }
+        }
+        return nullptr;
+    }
+
+    Piece* pieceById(int id)
+    {
+        for (Piece& piece : pieces)
+        {
+            if (piece.id == id)
+            {
+                return &piece;
+            }
+        }
+        return nullptr;
+    }
+
+    void removePiece(int id)
+    {
+        pieces.erase(
+            std::remove_if(pieces.begin(), pieces.end(), [id](const Piece& p) { return p.id == id; }),
+            pieces.end());
+    }
+
+    void spawnPiece(int playerNumber, const GameCard& card, int row, int column, bool isHero)
+    {
+        Piece piece;
+        piece.id = nextPieceId++;
+        piece.owner = playerNumber;
+        piece.row = row;
+        piece.column = column;
+        piece.name = card.title;
+        piece.maxHealth = card.health;
+        piece.health = card.health;
+        piece.attack = card.attack;
+        piece.attackRange = card.attackRange;
+        piece.movePattern = card.movePattern;
+        piece.moveRange = card.moveRange;
+        piece.isHero = isHero;
+        piece.hasActed = false;
+        pieces.push_back(piece);
+    }
+
+    int controlledCount(int playerNumber) const
+    {
+        int count = 0;
+        for (std::uint8_t owner : control)
+        {
+            if (owner == playerNumber)
+            {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    int heroesAlive(int playerNumber) const
+    {
+        int count = 0;
+        for (const Piece& piece : pieces)
+        {
+            if (piece.owner == playerNumber && piece.isHero)
+            {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    void beginPlay()
+    {
+        for (int p = 1; p <= 2; ++p)
+        {
+            EnginePlayer& player = playerRef(p);
+            for (int i = 0; i < StartingHandSize; ++i)
+            {
+                drawCard(player);
+            }
+        }
+
+        recomputeControl();
+        phaseValue = Phase::Playing;
+        activePlayer = 1;
+        startTurn(1);
+    }
+
+    void startTurn(int playerNumber)
+    {
+        EnginePlayer& player = playerRef(playerNumber);
+        player.steam += controlledCount(playerNumber);
+        drawCard(player);
+
+        for (Piece& piece : pieces)
+        {
+            if (piece.owner == playerNumber)
+            {
+                piece.hasActed = false;
+            }
+        }
+
+        status = fmt::format("Player {}'s turn. +{} steam.", playerNumber, controlledCount(playerNumber));
+    }
+
+    void drawCard(EnginePlayer& player)
+    {
+        if (player.drawPile.empty() || static_cast<int>(player.hand.size()) >= MaxHandSize)
+        {
+            return;
+        }
+        player.hand.push_back(player.drawPile.back());
+        player.drawPile.pop_back();
+    }
+
+    bool resolveSpell(int playerNumber, const GameCard& card, int targetRow, int targetColumn)
+    {
+        if (card.effect == "steam")
+        {
+            playerRef(playerNumber).steam += card.power;
+            return true;
+        }
+
+        Piece* target = inBounds(targetRow, targetColumn) ? pieceAt(targetRow, targetColumn) : nullptr;
+        if (target == nullptr)
+        {
+            setStatusFor(playerNumber, "That spell needs a target.");
+            return false;
+        }
+
+        if (card.effect == "damage")
+        {
+            if (target->owner == playerNumber)
+            {
+                setStatusFor(playerNumber, "Target an enemy piece.");
+                return false;
+            }
+            target->health -= card.power;
+            if (target->health <= 0)
+            {
+                const int victimOwner = target->owner;
+                removePiece(target->id);
+                checkForWinner(victimOwner);
+            }
+            return true;
+        }
+
+        if (card.effect == "heal")
+        {
+            if (target->owner != playerNumber)
+            {
+                setStatusFor(playerNumber, "Target a friendly piece.");
+                return false;
+            }
+            target->health = std::min(target->maxHealth, target->health + card.power);
+            return true;
+        }
+
+        return true;
+    }
+
+    void checkForWinner(int victimOwner)
+    {
+        if (heroesAlive(victimOwner) == 0)
+        {
+            winnerValue = victimOwner == 1 ? 2 : 1;
+            phaseValue = Phase::GameOver;
+            status = fmt::format("All of Player {}'s heroes fell. Player {} wins!", victimOwner, winnerValue);
+        }
+    }
+
+    void setStatusFor(int playerNumber, const std::string& message)
+    {
+        status = message;
+        (void)playerNumber;
+    }
+
+    // Recomputes whole-board control: occupied squares belong to the occupant;
+    // empty squares go to whoever has more adjacent pieces; ties hold.
+    void recomputeControl()
+    {
+        std::array<std::uint8_t, BoardSquares> next = control;
+        for (int row = 0; row < BoardSize; ++row)
+        {
+            for (int column = 0; column < BoardSize; ++column)
+            {
+                const std::size_t index = static_cast<std::size_t>(squareIndex(row, column));
+                if (const Piece* occupant = pieceAt(row, column))
+                {
+                    next[index] = static_cast<std::uint8_t>(occupant->owner);
+                    continue;
+                }
+
+                int influence1 = 0;
+                int influence2 = 0;
+                for (int dr = -1; dr <= 1; ++dr)
+                {
+                    for (int dc = -1; dc <= 1; ++dc)
+                    {
+                        if (dr == 0 && dc == 0)
+                        {
+                            continue;
+                        }
+                        const Piece* neighbor = inBounds(row + dr, column + dc)
+                            ? pieceAt(row + dr, column + dc)
+                            : nullptr;
+                        if (neighbor == nullptr)
+                        {
+                            continue;
+                        }
+                        if (neighbor->owner == 1)
+                        {
+                            ++influence1;
+                        }
+                        else if (neighbor->owner == 2)
+                        {
+                            ++influence2;
+                        }
+                    }
+                }
+
+                if (influence1 > influence2)
+                {
+                    next[index] = 1;
+                }
+                else if (influence2 > influence1)
+                {
+                    next[index] = 2;
+                }
+                // tie: keep existing controller (already copied into next)
+            }
+        }
+        control = next;
+    }
+};
 
 class GameServerCoordinator
 {
@@ -264,15 +749,28 @@ public:
             return;
         }
 
-        gameState = createInitialGameState(matchId);
-        fmt::println("Game {} initialized with {} board squares and two default decks",
-            matchId,
-            gameState.board.size());
-
         sendGameReady(*playerOne->socket, playerOne->playerNumber);
         sendGameReady(*playerTwo->socket, playerTwo->playerNumber);
 
-        waitForDisconnect(*playerOne->socket, *playerTwo->socket);
+        const unsigned int seed =
+            static_cast<unsigned int>(matchId) ^
+            static_cast<unsigned int>(std::chrono::steady_clock::now().time_since_epoch().count());
+        GameEngine engine(seed);
+
+        if (!receiveDeck(*playerOne->socket, engine, playerOne->playerNumber) ||
+            !receiveDeck(*playerTwo->socket, engine, playerTwo->playerNumber))
+        {
+            fmt::println("Game {} did not receive both decks", matchId);
+            return;
+        }
+
+        fmt::println("Game {} started", matchId);
+        broadcast(engine, *playerOne, *playerTwo);
+
+        playerOne->socket->setBlocking(false);
+        playerTwo->socket->setBlocking(false);
+
+        runGameLoop(engine, *playerOne, *playerTwo);
         fmt::println("Game {} ended", matchId);
     }
 
@@ -281,7 +779,6 @@ private:
     unsigned short port = 0;
     std::unique_ptr<sf::TcpListener> listener;
     bool listening = false;
-    GameState gameState;
 
     std::optional<JoinedPlayer> acceptPlayer()
     {
@@ -321,24 +818,142 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    void waitForDisconnect(sf::TcpSocket& playerOne, sf::TcpSocket& playerTwo)
+    bool receiveDeck(sf::TcpSocket& client, GameEngine& engine, int playerNumber)
     {
-        playerOne.setBlocking(false);
-        playerTwo.setBlocking(false);
+        sf::Packet packet;
+        if (client.receive(packet) != sf::Socket::Status::Done)
+        {
+            return false;
+        }
 
+        uint8_t msgType = 0;
+        std::uint32_t count = 0;
+        packet >> msgType >> count;
+        if (!packet || static_cast<MessageType>(msgType) != MessageType::SubmitDeck)
+        {
+            return false;
+        }
+
+        std::vector<card_data::Card> cards;
+        cards.reserve(count);
+        for (std::uint32_t i = 0; i < count; ++i)
+        {
+            card_data::Card card;
+            if (!card_data::readCard(packet, card))
+            {
+                return false;
+            }
+            cards.push_back(card);
+        }
+
+        engine.submitDeck(playerNumber, cards);
+        fmt::println("Game {} received deck for player {} ({} cards)", matchId, playerNumber, count);
+        return true;
+    }
+
+    void sendSnapshot(sf::TcpSocket& client, const GameEngine& engine, int playerNumber)
+    {
+        sf::Packet packet;
+        packet << static_cast<uint8_t>(MessageType::GameStateUpdate);
+        writeSnapshot(packet, engine.snapshotFor(playerNumber));
+        [[maybe_unused]] auto result = client.send(packet);
+    }
+
+    void broadcast(const GameEngine& engine, JoinedPlayer& one, JoinedPlayer& two)
+    {
+        sendSnapshot(*one.socket, engine, one.playerNumber);
+        sendSnapshot(*two.socket, engine, two.playerNumber);
+    }
+
+    void runGameLoop(GameEngine& engine, JoinedPlayer& one, JoinedPlayer& two)
+    {
         while (true)
         {
-            sf::Packet packet;
-            const auto oneStatus = playerOne.receive(packet);
-            packet.clear();
-            const auto twoStatus = playerTwo.receive(packet);
+            bool changed = false;
 
-            if (oneStatus == sf::Socket::Status::Disconnected && twoStatus == sf::Socket::Status::Disconnected)
+            for (JoinedPlayer* player : {&one, &two})
             {
-                return;
+                sf::Packet packet;
+                const auto status = player->socket->receive(packet);
+                if (status == sf::Socket::Status::Disconnected)
+                {
+                    engine.resign(player->playerNumber);
+                    broadcast(engine, one, two);
+                    return;
+                }
+                if (status == sf::Socket::Status::Done)
+                {
+                    if (handleAction(engine, player->playerNumber, packet))
+                    {
+                        changed = true;
+                    }
+                }
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            if (changed)
+            {
+                broadcast(engine, one, two);
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+    }
+
+    bool handleAction(GameEngine& engine, int playerNumber, sf::Packet& packet)
+    {
+        uint8_t msgType = 0;
+        packet >> msgType;
+        if (!packet)
+        {
+            return false;
+        }
+
+        switch (static_cast<MessageType>(msgType))
+        {
+            case MessageType::PlaceHero:
+            {
+                int heroIndex = 0;
+                int row = 0;
+                int column = 0;
+                packet >> heroIndex >> row >> column;
+                engine.placeHero(playerNumber, heroIndex, row, column);
+                return true;
+            }
+            case MessageType::PlayCard:
+            {
+                int handIndex = 0;
+                int row = 0;
+                int column = 0;
+                packet >> handIndex >> row >> column;
+                engine.playCard(playerNumber, handIndex, row, column);
+                return true;
+            }
+            case MessageType::MovePiece:
+            {
+                int pieceId = 0;
+                int row = 0;
+                int column = 0;
+                packet >> pieceId >> row >> column;
+                engine.movePiece(playerNumber, pieceId, row, column);
+                return true;
+            }
+            case MessageType::AttackPiece:
+            {
+                int attackerId = 0;
+                int row = 0;
+                int column = 0;
+                packet >> attackerId >> row >> column;
+                engine.attackPiece(playerNumber, attackerId, row, column);
+                return true;
+            }
+            case MessageType::EndTurn:
+                engine.endTurn(playerNumber);
+                return true;
+            case MessageType::Disconnect:
+                engine.resign(playerNumber);
+                return true;
+            default:
+                return false;
         }
     }
 };

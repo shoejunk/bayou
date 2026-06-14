@@ -121,6 +121,21 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
     target_link_libraries(gameserver PRIVATE fmt::fmt SFML::System SFML::Network)
 endif()
 
+if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
+    # End-to-end integration test driver
+    add_executable(gametest)
+
+    target_sources(gametest
+        PUBLIC
+            src/gametest/main.cpp
+        PUBLIC
+            FILE_SET CXX_MODULES FILES
+                src/shared/network.cppm
+    )
+
+    target_link_libraries(gametest PRIVATE fmt::fmt SFML::System SFML::Network)
+endif()
+
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_CARDSERVER)
     # Card server executable
     add_executable(cardserver)

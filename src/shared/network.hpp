@@ -31,7 +31,15 @@ enum class MessageType : std::uint8_t
     DeckSaveRequest,
     DeckSaveResponse,
     DeckDeleteRequest,
-    DeckDeleteResponse
+    DeckDeleteResponse,
+    SubmitDeck,
+    GameStateUpdate,
+    PlaceHero,
+    PlayCard,
+    MovePiece,
+    AttackPiece,
+    EndTurn,
+    GameOver
 };
 
 struct CreateAccountRequest
