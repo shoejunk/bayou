@@ -90,6 +90,7 @@ constexpr float PiecePopupActionHeadingY = PiecePopupY + 186.0f;
 constexpr float PiecePopupScrollY = PiecePopupActionHeadingY + 26.0f;
 constexpr float PiecePopupScrollHeight = PiecePopupHeight - (PiecePopupScrollY - PiecePopupY) - 66.0f;
 constexpr float PieceDoubleClickSeconds = 0.38f;
+constexpr float GameDragStartDistanceSquared = 36.0f;
 
 struct ServerEndpoint
 {
@@ -1276,10 +1277,26 @@ int main(int argc, char** argv)
     std::optional<int> selectedPieceId;
     std::optional<std::size_t> selectedHandIndex;
     std::optional<int> inspectedPieceId;
+    std::optional<std::size_t> inspectedHandIndex;
     std::optional<int> lastClickedPieceId;
     sf::Vector2f lastPieceClickPosition;
     float lastPieceClickTime = -10.0f;
+    std::optional<std::size_t> pendingHandClickIndex;
+    sf::Vector2f pendingHandClickPosition;
+    float pendingHandClickTime = -10.0f;
     float inspectedPieceScroll = 0.0f;
+    enum class GameDragKind
+    {
+        None,
+        HandCard,
+        Piece
+    };
+    GameDragKind gameDragKind = GameDragKind::None;
+    std::optional<std::size_t> draggingHandIndex;
+    std::optional<int> draggingPieceId;
+    sf::Vector2f gameDragStartPos;
+    sf::Vector2f gameDragCurrentPos;
+    bool gameDragActive = false;
     struct PieceMoveAnimation
     {
         int fromRow = 0;
@@ -1410,8 +1427,14 @@ int main(int argc, char** argv)
         draggingLibraryCard.reset();
         dragActive = false;
         inspectedPieceId.reset();
+        inspectedHandIndex.reset();
         lastClickedPieceId.reset();
+        pendingHandClickIndex.reset();
         inspectedPieceScroll = 0.0f;
+        gameDragKind = GameDragKind::None;
+        draggingHandIndex.reset();
+        draggingPieceId.reset();
+        gameDragActive = false;
         title.setString("Steam Tactics");
         centerText(title, 400.0f);
         setMessageY(messageText, 450.0f);
@@ -1445,8 +1468,14 @@ int main(int argc, char** argv)
         selectedPieceId.reset();
         selectedHandIndex.reset();
         inspectedPieceId.reset();
+        inspectedHandIndex.reset();
         lastClickedPieceId.reset();
+        pendingHandClickIndex.reset();
         inspectedPieceScroll = 0.0f;
+        gameDragKind = GameDragKind::None;
+        draggingHandIndex.reset();
+        draggingPieceId.reset();
+        gameDragActive = false;
         pieceMoveAnimations.clear();
 
         // Submit our deck, then switch the socket to non-blocking polling.
@@ -2001,7 +2030,13 @@ int main(int argc, char** argv)
         }
 
         inspectedPieceId = clickedPiece->id;
+        inspectedHandIndex.reset();
         inspectedPieceScroll = 0.0f;
+        pendingHandClickIndex.reset();
+        gameDragKind = GameDragKind::None;
+        draggingHandIndex.reset();
+        draggingPieceId.reset();
+        gameDragActive = false;
         selectedHandIndex.reset();
         lastClickedPieceId.reset();
         return true;
@@ -2044,6 +2079,158 @@ int main(int argc, char** argv)
         sendGamePacket(packet);
     };
 
+    auto handleHandCardClick = [&](std::size_t handIndex) {
+        if (handIndex >= gameSnapshot.hand.size())
+        {
+            return false;
+        }
+
+        const game_data::GameCard& card = gameSnapshot.hand[handIndex];
+        selectedPieceId.reset();
+        if (card.type != "Unit" && card.effect == "steam")
+        {
+            sendPlayCard(static_cast<int>(handIndex), -1, -1);
+            selectedHandIndex.reset();
+            return true;
+        }
+        else
+        {
+            selectedHandIndex = (selectedHandIndex && *selectedHandIndex == handIndex)
+                ? std::nullopt
+                : std::optional<std::size_t>(handIndex);
+        }
+        return false;
+    };
+
+    auto flushPendingHandClick = [&]() {
+        bool sentImmediateAction = false;
+        if (pendingHandClickIndex)
+        {
+            sentImmediateAction = handleHandCardClick(*pendingHandClickIndex);
+            pendingHandClickIndex.reset();
+        }
+        return sentImmediateAction;
+    };
+
+    auto handleHandCardClickOrPopup = [&](sf::Vector2f clickPos) {
+        const std::optional<std::size_t> handIndex = haveSnapshot ? handCardAtPixel(clickPos) : std::nullopt;
+        if (!handIndex)
+        {
+            return false;
+        }
+
+        const sf::Vector2f clickDelta = clickPos - pendingHandClickPosition;
+        const bool closeToLastClick = clickDelta.x * clickDelta.x + clickDelta.y * clickDelta.y <= 144.0f;
+        const bool isDoubleClick = pendingHandClickIndex && *pendingHandClickIndex == *handIndex &&
+            closeToLastClick && animationTime - pendingHandClickTime <= PieceDoubleClickSeconds;
+
+        if (isDoubleClick)
+        {
+            inspectedHandIndex = *handIndex;
+            inspectedPieceId.reset();
+            selectedPieceId.reset();
+            selectedHandIndex.reset();
+            pendingHandClickIndex.reset();
+            inspectedPieceScroll = 0.0f;
+            gameDragKind = GameDragKind::None;
+            draggingHandIndex.reset();
+            draggingPieceId.reset();
+            gameDragActive = false;
+            return true;
+        }
+
+        pendingHandClickIndex = *handIndex;
+        pendingHandClickPosition = clickPos;
+        pendingHandClickTime = animationTime;
+        lastClickedPieceId.reset();
+        return true;
+    };
+
+    auto resetGameDrag = [&]() {
+        gameDragKind = GameDragKind::None;
+        draggingHandIndex.reset();
+        draggingPieceId.reset();
+        gameDragActive = false;
+    };
+
+    auto beginPotentialGameDrag = [&](sf::Vector2f clickPos) {
+        resetGameDrag();
+        if (!haveSnapshot || inspectedPieceId || inspectedHandIndex)
+        {
+            return;
+        }
+
+        const int me = gameSnapshot.yourPlayer;
+        const game_data::Phase phase = static_cast<game_data::Phase>(gameSnapshot.phase);
+        if (phase != game_data::Phase::Playing || gameSnapshot.activePlayer != me)
+        {
+            return;
+        }
+
+        if (const std::optional<std::size_t> handIndex = handCardAtPixel(clickPos))
+        {
+            gameDragKind = GameDragKind::HandCard;
+            draggingHandIndex = *handIndex;
+            gameDragStartPos = clickPos;
+            gameDragCurrentPos = clickPos;
+            return;
+        }
+
+        if (const game_data::Piece* piece = gamePieceAtPixel(clickPos);
+            piece && piece->owner == me && !piece->hasActed)
+        {
+            gameDragKind = GameDragKind::Piece;
+            draggingPieceId = piece->id;
+            gameDragStartPos = clickPos;
+            gameDragCurrentPos = clickPos;
+        }
+    };
+
+    auto finishGameDrag = [&](sf::Vector2f releasePos) {
+        if (!gameDragActive || !haveSnapshot)
+        {
+            resetGameDrag();
+            return false;
+        }
+
+        const std::optional<std::pair<int, int>> square = squareAtPixel(releasePos);
+        if (!square)
+        {
+            resetGameDrag();
+            return true;
+        }
+
+        const auto [row, column] = *square;
+        if (gameDragKind == GameDragKind::HandCard && draggingHandIndex &&
+            *draggingHandIndex < gameSnapshot.hand.size())
+        {
+            sendPlayCard(static_cast<int>(*draggingHandIndex), row, column);
+            selectedHandIndex.reset();
+            selectedPieceId.reset();
+            pendingHandClickIndex.reset();
+        }
+        else if (gameDragKind == GameDragKind::Piece && draggingPieceId)
+        {
+            if (const game_data::Piece* piece = gamePieceById(*draggingPieceId))
+            {
+                const game_data::Piece* target = gamePieceAt(row, column);
+                if (target && target->owner != piece->owner)
+                {
+                    sendAttackPiece(piece->id, row, column);
+                }
+                else if (!target && (piece->row != row || piece->column != column))
+                {
+                    sendMovePiece(piece->id, row, column);
+                }
+            }
+            selectedPieceId.reset();
+            selectedHandIndex.reset();
+        }
+
+        resetGameDrag();
+        return true;
+    };
+
     auto pollGameSocket = [&]() {
         if (!activeGameSocket)
         {
@@ -2079,8 +2266,14 @@ int main(int argc, char** argv)
         selectedPieceId.reset();
         selectedHandIndex.reset();
         inspectedPieceId.reset();
+        inspectedHandIndex.reset();
         lastClickedPieceId.reset();
+        pendingHandClickIndex.reset();
         inspectedPieceScroll = 0.0f;
+        gameDragKind = GameDragKind::None;
+        draggingHandIndex.reset();
+        draggingPieceId.reset();
+        gameDragActive = false;
         pieceMoveAnimations.clear();
         showAuthenticatedScreen();
     };
@@ -2117,19 +2310,7 @@ int main(int argc, char** argv)
 
         if (const std::optional<std::size_t> handIndex = handCardAtPixel(clickPos))
         {
-            const game_data::GameCard& card = gameSnapshot.hand[*handIndex];
-            selectedPieceId.reset();
-            if (card.type != "Unit" && card.effect == "steam")
-            {
-                sendPlayCard(static_cast<int>(*handIndex), -1, -1);
-                selectedHandIndex.reset();
-            }
-            else
-            {
-                selectedHandIndex = (selectedHandIndex && *selectedHandIndex == *handIndex)
-                    ? std::nullopt
-                    : std::optional<std::size_t>(*handIndex);
-            }
+            handleHandCardClick(*handIndex);
             return;
         }
 
@@ -2313,9 +2494,74 @@ int main(int argc, char** argv)
         return descriptions;
     };
 
-    auto piecePopupActionContentHeight = [&](const game_data::Piece& piece) {
+    auto cardPlayDescription = [&](const game_data::GameCard& card) {
+        if (card.type == "Unit")
+        {
+            return "Play: costs " + std::to_string(card.cost) +
+                " steam. Deploy onto an empty square you control. Summoned units cannot act on the turn they arrive.";
+        }
+        if (card.effect == "damage")
+        {
+            return "Play: costs " + std::to_string(card.cost) + " steam. Target an enemy piece to deal " +
+                std::to_string(card.power) + " damage.";
+        }
+        if (card.effect == "heal")
+        {
+            return "Play: costs " + std::to_string(card.cost) + " steam. Target a friendly piece to restore up to " +
+                std::to_string(card.power) + " health.";
+        }
+        if (card.effect == "steam")
+        {
+            return "Play: costs " + std::to_string(card.cost) + " steam and grants " +
+                std::to_string(card.power) + " steam immediately.";
+        }
+        return "Play: costs " + std::to_string(card.cost) + " steam.";
+    };
+
+    auto cardPopupActionDescriptions = [&](const game_data::GameCard& card) {
+        std::vector<std::pair<std::string, sf::Color>> descriptions;
+        const int me = gameSnapshot.yourPlayer;
+        const game_data::Phase phase = static_cast<game_data::Phase>(gameSnapshot.phase);
+        const bool yourTurn = phase == game_data::Phase::Playing && gameSnapshot.activePlayer == me;
+        const bool affordable = card.cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].steam;
+
+        if (phase == game_data::Phase::GameOver)
+        {
+            descriptions.push_back({"Turn status: the game is over.", sf::Color(210, 216, 228)});
+        }
+        else if (!yourTurn)
+        {
+            descriptions.push_back({"Turn status: this card can be played on your battle turn.", sf::Color(210, 216, 228)});
+        }
+        else if (!affordable)
+        {
+            descriptions.push_back({"Turn status: not enough steam to play this card.", sf::Color(225, 170, 150)});
+        }
+        else
+        {
+            descriptions.push_back({"Turn status: playable now. Playing a card ends your turn.", sf::Color(120, 220, 150)});
+        }
+
+        descriptions.push_back({cardPlayDescription(card), sf::Color(210, 216, 228)});
+        if (card.type == "Unit")
+        {
+            game_data::Piece preview;
+            preview.movePattern = card.movePattern;
+            preview.moveRange = card.moveRange;
+            preview.attack = card.attack;
+            preview.attackRange = card.attackRange;
+            descriptions.push_back({moveDescription(preview), sf::Color(210, 216, 228)});
+            descriptions.push_back({attackDescription(preview), sf::Color(210, 216, 228)});
+            descriptions.push_back({
+                "Territory: once deployed, the unit controls its occupied square and influences adjacent empty squares.",
+                sf::Color(198, 180, 142)});
+        }
+        return descriptions;
+    };
+
+    auto popupActionContentHeight = [&](const std::vector<std::pair<std::string, sf::Color>>& descriptions) {
         float height = 0.0f;
-        for (const auto& [description, color] : piecePopupActionDescriptions(piece))
+        for (const auto& [description, color] : descriptions)
         {
             (void)color;
             height += static_cast<float>(wrapText(font, description, 14, PiecePopupTextWidth - 24.0f).size()) * 18.0f;
@@ -2324,20 +2570,44 @@ int main(int argc, char** argv)
         return height;
     };
 
-    auto piecePopupMaxScroll = [&](const game_data::Piece& piece) {
-        return std::max(0.0f, piecePopupActionContentHeight(piece) - PiecePopupScrollHeight);
+    auto popupMaxScroll = [&](const std::vector<std::pair<std::string, sf::Color>>& descriptions) {
+        return std::max(0.0f, popupActionContentHeight(descriptions) - PiecePopupScrollHeight);
     };
 
     auto drawPiecePopup = [&]() {
-        if (!inspectedPieceId)
+        if (!inspectedPieceId && !inspectedHandIndex)
         {
             return;
         }
 
-        const game_data::Piece* piece = gamePieceById(*inspectedPieceId);
-        if (!piece)
+        const game_data::Piece* piece = nullptr;
+        const game_data::GameCard* card = nullptr;
+        if (inspectedHandIndex)
         {
-            inspectedPieceId.reset();
+            if (*inspectedHandIndex >= gameSnapshot.hand.size())
+            {
+                inspectedHandIndex.reset();
+                inspectedPieceScroll = 0.0f;
+                return;
+            }
+            card = &gameSnapshot.hand[*inspectedHandIndex];
+        }
+        else if (inspectedPieceId)
+        {
+            piece = gamePieceById(*inspectedPieceId);
+            if (!piece)
+            {
+                inspectedPieceId.reset();
+                inspectedPieceScroll = 0.0f;
+                return;
+            }
+        }
+
+        const std::vector<std::pair<std::string, sf::Color>> actionDescriptions =
+            piece ? piecePopupActionDescriptions(*piece) : cardPopupActionDescriptions(*card);
+
+        if (!piece && !card)
+        {
             return;
         }
 
@@ -2346,7 +2616,7 @@ int main(int argc, char** argv)
         window.draw(overlay);
 
         drawPanel(window, {PiecePopupX, PiecePopupY}, {PiecePopupWidth, PiecePopupHeight});
-        drawText(window, font, piece->name, 24, {PiecePopupX + 22.0f, PiecePopupY + 18.0f},
+        drawText(window, font, piece ? piece->name : card->title, 24, {PiecePopupX + 22.0f, PiecePopupY + 18.0f},
                  sf::Color(248, 239, 216), PiecePopupWidth - 44.0f);
 
         sf::RectangleShape artFrame({104.0f, 104.0f});
@@ -2356,48 +2626,86 @@ int main(int argc, char** argv)
         artFrame.setOutlineColor(sf::Color(155, 111, 59));
         window.draw(artFrame);
 
-        if (sf::Texture* walkSheet = walkAnimTexture(piece->walkAnimPath))
+        bool drewArt = false;
+        if (piece)
         {
-            constexpr int WalkFrameCount = 4;
-            const sf::Vector2u sheetSize = walkSheet->getSize();
-            const int frameWidth = static_cast<int>(sheetSize.x / WalkFrameCount);
-            const int frameHeight = static_cast<int>(sheetSize.y);
-            if (frameWidth > 0 && frameHeight > 0)
+            if (sf::Texture* walkSheet = walkAnimTexture(piece->walkAnimPath))
             {
-                drawTextureRectContain(
-                    *walkSheet,
-                    sf::IntRect({0, 0}, {frameWidth, frameHeight}),
-                    {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}});
+                constexpr int WalkFrameCount = 4;
+                const sf::Vector2u sheetSize = walkSheet->getSize();
+                const int frameWidth = static_cast<int>(sheetSize.x / WalkFrameCount);
+                const int frameHeight = static_cast<int>(sheetSize.y);
+                if (frameWidth > 0 && frameHeight > 0)
+                {
+                    drawTextureRectContain(
+                        *walkSheet,
+                        sf::IntRect({0, 0}, {frameWidth, frameHeight}),
+                        {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}});
+                    drewArt = true;
+                }
             }
         }
-        else if (sf::Texture* art = cardArtTexture(piece->imagePath))
+        if (!drewArt)
         {
-            drawContainSprite(*art, {{PiecePopupX + 30.0f, PiecePopupY + 70.0f}, {88.0f, 88.0f}});
+            if (sf::Texture* art = cardArtTexture(piece ? piece->imagePath : card->imagePath))
+            {
+                drawContainSprite(*art, {{PiecePopupX + 30.0f, PiecePopupY + 70.0f}, {88.0f, 88.0f}});
+            }
         }
 
-        const std::string ownerLabel = piece->owner == gameSnapshot.yourPlayer ? "Yours" : "Opponent";
-        const std::string typeLabel = piece->isHero ? "Hero" : "Unit";
         float y = PiecePopupY + 66.0f;
         const float statX = PiecePopupX + 146.0f;
-        drawText(window, font, typeLabel + " - " + ownerLabel + " (Player " + std::to_string(piece->owner) + ")",
-                 15, {statX, y}, ownerColor(piece->owner), PiecePopupWidth - 174.0f);
-        y += 24.0f;
-        drawText(window, font, "Position: row " + std::to_string(piece->row + 1) +
-                     ", column " + std::to_string(piece->column + 1),
-                 14, {statX, y}, sf::Color(190, 198, 214));
-        y += 24.0f;
-        drawText(window, font, "Health: " + std::to_string(piece->health) + "/" + std::to_string(piece->maxHealth),
-                 14, {statX, y}, sf::Color(224, 210, 176));
-        y += 22.0f;
-        drawText(window, font, "Attack: " + std::to_string(piece->attack) +
-                     "   Attack range: " + std::to_string(piece->attackRange),
-                 14, {statX, y}, sf::Color(224, 210, 176));
-        y += 22.0f;
-        drawText(window, font, "Movement: " + game_data::movePatternName(piece->movePattern) +
-                     " " + std::to_string(piece->moveRange),
-                 14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+        if (piece)
+        {
+            const std::string ownerLabel = piece->owner == gameSnapshot.yourPlayer ? "Yours" : "Opponent";
+            const std::string typeLabel = piece->isHero ? "Hero" : "Unit";
+            drawText(window, font, typeLabel + " - " + ownerLabel + " (Player " + std::to_string(piece->owner) + ")",
+                     15, {statX, y}, ownerColor(piece->owner), PiecePopupWidth - 174.0f);
+            y += 24.0f;
+            drawText(window, font, "Position: row " + std::to_string(piece->row + 1) +
+                         ", column " + std::to_string(piece->column + 1),
+                     14, {statX, y}, sf::Color(190, 198, 214));
+            y += 24.0f;
+            drawText(window, font, "Health: " + std::to_string(piece->health) + "/" + std::to_string(piece->maxHealth),
+                     14, {statX, y}, sf::Color(224, 210, 176));
+            y += 22.0f;
+            drawText(window, font, "Attack: " + std::to_string(piece->attack) +
+                         "   Attack range: " + std::to_string(piece->attackRange),
+                     14, {statX, y}, sf::Color(224, 210, 176));
+            y += 22.0f;
+            drawText(window, font, "Movement: " + game_data::movePatternName(piece->movePattern) +
+                         " " + std::to_string(piece->moveRange),
+                     14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+        }
+        else
+        {
+            drawText(window, font, card->type + " - Hand card", 15, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+            y += 24.0f;
+            drawText(window, font, "Cost: " + std::to_string(card->cost) + " steam", 14, {statX, y}, sf::Color(150, 210, 235));
+            y += 24.0f;
+            if (card->type == "Unit")
+            {
+                drawText(window, font, "Health: " + std::to_string(card->health), 14, {statX, y}, sf::Color(224, 210, 176));
+                y += 22.0f;
+                drawText(window, font, "Attack: " + std::to_string(card->attack) +
+                             "   Attack range: " + std::to_string(card->attackRange),
+                         14, {statX, y}, sf::Color(224, 210, 176));
+                y += 22.0f;
+                drawText(window, font, "Movement: " + game_data::movePatternName(card->movePattern) +
+                             " " + std::to_string(card->moveRange),
+                         14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+            }
+            else
+            {
+                drawText(window, font, "Effect: " + card->effect, 14, {statX, y}, sf::Color(224, 210, 176));
+                y += 22.0f;
+                drawText(window, font, "Power: " + std::to_string(card->power), 14, {statX, y}, sf::Color(224, 210, 176));
+                y += 22.0f;
+                drawText(window, font, "Target: " + card->target, 14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+            }
+        }
 
-        inspectedPieceScroll = std::clamp(inspectedPieceScroll, 0.0f, piecePopupMaxScroll(*piece));
+        inspectedPieceScroll = std::clamp(inspectedPieceScroll, 0.0f, popupMaxScroll(actionDescriptions));
 
         drawText(window, font, "Actions", 17, {PiecePopupTextX, PiecePopupActionHeadingY}, sf::Color::White);
 
@@ -2418,7 +2726,7 @@ int main(int argc, char** argv)
         window.setView(actionView);
 
         y = PiecePopupScrollY + 8.0f;
-        for (const auto& [description, color] : piecePopupActionDescriptions(*piece))
+        for (const auto& [description, color] : actionDescriptions)
         {
             y = drawWrappedText(window, font, description, 14, {PiecePopupTextX + 8.0f, y}, color, PiecePopupTextWidth - 24.0f);
             y += 8.0f;
@@ -2426,7 +2734,7 @@ int main(int argc, char** argv)
 
         window.setView(previousView);
 
-        const float maxScroll = piecePopupMaxScroll(*piece);
+        const float maxScroll = popupMaxScroll(actionDescriptions);
         if (maxScroll > 0.0f)
         {
             const float trackX = PiecePopupX + PiecePopupWidth - 22.0f;
@@ -2458,6 +2766,11 @@ int main(int argc, char** argv)
         const int me = gameSnapshot.yourPlayer;
         const game_data::Phase phase = static_cast<game_data::Phase>(gameSnapshot.phase);
         const game_data::Piece* selectedPiece = selectedPieceId ? gamePieceById(*selectedPieceId) : nullptr;
+        const game_data::Piece* draggedPiece =
+            gameDragKind == GameDragKind::Piece && draggingPieceId ? gamePieceById(*draggingPieceId) : nullptr;
+        const game_data::Piece* actingPiece = draggedPiece ? draggedPiece : selectedPiece;
+        const std::optional<std::size_t> actingHandIndex =
+            gameDragKind == GameDragKind::HandCard && draggingHandIndex ? draggingHandIndex : selectedHandIndex;
 
         // Precompute highlight masks for the current selection.
         std::array<int, game_data::BoardSquares> highlight{};  // 0 none,1 move,2 attack,3 place,4 spell
@@ -2474,7 +2787,7 @@ int main(int argc, char** argv)
         }
         else if (phase == game_data::Phase::Playing && gameSnapshot.activePlayer == me)
         {
-            if (selectedPiece && !selectedPiece->hasActed)
+            if (actingPiece && !actingPiece->hasActed)
             {
                 for (int r = 0; r < game_data::BoardSize; ++r)
                 {
@@ -2484,21 +2797,21 @@ int main(int argc, char** argv)
                         const game_data::Piece* occupant = gamePieceAt(r, c);
                         if (occupant && occupant->owner != me)
                         {
-                            if (game_data::isLegalAttack(*selectedPiece, *occupant))
+                            if (game_data::isLegalAttack(*actingPiece, *occupant))
                             {
                                 highlight[idx] = 2;
                             }
                         }
-                        else if (game_data::isLegalMove(gameSnapshot.pieces, *selectedPiece, r, c))
+                        else if (game_data::isLegalMove(gameSnapshot.pieces, *actingPiece, r, c))
                         {
                             highlight[idx] = 1;
                         }
                     }
                 }
             }
-            else if (selectedHandIndex && *selectedHandIndex < gameSnapshot.hand.size())
+            else if (actingHandIndex && *actingHandIndex < gameSnapshot.hand.size())
             {
-                const game_data::GameCard& card = gameSnapshot.hand[*selectedHandIndex];
+                const game_data::GameCard& card = gameSnapshot.hand[*actingHandIndex];
                 for (int r = 0; r < game_data::BoardSize; ++r)
                 {
                     for (int c = 0; c < game_data::BoardSize; ++c)
@@ -2727,6 +3040,56 @@ int main(int argc, char** argv)
             const bool affordable = card.cost <= mine.steam && gameSnapshot.activePlayer == me &&
                                     phase == game_data::Phase::Playing;
             drawGameCardFace({x, HandY}, card, selectedHandIndex && *selectedHandIndex == i, affordable);
+        }
+
+        if (gameDragActive)
+        {
+            if (gameDragKind == GameDragKind::HandCard && draggingHandIndex &&
+                *draggingHandIndex < gameSnapshot.hand.size())
+            {
+                const game_data::GameCard& draggedCard = gameSnapshot.hand[*draggingHandIndex];
+                const bool affordable = draggedCard.cost <= mine.steam && gameSnapshot.activePlayer == me &&
+                                        phase == game_data::Phase::Playing;
+                drawGameCardFace(
+                    {gameDragCurrentPos.x - HandCardWidth / 2.0f, gameDragCurrentPos.y - HandCardHeight / 2.0f},
+                    draggedCard,
+                    true,
+                    affordable);
+            }
+            else if (gameDragKind == GameDragKind::Piece && draggedPiece)
+            {
+                sf::RectangleShape ghost({CellSize - 8.0f, CellSize - 8.0f});
+                ghost.setPosition({gameDragCurrentPos.x - CellSize / 2.0f + 4.0f, gameDragCurrentPos.y - CellSize / 2.0f + 4.0f});
+                ghost.setFillColor(sf::Color(20, 28, 30, 190));
+                ghost.setOutlineThickness(2.0f);
+                ghost.setOutlineColor(ownerColor(draggedPiece->owner));
+                window.draw(ghost);
+
+                if (sf::Texture* walkSheet = walkAnimTexture(draggedPiece->walkAnimPath))
+                {
+                    constexpr int WalkFrameCount = 4;
+                    const sf::Vector2u sheetSize = walkSheet->getSize();
+                    const int frameWidth = static_cast<int>(sheetSize.x / WalkFrameCount);
+                    const int frameHeight = static_cast<int>(sheetSize.y);
+                    if (frameWidth > 0 && frameHeight > 0)
+                    {
+                        drawTextureRectContain(
+                            *walkSheet,
+                            sf::IntRect({0, 0}, {frameWidth, frameHeight}),
+                            {{gameDragCurrentPos.x - CellSize / 2.0f + 7.0f, gameDragCurrentPos.y - CellSize / 2.0f},
+                             {CellSize - 14.0f, CellSize - 8.0f}},
+                            sf::Color(255, 255, 255, 210));
+                    }
+                }
+                else if (sf::Texture* art = cardArtTexture(draggedPiece->imagePath))
+                {
+                    drawContainSprite(
+                        *art,
+                        {{gameDragCurrentPos.x - CellSize / 2.0f + 10.0f, gameDragCurrentPos.y - CellSize / 2.0f + 10.0f},
+                         {CellSize - 20.0f, CellSize - 20.0f}},
+                        sf::Color(255, 255, 255, 210));
+                }
+            }
         }
 
         // Game-over banner.
@@ -3042,17 +3405,20 @@ int main(int argc, char** argv)
                 }
                 else if (currentState == GameState::Game)
                 {
-                    if (inspectedPieceId)
+                    if (inspectedPieceId || inspectedHandIndex)
                     {
                         if (closePiecePopupButton.isClicked(clickPos) ||
                             !isInsideRect(clickPos, PiecePopupX, PiecePopupY, PiecePopupWidth, PiecePopupHeight))
                         {
                             inspectedPieceId.reset();
+                            inspectedHandIndex.reset();
                             inspectedPieceScroll = 0.0f;
+                            resetGameDrag();
                         }
                     }
                     else if (leaveGameButton.isClicked(clickPos))
                     {
+                        pendingHandClickIndex.reset();
                         leaveGame();
                     }
                     else if (haveSnapshot &&
@@ -3060,15 +3426,24 @@ int main(int argc, char** argv)
                              gameSnapshot.activePlayer == gameSnapshot.yourPlayer &&
                              endTurnButton.isClicked(clickPos))
                     {
+                        pendingHandClickIndex.reset();
                         sendEndTurn();
                         selectedPieceId.reset();
                         selectedHandIndex.reset();
                     }
                     else
                     {
-                        if (!showPiecePopupIfDoubleClick(clickPos))
+                        beginPotentialGameDrag(clickPos);
+                        if (handleHandCardClickOrPopup(clickPos))
                         {
-                            handleGameClick(clickPos);
+                        }
+                        else
+                        {
+                            const bool consumedByPendingCard = flushPendingHandClick();
+                            if (!consumedByPendingCard && !showPiecePopupIfDoubleClick(clickPos))
+                            {
+                                handleGameClick(clickPos);
+                            }
                         }
                     }
                 }
@@ -3174,6 +3549,19 @@ int main(int argc, char** argv)
                 }
             }
 
+            if (const auto* mouseMoved = event->getIf<sf::Event::MouseMoved>();
+                mouseMoved && currentState == GameState::Game && gameDragKind != GameDragKind::None)
+            {
+                gameDragCurrentPos = window.mapPixelToCoords(mouseMoved->position);
+                const sf::Vector2f delta = gameDragCurrentPos - gameDragStartPos;
+                if (delta.x * delta.x + delta.y * delta.y > GameDragStartDistanceSquared)
+                {
+                    gameDragActive = true;
+                    pendingHandClickIndex.reset();
+                    lastClickedPieceId.reset();
+                }
+            }
+
             if (const auto* mouseReleased = event->getIf<sf::Event::MouseButtonReleased>();
                 mouseReleased && mouseReleased->button == sf::Mouse::Button::Left && currentState == GameState::DeckEditor)
             {
@@ -3186,6 +3574,16 @@ int main(int argc, char** argv)
 
                 draggingLibraryCard.reset();
                 dragActive = false;
+            }
+
+            if (const auto* mouseReleased = event->getIf<sf::Event::MouseButtonReleased>();
+                mouseReleased && mouseReleased->button == sf::Mouse::Button::Left && currentState == GameState::Game)
+            {
+                const sf::Vector2f releasePos = window.mapPixelToCoords(mouseReleased->position);
+                if (gameDragKind != GameDragKind::None)
+                {
+                    finishGameDrag(releasePos);
+                }
             }
 
             if (const auto* wheel = event->getIf<sf::Event::MouseWheelScrolled>(); wheel && currentState == GameState::DeckEditor)
@@ -3206,17 +3604,30 @@ int main(int argc, char** argv)
             }
 
             if (const auto* wheel = event->getIf<sf::Event::MouseWheelScrolled>();
-                wheel && currentState == GameState::Game && inspectedPieceId)
+                wheel && currentState == GameState::Game && (inspectedPieceId || inspectedHandIndex))
             {
                 const sf::Vector2f wheelPos = window.mapPixelToCoords(wheel->position);
                 if (isInsideRect(wheelPos, PiecePopupTextX, PiecePopupScrollY, PiecePopupTextWidth, PiecePopupScrollHeight))
                 {
-                    if (const game_data::Piece* piece = gamePieceById(*inspectedPieceId))
+                    std::vector<std::pair<std::string, sf::Color>> actionDescriptions;
+                    if (inspectedHandIndex && *inspectedHandIndex < gameSnapshot.hand.size())
+                    {
+                        actionDescriptions = cardPopupActionDescriptions(gameSnapshot.hand[*inspectedHandIndex]);
+                    }
+                    else if (inspectedPieceId)
+                    {
+                        if (const game_data::Piece* piece = gamePieceById(*inspectedPieceId))
+                        {
+                            actionDescriptions = piecePopupActionDescriptions(*piece);
+                        }
+                    }
+
+                    if (!actionDescriptions.empty())
                     {
                         inspectedPieceScroll = std::clamp(
                             inspectedPieceScroll - wheel->delta * 34.0f,
                             0.0f,
-                            piecePopupMaxScroll(*piece));
+                            popupMaxScroll(actionDescriptions));
                     }
                 }
             }
@@ -3241,9 +3652,10 @@ int main(int argc, char** argv)
             {
                 if (keyPressed->code == sf::Keyboard::Key::Escape)
                 {
-                    if (currentState == GameState::Game && inspectedPieceId)
+                    if (currentState == GameState::Game && (inspectedPieceId || inspectedHandIndex))
                     {
                         inspectedPieceId.reset();
+                        inspectedHandIndex.reset();
                         inspectedPieceScroll = 0.0f;
                     }
                     else if (currentState == GameState::DeckEditor && !deckEditorBusy())
@@ -3299,6 +3711,13 @@ int main(int argc, char** argv)
             }
         }
 
+        if (currentState == GameState::Game && pendingHandClickIndex &&
+            !(inspectedPieceId || inspectedHandIndex) &&
+            animationTime - pendingHandClickTime > PieceDoubleClickSeconds)
+        {
+            flushPendingHandClick();
+        }
+
         if (currentState == GameState::Menu)
         {
             loginButton.update(mousePos);
@@ -3345,7 +3764,7 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Game)
         {
-            if (inspectedPieceId)
+            if (inspectedPieceId || inspectedHandIndex)
             {
                 closePiecePopupButton.update(mousePos);
             }
