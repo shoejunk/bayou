@@ -1,6 +1,7 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/Network.hpp>
 
+#include "../shared/account_data.hpp"
 #include "../shared/card_data.hpp"
 #include "../shared/deck_data.hpp"
 #include "../shared/game_data.hpp"
@@ -66,6 +67,7 @@ enum class GameState
     DeckSelect,
     Matchmaking,
     DeckEditor,
+    Shop,
     Game
 };
 
@@ -140,12 +142,22 @@ struct DeckListResult
     std::vector<deck_data::Deck> decks;
 };
 
+struct AccountStateResult
+{
+    bool success = false;
+    std::string message;
+    int coins = 0;
+    std::vector<account_data::CollectionCard> collection;
+};
+
 struct DeckEditorLoadResult
 {
     bool success = false;
     std::string message;
     std::vector<card_data::Card> cards;
     std::vector<deck_data::Deck> decks;
+    int coins = 0;
+    std::vector<account_data::CollectionCard> collection;
 };
 
 struct DeckCommandResult
@@ -154,6 +166,23 @@ struct DeckCommandResult
     std::string message;
     std::string originalName;
     deck_data::Deck deck;
+};
+
+struct AccountCommandResult
+{
+    bool success = false;
+    std::string message;
+    int coins = 0;
+    std::string cardTitle;
+};
+
+struct ShopLoadResult
+{
+    bool success = false;
+    std::string message;
+    std::vector<card_data::Card> cards;
+    int coins = 0;
+    std::vector<account_data::CollectionCard> collection;
 };
 
 struct BoardCellMetrics
@@ -752,6 +781,29 @@ std::vector<card_data::Card> resolveDeckCards(
     return resolved;
 }
 
+int collectionCopiesFor(const std::vector<account_data::CollectionCard>& collection, const std::string& title)
+{
+    const auto found = std::find_if(collection.begin(), collection.end(), [&](const account_data::CollectionCard& card) {
+        return card.title == title;
+    });
+    return found == collection.end() ? 0 : found->copies;
+}
+
+std::vector<card_data::Card> ownedCardsFromCollection(
+    const std::vector<card_data::Card>& library,
+    const std::vector<account_data::CollectionCard>& collection)
+{
+    std::vector<card_data::Card> ownedCards;
+    for (const card_data::Card& card : library)
+    {
+        if (collectionCopiesFor(collection, card.title) > 0)
+        {
+            ownedCards.push_back(card);
+        }
+    }
+    return ownedCards;
+}
+
 int countHeroes(const std::vector<card_data::Card>& cards)
 {
     return static_cast<int>(std::count_if(cards.begin(), cards.end(), [](const card_data::Card& card) {
@@ -919,6 +971,52 @@ DeckListResult fetchDecks(const std::string& username)
     return {success, message, decks};
 }
 
+AccountStateResult fetchAccountState(const std::string& username)
+{
+    sf::TcpSocket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::AccountStateRequest);
+    request << username;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send account state request"};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No account state response from account server"};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    int coins = 0;
+    response >> responseType >> success >> message >> coins;
+    if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::AccountStateResponse)
+    {
+        socket.disconnect();
+        return {false, "Unexpected account state response"};
+    }
+
+    std::vector<account_data::CollectionCard> collection;
+    if (!account_data::readCollection(response, collection))
+    {
+        socket.disconnect();
+        return {false, "Invalid account state payload"};
+    }
+
+    sendDisconnect(socket);
+    return {success, message, coins, collection};
+}
+
 DeckCommandResult readDeckCommandResponse(
     sf::TcpSocket& socket,
     network::MessageType expectedResponseType,
@@ -1005,6 +1103,96 @@ DeckCommandResult deleteDeckFromAccount(const std::string& username, const std::
     return result;
 }
 
+AccountCommandResult sendCoinCommand(
+    network::MessageType requestType,
+    network::MessageType expectedResponseType,
+    const std::string& username)
+{
+    sf::TcpSocket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(requestType);
+    request << username;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send account command"};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No account command response"};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    int coins = 0;
+    response >> responseType >> success >> message >> coins;
+    if (!response || static_cast<network::MessageType>(responseType) != expectedResponseType)
+    {
+        socket.disconnect();
+        return {false, "Unexpected account command response"};
+    }
+
+    sendDisconnect(socket);
+    return {success, message, coins};
+}
+
+AccountCommandResult claimWinReward(const std::string& username)
+{
+    return sendCoinCommand(
+        network::MessageType::WinRewardRequest,
+        network::MessageType::WinRewardResponse,
+        username);
+}
+
+AccountCommandResult purchaseRandomCard(const std::string& username)
+{
+    sf::TcpSocket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::ShopPurchaseRequest);
+    request << username;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send shop purchase request"};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No shop purchase response"};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    int coins = 0;
+    std::string cardTitle;
+    response >> responseType >> success >> message >> coins >> cardTitle;
+    if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::ShopPurchaseResponse)
+    {
+        socket.disconnect();
+        return {false, "Unexpected shop purchase response"};
+    }
+
+    sendDisconnect(socket);
+    return {success, message, coins, cardTitle};
+}
+
 DeckEditorLoadResult loadDeckEditorData(const std::string& username)
 {
     CardListResult cardResult = fetchCards();
@@ -1013,16 +1201,57 @@ DeckEditorLoadResult loadDeckEditorData(const std::string& username)
         return {false, cardResult.message};
     }
 
+    AccountStateResult accountResult = fetchAccountState(username);
+    if (!accountResult.success)
+    {
+        return {false, accountResult.message};
+    }
+
     DeckListResult deckResult = fetchDecks(username);
     if (!deckResult.success)
     {
-        return {false, deckResult.message, std::move(cardResult.cards)};
+        return {
+            false,
+            deckResult.message,
+            ownedCardsFromCollection(cardResult.cards, accountResult.collection),
+            {},
+            accountResult.coins,
+            std::move(accountResult.collection)};
     }
 
+    std::vector<card_data::Card> ownedCards = ownedCardsFromCollection(cardResult.cards, accountResult.collection);
     const std::string message =
-        "Loaded " + std::to_string(cardResult.cards.size()) + " cards and " +
+        "Loaded " + std::to_string(ownedCards.size()) + " owned cards and " +
         std::to_string(deckResult.decks.size()) + " decks";
-    return {true, message, std::move(cardResult.cards), std::move(deckResult.decks)};
+    return {
+        true,
+        message,
+        std::move(ownedCards),
+        std::move(deckResult.decks),
+        accountResult.coins,
+        std::move(accountResult.collection)};
+}
+
+ShopLoadResult loadShopData(const std::string& username)
+{
+    CardListResult cardResult = fetchCards();
+    if (!cardResult.success)
+    {
+        return {false, cardResult.message};
+    }
+
+    AccountStateResult accountResult = fetchAccountState(username);
+    if (!accountResult.success)
+    {
+        return {false, accountResult.message, std::move(cardResult.cards)};
+    }
+
+    return {
+        true,
+        "Shop loaded",
+        std::move(cardResult.cards),
+        accountResult.coins,
+        std::move(accountResult.collection)};
 }
 
 ServerResult joinGameServer(int matchId, int playerNumber, unsigned short gamePort)
@@ -1260,6 +1489,7 @@ int main(int argc, char** argv)
     Button backButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Back", font);
     Button playButton({300.0f, 220.0f}, {200.0f, 60.0f}, "Play", font);
     Button deckEditorButton({300.0f, 300.0f}, {200.0f, 60.0f}, "Deck Editor", font);
+    Button shopButton({300.0f, 380.0f}, {200.0f, 60.0f}, "Shop", font);
 
     Button deckBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
     Button newDeckButton({34.0f, 132.0f}, {102.0f, 38.0f}, "New", font);
@@ -1268,6 +1498,8 @@ int main(int argc, char** argv)
     Button removeCardButton({304.0f, 508.0f}, {110.0f, 38.0f}, "Remove", font);
     Button addCardButton({574.0f, 508.0f}, {88.0f, 38.0f}, "Add", font);
     Button saveDeckButton({668.0f, 508.0f}, {108.0f, 38.0f}, "Save", font);
+    Button shopBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
+    Button buyCardButton({300.0f, 492.0f}, {200.0f, 46.0f}, "Buy Card", font);
 
     sf::Text messageText(font, "", 20);
     messageText.setFillColor(sf::Color::Red);
@@ -1281,15 +1513,26 @@ int main(int argc, char** argv)
     std::optional<std::future<DeckEditorLoadResult>> pendingDeckEditorLoad;
     std::optional<std::future<DeckCommandResult>> pendingDeckSave;
     std::optional<std::future<DeckCommandResult>> pendingDeckDelete;
+    std::optional<std::future<AccountStateResult>> pendingAccountState;
+    std::optional<std::future<ShopLoadResult>> pendingShopLoad;
+    std::optional<std::future<AccountCommandResult>> pendingShopPurchase;
+    std::optional<std::future<AccountCommandResult>> pendingWinReward;
     std::shared_ptr<sf::TcpSocket> activeGameSocket;
     std::string loggedInUsername;
     std::vector<card_data::Card> cardLibrary;
+    std::vector<card_data::Card> allCardLibrary;
     std::vector<deck_data::Deck> playerDecks;
+    std::vector<account_data::CollectionCard> playerCollection;
     deck_data::Deck editingDeck;
     std::string activeDeckOriginalName;
+    int playerCoins = 0;
     std::optional<std::size_t> selectedDeck;
     std::optional<std::size_t> selectedDeckCard;
     std::optional<std::size_t> selectedLibraryCard;
+    std::optional<std::string> revealedCardTitle;
+    float revealStartedAt = 0.0f;
+    bool winRewardRequested = false;
+    std::string gameRewardText;
     std::optional<std::size_t> draggingLibraryCard;
     sf::Vector2f dragStartPos;
     sf::Vector2f dragCurrentPos;
@@ -1428,6 +1671,36 @@ int main(int argc, char** argv)
         deckCardListOffset = 0;
     };
 
+    auto applyAccountState = [&](const AccountStateResult& result) {
+        playerCoins = result.coins;
+        playerCollection = result.collection;
+    };
+
+    auto incrementCollection = [&](const std::string& title) {
+        const auto found = std::find_if(
+            playerCollection.begin(),
+            playerCollection.end(),
+            [&](const account_data::CollectionCard& card) {
+                return card.title == title;
+            });
+        if (found != playerCollection.end())
+        {
+            ++found->copies;
+        }
+        else if (!title.empty())
+        {
+            playerCollection.push_back({title, 1});
+        }
+    };
+
+    auto ownedCopies = [&](const std::string& title) {
+        return collectionCopiesFor(playerCollection, title);
+    };
+
+    auto deckCopies = [&](const std::string& title) {
+        return static_cast<int>(std::count(editingDeck.cardTitles.begin(), editingDeck.cardTitles.end(), title));
+    };
+
     auto startRequest = [&](network::MessageType requestType, network::MessageType expectedResponseType) {
         setMessageY(messageText, 450.0f);
         setMessage(messageText, requestType == network::MessageType::Login ? "Logging in..." : "Creating account...", sf::Color::Yellow);
@@ -1449,12 +1722,19 @@ int main(int argc, char** argv)
         }
         loggedInUsername.clear();
         cardLibrary.clear();
+        allCardLibrary.clear();
         playerDecks.clear();
+        playerCollection.clear();
         editingDeck = {};
         activeDeckOriginalName.clear();
+        playerCoins = 0;
         selectedDeck.reset();
         selectedDeckCard.reset();
         selectedLibraryCard.reset();
+        revealedCardTitle.reset();
+        revealStartedAt = 0.0f;
+        winRewardRequested = false;
+        gameRewardText.clear();
         draggingLibraryCard.reset();
         dragActive = false;
         inspectedPieceId.reset();
@@ -1480,10 +1760,14 @@ int main(int argc, char** argv)
         currentState = GameState::Authenticated;
         title.setString("Logged In");
         centerText(title, 400.0f);
-        setMessageY(messageText, 420.0f);
+        setMessageY(messageText, 500.0f);
         resetForm(usernameInput, passwordInput, confirmInput, messageText);
         deckNameInput.clear();
         clearFocus();
+        if (!loggedInUsername.empty())
+        {
+            pendingAccountState = std::async(std::launch::async, fetchAccountState, loggedInUsername);
+        }
     };
 
     auto showGameScreen = [&](std::shared_ptr<sf::TcpSocket> gameSocket) {
@@ -1507,6 +1791,8 @@ int main(int argc, char** argv)
         draggingHandIndex.reset();
         draggingPieceId.reset();
         gameDragActive = false;
+        winRewardRequested = false;
+        gameRewardText.clear();
         pieceMoveAnimations.clear();
 
         // Submit our deck, then switch the socket to non-blocking polling.
@@ -1551,6 +1837,23 @@ int main(int argc, char** argv)
 
     auto deckEditorBusy = [&]() {
         return pendingDeckEditorLoad.has_value() || pendingDeckSave.has_value() || pendingDeckDelete.has_value();
+    };
+
+    auto loadShop = [&]() {
+        currentState = GameState::Shop;
+        title.setString("");
+        centerText(title, 400.0f);
+        setMessageY(messageText, 558.0f);
+        setMessage(messageText, "Loading shop...", sf::Color::Yellow);
+        clearFocus();
+        allCardLibrary.clear();
+        revealedCardTitle.reset();
+        revealStartedAt = 0.0f;
+        pendingShopLoad = std::async(std::launch::async, loadShopData, loggedInUsername);
+    };
+
+    auto shopBusy = [&]() {
+        return pendingShopLoad.has_value() || pendingShopPurchase.has_value();
     };
 
     auto submitLogin = [&]() {
@@ -1630,6 +1933,20 @@ int main(int argc, char** argv)
         return "";
     };
 
+    auto deckCollectionError = [&]() -> std::string {
+        std::unordered_map<std::string, int> used;
+        for (const std::string& title : editingDeck.cardTitles)
+        {
+            const int count = ++used[title];
+            const int owned = ownedCopies(title);
+            if (count > owned)
+            {
+                return "Only " + std::to_string(owned) + " owned copies of " + title;
+            }
+        }
+        return "";
+    };
+
     auto saveCurrentDeck = [&]() {
         if (deckEditorBusy())
         {
@@ -1641,6 +1958,13 @@ int main(int argc, char** argv)
         if (deck.name.empty())
         {
             setMessage(messageText, "Deck name cannot be empty", sf::Color::Red);
+            return;
+        }
+
+        const std::string collectionError = deckCollectionError();
+        if (!collectionError.empty())
+        {
+            setMessage(messageText, collectionError, sf::Color::Red);
             return;
         }
 
@@ -1677,7 +2001,14 @@ int main(int argc, char** argv)
             return;
         }
 
-        editingDeck.cardTitles.push_back(cardLibrary[libraryIndex].title);
+        const std::string& title = cardLibrary[libraryIndex].title;
+        if (deckCopies(title) >= ownedCopies(title))
+        {
+            setMessage(messageText, "No extra owned copies of " + title, sf::Color::Red);
+            return;
+        }
+
+        editingDeck.cardTitles.push_back(title);
         selectedDeckCard = editingDeck.cardTitles.size() - 1;
         clampListOffset(deckCardListOffset, editingDeck.cardTitles.size(), VisibleDeckCardRows);
         if (*selectedDeckCard >= deckCardListOffset + VisibleDeckCardRows)
@@ -1720,7 +2051,8 @@ int main(int argc, char** argv)
     auto drawDeckEditor = [&]() {
         drawText(window, font, "Deck Editor", 30, {24.0f, 18.0f}, sf::Color::White);
         drawText(window, font, "Signed in as " + loggedInUsername, 14, {270.0f, 22.0f}, sf::Color(178, 186, 202), 360.0f);
-        drawText(window, font, "Card server " + endpointText(clientConfig().card), 13, {270.0f, 45.0f}, sf::Color(148, 158, 176), 360.0f);
+        drawText(window, font, "Coins " + std::to_string(playerCoins), 13, {270.0f, 45.0f}, sf::Color(248, 214, 112), 160.0f);
+        drawText(window, font, "Card server " + endpointText(clientConfig().card), 13, {390.0f, 45.0f}, sf::Color(148, 158, 176), 240.0f);
         deckBackButton.draw(window);
 
         drawPanel(window, {DeckPanelX, DeckEditorPanelY}, {250.0f, DeckEditorPanelHeight});
@@ -1774,9 +2106,11 @@ int main(int argc, char** argv)
             std::string secondary;
             if (card)
             {
+                const std::string copies = "  " + std::to_string(deckCopies(editingDeck.cardTitles[i])) +
+                    "/" + std::to_string(ownedCopies(editingDeck.cardTitles[i]));
                 secondary = game_data::isHeroCard(*card)
-                    ? "Hero  cost " + std::to_string(game_data::cardInt(*card, "heroCost", 0))
-                    : card->type + "  " + std::to_string(game_data::cardInt(*card, "cost", 0)) + " steam";
+                    ? "Hero  cost " + std::to_string(game_data::cardInt(*card, "heroCost", 0)) + copies
+                    : card->type + "  " + std::to_string(game_data::cardInt(*card, "cost", 0)) + " steam" + copies;
             }
             drawRow(
                 window,
@@ -1794,11 +2128,11 @@ int main(int argc, char** argv)
         removeCardButton.draw(window);
 
         drawPanel(window, {LibraryPanelX, DeckEditorPanelY}, {220.0f, DeckEditorPanelHeight});
-        drawText(window, font, "Card Library", 22, {574.0f, 107.0f}, sf::Color::White);
+        drawText(window, font, "Collection", 22, {574.0f, 107.0f}, sf::Color::White);
         drawText(
             window,
             font,
-            std::to_string(cardLibrary.size()) + " available cards",
+            std::to_string(cardLibrary.size()) + " owned card types",
             14,
             {574.0f, 138.0f},
             sf::Color(178, 186, 202));
@@ -1809,8 +2143,10 @@ int main(int argc, char** argv)
             const float y = LibraryY + static_cast<float>(i - libraryOffset) * LibraryRowHeight;
             const card_data::Card& libCard = cardLibrary[i];
             const std::string secondary = game_data::isHeroCard(libCard)
-                ? "Hero  hc " + std::to_string(game_data::cardInt(libCard, "heroCost", 0))
-                : libCard.type + "  " + std::to_string(game_data::cardInt(libCard, "cost", 0)) + " steam";
+                ? "Hero  hc " + std::to_string(game_data::cardInt(libCard, "heroCost", 0)) +
+                    "  owned " + std::to_string(ownedCopies(libCard.title))
+                : libCard.type + "  " + std::to_string(game_data::cardInt(libCard, "cost", 0)) +
+                    " steam  owned " + std::to_string(ownedCopies(libCard.title));
             drawRow(
                 window,
                 font,
@@ -1822,7 +2158,7 @@ int main(int argc, char** argv)
         }
         if (cardLibrary.empty() && !deckEditorBusy())
         {
-            drawText(window, font, "No cards returned", 16, {592.0f, 296.0f}, sf::Color(178, 186, 202));
+            drawText(window, font, "No owned cards", 16, {592.0f, 296.0f}, sf::Color(178, 186, 202));
         }
         addCardButton.draw(window);
         saveDeckButton.draw(window);
@@ -2102,6 +2438,159 @@ int main(int argc, char** argv)
         return loadTexture(walkAnimPath);
     };
 
+    auto cardInAllLibraryByTitle = [&](const std::string& title) -> const card_data::Card* {
+        const auto found = std::find_if(allCardLibrary.begin(), allCardLibrary.end(), [&](const card_data::Card& card) {
+            return card.title == title;
+        });
+        if (found != allCardLibrary.end())
+        {
+            return &*found;
+        }
+        return cardByTitle(title);
+    };
+
+    auto drawLargeCollectionCard = [&](const card_data::Card& card, sf::Vector2f position, sf::Vector2f size) {
+        sf::RectangleShape frame(size);
+        frame.setPosition(position);
+        frame.setFillColor(sf::Color(22, 29, 32, 244));
+        frame.setOutlineThickness(3.0f);
+        frame.setOutlineColor(game_data::isHeroCard(card) ? sf::Color(232, 187, 83) : sf::Color(116, 220, 202));
+        window.draw(frame);
+
+        sf::RectangleShape artFrame({size.x - 30.0f, 150.0f});
+        artFrame.setPosition({position.x + 15.0f, position.y + 16.0f});
+        artFrame.setFillColor(sf::Color(8, 14, 15));
+        artFrame.setOutlineThickness(1.0f);
+        artFrame.setOutlineColor(sf::Color(116, 86, 52));
+        window.draw(artFrame);
+        if (sf::Texture* art = cardArtTexture(card.imagePath))
+        {
+            drawContainSprite(*art, {{position.x + 20.0f, position.y + 20.0f}, {size.x - 40.0f, 142.0f}});
+        }
+
+        drawText(window, font, card.title, 22, {position.x + 18.0f, position.y + 178.0f}, sf::Color(248, 239, 216), size.x - 36.0f);
+        const std::string typeLine = game_data::isHeroCard(card)
+            ? "Hero cost " + std::to_string(game_data::cardInt(card, "heroCost", 0))
+            : card.type + "  " + std::to_string(game_data::cardInt(card, "cost", 0)) + " steam";
+        drawText(window, font, typeLine, 16, {position.x + 18.0f, position.y + 210.0f}, sf::Color(143, 220, 205), size.x - 36.0f);
+
+        std::string statLine;
+        if (card.type == "Unit" || game_data::isHeroCard(card))
+        {
+            statLine = "ATK " + std::to_string(game_data::cardInt(card, "attack", 0)) +
+                "  HP " + std::to_string(game_data::cardInt(card, "health", 0)) +
+                "  MV " + std::to_string(game_data::cardInt(card, "move", 0));
+        }
+        else
+        {
+            statLine = "Spell  " + game_data::cardStr(card, "effect", "effect") +
+                " " + std::to_string(game_data::cardInt(card, "power", 0));
+        }
+        drawText(window, font, statLine, 15, {position.x + 18.0f, position.y + 236.0f}, sf::Color(224, 210, 176), size.x - 36.0f);
+        drawText(
+            window,
+            font,
+            "Owned " + std::to_string(ownedCopies(card.title)),
+            15,
+            {position.x + 18.0f, position.y + 264.0f},
+            sf::Color(248, 214, 112),
+            size.x - 36.0f);
+    };
+
+    auto drawShop = [&]() {
+        drawText(window, font, "Shop", 30, {24.0f, 18.0f}, sf::Color::White);
+        drawText(window, font, "Signed in as " + loggedInUsername, 14, {220.0f, 24.0f}, sf::Color(178, 186, 202), 280.0f);
+
+        sf::CircleShape coin(14.0f);
+        coin.setPosition({534.0f, 24.0f});
+        coin.setFillColor(sf::Color(214, 158, 48));
+        coin.setOutlineThickness(2.0f);
+        coin.setOutlineColor(sf::Color(255, 225, 132));
+        window.draw(coin);
+        drawText(window, font, std::to_string(playerCoins), 18, {570.0f, 22.0f}, sf::Color(248, 239, 216), 80.0f);
+        shopBackButton.draw(window);
+
+        drawPanel(window, {170.0f, 96.0f}, {460.0f, 378.0f});
+
+        const sf::Vector2f center{400.0f, 286.0f};
+        if (pendingShopLoad)
+        {
+            drawText(window, font, "Loading shop...", 24, {306.0f, 270.0f}, sf::Color(248, 239, 216), 220.0f);
+        }
+        else if (revealedCardTitle)
+        {
+            const float t = animationTime - revealStartedAt;
+            for (int i = 0; i < 4; ++i)
+            {
+                const float radius = 86.0f + static_cast<float>(i) * 24.0f + std::sin(t * 4.0f + static_cast<float>(i)) * 6.0f;
+                sf::CircleShape glow(radius);
+                glow.setOrigin({radius, radius});
+                glow.setPosition(center);
+                glow.setFillColor(sf::Color(229, 183, 83, static_cast<std::uint8_t>(34 - i * 6)));
+                window.draw(glow);
+            }
+
+            for (int i = 0; i < 14; ++i)
+            {
+                const float angle = static_cast<float>(i) * 0.72f + t * 1.8f;
+                const float radius = 132.0f + std::sin(t * 3.0f + static_cast<float>(i)) * 18.0f;
+                sf::CircleShape sparkle(3.0f + static_cast<float>(i % 3));
+                sparkle.setPosition({
+                    center.x + std::cos(angle) * radius,
+                    center.y + std::sin(angle) * radius * 0.72f});
+                sparkle.setFillColor(sf::Color(248, 230, 150, 190));
+                window.draw(sparkle);
+            }
+
+            drawText(window, font, "Revealed", 22, {350.0f, 112.0f}, sf::Color(248, 214, 112), 120.0f);
+            if (const card_data::Card* card = cardInAllLibraryByTitle(*revealedCardTitle))
+            {
+                drawLargeCollectionCard(*card, {290.0f, 144.0f}, {220.0f, 300.0f});
+            }
+            else
+            {
+                sf::RectangleShape fallback({220.0f, 300.0f});
+                fallback.setPosition({290.0f, 144.0f});
+                fallback.setFillColor(sf::Color(22, 29, 32, 244));
+                fallback.setOutlineThickness(3.0f);
+                fallback.setOutlineColor(sf::Color(232, 187, 83));
+                window.draw(fallback);
+                drawText(window, font, *revealedCardTitle, 22, {310.0f, 270.0f}, sf::Color(248, 239, 216), 180.0f);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                sf::CircleShape glow(86.0f + static_cast<float>(i) * 28.0f);
+                glow.setOrigin({glow.getRadius(), glow.getRadius()});
+                glow.setPosition(center);
+                glow.setFillColor(sf::Color(42, 120, 112, static_cast<std::uint8_t>(34 - i * 8)));
+                window.draw(glow);
+            }
+
+            sf::RectangleShape pack({190.0f, 250.0f});
+            pack.setPosition({305.0f, 152.0f});
+            pack.setFillColor(sf::Color(43, 57, 60, 245));
+            pack.setOutlineThickness(3.0f);
+            pack.setOutlineColor(sf::Color(210, 154, 74));
+            window.draw(pack);
+
+            sf::RectangleShape band({190.0f, 54.0f});
+            band.setPosition({305.0f, 252.0f});
+            band.setFillColor(sf::Color(93, 64, 39, 230));
+            window.draw(band);
+
+            drawText(window, font, "Mystery", 26, {345.0f, 190.0f}, sf::Color(248, 239, 216), 120.0f);
+            drawText(window, font, "Card", 26, {370.0f, 222.0f}, sf::Color(248, 239, 216), 90.0f);
+            drawText(window, font, "5 coins", 22, {362.0f, 265.0f}, sf::Color(248, 214, 112), 100.0f);
+            drawText(window, font, "Random card added to collection", 15, {296.0f, 418.0f}, sf::Color(190, 198, 214), 240.0f);
+        }
+
+        buyCardButton.draw(window);
+        window.draw(messageText);
+    };
+
     auto handCardAtPixel = [&](sf::Vector2f point) -> std::optional<std::size_t> {
         for (std::size_t i = 0; i < gameSnapshot.hand.size(); ++i)
         {
@@ -2365,6 +2854,14 @@ int main(int argc, char** argv)
                     updatePieceMoveAnimations(snapshot);
                     gameSnapshot = snapshot;
                     haveSnapshot = true;
+                    if (!winRewardRequested &&
+                        static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::GameOver &&
+                        gameSnapshot.winner == gameSnapshot.yourPlayer)
+                    {
+                        winRewardRequested = true;
+                        gameRewardText = "Awarding +10 coins...";
+                        pendingWinReward = std::async(std::launch::async, claimWinReward, loggedInUsername);
+                    }
                 }
             }
             packet.clear();
@@ -2390,6 +2887,8 @@ int main(int argc, char** argv)
         draggingHandIndex.reset();
         draggingPieceId.reset();
         gameDragActive = false;
+        winRewardRequested = false;
+        gameRewardText.clear();
         pieceMoveAnimations.clear();
         showAuthenticatedScreen();
     };
@@ -3259,7 +3758,15 @@ int main(int argc, char** argv)
             window.draw(banner);
             const std::string result = gameSnapshot.winner == me ? "Victory!" : "Defeat";
             drawText(window, font, result, 34, {60.0f, 224.0f}, gameSnapshot.winner == me ? sf::Color(140, 230, 160) : sf::Color(230, 130, 110));
-            drawText(window, font, "Press Leave to return.", 16, {60.0f, 268.0f}, sf::Color(200, 206, 220));
+            if (gameSnapshot.winner == me && !gameRewardText.empty())
+            {
+                drawText(window, font, gameRewardText, 16, {60.0f, 264.0f}, sf::Color(248, 214, 112), 360.0f);
+                drawText(window, font, "Press Leave to return.", 14, {60.0f, 286.0f}, sf::Color(200, 206, 220));
+            }
+            else
+            {
+                drawText(window, font, "Press Leave to return.", 16, {60.0f, 268.0f}, sf::Color(200, 206, 220));
+            }
         }
 
         drawPiecePopup();
@@ -3268,6 +3775,7 @@ int main(int argc, char** argv)
     auto drawDeckSelect = [&]() {
         drawPanel(window, {250.0f, 120.0f}, {300.0f, 312.0f});
         drawText(window, font, "Your Decks", 22, {266.0f, 132.0f}, sf::Color::White);
+        drawText(window, font, "Coins " + std::to_string(playerCoins), 14, {430.0f, 138.0f}, sf::Color(248, 214, 112), 100.0f);
 
         const std::size_t lastDeck = std::min(playerDecks.size(), deckListOffset + VisibleDeckRows);
         for (std::size_t i = deckListOffset; i < lastDeck; ++i)
@@ -3316,6 +3824,73 @@ int main(int argc, char** argv)
             }
         }
 
+        if (pendingAccountState &&
+            pendingAccountState->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            AccountStateResult result = pendingAccountState->get();
+            pendingAccountState.reset();
+            if (!loggedInUsername.empty() && result.success)
+            {
+                applyAccountState(result);
+            }
+            else if (!loggedInUsername.empty() && currentState == GameState::Authenticated)
+            {
+                setMessage(messageText, result.message, sf::Color::Red);
+            }
+        }
+
+        if (pendingShopLoad &&
+            pendingShopLoad->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            ShopLoadResult result = pendingShopLoad->get();
+            pendingShopLoad.reset();
+            if (!loggedInUsername.empty() && currentState == GameState::Shop)
+            {
+                allCardLibrary = std::move(result.cards);
+                playerCoins = result.coins;
+                playerCollection = std::move(result.collection);
+                setMessage(
+                    messageText,
+                    result.success ? "Spend 5 coins to reveal a random card." : result.message,
+                    result.success ? sf::Color(120, 220, 150) : sf::Color::Red);
+            }
+        }
+
+        if (pendingShopPurchase &&
+            pendingShopPurchase->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            AccountCommandResult result = pendingShopPurchase->get();
+            pendingShopPurchase.reset();
+            if (!loggedInUsername.empty() && result.success)
+            {
+                playerCoins = result.coins;
+                incrementCollection(result.cardTitle);
+                revealedCardTitle = result.cardTitle;
+                revealStartedAt = animationTime;
+                setMessage(messageText, result.message, sf::Color(120, 220, 150));
+            }
+            else if (!loggedInUsername.empty())
+            {
+                setMessage(messageText, result.message, sf::Color::Red);
+            }
+        }
+
+        if (pendingWinReward &&
+            pendingWinReward->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            AccountCommandResult result = pendingWinReward->get();
+            pendingWinReward.reset();
+            if (!loggedInUsername.empty() && result.success)
+            {
+                playerCoins = result.coins;
+                gameRewardText = result.message;
+            }
+            else if (!loggedInUsername.empty())
+            {
+                gameRewardText = "Coins not awarded: " + result.message;
+            }
+        }
+
         if (pendingMatchmaking &&
             pendingMatchmaking->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
@@ -3342,6 +3917,8 @@ int main(int argc, char** argv)
             pendingPlayLoad.reset();
             cardLibrary = std::move(result.cards);
             playerDecks = std::move(result.decks);
+            playerCoins = result.coins;
+            playerCollection = std::move(result.collection);
             sortDecks();
             deckListOffset = 0;
             selectedDeck = playerDecks.empty() ? std::nullopt : std::optional<std::size_t>(0);
@@ -3367,6 +3944,8 @@ int main(int argc, char** argv)
             {
                 cardLibrary = std::move(result.cards);
                 playerDecks = std::move(result.decks);
+                playerCoins = result.coins;
+                playerCollection = std::move(result.collection);
                 sortDecks();
                 selectedLibraryCard = cardLibrary.empty() ? std::nullopt : std::optional<std::size_t>(0);
                 if (!playerDecks.empty())
@@ -3383,6 +3962,8 @@ int main(int argc, char** argv)
             else
             {
                 cardLibrary = std::move(result.cards);
+                playerCoins = result.coins;
+                playerCollection = std::move(result.collection);
                 playerDecks.clear();
                 createNewDeck();
                 deckNameInput.setActive(false);
@@ -3541,6 +4122,10 @@ int main(int argc, char** argv)
                     {
                         loadDeckEditor();
                     }
+                    else if (shopButton.isClicked(clickPos))
+                    {
+                        loadShop();
+                    }
                 }
                 else if (currentState == GameState::DeckSelect)
                 {
@@ -3692,6 +4277,25 @@ int main(int argc, char** argv)
                         }
                     }
                 }
+                else if (currentState == GameState::Shop)
+                {
+                    if (shopBackButton.isClicked(clickPos) && !shopBusy())
+                    {
+                        showAuthenticatedScreen();
+                    }
+                    else if (buyCardButton.isClicked(clickPos) && !shopBusy())
+                    {
+                        if (playerCoins < 5)
+                        {
+                            setMessage(messageText, "Need 5 coins to buy a card", sf::Color::Red);
+                        }
+                        else
+                        {
+                            setMessage(messageText, "Opening card...", sf::Color::Yellow);
+                            pendingShopPurchase = std::async(std::launch::async, purchaseRandomCard, loggedInUsername);
+                        }
+                    }
+                }
             }
 
             if (const auto* mouseMoved = event->getIf<sf::Event::MouseMoved>();
@@ -3818,6 +4422,10 @@ int main(int argc, char** argv)
                     {
                         showAuthenticatedScreen();
                     }
+                    else if (currentState == GameState::Shop && !shopBusy())
+                    {
+                        showAuthenticatedScreen();
+                    }
                     else if (currentState == GameState::Game)
                     {
                         leaveGame();
@@ -3825,6 +4433,10 @@ int main(int argc, char** argv)
                     else if (currentState == GameState::DeckSelect)
                     {
                         showAuthenticatedScreen();
+                    }
+                    else if (currentState == GameState::DeckEditor || currentState == GameState::Shop)
+                    {
+                        // Busy editor/shop requests keep their screen until they finish.
                     }
                     else if (!pendingRequest && !pendingMatchmaking)
                     {
@@ -3898,6 +4510,7 @@ int main(int argc, char** argv)
         {
             playButton.update(mousePos);
             deckEditorButton.update(mousePos);
+            shopButton.update(mousePos);
         }
         else if (currentState == GameState::DeckSelect)
         {
@@ -3917,6 +4530,11 @@ int main(int argc, char** argv)
             addCardButton.update(mousePos);
             saveDeckButton.update(mousePos);
             deckNameInput.updateCursor(deltaTime);
+        }
+        else if (currentState == GameState::Shop)
+        {
+            shopBackButton.update(mousePos);
+            buyCardButton.update(mousePos);
         }
         else if (currentState == GameState::Game)
         {
@@ -3960,8 +4578,10 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Authenticated)
         {
             drawText(window, font, "Signed in as " + loggedInUsername, 18, {300.0f, 160.0f}, sf::Color(190, 198, 214), 260.0f);
+            drawText(window, font, "Coins " + std::to_string(playerCoins), 18, {340.0f, 190.0f}, sf::Color(248, 214, 112), 140.0f);
             playButton.draw(window);
             deckEditorButton.draw(window);
+            shopButton.draw(window);
             window.draw(messageText);
         }
         else if (currentState == GameState::DeckSelect)
@@ -3975,6 +4595,10 @@ int main(int argc, char** argv)
         else if (currentState == GameState::DeckEditor)
         {
             drawDeckEditor();
+        }
+        else if (currentState == GameState::Shop)
+        {
+            drawShop();
         }
         else if (currentState == GameState::Game)
         {

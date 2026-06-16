@@ -2,21 +2,61 @@
 #include <SQLiteCpp/SQLiteCpp.h>
 #include <fmt/core.h>
 
+#include "../shared/account_data.hpp"
 #include "../shared/deck_data.hpp"
 
 #include <atomic>
+#include <algorithm>
 #include <cstdint>
 #include <exception>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 import network;
 
 using namespace network;
+
+namespace
+{
+constexpr int StarterNonHeroKinds = 20;
+constexpr int WinRewardCoins = 10;
+constexpr int ShopCardCost = 5;
+constexpr const char* StarterDeckName = "Starter Deck";
+constexpr const char* PreferredStarterHero = "Steam Baron";
+
+const std::vector<std::string>& fallbackStarterNonHeroes()
+{
+    static const std::vector<std::string> titles = {
+        "Brass Pawn",
+        "Rifleman",
+        "Clockwork Rook",
+        "Steam Bishop",
+        "Automaton Knight",
+        "Dredger",
+        "Spark Drone",
+        "Smoke Bomb",
+        "Cannon Blast",
+        "Repair Kit",
+        "Overpressure",
+        "Gearwright",
+        "Brass Medic",
+        "Boiler Imp",
+        "Railgunner",
+        "Swamp Skiff",
+        "Arc Lantern",
+        "Sprocket Swarm",
+        "Chain Harpoon",
+        "Mudslide",
+    };
+    return titles;
+}
+}
 
 class AccountServer
 {
@@ -80,6 +120,7 @@ private:
     std::unique_ptr<sf::TcpListener> listener;
     std::unique_ptr<SQLite::Database> database;
     std::mutex databaseMutex;
+    std::mt19937 rng{std::random_device{}()};
     std::atomic<bool> running{false};
     bool listening = false;
 
@@ -92,6 +133,10 @@ private:
             "password_hash TEXT NOT NULL,"
             "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"
             ")");
+        if (!columnExists("accounts", "coins"))
+        {
+            database->exec("ALTER TABLE accounts ADD COLUMN coins INTEGER NOT NULL DEFAULT 0");
+        }
         database->exec(
             "CREATE TABLE IF NOT EXISTS decks ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -109,6 +154,14 @@ private:
             "card_title TEXT NOT NULL,"
             "PRIMARY KEY(deck_id, card_index),"
             "FOREIGN KEY(deck_id) REFERENCES decks(id) ON DELETE CASCADE"
+            ")");
+        database->exec(
+            "CREATE TABLE IF NOT EXISTS card_collections ("
+            "username TEXT NOT NULL,"
+            "card_title TEXT NOT NULL,"
+            "copies INTEGER NOT NULL DEFAULT 0,"
+            "PRIMARY KEY(username, card_title),"
+            "FOREIGN KEY(username) REFERENCES accounts(username) ON DELETE CASCADE"
             ")");
     }
 
@@ -183,6 +236,27 @@ private:
                     handleDeleteDeck(*client, username, deckName);
                     break;
                 }
+                case MessageType::AccountStateRequest:
+                {
+                    std::string username;
+                    packet >> username;
+                    handleAccountState(*client, username);
+                    break;
+                }
+                case MessageType::WinRewardRequest:
+                {
+                    std::string username;
+                    packet >> username;
+                    handleWinReward(*client, username);
+                    break;
+                }
+                case MessageType::ShopPurchaseRequest:
+                {
+                    std::string username;
+                    packet >> username;
+                    handleShopPurchase(*client, username);
+                    break;
+                }
                 case MessageType::Disconnect:
                     fmt::println("Client requested disconnect");
                     return;
@@ -223,6 +297,7 @@ private:
                 insert.bind(2, hashPassword(password));
                 insert.exec();
 
+                ensureStarterInventory(username);
                 response << true << std::string("Account created successfully");
                 fmt::println("Created account for user: {}", username);
             }
@@ -309,6 +384,12 @@ private:
                 return;
             }
 
+            if (const std::optional<std::string> collectionError = deckCollectionError(username, deck))
+            {
+                sendDeckCommandResponse(client, MessageType::DeckSaveResponse, false, *collectionError);
+                return;
+            }
+
             saveDeck(username, originalName, deck);
             sendDeckCommandResponse(client, MessageType::DeckSaveResponse, true, "Deck saved");
             fmt::println("Saved deck '{}' for user {}", deck.name, username);
@@ -359,6 +440,126 @@ private:
         }
     }
 
+    void handleAccountState(sf::TcpSocket& client, const std::string& username)
+    {
+        if (username.empty())
+        {
+            sendAccountStateResponse(client, false, "Username cannot be empty", 0, {});
+            return;
+        }
+
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            if (!accountExists(username))
+            {
+                sendAccountStateResponse(client, false, "Username not found", 0, {});
+                return;
+            }
+
+            ensureStarterInventory(username);
+            sendAccountStateResponse(client, true, "Account loaded", loadCoins(username), loadCollection(username));
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while loading account state: {}", error.what());
+            sendAccountStateResponse(client, false, "Database error while loading account state", 0, {});
+        }
+    }
+
+    void handleWinReward(sf::TcpSocket& client, const std::string& username)
+    {
+        if (username.empty())
+        {
+            sendCoinResponse(client, MessageType::WinRewardResponse, false, "Username cannot be empty", 0);
+            return;
+        }
+
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            if (!accountExists(username))
+            {
+                sendCoinResponse(client, MessageType::WinRewardResponse, false, "Username not found", 0);
+                return;
+            }
+
+            SQLite::Statement update(*database, "UPDATE accounts SET coins = coins + ? WHERE username = ?");
+            update.bind(1, WinRewardCoins);
+            update.bind(2, username);
+            update.exec();
+
+            sendCoinResponse(
+                client,
+                MessageType::WinRewardResponse,
+                true,
+                "+" + std::to_string(WinRewardCoins) + " coins",
+                loadCoins(username));
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while rewarding win: {}", error.what());
+            sendCoinResponse(client, MessageType::WinRewardResponse, false, "Database error while rewarding win", 0);
+        }
+    }
+
+    void handleShopPurchase(sf::TcpSocket& client, const std::string& username)
+    {
+        if (username.empty())
+        {
+            sendShopPurchaseResponse(client, false, "Username cannot be empty", 0, "");
+            return;
+        }
+
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            if (!accountExists(username))
+            {
+                sendShopPurchaseResponse(client, false, "Username not found", 0, "");
+                return;
+            }
+
+            const int coins = loadCoins(username);
+            if (coins < ShopCardCost)
+            {
+                sendShopPurchaseResponse(client, false, "Need 5 coins to buy a card", coins, "");
+                return;
+            }
+
+            const std::vector<std::string> cardTitles = loadAllCardTitles();
+            if (cardTitles.empty())
+            {
+                sendShopPurchaseResponse(client, false, "No cards are available in the shop", coins, "");
+                return;
+            }
+
+            std::uniform_int_distribution<std::size_t> distribution(0, cardTitles.size() - 1);
+            const std::string cardTitle = cardTitles[distribution(rng)];
+
+            SQLite::Transaction transaction(*database);
+            SQLite::Statement spend(*database, "UPDATE accounts SET coins = coins - ? WHERE username = ?");
+            spend.bind(1, ShopCardCost);
+            spend.bind(2, username);
+            spend.exec();
+            addCollectionCopies(username, cardTitle, 1);
+            transaction.commit();
+
+            sendShopPurchaseResponse(
+                client,
+                true,
+                "Added " + cardTitle + " to your collection",
+                coins - ShopCardCost,
+                cardTitle);
+            fmt::println("User {} bought random card '{}'", username, cardTitle);
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while buying shop card: {}", error.what());
+            sendShopPurchaseResponse(client, false, "Database error while buying shop card", 0, "");
+        }
+    }
+
     void handleLogin(sf::TcpSocket& client, const std::string& username, const std::string& password)
     {
         sf::Packet response;
@@ -391,6 +592,7 @@ private:
             }
             else
             {
+                ensureStarterInventory(username);
                 response << true << std::string("Login successful");
                 fmt::println("User logged in: {}", username);
             }
@@ -425,6 +627,59 @@ private:
         response << static_cast<uint8_t>(responseType);
         response << success << message;
         [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void sendAccountStateResponse(
+        sf::TcpSocket& client,
+        bool success,
+        const std::string& message,
+        int coins,
+        const std::vector<account_data::CollectionCard>& collection)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::AccountStateResponse);
+        response << success << message << coins;
+        account_data::writeCollection(response, collection);
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void sendCoinResponse(
+        sf::TcpSocket& client,
+        MessageType responseType,
+        bool success,
+        const std::string& message,
+        int coins)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(responseType);
+        response << success << message << coins;
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void sendShopPurchaseResponse(
+        sf::TcpSocket& client,
+        bool success,
+        const std::string& message,
+        int coins,
+        const std::string& cardTitle)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::ShopPurchaseResponse);
+        response << success << message << coins << cardTitle;
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    bool columnExists(const std::string& tableName, const std::string& columnName)
+    {
+        SQLite::Statement query(*database, "PRAGMA table_info(" + tableName + ")");
+        while (query.executeStep())
+        {
+            if (query.getColumn(1).getString() == columnName)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     std::vector<deck_data::Deck> loadDecks(const std::string& username)
@@ -463,10 +718,93 @@ private:
         return cardTitles;
     }
 
+    int loadCoins(const std::string& username)
+    {
+        SQLite::Statement query(*database, "SELECT coins FROM accounts WHERE username = ? LIMIT 1");
+        query.bind(1, username);
+        if (!query.executeStep())
+        {
+            return 0;
+        }
+
+        return query.getColumn(0).getInt();
+    }
+
+    std::vector<account_data::CollectionCard> loadCollection(const std::string& username)
+    {
+        std::vector<account_data::CollectionCard> collection;
+        SQLite::Statement query(
+            *database,
+            "SELECT card_title, copies FROM card_collections WHERE username = ? AND copies > 0 ORDER BY card_title");
+        query.bind(1, username);
+
+        while (query.executeStep())
+        {
+            collection.push_back({query.getColumn(0).getString(), query.getColumn(1).getInt()});
+        }
+
+        return collection;
+    }
+
+    bool collectionIsEmpty(const std::string& username)
+    {
+        SQLite::Statement query(
+            *database,
+            "SELECT 1 FROM card_collections WHERE username = ? AND copies > 0 LIMIT 1");
+        query.bind(1, username);
+        return !query.executeStep();
+    }
+
+    void addCollectionCopies(const std::string& username, const std::string& cardTitle, int copies)
+    {
+        if (cardTitle.empty() || copies <= 0)
+        {
+            return;
+        }
+
+        SQLite::Statement upsert(
+            *database,
+            "INSERT INTO card_collections (username, card_title, copies) VALUES (?, ?, ?) "
+            "ON CONFLICT(username, card_title) DO UPDATE SET copies = copies + excluded.copies");
+        upsert.bind(1, username);
+        upsert.bind(2, cardTitle);
+        upsert.bind(3, copies);
+        upsert.exec();
+    }
+
+    std::optional<std::string> deckCollectionError(const std::string& username, const deck_data::Deck& deck)
+    {
+        std::unordered_map<std::string, int> available;
+        for (const account_data::CollectionCard& card : loadCollection(username))
+        {
+            available[card.title] = card.copies;
+        }
+
+        std::unordered_map<std::string, int> used;
+        for (const std::string& title : deck.cardTitles)
+        {
+            const int count = ++used[title];
+            const int owned = available[title];
+            if (count > owned)
+            {
+                return "Deck uses " + std::to_string(count) + " copies of " + title +
+                    " but collection has " + std::to_string(owned);
+            }
+        }
+
+        return std::nullopt;
+    }
+
     void saveDeck(const std::string& username, const std::string& originalName, const deck_data::Deck& deck)
     {
         SQLite::Transaction transaction(*database);
 
+        saveDeckRows(username, originalName, deck);
+        transaction.commit();
+    }
+
+    void saveDeckRows(const std::string& username, const std::string& originalName, const deck_data::Deck& deck)
+    {
         const std::string lookupName = originalName.empty() ? deck.name : originalName;
         std::optional<long long> deckId = findDeckId(username, lookupName);
         if (deckId)
@@ -504,8 +842,6 @@ private:
             insertCard.bind(3, deck.cardTitles[i]);
             insertCard.exec();
         }
-
-        transaction.commit();
     }
 
     bool deleteDeck(const std::string& username, const std::string& deckName)
@@ -537,6 +873,161 @@ private:
         }
 
         return query.getColumn(0).getInt64();
+    }
+
+    std::vector<std::string> loadCardTitlesFromCardsDb(const std::string& typeFilter)
+    {
+        std::vector<std::string> titles;
+
+        try
+        {
+            SQLite::Database cardsDatabase("cards.db", SQLite::OPEN_READONLY);
+            const std::string sql = typeFilter.empty()
+                ? "SELECT title FROM cards ORDER BY title"
+                : "SELECT title FROM cards WHERE type = ? ORDER BY title";
+            SQLite::Statement query(cardsDatabase, sql);
+            if (!typeFilter.empty())
+            {
+                query.bind(1, typeFilter);
+            }
+
+            while (query.executeStep())
+            {
+                titles.push_back(query.getColumn(0).getString());
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Could not read cards.db while building account inventory: {}", error.what());
+        }
+
+        return titles;
+    }
+
+    std::vector<std::string> loadNonHeroCardTitles()
+    {
+        std::vector<std::string> titles;
+
+        try
+        {
+            SQLite::Database cardsDatabase("cards.db", SQLite::OPEN_READONLY);
+            SQLite::Statement query(cardsDatabase, "SELECT title FROM cards WHERE type <> 'Hero' ORDER BY title");
+            while (query.executeStep())
+            {
+                titles.push_back(query.getColumn(0).getString());
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Could not read non-hero cards from cards.db: {}", error.what());
+        }
+
+        return titles;
+    }
+
+    std::vector<std::string> loadAllCardTitles()
+    {
+        std::vector<std::string> titles = loadCardTitlesFromCardsDb("");
+        if (!titles.empty())
+        {
+            return titles;
+        }
+
+        titles.push_back(PreferredStarterHero);
+        const std::vector<std::string>& fallback = fallbackStarterNonHeroes();
+        titles.insert(titles.end(), fallback.begin(), fallback.end());
+        return titles;
+    }
+
+    std::string starterHeroTitle()
+    {
+        std::vector<std::string> heroes = loadCardTitlesFromCardsDb("Hero");
+        if (heroes.empty())
+        {
+            return PreferredStarterHero;
+        }
+
+        const auto preferred = std::find(heroes.begin(), heroes.end(), PreferredStarterHero);
+        return preferred == heroes.end() ? heroes.front() : *preferred;
+    }
+
+    std::vector<std::string> starterNonHeroSlots()
+    {
+        std::vector<std::string> available = loadNonHeroCardTitles();
+        if (available.empty())
+        {
+            available = fallbackStarterNonHeroes();
+        }
+
+        std::vector<std::string> ordered;
+        const std::vector<std::string>& fallback = fallbackStarterNonHeroes();
+        for (const std::string& title : fallback)
+        {
+            if (std::find(available.begin(), available.end(), title) != available.end())
+            {
+                ordered.push_back(title);
+            }
+        }
+        for (const std::string& title : available)
+        {
+            if (std::find(ordered.begin(), ordered.end(), title) == ordered.end())
+            {
+                ordered.push_back(title);
+            }
+        }
+        if (ordered.empty())
+        {
+            ordered = fallback;
+        }
+
+        const std::size_t uniqueCount = ordered.size();
+        for (std::size_t i = 0; ordered.size() < StarterNonHeroKinds; ++i)
+        {
+            ordered.push_back(ordered[i % uniqueCount]);
+        }
+        if (ordered.size() > StarterNonHeroKinds)
+        {
+            ordered.resize(StarterNonHeroKinds);
+        }
+        return ordered;
+    }
+
+    deck_data::Deck makeStarterDeck()
+    {
+        deck_data::Deck deck;
+        deck.name = StarterDeckName;
+        deck.cardTitles.push_back(starterHeroTitle());
+        for (const std::string& title : starterNonHeroSlots())
+        {
+            deck.cardTitles.push_back(title);
+            deck.cardTitles.push_back(title);
+        }
+        return deck;
+    }
+
+    void ensureStarterInventory(const std::string& username)
+    {
+        if (!collectionIsEmpty(username))
+        {
+            return;
+        }
+
+        SQLite::Transaction transaction(*database);
+        const deck_data::Deck starterDeck = makeStarterDeck();
+        if (!starterDeck.cardTitles.empty())
+        {
+            addCollectionCopies(username, starterDeck.cardTitles.front(), 1);
+            for (std::size_t i = 1; i < starterDeck.cardTitles.size(); ++i)
+            {
+                addCollectionCopies(username, starterDeck.cardTitles[i], 1);
+            }
+        }
+
+        if (loadDecks(username).empty())
+        {
+            saveDeckRows(username, "", starterDeck);
+        }
+        transaction.commit();
     }
 
     static std::string hashPassword(const std::string& password)

@@ -19,7 +19,7 @@ constexpr int BoardSize = 8;
 constexpr int BoardSquares = BoardSize * BoardSize;
 
 // Deck-building constraints.
-constexpr int DeckCardCount = 20;   // non-hero cards
+constexpr int DeckCardCount = 40;   // non-hero cards
 constexpr int MinHeroes = 1;
 constexpr int MaxHeroes = 4;
 constexpr int HeroCostLimit = 10;

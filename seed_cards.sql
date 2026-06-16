@@ -112,6 +112,69 @@ INSERT INTO card_integer_values (title, key, value) VALUES
 INSERT INTO card_string_values (title, key, value) VALUES ('Spark Drone', 'movement', 'omni');
 INSERT INTO card_string_values (title, key, value) VALUES ('Spark Drone', 'WalkAnim', 'animations/clockwork-rook-walk.png');
 
+INSERT INTO cards (title, type, image_path) VALUES ('Gearwright', 'Unit', 'cards/tinkeringTom.png');
+INSERT INTO card_integer_values (title, key, value) VALUES
+  ('Gearwright', 'cost', 2), ('Gearwright', 'health', 5),
+  ('Gearwright', 'attack', 2), ('Gearwright', 'range', 1), ('Gearwright', 'move', 2);
+INSERT INTO card_string_values (title, key, value) VALUES ('Gearwright', 'movement', 'omni');
+INSERT INTO card_string_values (title, key, value) VALUES ('Gearwright', 'WalkAnim', 'animations/steam-baron-walk.png');
+
+INSERT INTO cards (title, type, image_path) VALUES ('Brass Medic', 'Unit', 'cards/steam-baron.png');
+INSERT INTO card_integer_values (title, key, value) VALUES
+  ('Brass Medic', 'cost', 3), ('Brass Medic', 'health', 7),
+  ('Brass Medic', 'attack', 2), ('Brass Medic', 'range', 1), ('Brass Medic', 'move', 2);
+INSERT INTO card_string_values (title, key, value) VALUES ('Brass Medic', 'movement', 'diag');
+INSERT INTO card_string_values (title, key, value) VALUES ('Brass Medic', 'WalkAnim', 'animations/steam-baron-walk.png');
+
+INSERT INTO cards (title, type, image_path) VALUES ('Boiler Imp', 'Unit', 'cards/smoke-bomb-v2.png');
+INSERT INTO card_integer_values (title, key, value) VALUES
+  ('Boiler Imp', 'cost', 1), ('Boiler Imp', 'health', 3),
+  ('Boiler Imp', 'attack', 3), ('Boiler Imp', 'range', 1), ('Boiler Imp', 'move', 2);
+INSERT INTO card_string_values (title, key, value) VALUES ('Boiler Imp', 'movement', 'omni');
+INSERT INTO card_string_values (title, key, value) VALUES ('Boiler Imp', 'WalkAnim', 'animations/clockwork-rook-walk.png');
+
+INSERT INTO cards (title, type, image_path) VALUES ('Railgunner', 'Unit', 'cards/clockwork-rook.png');
+INSERT INTO card_integer_values (title, key, value) VALUES
+  ('Railgunner', 'cost', 5), ('Railgunner', 'health', 7),
+  ('Railgunner', 'attack', 7), ('Railgunner', 'range', 4), ('Railgunner', 'move', 1);
+INSERT INTO card_string_values (title, key, value) VALUES ('Railgunner', 'movement', 'ortho');
+INSERT INTO card_string_values (title, key, value) VALUES ('Railgunner', 'WalkAnim', 'animations/clockwork-rook-walk.png');
+
+INSERT INTO cards (title, type, image_path) VALUES ('Swamp Skiff', 'Unit', 'cards/marsh-witch.png');
+INSERT INTO card_integer_values (title, key, value) VALUES
+  ('Swamp Skiff', 'cost', 2), ('Swamp Skiff', 'health', 6),
+  ('Swamp Skiff', 'attack', 2), ('Swamp Skiff', 'range', 1), ('Swamp Skiff', 'move', 3);
+INSERT INTO card_string_values (title, key, value) VALUES ('Swamp Skiff', 'movement', 'ortho');
+INSERT INTO card_string_values (title, key, value) VALUES ('Swamp Skiff', 'WalkAnim', 'animations/marsh-witch-walk.png');
+
+INSERT INTO cards (title, type, image_path) VALUES ('Arc Lantern', 'Unit', 'cards/smoke-bomb-v2.png');
+INSERT INTO card_integer_values (title, key, value) VALUES
+  ('Arc Lantern', 'cost', 3), ('Arc Lantern', 'health', 5),
+  ('Arc Lantern', 'attack', 4), ('Arc Lantern', 'range', 2), ('Arc Lantern', 'move', 1);
+INSERT INTO card_string_values (title, key, value) VALUES ('Arc Lantern', 'movement', 'diag');
+INSERT INTO card_string_values (title, key, value) VALUES ('Arc Lantern', 'WalkAnim', 'animations/clockwork-rook-walk.png');
+
+INSERT INTO cards (title, type, image_path) VALUES ('Sprocket Swarm', 'Unit', 'cards/clockwork-rook.png');
+INSERT INTO card_integer_values (title, key, value) VALUES
+  ('Sprocket Swarm', 'cost', 2), ('Sprocket Swarm', 'health', 5),
+  ('Sprocket Swarm', 'attack', 3), ('Sprocket Swarm', 'range', 1), ('Sprocket Swarm', 'move', 2);
+INSERT INTO card_string_values (title, key, value) VALUES ('Sprocket Swarm', 'movement', 'jump');
+INSERT INTO card_string_values (title, key, value) VALUES ('Sprocket Swarm', 'WalkAnim', 'animations/clockwork-rook-walk.png');
+
+INSERT INTO cards (title, type, image_path) VALUES ('Chain Harpoon', 'Unit', 'cards/clockwork-rook.png');
+INSERT INTO card_integer_values (title, key, value) VALUES
+  ('Chain Harpoon', 'cost', 4), ('Chain Harpoon', 'health', 8),
+  ('Chain Harpoon', 'attack', 5), ('Chain Harpoon', 'range', 2), ('Chain Harpoon', 'move', 1);
+INSERT INTO card_string_values (title, key, value) VALUES ('Chain Harpoon', 'movement', 'ortho');
+INSERT INTO card_string_values (title, key, value) VALUES ('Chain Harpoon', 'WalkAnim', 'animations/clockwork-rook-walk.png');
+
+INSERT INTO cards (title, type, image_path) VALUES ('Mudslide', 'Unit', 'cards/marsh-witch.png');
+INSERT INTO card_integer_values (title, key, value) VALUES
+  ('Mudslide', 'cost', 4), ('Mudslide', 'health', 11),
+  ('Mudslide', 'attack', 4), ('Mudslide', 'range', 1), ('Mudslide', 'move', 2);
+INSERT INTO card_string_values (title, key, value) VALUES ('Mudslide', 'movement', 'diag');
+INSERT INTO card_string_values (title, key, value) VALUES ('Mudslide', 'WalkAnim', 'animations/marsh-witch-walk.png');
+
 -- ---- Spells -------------------------------------------------------------
 INSERT INTO cards (title, type, image_path) VALUES ('Smoke Bomb', 'Spell', 'cards/smoke-bomb-v2.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
