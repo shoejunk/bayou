@@ -1187,29 +1187,38 @@ int main(int argc, char** argv)
         window.draw(sprite);
     };
 
-    auto drawContainSprite = [&](sf::Texture& texture, sf::FloatRect target, sf::Color color = sf::Color::White) {
+    auto drawContainSprite = [&](sf::Texture& texture,
+                                 sf::FloatRect target,
+                                 sf::Color color = sf::Color::White,
+                                 bool flipX = false) {
         sf::Sprite sprite(texture);
         const sf::Vector2u imageSize = texture.getSize();
+        const float sourceWidth = static_cast<float>(imageSize.x);
+        const float sourceHeight = static_cast<float>(imageSize.y);
         const float scale = std::min(target.size.x / static_cast<float>(imageSize.x),
                                      target.size.y / static_cast<float>(imageSize.y));
-        sprite.setScale({scale, scale});
+        sprite.setScale({flipX ? -scale : scale, scale});
         sprite.setColor(color);
         sprite.setPosition({
-            target.position.x + (target.size.x - static_cast<float>(imageSize.x) * scale) * 0.5f,
-            target.position.y + (target.size.y - static_cast<float>(imageSize.y) * scale) * 0.5f});
+            target.position.x + (target.size.x + (flipX ? sourceWidth * scale : -sourceWidth * scale)) * 0.5f,
+            target.position.y + (target.size.y - sourceHeight * scale) * 0.5f});
         window.draw(sprite);
     };
 
-    auto drawTextureRectContain = [&](sf::Texture& texture, sf::IntRect textureRect, sf::FloatRect target, sf::Color color = sf::Color::White) {
+    auto drawTextureRectContain = [&](sf::Texture& texture,
+                                      sf::IntRect textureRect,
+                                      sf::FloatRect target,
+                                      sf::Color color = sf::Color::White,
+                                      bool flipX = false) {
         sf::Sprite sprite(texture);
         sprite.setTextureRect(textureRect);
         const float sourceWidth = static_cast<float>(textureRect.size.x);
         const float sourceHeight = static_cast<float>(textureRect.size.y);
         const float scale = std::min(target.size.x / sourceWidth, target.size.y / sourceHeight);
-        sprite.setScale({scale, scale});
+        sprite.setScale({flipX ? -scale : scale, scale});
         sprite.setColor(color);
         sprite.setPosition({
-            target.position.x + (target.size.x - sourceWidth * scale) * 0.5f,
+            target.position.x + (target.size.x + (flipX ? sourceWidth * scale : -sourceWidth * scale)) * 0.5f,
             target.position.y + (target.size.y - sourceHeight * scale) * 0.5f});
         window.draw(sprite);
     };
@@ -2747,7 +2756,9 @@ int main(int argc, char** argv)
                     drawTextureRectContain(
                         *walkSheet,
                         sf::IntRect({0, 0}, {frameWidth, frameHeight}),
-                        {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}});
+                        {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}},
+                        sf::Color::White,
+                        piece->owner == 2);
                     drewArt = true;
                 }
             }
@@ -2756,7 +2767,11 @@ int main(int argc, char** argv)
         {
             if (sf::Texture* art = cardArtTexture(piece ? piece->imagePath : card->imagePath))
             {
-                drawContainSprite(*art, {{PiecePopupX + 30.0f, PiecePopupY + 70.0f}, {88.0f, 88.0f}});
+                drawContainSprite(
+                    *art,
+                    {{PiecePopupX + 30.0f, PiecePopupY + 70.0f}, {88.0f, 88.0f}},
+                    sf::Color::White,
+                    piece && piece->owner == 2);
             }
         }
 
@@ -3074,7 +3089,8 @@ int main(int argc, char** argv)
                         pieceTargetRect(anchor, pieceScale, true),
                         piece.hasActed && piece.owner == gameSnapshot.activePlayer
                             ? sf::Color(150, 150, 150, 215)
-                            : sf::Color::White);
+                            : sf::Color::White,
+                        piece.owner == 2);
                 }
             }
             else if (sf::Texture* art = cardArtTexture(piece.imagePath))
@@ -3082,7 +3098,8 @@ int main(int argc, char** argv)
                 drawContainSprite(*art, pieceTargetRect(anchor, pieceScale, false),
                                   piece.hasActed && piece.owner == gameSnapshot.activePlayer
                                       ? sf::Color(130, 130, 130)
-                                      : sf::Color::White);
+                                      : sf::Color::White,
+                                  piece.owner == 2);
             }
             else
             {
@@ -3215,7 +3232,8 @@ int main(int argc, char** argv)
                             sf::IntRect({0, 0}, {frameWidth, frameHeight}),
                             {{gameDragCurrentPos.x - CellSize / 2.0f + 7.0f, gameDragCurrentPos.y - CellSize / 2.0f},
                              {CellSize - 14.0f, CellSize - 8.0f}},
-                            sf::Color(255, 255, 255, 210));
+                            sf::Color(255, 255, 255, 210),
+                            draggedPiece->owner == 2);
                     }
                 }
                 else if (sf::Texture* art = cardArtTexture(draggedPiece->imagePath))
@@ -3224,7 +3242,8 @@ int main(int argc, char** argv)
                         *art,
                         {{gameDragCurrentPos.x - CellSize / 2.0f + 10.0f, gameDragCurrentPos.y - CellSize / 2.0f + 10.0f},
                          {CellSize - 20.0f, CellSize - 20.0f}},
-                        sf::Color(255, 255, 255, 210));
+                        sf::Color(255, 255, 255, 210),
+                        draggedPiece->owner == 2);
                 }
             }
         }
