@@ -270,13 +270,13 @@ int main()
     check(s1.players[1].heroesToPlace == 2, "player 2 has 2 heroes to place");
 
     // --- hero placement ----------------------------------------------------
-    // Player 1 home row 0 cols 2,3; player 2 home row 7 cols 2,3.
-    sendPlaceHero(p1, 0, 2);
+    // Player 1 home column 0 middle rows; player 2 home column 7 middle rows.
+    sendPlaceHero(p1, 2, 0);
     settle(p1, p2, s1, s2, 400);
-    sendPlaceHero(p1, 0, 3);
-    sendPlaceHero(p2, 7, 2);
+    sendPlaceHero(p1, 3, 0);
+    sendPlaceHero(p2, 2, 7);
     settle(p1, p2, s1, s2, 400);
-    sendPlaceHero(p2, 7, 3);
+    sendPlaceHero(p2, 3, 7);
     settle(p1, p2, s1, s2, 1000);
 
     check(s1.phase == static_cast<std::uint8_t>(Phase::Playing), "phase advanced to Playing after all heroes placed");

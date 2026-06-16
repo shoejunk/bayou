@@ -6,8 +6,10 @@
 #include "../shared/game_data.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -71,6 +73,17 @@ enum class GameState
 constexpr float BoardOriginX = 24.0f;
 constexpr float BoardOriginY = 70.0f;
 constexpr float CellSize = 54.0f;
+constexpr float BoardBottomWidth = CellSize * static_cast<float>(game_data::BoardSize);
+constexpr float BoardTopWidth = 312.0f;
+constexpr float BoardHeight = 418.0f;
+constexpr float BoardCenterX = BoardOriginX + BoardBottomWidth * 0.5f;
+constexpr float BoardPerspectiveExponent = 1.18f;
+constexpr float BoardThickness = 14.0f;
+constexpr float PieceFarScale = 0.72f;
+constexpr float PieceNearScale = 1.22f;
+constexpr float PieceBaseWidth = 48.0f;
+constexpr float PieceBaseHeight = 50.0f;
+constexpr float PieceWalkBaseHeight = 54.0f;
 constexpr float InfoPanelX = 472.0f;
 constexpr float InfoPanelY = 70.0f;
 constexpr float InfoPanelWidth = 304.0f;
@@ -141,6 +154,15 @@ struct DeckCommandResult
     std::string message;
     std::string originalName;
     deck_data::Deck deck;
+};
+
+struct BoardCellMetrics
+{
+    std::array<sf::Vector2f, 4> corners{};
+    sf::Vector2f center{};
+    float height = 0.0f;
+    float depthScale = 1.0f;
+    int screenRow = 0;
 };
 
 std::filesystem::path executableDirectory;
@@ -1884,16 +1906,100 @@ int main(int argc, char** argv)
         return sf::Color(38, 48, 43, 214);
     };
 
-    auto cellTopLeft = [&](int row, int column) -> sf::Vector2f {
-        const int screenRow = gameSnapshot.yourPlayer == 1 ? (game_data::BoardSize - 1 - row) : row;
-        return {BoardOriginX + static_cast<float>(column) * CellSize,
-                BoardOriginY + static_cast<float>(screenRow) * CellSize};
+    // Fixed 2.5D camera: row 1 is nearest at the bottom, row 8 is farthest at the top.
+    auto screenRowForViewer = [](int row, int /*viewer*/) {
+        return game_data::BoardSize - 1 - row;
     };
 
-    auto cellTopLeftForViewer = [&](int row, int column, int viewer) -> sf::Vector2f {
-        const int screenRow = viewer == 1 ? (game_data::BoardSize - 1 - row) : row;
-        return {BoardOriginX + static_cast<float>(column) * CellSize,
-                BoardOriginY + static_cast<float>(screenRow) * CellSize};
+    auto rowForScreenRow = [](int screenRow, int /*viewer*/) {
+        return game_data::BoardSize - 1 - screenRow;
+    };
+
+    auto boardEdgePoint = [](int screenEdge, int columnEdge) -> sf::Vector2f {
+        const float t = static_cast<float>(screenEdge) / static_cast<float>(game_data::BoardSize);
+        const float y = BoardOriginY + BoardHeight * std::pow(t, BoardPerspectiveExponent);
+        const float width = BoardTopWidth + (BoardBottomWidth - BoardTopWidth) * t;
+        const float left = BoardCenterX - width * 0.5f;
+        return {
+            left + width * static_cast<float>(columnEdge) / static_cast<float>(game_data::BoardSize),
+            y};
+    };
+
+    auto pieceScaleForScreenRow = [](int screenRow) {
+        const float t = static_cast<float>(screenRow) / static_cast<float>(game_data::BoardSize - 1);
+        return PieceFarScale + (PieceNearScale - PieceFarScale) * t;
+    };
+
+    auto boardCellMetricsForViewer = [&](int row, int column, int viewer) {
+        BoardCellMetrics metrics;
+        metrics.screenRow = screenRowForViewer(row, viewer);
+        metrics.corners = {
+            boardEdgePoint(metrics.screenRow, column),
+            boardEdgePoint(metrics.screenRow, column + 1),
+            boardEdgePoint(metrics.screenRow + 1, column + 1),
+            boardEdgePoint(metrics.screenRow + 1, column)};
+        metrics.center = {
+            (metrics.corners[0].x + metrics.corners[1].x + metrics.corners[2].x + metrics.corners[3].x) * 0.25f,
+            (metrics.corners[0].y + metrics.corners[1].y + metrics.corners[2].y + metrics.corners[3].y) * 0.25f};
+        metrics.height = metrics.corners[3].y - metrics.corners[0].y;
+        metrics.depthScale = pieceScaleForScreenRow(metrics.screenRow);
+        return metrics;
+    };
+
+    auto boardCellMetrics = [&](int row, int column) {
+        return boardCellMetricsForViewer(row, column, gameSnapshot.yourPlayer);
+    };
+
+    auto boardCellAnchor = [](const BoardCellMetrics& metrics) {
+        return sf::Vector2f{metrics.center.x, metrics.center.y + metrics.height * 0.36f};
+    };
+
+    auto pointInConvex = [](sf::Vector2f point, const std::array<sf::Vector2f, 4>& corners) {
+        bool hasNegative = false;
+        bool hasPositive = false;
+        for (std::size_t i = 0; i < corners.size(); ++i)
+        {
+            const sf::Vector2f a = corners[i];
+            const sf::Vector2f b = corners[(i + 1) % corners.size()];
+            const float cross = (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x);
+            hasNegative = hasNegative || cross < -0.01f;
+            hasPositive = hasPositive || cross > 0.01f;
+            if (hasNegative && hasPositive)
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    auto drawQuad = [&](const std::array<sf::Vector2f, 4>& corners,
+                        sf::Color fill,
+                        float outlineThickness = 0.0f,
+                        sf::Color outline = sf::Color::Transparent) {
+        sf::ConvexShape quad;
+        quad.setPointCount(corners.size());
+        for (std::size_t i = 0; i < corners.size(); ++i)
+        {
+            quad.setPoint(i, corners[i]);
+        }
+        quad.setFillColor(fill);
+        quad.setOutlineThickness(outlineThickness);
+        quad.setOutlineColor(outline);
+        window.draw(quad);
+    };
+
+    auto offsetQuad = [](std::array<sf::Vector2f, 4> corners, sf::Vector2f offset) {
+        for (sf::Vector2f& corner : corners)
+        {
+            corner += offset;
+        }
+        return corners;
+    };
+
+    auto pieceTargetRect = [](sf::Vector2f anchor, float scale, bool walkSheet) {
+        const float width = PieceBaseWidth * scale;
+        const float height = (walkSheet ? PieceWalkBaseHeight : PieceBaseHeight) * scale;
+        return sf::FloatRect{{anchor.x - width * 0.5f, anchor.y - height}, {width, height}};
     };
 
     auto pieceByIdInSnapshot = [](const game_data::Snapshot& snapshot, int id) -> const game_data::Piece* {
@@ -1948,19 +2054,20 @@ int main(int argc, char** argv)
     };
 
     auto squareAtPixel = [&](sf::Vector2f point) -> std::optional<std::pair<int, int>> {
-        if (point.x < BoardOriginX || point.y < BoardOriginY)
+        const int viewer = haveSnapshot ? gameSnapshot.yourPlayer : 1;
+        for (int screenRow = game_data::BoardSize - 1; screenRow >= 0; --screenRow)
         {
-            return std::nullopt;
+            const int row = rowForScreenRow(screenRow, viewer);
+            for (int column = 0; column < game_data::BoardSize; ++column)
+            {
+                const BoardCellMetrics metrics = boardCellMetricsForViewer(row, column, viewer);
+                if (pointInConvex(point, metrics.corners))
+                {
+                    return std::make_pair(row, column);
+                }
+            }
         }
-        const int screenColumn = static_cast<int>((point.x - BoardOriginX) / CellSize);
-        const int screenRow = static_cast<int>((point.y - BoardOriginY) / CellSize);
-        if (screenColumn < 0 || screenColumn >= game_data::BoardSize ||
-            screenRow < 0 || screenRow >= game_data::BoardSize)
-        {
-            return std::nullopt;
-        }
-        const int row = gameSnapshot.yourPlayer == 1 ? (game_data::BoardSize - 1 - screenRow) : screenRow;
-        return std::make_pair(row, screenColumn);
+        return std::nullopt;
     };
 
     auto gamePieceAt = [&](int row, int column) -> const game_data::Piece* {
@@ -2838,62 +2945,88 @@ int main(int argc, char** argv)
             }
         }
 
-        sf::RectangleShape boardBack({CellSize * game_data::BoardSize + 22.0f, CellSize * game_data::BoardSize + 22.0f});
-        boardBack.setPosition({BoardOriginX - 11.0f, BoardOriginY - 11.0f});
-        boardBack.setFillColor(sf::Color(9, 20, 21, 232));
-        boardBack.setOutlineThickness(3.0f);
-        boardBack.setOutlineColor(sf::Color(153, 105, 51));
-        window.draw(boardBack);
+        const std::array<sf::Vector2f, 4> boardTop = {
+            boardEdgePoint(0, 0),
+            boardEdgePoint(0, game_data::BoardSize),
+            boardEdgePoint(game_data::BoardSize, game_data::BoardSize),
+            boardEdgePoint(game_data::BoardSize, 0)};
+        drawQuad(offsetQuad(boardTop, {7.0f, 15.0f}), sf::Color(0, 0, 0, 95));
 
-        sf::RectangleShape boardWater({CellSize * game_data::BoardSize + 10.0f, CellSize * game_data::BoardSize + 10.0f});
-        boardWater.setPosition({BoardOriginX - 5.0f, BoardOriginY - 5.0f});
-        boardWater.setFillColor(sf::Color(13, 38, 42, 210));
-        boardWater.setOutlineThickness(1.0f);
-        boardWater.setOutlineColor(sf::Color(48, 125, 113));
-        window.draw(boardWater);
+        const sf::Vector2f topLeft = boardTop[0];
+        const sf::Vector2f topRight = boardTop[1];
+        const sf::Vector2f bottomRight = boardTop[2];
+        const sf::Vector2f bottomLeft = boardTop[3];
+        drawQuad(
+            {topRight, bottomRight, {bottomRight.x + 10.0f, bottomRight.y + BoardThickness},
+             {topRight.x + 5.0f, topRight.y + BoardThickness * 0.42f}},
+            sf::Color(7, 28, 31, 238),
+            1.0f,
+            sf::Color(35, 83, 77, 170));
+        drawQuad(
+            {topLeft, {topLeft.x - 5.0f, topLeft.y + BoardThickness * 0.42f},
+             {bottomLeft.x - 10.0f, bottomLeft.y + BoardThickness}, bottomLeft},
+            sf::Color(8, 24, 27, 238),
+            1.0f,
+            sf::Color(35, 83, 77, 170));
+        drawQuad(
+            {bottomLeft, bottomRight, {bottomRight.x + 10.0f, bottomRight.y + BoardThickness},
+             {bottomLeft.x - 10.0f, bottomLeft.y + BoardThickness}},
+            sf::Color(77, 49, 28, 246),
+            1.0f,
+            sf::Color(167, 112, 56, 190));
+        drawQuad(boardTop, sf::Color(9, 20, 21, 232), 3.0f, sf::Color(153, 105, 51));
 
         // Board squares.
-        for (int row = 0; row < game_data::BoardSize; ++row)
+        for (int screenRow = 0; screenRow < game_data::BoardSize; ++screenRow)
         {
+            const int row = rowForScreenRow(screenRow, me);
             for (int column = 0; column < game_data::BoardSize; ++column)
             {
                 const std::size_t idx = static_cast<std::size_t>(game_data::squareIndex(row, column));
-                const sf::Vector2f topLeft = cellTopLeft(row, column);
-                sf::RectangleShape cell({CellSize - 2.0f, CellSize - 2.0f});
-                cell.setPosition({topLeft.x + 1.0f, topLeft.y + 1.0f});
-                cell.setFillColor(ownerTint(gameSnapshot.control[idx]));
-                cell.setOutlineThickness(1.0f);
-                cell.setOutlineColor(sf::Color(81, 63, 37));
-                window.draw(cell);
+                const BoardCellMetrics metrics = boardCellMetrics(row, column);
+                drawQuad(metrics.corners, ownerTint(gameSnapshot.control[idx]), 1.0f, sf::Color(81, 63, 37));
 
                 if ((row + column) % 2 == 0)
                 {
-                    sf::RectangleShape shade({CellSize - 4.0f, CellSize - 4.0f});
-                    shade.setPosition({topLeft.x + 2.0f, topLeft.y + 2.0f});
-                    shade.setFillColor(sf::Color(255, 239, 190, 16));
-                    window.draw(shade);
+                    drawQuad(metrics.corners, sf::Color(255, 239, 190, 16));
                 }
 
                 if (highlight[idx] != 0)
                 {
-                    sf::RectangleShape overlay({CellSize - 2.0f, CellSize - 2.0f});
-                    overlay.setPosition({topLeft.x + 1.0f, topLeft.y + 1.0f});
                     sf::Color colors[5] = {
                         sf::Color::Transparent,
                         sf::Color(90, 200, 120, 90),
                         sf::Color(220, 90, 80, 110),
                         sf::Color(90, 200, 210, 90),
                         sf::Color(110, 200, 150, 90)};
-                    overlay.setFillColor(colors[highlight[idx]]);
-                    window.draw(overlay);
+                    drawQuad(metrics.corners, colors[highlight[idx]]);
                 }
             }
         }
 
         // Pieces.
+        std::vector<const game_data::Piece*> pieceDrawOrder;
+        pieceDrawOrder.reserve(gameSnapshot.pieces.size());
         for (const game_data::Piece& piece : gameSnapshot.pieces)
         {
-            sf::Vector2f topLeft = cellTopLeft(piece.row, piece.column);
+            pieceDrawOrder.push_back(&piece);
+        }
+        std::sort(pieceDrawOrder.begin(), pieceDrawOrder.end(), [&](const game_data::Piece* a, const game_data::Piece* b) {
+            const BoardCellMetrics aCell = boardCellMetrics(a->row, a->column);
+            const BoardCellMetrics bCell = boardCellMetrics(b->row, b->column);
+            if (aCell.screenRow != bCell.screenRow)
+            {
+                return aCell.screenRow < bCell.screenRow;
+            }
+            return a->column < b->column;
+        });
+
+        for (const game_data::Piece* piecePtr : pieceDrawOrder)
+        {
+            const game_data::Piece& piece = *piecePtr;
+            BoardCellMetrics cell = boardCellMetrics(piece.row, piece.column);
+            sf::Vector2f anchor = boardCellAnchor(cell);
+            float pieceScale = cell.depthScale;
             bool isMoving = false;
             if (const auto animation = pieceMoveAnimations.find(piece.id); animation != pieceMoveAnimations.end())
             {
@@ -2901,13 +3034,16 @@ int main(int argc, char** argv)
                 if (progress < 1.0f)
                 {
                     isMoving = true;
-                    const sf::Vector2f start = cellTopLeftForViewer(
+                    const BoardCellMetrics startCell = boardCellMetricsForViewer(
                         animation->second.fromRow, animation->second.fromColumn, gameSnapshot.yourPlayer);
-                    const sf::Vector2f end = cellTopLeftForViewer(
+                    const BoardCellMetrics endCell = boardCellMetricsForViewer(
                         animation->second.toRow, animation->second.toColumn, gameSnapshot.yourPlayer);
-                    topLeft = {
+                    const sf::Vector2f start = boardCellAnchor(startCell);
+                    const sf::Vector2f end = boardCellAnchor(endCell);
+                    anchor = {
                         start.x + (end.x - start.x) * progress,
                         start.y + (end.y - start.y) * progress};
+                    pieceScale = startCell.depthScale + (endCell.depthScale - startCell.depthScale) * progress;
                 }
                 else
                 {
@@ -2935,7 +3071,7 @@ int main(int argc, char** argv)
                     drawTextureRectContain(
                         *walkSheet,
                         sf::IntRect({frame * frameWidth, 0}, {frameWidth, frameHeight}),
-                        {{topLeft.x + 5.0f, topLeft.y - 1.0f}, {CellSize - 10.0f, CellSize - 6.0f}},
+                        pieceTargetRect(anchor, pieceScale, true),
                         piece.hasActed && piece.owner == gameSnapshot.activePlayer
                             ? sf::Color(150, 150, 150, 215)
                             : sf::Color::White);
@@ -2943,21 +3079,22 @@ int main(int argc, char** argv)
             }
             else if (sf::Texture* art = cardArtTexture(piece.imagePath))
             {
-                drawContainSprite(*art, {{topLeft.x + 7.0f, topLeft.y + 7.0f}, {CellSize - 14.0f, CellSize - 14.0f}},
+                drawContainSprite(*art, pieceTargetRect(anchor, pieceScale, false),
                                   piece.hasActed && piece.owner == gameSnapshot.activePlayer
                                       ? sf::Color(130, 130, 130)
                                       : sf::Color::White);
             }
             else
             {
-                const float radius = CellSize * 0.29f;
+                const float radius = PieceBaseWidth * 0.28f * pieceScale;
                 sf::CircleShape body(radius);
-                body.setPosition({topLeft.x + CellSize / 2.0f - radius, topLeft.y + CellSize / 2.0f - radius});
+                body.setPosition({anchor.x - radius, anchor.y - radius * 2.0f});
                 body.setFillColor(color);
                 window.draw(body);
             }
-            drawText(window, font, std::to_string(piece.health), 16,
-                     {topLeft.x + CellSize / 2.0f - 6.0f, topLeft.y + CellSize - 22.0f}, sf::Color(248, 239, 216));
+            const unsigned int healthSize = static_cast<unsigned int>(std::clamp(12.0f * pieceScale, 10.0f, 17.0f));
+            drawText(window, font, std::to_string(piece.health), healthSize,
+                     {anchor.x - 5.0f * pieceScale, anchor.y - 21.0f * pieceScale}, sf::Color(248, 239, 216));
         }
 
         // Info panel.
