@@ -64,8 +64,8 @@ if(BAYOU_BUILD_CLIENTS)
         PUBLIC
             FILE_SET CXX_MODULES FILES
                 src/shared/network.cppm
+                src/shared/inputbox.cppm
                 src/client/button.cppm
-                src/client/inputbox.cppm
     )
 
     target_link_libraries(client PRIVATE fmt::fmt SFML::Graphics SFML::Window SFML::System SFML::Network)
@@ -160,6 +160,7 @@ if(BAYOU_BUILD_CLIENTS)
         PUBLIC
             FILE_SET CXX_MODULES FILES
                 src/shared/network.cppm
+                src/shared/inputbox.cppm
     )
 
     target_link_libraries(cardeditor PRIVATE fmt::fmt SFML::Graphics SFML::Window SFML::System SFML::Network)

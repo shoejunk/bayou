@@ -4714,18 +4714,18 @@ int main(int argc, char** argv)
 
             if (currentState == GameState::Login || currentState == GameState::CreateAccount)
             {
-                usernameInput.handleEvent(*event);
-                passwordInput.handleEvent(*event);
+                usernameInput.handleEvent(*event, window);
+                passwordInput.handleEvent(*event, window);
             }
 
             if (currentState == GameState::CreateAccount)
             {
-                confirmInput.handleEvent(*event);
+                confirmInput.handleEvent(*event, window);
             }
 
             if (currentState == GameState::DeckEditor && !deckEditorBusy() && !inspectedDeckEditorCardTitle)
             {
-                deckNameInput.handleEvent(*event);
+                deckNameInput.handleEvent(*event, window);
             }
 
             if (const auto* keyPressed = event->getIf<sf::Event::KeyPressed>())
@@ -4803,7 +4803,7 @@ int main(int argc, char** argv)
                     {
                         saveCurrentDeck();
                     }
-                    else if (keyPressed->code == sf::Keyboard::Key::Delete)
+                    else if (keyPressed->code == sf::Keyboard::Key::Delete && !deckNameInput.active)
                     {
                         removeSelectedCard();
                     }

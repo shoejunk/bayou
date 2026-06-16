@@ -15,8 +15,10 @@
 #include <optional>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
+import inputbox;
 import network;
 
 using namespace network;
@@ -676,131 +678,7 @@ void drawRoundedPanel(sf::RenderWindow& window, const sf::Vector2f& position, co
     window.draw(shape);
 }
 
-class TextField
-{
-public:
-    TextField() = default;
-
-    TextField(sf::Font& font, std::string label, sf::Vector2f position, sf::Vector2f size)
-        : box(size)
-    {
-        labelText.emplace(font, label, 15);
-        valueText.emplace(font, "", 18);
-
-        box.setPosition(position);
-        box.setFillColor(Field);
-        box.setOutlineThickness(1.0f);
-        box.setOutlineColor(Line);
-        maxTextWidth = size.x - 24.0f;
-
-        labelText->setFillColor(Muted);
-        labelText->setPosition({position.x, position.y - 22.0f});
-
-        valueText->setFillColor(Ink);
-        valueText->setPosition({position.x + 12.0f, position.y + 10.0f});
-    }
-
-    void setValue(const std::string& newValue)
-    {
-        value = newValue;
-        refreshText();
-    }
-
-    const std::string& getValue() const
-    {
-        return value;
-    }
-
-    bool contains(sf::Vector2f point) const
-    {
-        return box.getGlobalBounds().contains(point);
-    }
-
-    sf::FloatRect bounds() const
-    {
-        return box.getGlobalBounds();
-    }
-
-    void setPosition(sf::Vector2f position)
-    {
-        box.setPosition(position);
-        if (labelText)
-        {
-            labelText->setPosition({position.x, position.y - 22.0f});
-        }
-        if (valueText)
-        {
-            valueText->setPosition({position.x + 12.0f, position.y + 10.0f});
-        }
-    }
-
-    void setActive(bool next)
-    {
-        active = next;
-        box.setOutlineColor(active ? Accent : Line);
-    }
-
-    bool isActive() const
-    {
-        return active;
-    }
-
-    void handleText(sf::Event::TextEntered textEvent)
-    {
-        if (!active)
-        {
-            return;
-        }
-
-        const char c = static_cast<char>(textEvent.unicode);
-        if (c == 8 && !value.empty())
-        {
-            value.pop_back();
-        }
-        else if (c >= 32 && c < 127)
-        {
-            value.push_back(c);
-        }
-        refreshText();
-    }
-
-    void draw(sf::RenderWindow& window) const
-    {
-        window.draw(*labelText);
-        window.draw(box);
-        window.draw(*valueText);
-        if (active)
-        {
-            sf::RectangleShape cursor({1.5f, 22.0f});
-            const sf::FloatRect textBounds = valueText->getGlobalBounds();
-            cursor.setPosition({std::min(textBounds.position.x + textBounds.size.x + 2.0f, box.getPosition().x + box.getSize().x - 12.0f), box.getPosition().y + 9.0f});
-            cursor.setFillColor(Accent);
-            window.draw(cursor);
-        }
-    }
-
-private:
-    std::optional<sf::Text> labelText;
-    std::optional<sf::Text> valueText;
-    sf::RectangleShape box;
-    std::string value;
-    float maxTextWidth = 0.0f;
-    bool active = false;
-
-    void refreshText()
-    {
-        std::string display = value;
-        if (valueText)
-        {
-            valueText->setString(display);
-            while (!display.empty() && valueText->getLocalBounds().size.x > maxTextWidth)
-            {
-                display.erase(display.begin());
-                valueText->setString("..." + display);
-            }
-        }
-    }
-};
+using TextField = InputBox;
 
 class Button
 {
@@ -1634,13 +1512,11 @@ private:
                 window.close();
             }
 
-            if (const auto* textEvent = event->getIf<sf::Event::TextEntered>())
+            if (!focusOrder.empty())
             {
-                for (TextField* field : focusOrder)
-                {
-                    field->handleText(*textEvent);
-                }
-                if (&imageField == focusOrder[focusIndex])
+                const std::string previousImagePath = imageField.getValue();
+                focusOrder[focusIndex]->handleEvent(*event, window);
+                if (imageField.isActive() && imageField.getValue() != previousImagePath)
                 {
                     loadPreviewImage();
                 }
@@ -1797,6 +1673,8 @@ private:
             if (TextField* field = dynamicFieldAt(mouse))
             {
                 activateField(field);
+                field->beginMouseSelection(mouse, sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
+                                                   sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift));
                 return;
             }
         }
@@ -1811,18 +1689,24 @@ private:
         if (titleField.contains(mouse))
         {
             activateField(&titleField);
+            titleField.beginMouseSelection(mouse, sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
+                                                  sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift));
             return;
         }
 
         if (imageField.contains(mouse))
         {
             activateField(&imageField);
+            imageField.beginMouseSelection(mouse, sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
+                                                  sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift));
             return;
         }
 
         if (typeField.contains(mouse))
         {
             activateField(&typeField);
+            typeField.beginMouseSelection(mouse, sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
+                                                 sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift));
             return;
         }
 
