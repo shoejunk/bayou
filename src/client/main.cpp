@@ -43,20 +43,20 @@ constexpr float DeckEditorPanelHeight = 400.0f;
 constexpr float DeckListX = 34.0f;
 constexpr float DeckListY = 184.0f;
 constexpr float DeckListWidth = 222.0f;
-constexpr float DeckRowHeight = 34.0f;
+constexpr float DeckRowHeight = 38.0f;
 constexpr std::size_t VisibleDeckRows = 8;
 
 constexpr float DeckCardsX = 304.0f;
 constexpr float DeckCardsY = 224.0f;
 constexpr float DeckCardsWidth = 222.0f;
-constexpr float DeckCardRowHeight = 29.0f;
-constexpr std::size_t VisibleDeckCardRows = 9;
+constexpr float DeckCardRowHeight = 40.0f;
+constexpr std::size_t VisibleDeckCardRows = 7;
 
 constexpr float LibraryX = 574.0f;
 constexpr float LibraryY = 168.0f;
 constexpr float LibraryWidth = 192.0f;
-constexpr float LibraryRowHeight = 31.0f;
-constexpr std::size_t VisibleLibraryRows = 10;
+constexpr float LibraryRowHeight = 40.0f;
+constexpr std::size_t VisibleLibraryRows = 8;
 
 enum class GameState
 {
@@ -105,6 +105,7 @@ constexpr float PiecePopupActionHeadingY = PiecePopupY + 186.0f;
 constexpr float PiecePopupScrollY = PiecePopupActionHeadingY + 26.0f;
 constexpr float PiecePopupScrollHeight = PiecePopupHeight - (PiecePopupScrollY - PiecePopupY) - 66.0f;
 constexpr float PieceDoubleClickSeconds = 0.38f;
+constexpr float DeckCardDoubleClickSeconds = 0.38f;
 constexpr float GameDragStartDistanceSquared = 36.0f;
 
 struct ServerEndpoint
@@ -1500,6 +1501,8 @@ int main(int argc, char** argv)
     Button saveDeckButton({668.0f, 508.0f}, {108.0f, 38.0f}, "Save", font);
     Button shopBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
     Button buyCardButton({300.0f, 492.0f}, {200.0f, 46.0f}, "Buy Card", font);
+    Button dismissRevealedCardButton({300.0f, 492.0f}, {200.0f, 46.0f}, "Dismiss", font);
+    Button closeDeckCardPopupButton({PiecePopupX + 190.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
 
     sf::Text messageText(font, "", 20);
     messageText.setFillColor(sf::Color::Red);
@@ -1529,6 +1532,11 @@ int main(int argc, char** argv)
     std::optional<std::size_t> selectedDeck;
     std::optional<std::size_t> selectedDeckCard;
     std::optional<std::size_t> selectedLibraryCard;
+    std::optional<std::string> inspectedDeckEditorCardTitle;
+    std::optional<std::string> lastDeckEditorClickedCardTitle;
+    sf::Vector2f lastDeckEditorCardClickPosition;
+    float lastDeckEditorCardClickTime = -10.0f;
+    float inspectedDeckEditorCardScroll = 0.0f;
     std::optional<std::string> revealedCardTitle;
     float revealStartedAt = 0.0f;
     bool winRewardRequested = false;
@@ -1731,6 +1739,9 @@ int main(int argc, char** argv)
         selectedDeck.reset();
         selectedDeckCard.reset();
         selectedLibraryCard.reset();
+        inspectedDeckEditorCardTitle.reset();
+        lastDeckEditorClickedCardTitle.reset();
+        inspectedDeckEditorCardScroll = 0.0f;
         revealedCardTitle.reset();
         revealStartedAt = 0.0f;
         winRewardRequested = false;
@@ -1763,6 +1774,10 @@ int main(int argc, char** argv)
         setMessageY(messageText, 500.0f);
         resetForm(usernameInput, passwordInput, confirmInput, messageText);
         deckNameInput.clear();
+        inspectedDeckEditorCardTitle.reset();
+        lastDeckEditorClickedCardTitle.reset();
+        inspectedDeckEditorCardScroll = 0.0f;
+        revealedCardTitle.reset();
         clearFocus();
         if (!loggedInUsername.empty())
         {
@@ -1826,6 +1841,9 @@ int main(int argc, char** argv)
         selectedDeck.reset();
         selectedDeckCard.reset();
         selectedLibraryCard.reset();
+        inspectedDeckEditorCardTitle.reset();
+        lastDeckEditorClickedCardTitle.reset();
+        inspectedDeckEditorCardScroll = 0.0f;
         draggingLibraryCard.reset();
         dragActive = false;
         deckListOffset = 0;
@@ -2497,6 +2515,256 @@ int main(int argc, char** argv)
             size.x - 36.0f);
     };
 
+    auto joinStrings = [](const std::vector<std::string>& values, const std::string& separator) {
+        std::string result;
+        for (const std::string& value : values)
+        {
+            if (!result.empty())
+            {
+                result += separator;
+            }
+            result += value;
+        }
+        return result;
+    };
+
+    auto deckEditorCardDetails = [&](const card_data::Card& card) {
+        std::vector<std::pair<std::string, sf::Color>> details;
+        const bool hero = game_data::isHeroCard(card);
+        const bool unit = card.type == "Unit" || hero;
+
+        if (hero)
+        {
+            details.push_back({
+                "Hero: costs " + std::to_string(game_data::cardInt(card, "heroCost", 0)) +
+                    " hero budget. A player loses when all of their heroes are defeated.",
+                sf::Color(248, 214, 112)});
+        }
+        else
+        {
+            details.push_back({
+                "Cost: " + std::to_string(game_data::cardInt(card, "cost", 0)) + " steam.",
+                sf::Color(150, 210, 235)});
+        }
+
+        if (unit)
+        {
+            const std::uint8_t movement = game_data::parseMovePattern(game_data::cardStr(card, "movement", "omni"));
+            details.push_back({
+                "Stats: " + std::to_string(game_data::cardInt(card, "attack", 0)) + " attack, " +
+                    std::to_string(game_data::cardInt(card, "range", 1)) + " attack range, " +
+                    std::to_string(game_data::cardInt(card, "health", 1)) + " health.",
+                sf::Color(224, 210, 176)});
+            details.push_back({
+                "Movement: " + game_data::movePatternName(movement) + " " +
+                    std::to_string(game_data::cardInt(card, "move", 1)) + ".",
+                sf::Color(143, 220, 205)});
+            details.push_back({
+                "Board role: controls its occupied square and influences adjacent empty squares after deployment.",
+                sf::Color(198, 180, 142)});
+        }
+        else
+        {
+            details.push_back({
+                "Spell: " + game_data::cardStr(card, "effect", "none") + " " +
+                    std::to_string(game_data::cardInt(card, "power", 0)) +
+                    ". Target: " + game_data::cardStr(card, "target", "none") + ".",
+                sf::Color(224, 210, 176)});
+        }
+
+        if (!card.keywords.empty())
+        {
+            details.push_back({"Keywords: " + joinStrings(card.keywords, ", "), sf::Color(210, 216, 228)});
+        }
+
+        for (const card_data::KeyIntPair& item : card.integerValues)
+        {
+            details.push_back({item.key + ": " + std::to_string(item.value), sf::Color(190, 198, 214)});
+        }
+        for (const card_data::KeyStringPair& item : card.stringValues)
+        {
+            details.push_back({item.key + ": " + item.value, sf::Color(190, 198, 214)});
+        }
+        for (const card_data::KeyStringList& item : card.stringLists)
+        {
+            details.push_back({item.key + ": " + joinStrings(item.values, ", "), sf::Color(190, 198, 214)});
+        }
+
+        return details;
+    };
+
+    auto deckEditorCardDetailsHeight = [&](const std::vector<std::pair<std::string, sf::Color>>& details) {
+        float height = 0.0f;
+        for (const auto& [description, color] : details)
+        {
+            (void)color;
+            height += static_cast<float>(wrapText(font, description, 14, PiecePopupTextWidth - 24.0f).size()) * 18.0f;
+            height += 8.0f;
+        }
+        return height;
+    };
+
+    auto deckEditorCardDetailsMaxScroll = [&](const std::vector<std::pair<std::string, sf::Color>>& details) {
+        return std::max(0.0f, deckEditorCardDetailsHeight(details) - PiecePopupScrollHeight);
+    };
+
+    auto drawDeckEditorCardPopup = [&]() {
+        if (!inspectedDeckEditorCardTitle)
+        {
+            return;
+        }
+
+        const card_data::Card* card = cardByTitle(*inspectedDeckEditorCardTitle);
+        if (!card)
+        {
+            card = cardInAllLibraryByTitle(*inspectedDeckEditorCardTitle);
+        }
+        if (!card)
+        {
+            inspectedDeckEditorCardTitle.reset();
+            inspectedDeckEditorCardScroll = 0.0f;
+            return;
+        }
+
+        const std::vector<std::pair<std::string, sf::Color>> details = deckEditorCardDetails(*card);
+
+        sf::RectangleShape overlay({800.0f, 600.0f});
+        overlay.setFillColor(sf::Color(0, 0, 0, 150));
+        window.draw(overlay);
+
+        drawPanel(window, {PiecePopupX, PiecePopupY}, {PiecePopupWidth, PiecePopupHeight});
+        drawText(window, font, card->title, 24, {PiecePopupX + 22.0f, PiecePopupY + 18.0f},
+                 sf::Color(248, 239, 216), PiecePopupWidth - 44.0f);
+
+        sf::RectangleShape artFrame({104.0f, 104.0f});
+        artFrame.setPosition({PiecePopupX + 22.0f, PiecePopupY + 62.0f});
+        artFrame.setFillColor(sf::Color(8, 14, 15));
+        artFrame.setOutlineThickness(1.0f);
+        artFrame.setOutlineColor(sf::Color(155, 111, 59));
+        window.draw(artFrame);
+        if (sf::Texture* art = cardArtTexture(card->imagePath))
+        {
+            drawContainSprite(*art, {{PiecePopupX + 30.0f, PiecePopupY + 70.0f}, {88.0f, 88.0f}});
+        }
+
+        float y = PiecePopupY + 66.0f;
+        const float statX = PiecePopupX + 146.0f;
+        const bool hero = game_data::isHeroCard(*card);
+        drawText(window, font, card->type + " - Collection card", 15, {statX, y},
+                 hero ? sf::Color(248, 214, 112) : sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+        y += 24.0f;
+        drawText(window, font, "Owned: " + std::to_string(ownedCopies(card->title)), 14, {statX, y},
+                 sf::Color(248, 214, 112));
+        y += 24.0f;
+        if (hero)
+        {
+            drawText(window, font, "Hero cost: " + std::to_string(game_data::cardInt(*card, "heroCost", 0)),
+                     14, {statX, y}, sf::Color(224, 210, 176));
+        }
+        else
+        {
+            drawText(window, font, "Steam cost: " + std::to_string(game_data::cardInt(*card, "cost", 0)),
+                     14, {statX, y}, sf::Color(150, 210, 235));
+        }
+        y += 22.0f;
+        if (card->type == "Unit" || hero)
+        {
+            drawText(window, font, "Attack: " + std::to_string(game_data::cardInt(*card, "attack", 0)) +
+                         "   Health: " + std::to_string(game_data::cardInt(*card, "health", 1)),
+                     14, {statX, y}, sf::Color(224, 210, 176));
+            y += 22.0f;
+            const std::uint8_t movement = game_data::parseMovePattern(game_data::cardStr(*card, "movement", "omni"));
+            drawText(window, font, "Movement: " + game_data::movePatternName(movement) +
+                         " " + std::to_string(game_data::cardInt(*card, "move", 1)),
+                     14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+        }
+        else
+        {
+            drawText(window, font, "Effect: " + game_data::cardStr(*card, "effect", "none") +
+                         "   Power: " + std::to_string(game_data::cardInt(*card, "power", 0)),
+                     14, {statX, y}, sf::Color(224, 210, 176), PiecePopupWidth - 174.0f);
+            y += 22.0f;
+            drawText(window, font, "Target: " + game_data::cardStr(*card, "target", "none"),
+                     14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+        }
+
+        inspectedDeckEditorCardScroll = std::clamp(
+            inspectedDeckEditorCardScroll,
+            0.0f,
+            deckEditorCardDetailsMaxScroll(details));
+
+        drawText(window, font, "Details", 17, {PiecePopupTextX, PiecePopupActionHeadingY}, sf::Color::White);
+
+        sf::RectangleShape scrollBack({PiecePopupTextWidth, PiecePopupScrollHeight});
+        scrollBack.setPosition({PiecePopupTextX, PiecePopupScrollY});
+        scrollBack.setFillColor(sf::Color(8, 14, 15, 132));
+        scrollBack.setOutlineThickness(1.0f);
+        scrollBack.setOutlineColor(sf::Color(44, 108, 101, 120));
+        window.draw(scrollBack);
+
+        const sf::View previousView = window.getView();
+        sf::View detailView(sf::FloatRect(
+            {PiecePopupTextX, PiecePopupScrollY + inspectedDeckEditorCardScroll},
+            {PiecePopupTextWidth, PiecePopupScrollHeight}));
+        detailView.setViewport(sf::FloatRect(
+            {PiecePopupTextX / 800.0f, PiecePopupScrollY / 600.0f},
+            {PiecePopupTextWidth / 800.0f, PiecePopupScrollHeight / 600.0f}));
+        window.setView(detailView);
+
+        y = PiecePopupScrollY + 8.0f;
+        for (const auto& [description, color] : details)
+        {
+            y = drawWrappedText(window, font, description, 14, {PiecePopupTextX + 8.0f, y}, color, PiecePopupTextWidth - 24.0f);
+            y += 8.0f;
+        }
+
+        window.setView(previousView);
+
+        const float maxScroll = deckEditorCardDetailsMaxScroll(details);
+        if (maxScroll > 0.0f)
+        {
+            const float trackX = PiecePopupX + PiecePopupWidth - 22.0f;
+            sf::RectangleShape track({4.0f, PiecePopupScrollHeight - 12.0f});
+            track.setPosition({trackX, PiecePopupScrollY + 6.0f});
+            track.setFillColor(sf::Color(73, 96, 98, 170));
+            window.draw(track);
+
+            const float thumbHeight = std::max(28.0f, track.getSize().y * (PiecePopupScrollHeight / (PiecePopupScrollHeight + maxScroll)));
+            const float thumbY = track.getPosition().y +
+                (track.getSize().y - thumbHeight) * (inspectedDeckEditorCardScroll / maxScroll);
+            sf::RectangleShape thumb({4.0f, thumbHeight});
+            thumb.setPosition({trackX, thumbY});
+            thumb.setFillColor(sf::Color(143, 220, 205, 230));
+            window.draw(thumb);
+        }
+
+        closeDeckCardPopupButton.draw(window);
+    };
+
+    auto showDeckEditorCardPopupIfDoubleClick = [&](const std::string& title, sf::Vector2f clickPos) {
+        const sf::Vector2f clickDelta = clickPos - lastDeckEditorCardClickPosition;
+        const bool closeToLastClick = clickDelta.x * clickDelta.x + clickDelta.y * clickDelta.y <= 144.0f;
+        const bool isDoubleClick = lastDeckEditorClickedCardTitle && *lastDeckEditorClickedCardTitle == title &&
+            closeToLastClick && animationTime - lastDeckEditorCardClickTime <= DeckCardDoubleClickSeconds;
+
+        lastDeckEditorClickedCardTitle = title;
+        lastDeckEditorCardClickPosition = clickPos;
+        lastDeckEditorCardClickTime = animationTime;
+
+        if (!isDoubleClick)
+        {
+            return false;
+        }
+
+        inspectedDeckEditorCardTitle = title;
+        inspectedDeckEditorCardScroll = 0.0f;
+        lastDeckEditorClickedCardTitle.reset();
+        draggingLibraryCard.reset();
+        dragActive = false;
+        clearFocus();
+        return true;
+    };
+
     auto drawShop = [&]() {
         drawText(window, font, "Shop", 30, {24.0f, 18.0f}, sf::Color::White);
         drawText(window, font, "Signed in as " + loggedInUsername, 14, {220.0f, 24.0f}, sf::Color(178, 186, 202), 280.0f);
@@ -2587,7 +2855,14 @@ int main(int argc, char** argv)
             drawText(window, font, "Random card added to collection", 15, {296.0f, 418.0f}, sf::Color(190, 198, 214), 240.0f);
         }
 
-        buyCardButton.draw(window);
+        if (revealedCardTitle)
+        {
+            dismissRevealedCardButton.draw(window);
+        }
+        else
+        {
+            buyCardButton.draw(window);
+        }
         window.draw(messageText);
     };
 
@@ -3867,7 +4142,7 @@ int main(int argc, char** argv)
                 incrementCollection(result.cardTitle);
                 revealedCardTitle = result.cardTitle;
                 revealStartedAt = animationTime;
-                setMessage(messageText, result.message, sf::Color(120, 220, 150));
+                setMessage(messageText, result.message + " Dismiss it before buying another.", sf::Color(120, 220, 150));
             }
             else if (!loggedInUsername.empty())
             {
@@ -4193,7 +4468,17 @@ int main(int argc, char** argv)
                     draggingLibraryCard.reset();
                     dragActive = false;
 
-                    if (deckBackButton.isClicked(clickPos) && !deckEditorBusy())
+                    if (inspectedDeckEditorCardTitle)
+                    {
+                        if (closeDeckCardPopupButton.isClicked(clickPos) ||
+                            !isInsideRect(clickPos, PiecePopupX, PiecePopupY, PiecePopupWidth, PiecePopupHeight))
+                        {
+                            inspectedDeckEditorCardTitle.reset();
+                            lastDeckEditorClickedCardTitle.reset();
+                            inspectedDeckEditorCardScroll = 0.0f;
+                        }
+                    }
+                    else if (deckBackButton.isClicked(clickPos) && !deckEditorBusy())
                     {
                         showAuthenticatedScreen();
                     }
@@ -4253,6 +4538,7 @@ int main(int argc, char** argv)
                         {
                             clearFocus();
                             selectedDeckCard = *cardIndex;
+                            showDeckEditorCardPopupIfDoubleClick(editingDeck.cardTitles[*cardIndex], clickPos);
                         }
                         else if (const std::optional<std::size_t> libraryIndex = rowIndexAt(
                                      clickPos,
@@ -4266,14 +4552,18 @@ int main(int argc, char** argv)
                         {
                             clearFocus();
                             selectedLibraryCard = *libraryIndex;
-                            draggingLibraryCard = *libraryIndex;
-                            dragStartPos = clickPos;
-                            dragCurrentPos = clickPos;
-                            dragActive = false;
+                            if (!showDeckEditorCardPopupIfDoubleClick(cardLibrary[*libraryIndex].title, clickPos))
+                            {
+                                draggingLibraryCard = *libraryIndex;
+                                dragStartPos = clickPos;
+                                dragCurrentPos = clickPos;
+                                dragActive = false;
+                            }
                         }
                         else
                         {
                             clearFocus();
+                            lastDeckEditorClickedCardTitle.reset();
                         }
                     }
                 }
@@ -4283,9 +4573,19 @@ int main(int argc, char** argv)
                     {
                         showAuthenticatedScreen();
                     }
+                    else if (revealedCardTitle && dismissRevealedCardButton.isClicked(clickPos) && !shopBusy())
+                    {
+                        revealedCardTitle.reset();
+                        revealStartedAt = 0.0f;
+                        setMessage(messageText, "Revealed card dismissed. You can buy another card.", sf::Color(120, 220, 150));
+                    }
                     else if (buyCardButton.isClicked(clickPos) && !shopBusy())
                     {
-                        if (playerCoins < 5)
+                        if (revealedCardTitle)
+                        {
+                            setMessage(messageText, "Dismiss the revealed card before buying another.", sf::Color::Red);
+                        }
+                        else if (playerCoins < 5)
                         {
                             setMessage(messageText, "Need 5 coins to buy a card", sf::Color::Red);
                         }
@@ -4349,15 +4649,35 @@ int main(int argc, char** argv)
             if (const auto* wheel = event->getIf<sf::Event::MouseWheelScrolled>(); wheel && currentState == GameState::DeckEditor)
             {
                 const sf::Vector2f wheelPos = window.mapPixelToCoords(wheel->position);
-                if (isInsideRect(wheelPos, DeckListX, DeckListY, DeckListWidth, DeckRowHeight * VisibleDeckRows))
+                if (inspectedDeckEditorCardTitle &&
+                    isInsideRect(wheelPos, PiecePopupTextX, PiecePopupScrollY, PiecePopupTextWidth, PiecePopupScrollHeight))
+                {
+                    const card_data::Card* card = cardByTitle(*inspectedDeckEditorCardTitle);
+                    if (!card)
+                    {
+                        card = cardInAllLibraryByTitle(*inspectedDeckEditorCardTitle);
+                    }
+                    if (card)
+                    {
+                        const std::vector<std::pair<std::string, sf::Color>> details = deckEditorCardDetails(*card);
+                        inspectedDeckEditorCardScroll = std::clamp(
+                            inspectedDeckEditorCardScroll - wheel->delta * 34.0f,
+                            0.0f,
+                            deckEditorCardDetailsMaxScroll(details));
+                    }
+                }
+                else if (!inspectedDeckEditorCardTitle &&
+                         isInsideRect(wheelPos, DeckListX, DeckListY, DeckListWidth, DeckRowHeight * VisibleDeckRows))
                 {
                     scrollList(deckListOffset, playerDecks.size(), VisibleDeckRows, wheel->delta);
                 }
-                else if (isInsideRect(wheelPos, DeckCardsX, DeckCardsY, DeckCardsWidth, DeckCardRowHeight * VisibleDeckCardRows))
+                else if (!inspectedDeckEditorCardTitle &&
+                         isInsideRect(wheelPos, DeckCardsX, DeckCardsY, DeckCardsWidth, DeckCardRowHeight * VisibleDeckCardRows))
                 {
                     scrollList(deckCardListOffset, editingDeck.cardTitles.size(), VisibleDeckCardRows, wheel->delta);
                 }
-                else if (isInsideRect(wheelPos, LibraryX, LibraryY, LibraryWidth, LibraryRowHeight * VisibleLibraryRows))
+                else if (!inspectedDeckEditorCardTitle &&
+                         isInsideRect(wheelPos, LibraryX, LibraryY, LibraryWidth, LibraryRowHeight * VisibleLibraryRows))
                 {
                     scrollList(libraryOffset, cardLibrary.size(), VisibleLibraryRows, wheel->delta);
                 }
@@ -4403,7 +4723,7 @@ int main(int argc, char** argv)
                 confirmInput.handleEvent(*event);
             }
 
-            if (currentState == GameState::DeckEditor && !deckEditorBusy())
+            if (currentState == GameState::DeckEditor && !deckEditorBusy() && !inspectedDeckEditorCardTitle)
             {
                 deckNameInput.handleEvent(*event);
             }
@@ -4418,9 +4738,21 @@ int main(int argc, char** argv)
                         inspectedHandIndex.reset();
                         inspectedPieceScroll = 0.0f;
                     }
+                    else if (currentState == GameState::DeckEditor && inspectedDeckEditorCardTitle)
+                    {
+                        inspectedDeckEditorCardTitle.reset();
+                        lastDeckEditorClickedCardTitle.reset();
+                        inspectedDeckEditorCardScroll = 0.0f;
+                    }
                     else if (currentState == GameState::DeckEditor && !deckEditorBusy())
                     {
                         showAuthenticatedScreen();
+                    }
+                    else if (currentState == GameState::Shop && revealedCardTitle && !shopBusy())
+                    {
+                        revealedCardTitle.reset();
+                        revealStartedAt = 0.0f;
+                        setMessage(messageText, "Revealed card dismissed. You can buy another card.", sf::Color(120, 220, 150));
                     }
                     else if (currentState == GameState::Shop && !shopBusy())
                     {
@@ -4529,12 +4861,23 @@ int main(int argc, char** argv)
             removeCardButton.update(mousePos);
             addCardButton.update(mousePos);
             saveDeckButton.update(mousePos);
+            if (inspectedDeckEditorCardTitle)
+            {
+                closeDeckCardPopupButton.update(mousePos);
+            }
             deckNameInput.updateCursor(deltaTime);
         }
         else if (currentState == GameState::Shop)
         {
             shopBackButton.update(mousePos);
-            buyCardButton.update(mousePos);
+            if (revealedCardTitle)
+            {
+                dismissRevealedCardButton.update(mousePos);
+            }
+            else
+            {
+                buyCardButton.update(mousePos);
+            }
         }
         else if (currentState == GameState::Game)
         {
@@ -4595,6 +4938,7 @@ int main(int argc, char** argv)
         else if (currentState == GameState::DeckEditor)
         {
             drawDeckEditor();
+            drawDeckEditorCardPopup();
         }
         else if (currentState == GameState::Shop)
         {
