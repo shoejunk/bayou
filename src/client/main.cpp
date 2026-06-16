@@ -41,16 +41,16 @@ constexpr float LibraryPanelX = 560.0f;
 constexpr float DeckEditorPanelY = 96.0f;
 constexpr float DeckEditorPanelHeight = 400.0f;
 constexpr float DeckListX = 34.0f;
-constexpr float DeckListY = 184.0f;
+constexpr float DeckListY = 194.0f;
 constexpr float DeckListWidth = 222.0f;
-constexpr float DeckRowHeight = 38.0f;
-constexpr std::size_t VisibleDeckRows = 8;
+constexpr float DeckRowHeight = 42.0f;
+constexpr std::size_t VisibleDeckRows = 7;
 
 constexpr float DeckCardsX = 304.0f;
-constexpr float DeckCardsY = 224.0f;
+constexpr float DeckCardsY = 252.0f;
 constexpr float DeckCardsWidth = 222.0f;
 constexpr float DeckCardRowHeight = 40.0f;
-constexpr std::size_t VisibleDeckCardRows = 7;
+constexpr std::size_t VisibleDeckCardRows = 6;
 
 constexpr float LibraryX = 574.0f;
 constexpr float LibraryY = 168.0f;
@@ -1493,8 +1493,8 @@ int main(int argc, char** argv)
     Button shopButton({300.0f, 380.0f}, {200.0f, 60.0f}, "Shop", font);
 
     Button deckBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
-    Button newDeckButton({34.0f, 132.0f}, {102.0f, 38.0f}, "New", font);
-    Button refreshDeckButton({146.0f, 132.0f}, {110.0f, 38.0f}, "Refresh", font);
+    Button newDeckButton({34.0f, 140.0f}, {102.0f, 38.0f}, "New", font);
+    Button refreshDeckButton({146.0f, 140.0f}, {110.0f, 38.0f}, "Refresh", font);
     Button deleteDeckButton({34.0f, 508.0f}, {110.0f, 38.0f}, "Delete", font);
     Button removeCardButton({304.0f, 508.0f}, {110.0f, 38.0f}, "Remove", font);
     Button addCardButton({574.0f, 508.0f}, {88.0f, 38.0f}, "Add", font);
