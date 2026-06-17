@@ -122,6 +122,44 @@ struct ClientConfig
     std::string gameServerHost = DefaultServerHost;
 };
 
+std::string cardRarity(const card_data::Card& card)
+{
+    const std::string rarity = game_data::cardStr(card, "rarity", "common");
+    if (rarity == "rare" || rarity == "legendary")
+    {
+        return rarity;
+    }
+    return "common";
+}
+
+std::string cardRarityLabel(const card_data::Card& card)
+{
+    const std::string rarity = cardRarity(card);
+    if (rarity == "legendary")
+    {
+        return "Legendary";
+    }
+    if (rarity == "rare")
+    {
+        return "Rare";
+    }
+    return "Common";
+}
+
+sf::Color cardRarityColor(const card_data::Card& card)
+{
+    const std::string rarity = cardRarity(card);
+    if (rarity == "legendary")
+    {
+        return sf::Color(248, 214, 112);
+    }
+    if (rarity == "rare")
+    {
+        return sf::Color(151, 192, 255);
+    }
+    return sf::Color(190, 198, 214);
+}
+
 struct ServerResult
 {
     bool success = false;
@@ -2490,7 +2528,7 @@ int main(int argc, char** argv)
         const std::string typeLine = game_data::isHeroCard(card)
             ? "Hero cost " + std::to_string(game_data::cardInt(card, "heroCost", 0))
             : card.type + "  " + std::to_string(game_data::cardInt(card, "cost", 0)) + " steam";
-        drawText(window, font, typeLine, 16, {position.x + 18.0f, position.y + 210.0f}, sf::Color(143, 220, 205), size.x - 36.0f);
+        drawText(window, font, cardRarityLabel(card) + "  " + typeLine, 16, {position.x + 18.0f, position.y + 210.0f}, cardRarityColor(card), size.x - 36.0f);
 
         std::string statLine;
         if (card.type == "Unit" || game_data::isHeroCard(card))
@@ -2535,6 +2573,7 @@ int main(int argc, char** argv)
 
         if (hero)
         {
+            details.push_back({"Rarity: " + cardRarityLabel(card) + ".", cardRarityColor(card)});
             details.push_back({
                 "Hero: costs " + std::to_string(game_data::cardInt(card, "heroCost", 0)) +
                     " hero budget. A player loses when all of their heroes are defeated.",
@@ -2542,6 +2581,7 @@ int main(int argc, char** argv)
         }
         else
         {
+            details.push_back({"Rarity: " + cardRarityLabel(card) + ".", cardRarityColor(card)});
             details.push_back({
                 "Cost: " + std::to_string(game_data::cardInt(card, "cost", 0)) + " steam.",
                 sf::Color(150, 210, 235)});
@@ -2583,6 +2623,10 @@ int main(int argc, char** argv)
         }
         for (const card_data::KeyStringPair& item : card.stringValues)
         {
+            if (item.key == "rarity")
+            {
+                continue;
+            }
             details.push_back({item.key + ": " + item.value, sf::Color(190, 198, 214)});
         }
         for (const card_data::KeyStringList& item : card.stringLists)
@@ -2852,7 +2896,8 @@ int main(int argc, char** argv)
             drawText(window, font, "Mystery", 26, {345.0f, 190.0f}, sf::Color(248, 239, 216), 120.0f);
             drawText(window, font, "Card", 26, {370.0f, 222.0f}, sf::Color(248, 239, 216), 90.0f);
             drawText(window, font, "5 coins", 22, {362.0f, 265.0f}, sf::Color(248, 214, 112), 100.0f);
-            drawText(window, font, "Random card added to collection", 15, {296.0f, 418.0f}, sf::Color(190, 198, 214), 240.0f);
+            drawText(window, font, "Odds: Common 70%  Rare 25%  Legendary 5%", 14, {248.0f, 412.0f}, sf::Color(248, 239, 216), 304.0f);
+            drawText(window, font, "Cards inside each rarity are equally likely", 13, {278.0f, 436.0f}, sf::Color(190, 198, 214), 244.0f);
         }
 
         if (revealedCardTitle)

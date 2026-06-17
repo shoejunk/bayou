@@ -200,4 +200,35 @@ INSERT INTO card_integer_values (title, key, value) VALUES
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Overpressure', 'effect', 'steam'), ('Overpressure', 'target', 'none');
 
+-- ---- Rarity ------------------------------------------------------------
+-- Shop odds: common 70%, rare 25%, legendary 5%.
+-- After rarity is selected, each card in that rarity is equally likely.
+INSERT INTO card_string_values (title, key, value) VALUES
+  ('Bayou Scout', 'rarity', 'common'),
+  ('Boiler Imp', 'rarity', 'common'),
+  ('Brass Pawn', 'rarity', 'common'),
+  ('Cog Tinker', 'rarity', 'common'),
+  ('Gearwright', 'rarity', 'common'),
+  ('Overpressure', 'rarity', 'common'),
+  ('Repair Kit', 'rarity', 'common'),
+  ('Rifleman', 'rarity', 'common'),
+  ('Smoke Bomb', 'rarity', 'common'),
+  ('Spark Drone', 'rarity', 'common'),
+  ('Sprocket Swarm', 'rarity', 'common'),
+  ('Swamp Skiff', 'rarity', 'common'),
+  ('Arc Lantern', 'rarity', 'rare'),
+  ('Automaton Knight', 'rarity', 'rare'),
+  ('Brass Medic', 'rarity', 'rare'),
+  ('Cannon Blast', 'rarity', 'rare'),
+  ('Chain Harpoon', 'rarity', 'rare'),
+  ('Gear Knight', 'rarity', 'rare'),
+  ('Iron Sentinel', 'rarity', 'rare'),
+  ('Marsh Witch', 'rarity', 'rare'),
+  ('Mudslide', 'rarity', 'rare'),
+  ('Steam Bishop', 'rarity', 'rare'),
+  ('Clockwork Rook', 'rarity', 'legendary'),
+  ('Dredger', 'rarity', 'legendary'),
+  ('Railgunner', 'rarity', 'legendary'),
+  ('Steam Baron', 'rarity', 'legendary');
+
 COMMIT;

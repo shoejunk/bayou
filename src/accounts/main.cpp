@@ -30,6 +30,34 @@ constexpr int ShopCardCost = 5;
 constexpr const char* StarterDeckName = "Starter Deck";
 constexpr const char* PreferredStarterHero = "Steam Baron";
 
+struct ShopCardEntry
+{
+    std::string title;
+    std::string rarity;
+};
+
+int shopRarityWeight(const std::string& rarity)
+{
+    if (rarity == "legendary")
+    {
+        return 5;
+    }
+    if (rarity == "rare")
+    {
+        return 25;
+    }
+    return 70;
+}
+
+std::string normalizedRarity(const std::string& rarity)
+{
+    if (rarity == "rare" || rarity == "legendary")
+    {
+        return rarity;
+    }
+    return "common";
+}
+
 const std::vector<std::string>& fallbackStarterNonHeroes()
 {
     static const std::vector<std::string> titles = {
@@ -527,15 +555,14 @@ private:
                 return;
             }
 
-            const std::vector<std::string> cardTitles = loadAllCardTitles();
-            if (cardTitles.empty())
+            const std::vector<ShopCardEntry> shopCards = loadShopCards();
+            if (shopCards.empty())
             {
                 sendShopPurchaseResponse(client, false, "No cards are available in the shop", coins, "");
                 return;
             }
 
-            std::uniform_int_distribution<std::size_t> distribution(0, cardTitles.size() - 1);
-            const std::string cardTitle = cardTitles[distribution(rng)];
+            const std::string cardTitle = chooseShopCard(shopCards);
 
             SQLite::Transaction transaction(*database);
             SQLite::Statement spend(*database, "UPDATE accounts SET coins = coins - ? WHERE username = ?");
@@ -937,6 +964,87 @@ private:
         const std::vector<std::string>& fallback = fallbackStarterNonHeroes();
         titles.insert(titles.end(), fallback.begin(), fallback.end());
         return titles;
+    }
+
+    std::vector<ShopCardEntry> loadShopCards()
+    {
+        std::vector<ShopCardEntry> cards;
+
+        try
+        {
+            SQLite::Database cardsDatabase("cards.db", SQLite::OPEN_READONLY);
+            SQLite::Statement query(
+                cardsDatabase,
+                "SELECT c.title, COALESCE(r.value, 'common') "
+                "FROM cards c "
+                "LEFT JOIN card_string_values r ON r.title = c.title AND r.key = 'rarity' "
+                "ORDER BY c.title");
+
+            while (query.executeStep())
+            {
+                cards.push_back({
+                    query.getColumn(0).getString(),
+                    normalizedRarity(query.getColumn(1).getString())});
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Could not read shop cards from cards.db: {}", error.what());
+        }
+
+        if (!cards.empty())
+        {
+            return cards;
+        }
+
+        cards.push_back({PreferredStarterHero, "legendary"});
+        const std::vector<std::string>& fallback = fallbackStarterNonHeroes();
+        cards.reserve(cards.size() + fallback.size());
+        for (const std::string& title : fallback)
+        {
+            cards.push_back({title, "common"});
+        }
+        return cards;
+    }
+
+    std::string chooseShopCard(const std::vector<ShopCardEntry>& cards)
+    {
+        std::vector<ShopCardEntry> common;
+        std::vector<ShopCardEntry> rare;
+        std::vector<ShopCardEntry> legendary;
+        for (const ShopCardEntry& card : cards)
+        {
+            if (card.rarity == "legendary")
+            {
+                legendary.push_back(card);
+            }
+            else if (card.rarity == "rare")
+            {
+                rare.push_back(card);
+            }
+            else
+            {
+                common.push_back(card);
+            }
+        }
+
+        std::vector<const std::vector<ShopCardEntry>*> buckets;
+        std::vector<int> weights;
+        auto addBucket = [&](const std::vector<ShopCardEntry>& bucket, const std::string& rarity) {
+            if (!bucket.empty())
+            {
+                buckets.push_back(&bucket);
+                weights.push_back(shopRarityWeight(rarity));
+            }
+        };
+        addBucket(common, "common");
+        addBucket(rare, "rare");
+        addBucket(legendary, "legendary");
+
+        std::discrete_distribution<std::size_t> rarityDistribution(weights.begin(), weights.end());
+        const std::vector<ShopCardEntry>& bucket = *buckets[rarityDistribution(rng)];
+        std::uniform_int_distribution<std::size_t> cardDistribution(0, bucket.size() - 1);
+        return bucket[cardDistribution(rng)].title;
     }
 
     std::string starterHeroTitle()
