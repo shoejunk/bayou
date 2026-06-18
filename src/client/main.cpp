@@ -12,6 +12,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <future>
@@ -23,6 +24,14 @@
 #include <unordered_map>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <shellapi.h>
+#endif
+
 import button;
 import inputbox;
 import network;
@@ -33,6 +42,11 @@ constexpr unsigned short AccountServerPort = 55000;
 constexpr unsigned short MatchmakingServerPort = 55001;
 constexpr unsigned short CardServerPort = 55004;
 constexpr const char* DefaultServerHost = "127.0.0.1";
+constexpr const char* DefaultPaymentServerUrl = "http://127.0.0.1:55005";
+constexpr const char* CoinPackId = "coins_50";
+constexpr int CoinPackCoins = 50;
+constexpr float CoinPurchasePollIntervalSeconds = 2.0f;
+constexpr float CoinPurchasePollTimeoutSeconds = 300.0f;
 constexpr const char* ClientConfigFileName = "client.cfg";
 
 constexpr float DeckPanelX = 20.0f;
@@ -120,6 +134,7 @@ struct ClientConfig
     ServerEndpoint matchmaking{DefaultServerHost, MatchmakingServerPort};
     ServerEndpoint card{DefaultServerHost, CardServerPort};
     std::string gameServerHost = DefaultServerHost;
+    std::string paymentServerUrl = DefaultPaymentServerUrl;
 };
 
 std::string cardRarity(const card_data::Card& card)
@@ -257,6 +272,15 @@ std::string lowerKey(std::string value)
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
         return static_cast<char>(std::tolower(ch));
     });
+    return value;
+}
+
+std::string stripTrailingSlashes(std::string value)
+{
+    while (!value.empty() && value.back() == '/')
+    {
+        value.pop_back();
+    }
     return value;
 }
 
@@ -467,6 +491,14 @@ void applyConfigEntry(ClientConfig& config, const std::string& key, const std::s
             config.gameServerHost = host;
         }
     }
+    else if (normalizedKey == "payment_server_url" || normalizedKey == "stripe_server_url")
+    {
+        const std::string url = stripTrailingSlashes(trim(value));
+        if (!url.empty())
+        {
+            config.paymentServerUrl = url;
+        }
+    }
 }
 
 std::optional<ClientConfig> loadClientConfigFrom(const std::filesystem::path& path)
@@ -540,6 +572,68 @@ void setExecutableDirectory(const char* executablePath)
 std::string endpointText(const ServerEndpoint& endpoint)
 {
     return endpoint.host + ":" + std::to_string(endpoint.port);
+}
+
+std::string urlEncode(const std::string& value)
+{
+    static constexpr char Hex[] = "0123456789ABCDEF";
+    std::string encoded;
+    encoded.reserve(value.size() * 3);
+
+    for (unsigned char ch : value)
+    {
+        if (std::isalnum(ch) != 0 || ch == '-' || ch == '_' || ch == '.' || ch == '~')
+        {
+            encoded.push_back(static_cast<char>(ch));
+        }
+        else
+        {
+            encoded.push_back('%');
+            encoded.push_back(Hex[ch >> 4]);
+            encoded.push_back(Hex[ch & 0x0f]);
+        }
+    }
+
+    return encoded;
+}
+
+std::string coinCheckoutUrl(const std::string& username)
+{
+    const std::string baseUrl = stripTrailingSlashes(clientConfig().paymentServerUrl);
+    return baseUrl + "/checkout?username=" + urlEncode(username) + "&pack=" + urlEncode(CoinPackId);
+}
+
+#ifndef _WIN32
+std::string shellQuote(const std::string& value)
+{
+    std::string quoted = "'";
+    for (char ch : value)
+    {
+        if (ch == '\'')
+        {
+            quoted += "'\\''";
+        }
+        else
+        {
+            quoted.push_back(ch);
+        }
+    }
+    quoted.push_back('\'');
+    return quoted;
+}
+#endif
+
+bool openExternalUrl(const std::string& url)
+{
+#ifdef _WIN32
+    const auto result = reinterpret_cast<std::intptr_t>(
+        ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+    return result > 32;
+#elif defined(__APPLE__)
+    return std::system(("open " + shellQuote(url) + " >/dev/null 2>&1 &").c_str()) == 0;
+#else
+    return std::system(("xdg-open " + shellQuote(url) + " >/dev/null 2>&1 &").c_str()) == 0;
+#endif
 }
 
 bool connectToHostPort(sf::TcpSocket& socket, const std::string& host, unsigned short port)
@@ -1538,7 +1632,9 @@ int main(int argc, char** argv)
     Button addCardButton({574.0f, 508.0f}, {88.0f, 38.0f}, "Add", font);
     Button saveDeckButton({668.0f, 508.0f}, {108.0f, 38.0f}, "Save", font);
     Button shopBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
-    Button buyCardButton({300.0f, 492.0f}, {200.0f, 46.0f}, "Buy Card", font);
+    Button buyCoinPackButton({94.0f, 492.0f}, {180.0f, 46.0f}, "Buy " + std::to_string(CoinPackCoins) + " Coins", font);
+    Button refreshShopButton({310.0f, 492.0f}, {180.0f, 46.0f}, "Refresh", font);
+    Button buyCardButton({526.0f, 492.0f}, {180.0f, 46.0f}, "Buy Card", font);
     Button dismissRevealedCardButton({300.0f, 492.0f}, {200.0f, 46.0f}, "Dismiss", font);
     Button closeDeckCardPopupButton({PiecePopupX + 190.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
 
@@ -1558,6 +1654,10 @@ int main(int argc, char** argv)
     std::optional<std::future<ShopLoadResult>> pendingShopLoad;
     std::optional<std::future<AccountCommandResult>> pendingShopPurchase;
     std::optional<std::future<AccountCommandResult>> pendingWinReward;
+    bool coinPurchasePolling = false;
+    int coinPurchaseStartingCoins = 0;
+    float nextCoinPurchasePollAt = 0.0f;
+    float coinPurchasePollDeadline = 0.0f;
     std::shared_ptr<sf::TcpSocket> activeGameSocket;
     std::string loggedInUsername;
     std::vector<card_data::Card> cardLibrary;
@@ -1774,6 +1874,7 @@ int main(int argc, char** argv)
         editingDeck = {};
         activeDeckOriginalName.clear();
         playerCoins = 0;
+        coinPurchasePolling = false;
         selectedDeck.reset();
         selectedDeckCard.reset();
         selectedLibraryCard.reset();
@@ -1816,6 +1917,7 @@ int main(int argc, char** argv)
         lastDeckEditorClickedCardTitle.reset();
         inspectedDeckEditorCardScroll = 0.0f;
         revealedCardTitle.reset();
+        coinPurchasePolling = false;
         clearFocus();
         if (!loggedInUsername.empty())
         {
@@ -1905,11 +2007,17 @@ int main(int argc, char** argv)
         allCardLibrary.clear();
         revealedCardTitle.reset();
         revealStartedAt = 0.0f;
+        coinPurchasePolling = false;
         pendingShopLoad = std::async(std::launch::async, loadShopData, loggedInUsername);
     };
 
     auto shopBusy = [&]() {
         return pendingShopLoad.has_value() || pendingShopPurchase.has_value();
+    };
+
+    auto refreshShop = [&]() {
+        setMessage(messageText, "Refreshing coins...", sf::Color::Yellow);
+        pendingShopLoad = std::async(std::launch::async, loadShopData, loggedInUsername);
     };
 
     auto submitLogin = [&]() {
@@ -2906,6 +3014,8 @@ int main(int argc, char** argv)
         }
         else
         {
+            buyCoinPackButton.draw(window);
+            refreshShopButton.draw(window);
             buyCardButton.draw(window);
         }
         window.draw(messageText);
@@ -4169,10 +4279,47 @@ int main(int argc, char** argv)
                 allCardLibrary = std::move(result.cards);
                 playerCoins = result.coins;
                 playerCollection = std::move(result.collection);
+                if (coinPurchasePolling && result.success && result.coins > coinPurchaseStartingCoins)
+                {
+                    const int coinsAdded = result.coins - coinPurchaseStartingCoins;
+                    coinPurchasePolling = false;
+                    setMessage(
+                        messageText,
+                        "Payment complete. +" + std::to_string(coinsAdded) + " coins added.",
+                        sf::Color(120, 220, 150));
+                }
+                else if (coinPurchasePolling)
+                {
+                    setMessage(
+                        messageText,
+                        result.success ? "Waiting for payment to complete..." : "Could not refresh yet. Retrying...",
+                        result.success ? sf::Color::Yellow : sf::Color(240, 170, 90));
+                }
+                else
+                {
+                    setMessage(
+                        messageText,
+                        result.success ? "Spend 5 coins to reveal a random card." : result.message,
+                        result.success ? sf::Color(120, 220, 150) : sf::Color::Red);
+                }
+            }
+        }
+
+        if (coinPurchasePolling && currentState == GameState::Shop)
+        {
+            if (animationTime >= coinPurchasePollDeadline)
+            {
+                coinPurchasePolling = false;
                 setMessage(
                     messageText,
-                    result.success ? "Spend 5 coins to reveal a random card." : result.message,
-                    result.success ? sf::Color(120, 220, 150) : sf::Color::Red);
+                    "Payment refresh timed out. Use Refresh after checkout completes.",
+                    sf::Color(240, 170, 90));
+            }
+            else if (animationTime >= nextCoinPurchasePollAt && !shopBusy())
+            {
+                nextCoinPurchasePollAt = animationTime + CoinPurchasePollIntervalSeconds;
+                setMessage(messageText, "Checking for completed payment...", sf::Color::Yellow);
+                pendingShopLoad = std::async(std::launch::async, loadShopData, loggedInUsername);
             }
         }
 
@@ -4624,6 +4771,29 @@ int main(int argc, char** argv)
                         revealStartedAt = 0.0f;
                         setMessage(messageText, "Revealed card dismissed. You can buy another card.", sf::Color(120, 220, 150));
                     }
+                    else if (!revealedCardTitle && refreshShopButton.isClicked(clickPos) && !shopBusy())
+                    {
+                        refreshShop();
+                    }
+                    else if (!revealedCardTitle && buyCoinPackButton.isClicked(clickPos) && !shopBusy())
+                    {
+                        const std::string checkoutUrl = coinCheckoutUrl(loggedInUsername);
+                        if (openExternalUrl(checkoutUrl))
+                        {
+                            coinPurchasePolling = true;
+                            coinPurchaseStartingCoins = playerCoins;
+                            nextCoinPurchasePollAt = animationTime + 1.0f;
+                            coinPurchasePollDeadline = animationTime + CoinPurchasePollTimeoutSeconds;
+                            setMessage(
+                                messageText,
+                                "Checkout opened. Coins will refresh automatically.",
+                                sf::Color(120, 220, 150));
+                        }
+                        else
+                        {
+                            setMessage(messageText, "Could not open checkout URL.", sf::Color::Red);
+                        }
+                    }
                     else if (buyCardButton.isClicked(clickPos) && !shopBusy())
                     {
                         if (revealedCardTitle)
@@ -4921,6 +5091,8 @@ int main(int argc, char** argv)
             }
             else
             {
+                buyCoinPackButton.update(mousePos);
+                refreshShopButton.update(mousePos);
                 buyCardButton.update(mousePos);
             }
         }

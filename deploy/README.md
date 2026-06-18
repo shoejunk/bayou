@@ -1,5 +1,7 @@
 # Bayou Card Server Deployment
 
+For Stripe-backed coin purchases, see [stripe-payments.md](stripe-payments.md).
+
 The card server listens on TCP port `55004` and stores `cards.db` in its working directory.
 
 ## Build on Linux
