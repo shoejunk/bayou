@@ -34,6 +34,7 @@
 #endif
 
 import button;
+import card_editor_screen;
 import inputbox;
 import network;
 
@@ -71,6 +72,7 @@ constexpr float DeckCardsY = 252.0f;
 constexpr float DeckCardsWidth = 222.0f;
 constexpr float DeckCardRowHeight = 40.0f;
 constexpr std::size_t VisibleDeckCardRows = 6;
+constexpr std::uint32_t AdminUsersPageSize = 10;
 
 constexpr float LibraryX = 574.0f;
 constexpr float LibraryY = 168.0f;
@@ -89,6 +91,8 @@ enum class GameState
     Matchmaking,
     DeckEditor,
     Shop,
+    AdminUsers,
+    CardEditor,
     Game
 };
 
@@ -222,6 +226,7 @@ struct AccountStateResult
     bool success = false;
     std::string message;
     int coins = 0;
+    bool isAdmin = false;
     std::vector<account_data::CollectionCard> collection;
 };
 
@@ -258,6 +263,23 @@ struct ShopLoadResult
     std::vector<card_data::Card> cards;
     int coins = 0;
     std::vector<account_data::CollectionCard> collection;
+};
+
+struct AdminUsersLoadResult
+{
+    bool success = false;
+    std::string message;
+    std::uint32_t totalCount = 0;
+    std::uint32_t page = 0;
+    std::uint32_t pageSize = 0;
+    std::vector<network::AdminUserSummary> users;
+};
+
+struct AdminUserPrivilegeResult
+{
+    bool success = false;
+    std::string message;
+    bool targetIsAdmin = false;
 };
 
 struct BoardCellMetrics
@@ -1466,23 +1488,22 @@ AccountStateResult fetchAccountState(const std::string& username)
     std::uint8_t responseType = 0;
     bool success = false;
     std::string message;
-    int coins = 0;
-    response >> responseType >> success >> message >> coins;
+    account_data::AccountState accountState;
+    response >> responseType >> success >> message;
     if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::AccountStateResponse)
     {
         socket.disconnect();
         return {false, "Unexpected account state response"};
     }
 
-    std::vector<account_data::CollectionCard> collection;
-    if (!account_data::readCollection(response, collection))
+    if (!account_data::readAccountState(response, accountState))
     {
         socket.disconnect();
         return {false, "Invalid account state payload"};
     }
 
     sendDisconnect(socket);
-    return {success, message, coins, collection};
+    return {success, message, accountState.coins, accountState.isAdmin, std::move(accountState.collection)};
 }
 
 DeckCommandResult readDeckCommandResponse(
@@ -1659,6 +1680,109 @@ AccountCommandResult purchaseRandomCard(const std::string& username)
 
     sendDisconnect(socket);
     return {success, message, coins, cardTitle};
+}
+
+AdminUsersLoadResult loadAdminUsers(
+    const std::string& username,
+    const std::string& search,
+    std::uint32_t page,
+    std::uint32_t pageSize)
+{
+    sf::TcpSocket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::AdminUserListRequest);
+    request << username << search << page << pageSize;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send admin user list request"};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No admin user list response"};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    std::uint32_t totalCount = 0;
+    std::uint32_t responsePage = 0;
+    std::uint32_t responsePageSize = 0;
+    std::uint32_t count = 0;
+    response >> responseType >> success >> message >> totalCount >> responsePage >> responsePageSize >> count;
+    if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::AdminUserListResponse)
+    {
+        socket.disconnect();
+        return {false, "Unexpected admin user list response"};
+    }
+
+    std::vector<network::AdminUserSummary> users;
+    users.reserve(count);
+    for (std::uint32_t i = 0; i < count; ++i)
+    {
+        network::AdminUserSummary user;
+        response >> user.username >> user.isAdmin;
+        if (!response)
+        {
+            socket.disconnect();
+            return {false, "Invalid admin user list payload"};
+        }
+        users.push_back(std::move(user));
+    }
+
+    sendDisconnect(socket);
+    return {success, message, totalCount, responsePage, responsePageSize, std::move(users)};
+}
+
+AdminUserPrivilegeResult updateAdminUserPrivilege(
+    const std::string& username,
+    const std::string& targetUsername,
+    bool makeAdmin)
+{
+    sf::TcpSocket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::AdminUserPrivilegeRequest);
+    request << username << targetUsername << makeAdmin;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send admin privilege request"};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No admin privilege response"};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    bool targetIsAdmin = false;
+    response >> responseType >> success >> message >> targetIsAdmin;
+    if (!response ||
+        static_cast<network::MessageType>(responseType) != network::MessageType::AdminUserPrivilegeResponse)
+    {
+        socket.disconnect();
+        return {false, "Unexpected admin privilege response"};
+    }
+
+    sendDisconnect(socket);
+    return {success, message, targetIsAdmin};
 }
 
 DeckEditorLoadResult loadDeckEditorData(const std::string& username)
@@ -2048,6 +2172,7 @@ int main(int argc, char** argv)
     InputBox passwordInput({300.0f, 220.0f}, {200.0f, 40.0f}, "Password", font, true);
     InputBox confirmInput({300.0f, 300.0f}, {200.0f, 40.0f}, "Confirm Password", font, true);
     InputBox deckNameInput({304.0f, 154.0f}, {222.0f, 40.0f}, "Deck Name", font);
+    InputBox adminSearchInput({120.0f, 94.0f}, {520.0f, 36.0f}, "Search users", font);
 
     Button rememberMeButton({300.0f, 280.0f}, {200.0f, 42.0f}, "Remember Me: Off", font);
     Button loginSubmitButton({300.0f, 342.0f}, {200.0f, 50.0f}, "Login", font);
@@ -2057,6 +2182,8 @@ int main(int argc, char** argv)
     Button playButton({300.0f, 220.0f}, {200.0f, 60.0f}, "Play", font);
     Button deckEditorButton({300.0f, 300.0f}, {200.0f, 60.0f}, "Deck Editor", font);
     Button shopButton({300.0f, 380.0f}, {200.0f, 60.0f}, "Shop", font);
+    Button adminCardEditorButton({80.0f, 460.0f}, {200.0f, 60.0f}, "Card Editor", font);
+    Button adminUsersButton({520.0f, 460.0f}, {200.0f, 60.0f}, "Admin Users", font);
     Button authenticatedOptionsButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Options", font);
     Button logoutButton({664.0f, 520.0f}, {112.0f, 45.0f}, "Log Out", font);
 
@@ -2083,11 +2210,18 @@ int main(int argc, char** argv)
         "Buy Card",
         font);
     Button dismissRevealedCardButton({300.0f, 492.0f}, {200.0f, 46.0f}, "Dismiss", font);
+    Button adminBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
+    Button adminPrevPageButton({270.0f, 492.0f}, {52.0f, 42.0f}, "<", font);
+    Button adminNextPageButton({478.0f, 492.0f}, {52.0f, 42.0f}, ">", font);
+    Button adminRefreshButton({332.0f, 492.0f}, {104.0f, 42.0f}, "Refresh", font);
+    Button adminGrantButton({42.0f, 492.0f}, {150.0f, 42.0f}, "Grant Admin", font);
+    Button adminRevokeButton({42.0f, 492.0f}, {150.0f, 42.0f}, "Revoke Admin", font);
     Button closeDeckCardPopupButton({PiecePopupX + 190.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
 
     sf::Text messageText(font, "", 20);
     messageText.setFillColor(sf::Color::Red);
     messageText.setPosition({400.0f, 450.0f});
+    CardEditorScreen cardEditorScreen(font, {clientConfig().card.host, clientConfig().card.port});
 
     sf::Clock clock;
     float animationTime = 0.0f;
@@ -2108,6 +2242,8 @@ int main(int argc, char** argv)
     std::optional<std::future<ShopLoadResult>> pendingShopLoad;
     std::optional<std::future<AccountCommandResult>> pendingShopPurchase;
     std::optional<std::future<AccountCommandResult>> pendingWinReward;
+    std::optional<std::future<AdminUsersLoadResult>> pendingAdminUsersLoad;
+    std::optional<std::future<AdminUserPrivilegeResult>> pendingAdminPrivilege;
     bool coinPurchasePolling = false;
     int coinPurchaseStartingCoins = 0;
     float nextCoinPurchasePollAt = 0.0f;
@@ -2122,9 +2258,16 @@ int main(int argc, char** argv)
     std::vector<card_data::Card> allCardLibrary;
     std::vector<deck_data::Deck> playerDecks;
     std::vector<account_data::CollectionCard> playerCollection;
+    std::vector<network::AdminUserSummary> adminUsers;
     deck_data::Deck editingDeck;
     std::string activeDeckOriginalName;
     int playerCoins = 0;
+    bool loggedInIsAdmin = false;
+    std::string adminSearchQuery;
+    std::uint32_t adminUsersPage = 0;
+    std::uint32_t adminUsersPageSize = AdminUsersPageSize;
+    std::uint32_t adminUsersTotalCount = 0;
+    std::optional<std::size_t> selectedAdminUser;
     std::optional<std::size_t> selectedDeck;
     std::optional<std::size_t> selectedDeckCard;
     std::optional<std::size_t> selectedLibraryCard;
@@ -2196,6 +2339,7 @@ int main(int argc, char** argv)
         passwordInput.setActive(false);
         confirmInput.setActive(false);
         deckNameInput.setActive(false);
+        adminSearchInput.setActive(false);
     };
 
     auto focusLoginInput = [&](int index) {
@@ -2204,6 +2348,7 @@ int main(int argc, char** argv)
         passwordInput.setActive(focusedInput == 1);
         confirmInput.setActive(false);
         deckNameInput.setActive(false);
+        adminSearchInput.setActive(false);
     };
 
     auto focusCreateInput = [&](int index) {
@@ -2218,6 +2363,10 @@ int main(int argc, char** argv)
         std::sort(playerDecks.begin(), playerDecks.end(), [](const deck_data::Deck& left, const deck_data::Deck& right) {
             return lowerKey(left.name) < lowerKey(right.name);
         });
+    };
+
+    auto signedInLabel = [&]() {
+        return loggedInUsername + (loggedInIsAdmin ? " [Admin]" : "");
     };
 
     auto makeNewDeckName = [&]() {
@@ -2277,6 +2426,7 @@ int main(int argc, char** argv)
 
     auto applyAccountState = [&](const AccountStateResult& result) {
         playerCoins = result.coins;
+        loggedInIsAdmin = result.isAdmin;
         playerCollection = result.collection;
     };
 
@@ -2335,6 +2485,13 @@ int main(int argc, char** argv)
         editingDeck = {};
         activeDeckOriginalName.clear();
         playerCoins = 0;
+        loggedInIsAdmin = false;
+        adminUsers.clear();
+        adminSearchQuery.clear();
+        adminUsersPage = 0;
+        adminUsersTotalCount = 0;
+        selectedAdminUser.reset();
+        adminSearchInput.clear();
         coinPurchasePolling = false;
         selectedDeck.reset();
         selectedDeckCard.reset();
@@ -2384,6 +2541,51 @@ int main(int argc, char** argv)
         {
             pendingAccountState = std::async(std::launch::async, fetchAccountState, loggedInUsername);
         }
+    };
+
+    auto loadAdminUsersScreen = [&]() {
+        if (!loggedInIsAdmin)
+        {
+            setMessage(messageText, "Admin access required", sf::Color::Red);
+            return;
+        }
+        currentState = GameState::AdminUsers;
+        title.setString("Admin Users");
+        centerText(title, 400.0f);
+        clearFocus();
+        adminSearchInput.setContent(adminSearchQuery);
+        adminSearchInput.setActive(true);
+        adminUsers.clear();
+        selectedAdminUser.reset();
+        setMessageY(messageText, 540.0f);
+        setMessage(messageText, "Loading users...", sf::Color::Yellow);
+        pendingAdminUsersLoad = std::async(
+            std::launch::async,
+            loadAdminUsers,
+            loggedInUsername,
+            adminSearchQuery,
+            adminUsersPage,
+            adminUsersPageSize);
+    };
+
+    auto searchAdminUsers = [&]() {
+        adminSearchQuery = trim(adminSearchInput.getContent());
+        adminUsersPage = 0;
+        loadAdminUsersScreen();
+    };
+
+    auto showCardEditorScreen = [&]() {
+        if (!loggedInIsAdmin)
+        {
+            setMessage(messageText, "Admin access required", sf::Color::Red);
+            return;
+        }
+        currentState = GameState::CardEditor;
+        title.setString("");
+        centerText(title, 400.0f);
+        clearFocus();
+        cardEditorScreen.setEndpoint({clientConfig().card.host, clientConfig().card.port});
+        cardEditorScreen.open();
     };
 
     auto updateOptionsLabels = [&]() {
@@ -2710,7 +2912,7 @@ int main(int argc, char** argv)
 
     auto drawDeckEditor = [&]() {
         drawText(window, font, "Deck Editor", 30, {24.0f, 18.0f}, sf::Color::White);
-        drawText(window, font, "Signed in as " + loggedInUsername, 14, {270.0f, 22.0f}, sf::Color(178, 186, 202), 360.0f);
+        drawText(window, font, "Signed in as " + signedInLabel(), 14, {270.0f, 22.0f}, sf::Color(178, 186, 202), 360.0f);
         drawText(window, font, "Coins " + std::to_string(playerCoins), 13, {270.0f, 45.0f}, sf::Color(248, 214, 112), 160.0f);
         drawText(window, font, "Card server " + endpointText(clientConfig().card), 13, {390.0f, 45.0f}, sf::Color(148, 158, 176), 240.0f);
         deckBackButton.draw(window);
@@ -3415,7 +3617,7 @@ int main(int argc, char** argv)
 
     auto drawShop = [&]() {
         drawText(window, font, "Shop", 30, {24.0f, 18.0f}, sf::Color::White);
-        drawText(window, font, "Signed in as " + loggedInUsername, 14, {220.0f, 24.0f}, sf::Color(178, 186, 202), 280.0f);
+        drawText(window, font, "Signed in as " + signedInLabel(), 14, {220.0f, 24.0f}, sf::Color(178, 186, 202), 280.0f);
 
         sf::CircleShape coin(14.0f);
         coin.setPosition({534.0f, 24.0f});
@@ -3516,6 +3718,82 @@ int main(int argc, char** argv)
                 refreshShopButton.draw(window);
             }
             buyCardButton.draw(window);
+        }
+        window.draw(messageText);
+    };
+
+    auto drawAdminUsers = [&]() {
+        drawText(window, font, "Admin Users", 30, {24.0f, 18.0f}, sf::Color::White);
+        drawText(
+            window,
+            font,
+            "Signed in as " + signedInLabel(),
+            14,
+            {250.0f, 22.0f},
+            sf::Color(178, 186, 202),
+            300.0f);
+        drawText(
+            window,
+            font,
+            "Users " + std::to_string(adminUsersTotalCount),
+            14,
+            {250.0f, 44.0f},
+            sf::Color(248, 214, 112),
+            150.0f);
+        adminBackButton.draw(window);
+
+        drawPanel(window, {24.0f, 78.0f}, {752.0f, 68.0f});
+        drawText(window, font, "Search", 16, {42.0f, 98.0f}, sf::Color::White);
+        adminSearchInput.draw(window);
+
+        drawPanel(window, {24.0f, 160.0f}, {752.0f, 322.0f});
+        const std::size_t lastUser = std::min(adminUsers.size(), static_cast<std::size_t>(10));
+        for (std::size_t i = 0; i < lastUser; ++i)
+        {
+            const float y = 178.0f + static_cast<float>(i) * 30.0f;
+            const bool selected = selectedAdminUser && *selectedAdminUser == i;
+            drawRow(
+                window,
+                font,
+                {38.0f, y},
+                {704.0f, 26.0f},
+                adminUsers[i].username,
+                adminUsers[i].isAdmin ? "Admin" : "User",
+                selected);
+        }
+        if (adminUsers.empty() && !pendingAdminUsersLoad)
+        {
+            drawText(window, font, "No matching users", 18, {292.0f, 294.0f}, sf::Color(178, 186, 202));
+        }
+
+        adminPrevPageButton.draw(window);
+        adminRefreshButton.draw(window);
+        adminNextPageButton.draw(window);
+        if (selectedAdminUser && *selectedAdminUser < adminUsers.size())
+        {
+            const bool targetIsAdmin = adminUsers[*selectedAdminUser].isAdmin;
+            if (targetIsAdmin)
+            {
+                if (adminUsers[*selectedAdminUser].username == loggedInUsername)
+                {
+                    drawText(
+                        window,
+                        font,
+                        "You cannot revoke your own admin status",
+                        14,
+                        {42.0f, 504.0f},
+                        sf::Color(248, 214, 112),
+                        190.0f);
+                }
+                else
+                {
+                    adminRevokeButton.draw(window);
+                }
+            }
+            else
+            {
+                adminGrantButton.draw(window);
+            }
         }
         window.draw(messageText);
     };
@@ -4896,6 +5174,66 @@ int main(int argc, char** argv)
             }
         }
 
+        if (pendingAdminUsersLoad &&
+            pendingAdminUsersLoad->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            AdminUsersLoadResult result = pendingAdminUsersLoad->get();
+            pendingAdminUsersLoad.reset();
+            if (!loggedInUsername.empty() && currentState == GameState::AdminUsers)
+            {
+                if (result.success)
+                {
+                    adminUsers = std::move(result.users);
+                    adminUsersTotalCount = result.totalCount;
+                    adminUsersPage = result.page;
+                    adminUsersPageSize = result.pageSize == 0 ? adminUsersPageSize : result.pageSize;
+                    if (!adminUsers.empty())
+                    {
+                        if (!selectedAdminUser || *selectedAdminUser >= adminUsers.size())
+                        {
+                            selectedAdminUser = 0;
+                        }
+                    }
+                    else
+                    {
+                        selectedAdminUser.reset();
+                    }
+                    setMessage(messageText, result.message, sf::Color(120, 220, 150));
+                }
+                else
+                {
+                    setMessage(messageText, result.message, sf::Color::Red);
+                }
+            }
+        }
+
+        if (pendingAdminPrivilege &&
+            pendingAdminPrivilege->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            AdminUserPrivilegeResult result = pendingAdminPrivilege->get();
+            pendingAdminPrivilege.reset();
+            if (!loggedInUsername.empty() && currentState == GameState::AdminUsers)
+            {
+                if (result.success)
+                {
+                    if (selectedAdminUser && *selectedAdminUser < adminUsers.size())
+                    {
+                        adminUsers[*selectedAdminUser].isAdmin = result.targetIsAdmin;
+                    }
+                    if (!result.targetIsAdmin && selectedAdminUser && *selectedAdminUser < adminUsers.size() &&
+                        adminUsers[*selectedAdminUser].username == loggedInUsername)
+                    {
+                        loggedInIsAdmin = false;
+                    }
+                    setMessage(messageText, result.message, sf::Color(120, 220, 150));
+                }
+                else
+                {
+                    setMessage(messageText, result.message, sf::Color::Red);
+                }
+            }
+        }
+
         if (pendingMatchmaking &&
             pendingMatchmaking->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
@@ -5201,6 +5539,15 @@ int main(int argc, char** argv)
                     {
                         loadShop();
                     }
+                    else if (loggedInIsAdmin && adminCardEditorButton.isClicked(clickPos))
+                    {
+                        showCardEditorScreen();
+                    }
+                    else if (loggedInIsAdmin && adminUsersButton.isClicked(clickPos))
+                    {
+                        adminUsersPage = 0;
+                        loadAdminUsersScreen();
+                    }
                     else if (authenticatedOptionsButton.isClicked(clickPos))
                     {
                         showOptionsScreen(GameState::Authenticated);
@@ -5215,6 +5562,75 @@ int main(int argc, char** argv)
                             pendingLogout = std::async(std::launch::async, revokeRememberToken, tokenToRevoke);
                         }
                         returnToMenu();
+                    }
+                }
+                else if (currentState == GameState::AdminUsers)
+                {
+                    if (adminBackButton.isClicked(clickPos))
+                    {
+                        showAuthenticatedScreen();
+                    }
+                    else if (adminPrevPageButton.isClicked(clickPos) && adminUsersPage > 0)
+                    {
+                        --adminUsersPage;
+                        loadAdminUsersScreen();
+                    }
+                    else if (adminNextPageButton.isClicked(clickPos) &&
+                             (adminUsersPage + 1) * adminUsersPageSize < adminUsersTotalCount)
+                    {
+                        ++adminUsersPage;
+                        loadAdminUsersScreen();
+                    }
+                    else if (adminRefreshButton.isClicked(clickPos))
+                    {
+                        searchAdminUsers();
+                    }
+                    else if (const std::optional<std::size_t> userIndex = rowIndexAt(
+                                 clickPos, 38.0f, 178.0f, 704.0f, 30.0f, 10, 0, adminUsers.size()))
+                    {
+                        selectedAdminUser = *userIndex;
+                    }
+                    else if (selectedAdminUser && *selectedAdminUser < adminUsers.size())
+                    {
+                        const std::string& targetUsername = adminUsers[*selectedAdminUser].username;
+                        if (adminUsers[*selectedAdminUser].isAdmin)
+                        {
+                            if (adminRevokeButton.isClicked(clickPos))
+                            {
+                                if (targetUsername == loggedInUsername)
+                                {
+                                    setMessage(messageText, "You cannot revoke your own admin privilege", sf::Color::Red);
+                                }
+                                else
+                                {
+                                    pendingAdminPrivilege = std::async(
+                                        std::launch::async,
+                                        updateAdminUserPrivilege,
+                                        loggedInUsername,
+                                        targetUsername,
+                                        false);
+                                    setMessage(messageText, "Revoking admin privilege...", sf::Color::Yellow);
+                                }
+                            }
+                        }
+                        else if (adminGrantButton.isClicked(clickPos))
+                        {
+                            pendingAdminPrivilege = std::async(
+                                std::launch::async,
+                                updateAdminUserPrivilege,
+                                loggedInUsername,
+                                targetUsername,
+                                true);
+                            setMessage(messageText, "Granting admin privilege...", sf::Color::Yellow);
+                        }
+                    }
+                    else if (adminSearchInput.contains(clickPos))
+                    {
+                        adminSearchInput.setActive(true);
+                    }
+                    else
+                    {
+                        adminSearchInput.setActive(false);
                     }
                 }
                 else if (currentState == GameState::DeckSelect)
@@ -5561,6 +5977,19 @@ int main(int argc, char** argv)
                 usernameInput.handleEvent(*event, window);
                 passwordInput.handleEvent(*event, window);
             }
+            if (currentState == GameState::AdminUsers)
+            {
+                adminSearchInput.handleEvent(*event, window);
+            }
+
+            if (currentState == GameState::CardEditor)
+            {
+                if (cardEditorScreen.handleEvent(*event, window))
+                {
+                    showAuthenticatedScreen();
+                }
+                continue;
+            }
 
             if (currentState == GameState::CreateAccount)
             {
@@ -5591,6 +6020,10 @@ int main(int argc, char** argv)
                         inspectedDeckEditorCardTitle.reset();
                         lastDeckEditorClickedCardTitle.reset();
                         inspectedDeckEditorCardScroll = 0.0f;
+                    }
+                    else if (currentState == GameState::AdminUsers)
+                    {
+                        showAuthenticatedScreen();
                     }
                     else if (currentState == GameState::DeckEditor && !deckEditorBusy())
                     {
@@ -5643,6 +6076,13 @@ int main(int argc, char** argv)
                     else if (keyPressed->code == sf::Keyboard::Key::Enter)
                     {
                         submitCreateAccount();
+                    }
+                }
+                else if (currentState == GameState::AdminUsers)
+                {
+                    if (keyPressed->code == sf::Keyboard::Key::Enter)
+                    {
+                        searchAdminUsers();
                     }
                 }
                 else if (currentState == GameState::DeckEditor && !deckEditorBusy())
@@ -5708,9 +6148,36 @@ int main(int argc, char** argv)
             playButton.update(mousePos);
             deckEditorButton.update(mousePos);
             shopButton.update(mousePos);
+            if (loggedInIsAdmin)
+            {
+                adminCardEditorButton.update(mousePos);
+                adminUsersButton.update(mousePos);
+            }
             authenticatedOptionsButton.update(mousePos);
             logoutButton.update(mousePos);
             exitDesktopButton.update(mousePos);
+        }
+        else if (currentState == GameState::AdminUsers)
+        {
+            adminBackButton.update(mousePos);
+            adminPrevPageButton.update(mousePos);
+            adminRefreshButton.update(mousePos);
+            adminNextPageButton.update(mousePos);
+            if (selectedAdminUser && *selectedAdminUser < adminUsers.size())
+            {
+                if (adminUsers[*selectedAdminUser].isAdmin)
+                {
+                    if (adminUsers[*selectedAdminUser].username != loggedInUsername)
+                    {
+                        adminRevokeButton.update(mousePos);
+                    }
+                }
+                else
+                {
+                    adminGrantButton.update(mousePos);
+                }
+            }
+            adminSearchInput.updateCursor(deltaTime);
         }
         else if (currentState == GameState::DeckSelect)
         {
@@ -5735,6 +6202,10 @@ int main(int argc, char** argv)
                 closeDeckCardPopupButton.update(mousePos);
             }
             deckNameInput.updateCursor(deltaTime);
+        }
+        else if (currentState == GameState::CardEditor)
+        {
+            cardEditorScreen.update(window, deltaTime);
         }
         else if (currentState == GameState::Shop)
         {
@@ -5809,15 +6280,24 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Authenticated)
         {
-            drawText(window, font, "Signed in as " + loggedInUsername, 18, {300.0f, 160.0f}, sf::Color(190, 198, 214), 260.0f);
+            drawText(window, font, "Signed in as " + signedInLabel(), 18, {300.0f, 160.0f}, sf::Color(190, 198, 214), 260.0f);
             drawText(window, font, "Coins " + std::to_string(playerCoins), 18, {340.0f, 190.0f}, sf::Color(248, 214, 112), 140.0f);
             playButton.draw(window);
             deckEditorButton.draw(window);
             shopButton.draw(window);
+            if (loggedInIsAdmin)
+            {
+                adminCardEditorButton.draw(window);
+                adminUsersButton.draw(window);
+            }
             authenticatedOptionsButton.draw(window);
             logoutButton.draw(window);
             exitDesktopButton.draw(window);
             window.draw(messageText);
+        }
+        else if (currentState == GameState::AdminUsers)
+        {
+            drawAdminUsers();
         }
         else if (currentState == GameState::DeckSelect)
         {
@@ -5836,6 +6316,10 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Shop)
         {
             drawShop();
+        }
+        else if (currentState == GameState::CardEditor)
+        {
+            cardEditorScreen.render(window);
         }
         else if (currentState == GameState::Game)
         {

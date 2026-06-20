@@ -22,8 +22,11 @@ CREATE TABLE IF NOT EXISTS accounts (
 )
 """)
 cur.execute("PRAGMA table_info(accounts)")
-if "coins" not in [row[1] for row in cur.fetchall()]:
+columns = [row[1] for row in cur.fetchall()]
+if "coins" not in columns:
     cur.execute("ALTER TABLE accounts ADD COLUMN coins INTEGER NOT NULL DEFAULT 0")
+if "is_admin" not in columns:
+    cur.execute("ALTER TABLE accounts ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
 cur.execute("""
 CREATE TABLE IF NOT EXISTS decks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,11 +57,11 @@ CREATE TABLE IF NOT EXISTS card_collections (
 )
 """)
 
-def ensure_account(user):
+def ensure_account(user, is_admin=False):
     cur.execute(
-        "INSERT INTO accounts(username, password_hash, coins) VALUES(?,?,0) "
-        "ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash",
-        (user, pw))
+        "INSERT INTO accounts(username, password_hash, coins, is_admin) VALUES(?,?,0,?) "
+        "ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, is_admin=excluded.is_admin",
+        (user, pw, 1 if is_admin else 0))
 
 def set_deck(user, name, cards):
     cur.execute("SELECT id FROM decks WHERE username=? AND name=?", (user, name))
@@ -100,6 +103,8 @@ ensure_account("bravo")
 bravo_deck = ["Gear Knight", "Marsh Witch"] + cards40
 set_collection("bravo", bravo_deck)
 set_deck("bravo", "Knight Coven", bravo_deck)  # 2 heroes, cost 9
+
+ensure_account("shoejunk", is_admin=True)
 
 con.commit()
 con.close()

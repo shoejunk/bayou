@@ -176,6 +176,10 @@ private:
         {
             database->exec("ALTER TABLE accounts ADD COLUMN coins INTEGER NOT NULL DEFAULT 0");
         }
+        if (!columnExists("accounts", "is_admin"))
+        {
+            database->exec("ALTER TABLE accounts ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0");
+        }
         database->exec(
             "CREATE TABLE IF NOT EXISTS decks ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -323,6 +327,23 @@ private:
                     handleShopPurchase(*client, username);
                     break;
                 }
+                case MessageType::AdminUserListRequest:
+                {
+                    std::string username, search;
+                    std::uint32_t page = 0;
+                    std::uint32_t pageSize = 0;
+                    packet >> username >> search >> page >> pageSize;
+                    handleAdminUserList(*client, username, search, page, pageSize);
+                    break;
+                }
+                case MessageType::AdminUserPrivilegeRequest:
+                {
+                    std::string username, targetUsername;
+                    bool makeAdmin = false;
+                    packet >> username >> targetUsername >> makeAdmin;
+                    handleAdminUserPrivilege(*client, username, targetUsername, makeAdmin);
+                    break;
+                }
                 case MessageType::Disconnect:
                     fmt::println("Client requested disconnect");
                     return;
@@ -358,7 +379,7 @@ private:
             {
                 SQLite::Statement insert(
                     *database,
-                    "INSERT INTO accounts (username, password_hash) VALUES (?, ?)");
+                    "INSERT INTO accounts (username, password_hash, is_admin) VALUES (?, ?, 0)");
                 insert.bind(1, username);
                 insert.bind(2, hashPassword(password));
                 insert.exec();
@@ -510,7 +531,7 @@ private:
     {
         if (username.empty())
         {
-            sendAccountStateResponse(client, false, "Username cannot be empty", 0, {});
+            sendAccountStateResponse(client, false, "Username cannot be empty", 0, false, {});
             return;
         }
 
@@ -519,17 +540,23 @@ private:
             std::lock_guard<std::mutex> lock(databaseMutex);
             if (!accountExists(username))
             {
-                sendAccountStateResponse(client, false, "Username not found", 0, {});
+                sendAccountStateResponse(client, false, "Username not found", 0, false, {});
                 return;
             }
 
             ensureStarterInventory(username);
-            sendAccountStateResponse(client, true, "Account loaded", loadCoins(username), loadCollection(username));
+            sendAccountStateResponse(
+                client,
+                true,
+                "Account loaded",
+                loadCoins(username),
+                isAdmin(username),
+                loadCollection(username));
         }
         catch (const std::exception& error)
         {
             fmt::println("Database error while loading account state: {}", error.what());
-            sendAccountStateResponse(client, false, "Database error while loading account state", 0, {});
+            sendAccountStateResponse(client, false, "Database error while loading account state", 0, false, {});
         }
     }
 
@@ -623,6 +650,131 @@ private:
             fmt::println("Database error while buying shop card: {}", error.what());
             sendShopPurchaseResponse(client, false, "Database error while buying shop card", 0, "");
         }
+    }
+
+    void handleAdminUserList(
+        sf::TcpSocket& client,
+        const std::string& username,
+        const std::string& search,
+        std::uint32_t page,
+        std::uint32_t pageSize)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::AdminUserListResponse);
+
+        if (username.empty() || !isAdmin(username))
+        {
+            response << false << std::string("Admin access required")
+                     << static_cast<std::uint32_t>(0) << page << pageSize << static_cast<std::uint32_t>(0);
+            [[maybe_unused]] auto result = client.send(response);
+            return;
+        }
+
+        const std::uint32_t safePageSize = std::clamp<std::uint32_t>(pageSize == 0 ? 25 : pageSize, 1, 100);
+        const std::uint32_t safePage = page;
+        const std::string like = "%" + search + "%";
+
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            SQLite::Statement countQuery(*database,
+                "SELECT COUNT(*) FROM accounts WHERE username LIKE ? COLLATE NOCASE");
+            countQuery.bind(1, like);
+            const std::uint32_t totalCount = countQuery.executeStep()
+                ? static_cast<std::uint32_t>(countQuery.getColumn(0).getInt())
+                : 0;
+
+            SQLite::Statement query(*database,
+                "SELECT username, is_admin FROM accounts "
+                "WHERE username LIKE ? COLLATE NOCASE "
+                "ORDER BY username COLLATE NOCASE "
+                "LIMIT ? OFFSET ?");
+            query.bind(1, like);
+            query.bind(2, static_cast<int>(safePageSize));
+            query.bind(3, static_cast<int>(safePage * safePageSize));
+
+            std::uint32_t rowCount = 0;
+            std::vector<network::AdminUserSummary> users;
+            while (query.executeStep())
+            {
+                users.push_back({query.getColumn(0).getString(), query.getColumn(1).getInt() != 0});
+                ++rowCount;
+            }
+            response << true << std::string("Users loaded") << totalCount << safePage << safePageSize << rowCount;
+            for (const auto& user : users)
+            {
+                response << user.username << user.isAdmin;
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while loading admin users: {}", error.what());
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::AdminUserListResponse);
+            response << false << std::string("Database error while loading users")
+                     << static_cast<std::uint32_t>(0) << safePage << safePageSize << static_cast<std::uint32_t>(0);
+        }
+
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleAdminUserPrivilege(
+        sf::TcpSocket& client,
+        const std::string& username,
+        const std::string& targetUsername,
+        bool makeAdmin)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::AdminUserPrivilegeResponse);
+
+        if (username.empty() || !isAdmin(username))
+        {
+            response << false << std::string("Admin access required") << false;
+            [[maybe_unused]] auto result = client.send(response);
+            return;
+        }
+
+        if (targetUsername.empty())
+        {
+            response << false << std::string("Target username cannot be empty") << false;
+            [[maybe_unused]] auto result = client.send(response);
+            return;
+        }
+
+        if (!makeAdmin && targetUsername == username)
+        {
+            response << false << std::string("You cannot revoke your own admin privilege") << true;
+            [[maybe_unused]] auto result = client.send(response);
+            return;
+        }
+
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            if (!accountExists(targetUsername))
+            {
+                response << false << std::string("Username not found") << false;
+            }
+            else
+            {
+                SQLite::Statement update(*database, "UPDATE accounts SET is_admin = ? WHERE username = ?");
+                update.bind(1, makeAdmin ? 1 : 0);
+                update.bind(2, targetUsername);
+                update.exec();
+                response << true << (makeAdmin ? std::string("Admin privilege granted") : std::string("Admin privilege revoked"))
+                         << makeAdmin;
+                fmt::println("{} admin privilege for {}", makeAdmin ? "Granted" : "Revoked", targetUsername);
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while updating admin privilege: {}", error.what());
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::AdminUserPrivilegeResponse);
+            response << false << std::string("Database error while updating admin privilege") << false;
+        }
+
+        [[maybe_unused]] auto result = client.send(response);
     }
 
     void handleLogin(
@@ -785,6 +937,18 @@ private:
         return query.executeStep();
     }
 
+    bool isAdmin(const std::string& username)
+    {
+        SQLite::Statement query(*database, "SELECT is_admin FROM accounts WHERE username = ? LIMIT 1");
+        query.bind(1, username);
+        if (!query.executeStep())
+        {
+            return false;
+        }
+
+        return query.getColumn(0).getInt() != 0;
+    }
+
     void sendDeckCommandResponse(
         sf::TcpSocket& client,
         MessageType responseType,
@@ -802,12 +966,13 @@ private:
         bool success,
         const std::string& message,
         int coins,
+        bool isAdmin,
         const std::vector<account_data::CollectionCard>& collection)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::AccountStateResponse);
-        response << success << message << coins;
-        account_data::writeCollection(response, collection);
+        response << success << message;
+        account_data::writeAccountState(response, account_data::AccountState{coins, isAdmin, collection});
         [[maybe_unused]] auto result = client.send(response);
     }
 

@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(BAYOU_BUILD_CLIENTS "Build graphical client and card editor executables" ON)
+option(BAYOU_BUILD_CLIENTS "Build graphical client executable" ON)
 option(BAYOU_BUILD_SERVERS "Build server executables" ON)
 option(BAYOU_BUILD_ACCOUNTS "Build the accounts server executable" ON)
 option(BAYOU_BUILD_MATCHMAKING "Build the matchmaking server executable" ON)
@@ -75,6 +75,7 @@ if(BAYOU_BUILD_CLIENTS)
                 src/shared/network.cppm
                 src/shared/inputbox.cppm
                 src/client/button.cppm
+                src/client/card_editor_screen.cppm
     )
 
     target_link_libraries(client PRIVATE fmt::fmt SFML::Graphics SFML::Window SFML::System SFML::Network)
@@ -157,23 +158,3 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_CARDSERVER)
     install(TARGETS cardserver RUNTIME DESTINATION bin)
 endif()
 
-if(BAYOU_BUILD_CLIENTS)
-    # Card editor executable
-    add_executable(cardeditor)
-
-    target_sources(cardeditor
-        PUBLIC
-            src/cardeditor/main.cpp
-        PUBLIC
-            FILE_SET CXX_MODULES FILES
-                src/shared/network.cppm
-                src/shared/inputbox.cppm
-    )
-
-    target_link_libraries(cardeditor PRIVATE fmt::fmt SFML::Graphics SFML::Window SFML::System SFML::Network)
-
-    add_custom_command(TARGET cardeditor POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/cardeditor.cfg"
-            "$<TARGET_FILE_DIR:cardeditor>/cardeditor.cfg")
-endif()

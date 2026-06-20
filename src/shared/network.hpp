@@ -38,6 +38,10 @@ enum class MessageType : std::uint8_t
     WinRewardResponse,
     ShopPurchaseRequest,
     ShopPurchaseResponse,
+    AdminUserListRequest,
+    AdminUserListResponse,
+    AdminUserPrivilegeRequest,
+    AdminUserPrivilegeResponse,
     SubmitDeck,
     GameStateUpdate,
     PlaceHero,
@@ -96,5 +100,34 @@ struct GameReadyResponse
     int matchId = 0;
     int playerNumber = 0;
     std::string message;
+};
+
+struct AdminUserSummary
+{
+    std::string username;
+    bool isAdmin = false;
+};
+
+struct AdminUserListResponse
+{
+    bool success = false;
+    std::string message;
+    std::uint32_t totalCount = 0;
+    std::uint32_t page = 0;
+    std::uint32_t pageSize = 0;
+    std::vector<AdminUserSummary> users;
+};
+
+struct AdminUserPrivilegeRequest
+{
+    std::string targetUsername;
+    bool makeAdmin = false;
+};
+
+struct AdminUserPrivilegeResponse
+{
+    bool success = false;
+    std::string message;
+    bool targetIsAdmin = false;
 };
 } // namespace network

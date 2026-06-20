@@ -14,6 +14,13 @@ struct CollectionCard
     int copies = 0;
 };
 
+struct AccountState
+{
+    int coins = 0;
+    bool isAdmin = false;
+    std::vector<CollectionCard> collection;
+};
+
 inline void writeCollection(sf::Packet& packet, const std::vector<CollectionCard>& collection)
 {
     packet << static_cast<std::uint32_t>(collection.size());
@@ -46,5 +53,22 @@ inline bool readCollection(sf::Packet& packet, std::vector<CollectionCard>& coll
     }
 
     return true;
+}
+
+inline void writeAccountState(sf::Packet& packet, const AccountState& state)
+{
+    packet << state.coins << state.isAdmin;
+    writeCollection(packet, state.collection);
+}
+
+inline bool readAccountState(sf::Packet& packet, AccountState& state)
+{
+    packet >> state.coins >> state.isAdmin;
+    if (!packet)
+    {
+        return false;
+    }
+
+    return readCollection(packet, state.collection);
 }
 }

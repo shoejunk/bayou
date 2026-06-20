@@ -1,2 +1,2 @@
 @echo off
-"%~dp0build\Debug\cardeditor.exe"
+"%~dp0build\Debug\SteamTactics.exe"

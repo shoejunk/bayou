@@ -52,11 +52,13 @@ The payment unit is installed but is not enabled automatically. Configure
 webhook signing secret, database path, listener address, and public URL before
 enabling `bayou-payments`.
 
-## Connect the Card Editor
+## Connect the Main Client Card Editor
+
+The card editor is available from the main client after signing in with an admin account. Point the client card server setting at the deployed card server.
 
 On Windows PowerShell:
 
 ```powershell
 $env:BAYOU_CARD_SERVER_HOST = "<oracle-vm-public-ip>"
-.\build\Debug\cardeditor.exe
+.\build\Debug\SteamTactics.exe
 ```

@@ -2,6 +2,7 @@ module;
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 export module network;
 
@@ -40,6 +41,10 @@ enum class MessageType : uint8_t
     WinRewardResponse,
     ShopPurchaseRequest,
     ShopPurchaseResponse,
+    AdminUserListRequest,
+    AdminUserListResponse,
+    AdminUserPrivilegeRequest,
+    AdminUserPrivilegeResponse,
     SubmitDeck,
     GameStateUpdate,
     PlaceHero,
@@ -98,6 +103,35 @@ struct GameReadyResponse
     int matchId;
     int playerNumber;
     std::string message;
+};
+
+struct AdminUserSummary
+{
+    std::string username;
+    bool isAdmin;
+};
+
+struct AdminUserListResponse
+{
+    bool success;
+    std::string message;
+    std::uint32_t totalCount;
+    std::uint32_t page;
+    std::uint32_t pageSize;
+    std::vector<AdminUserSummary> users;
+};
+
+struct AdminUserPrivilegeRequest
+{
+    std::string targetUsername;
+    bool makeAdmin;
+};
+
+struct AdminUserPrivilegeResponse
+{
+    bool success;
+    std::string message;
+    bool targetIsAdmin;
 };
 
 } // namespace network
