@@ -43,6 +43,7 @@ constexpr unsigned short MatchmakingServerPort = 55001;
 constexpr unsigned short CardServerPort = 55004;
 constexpr const char* DefaultServerHost = "127.0.0.1";
 constexpr const char* DefaultPaymentServerUrl = "http://127.0.0.1:55005";
+constexpr bool EnableCoinPurchases = false;
 constexpr const char* CoinPackId = "coins_50";
 constexpr int CoinPackCoins = 50;
 constexpr float CoinPurchasePollIntervalSeconds = 2.0f;
@@ -1634,7 +1635,11 @@ int main(int argc, char** argv)
     Button shopBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
     Button buyCoinPackButton({94.0f, 492.0f}, {180.0f, 46.0f}, "Buy " + std::to_string(CoinPackCoins) + " Coins", font);
     Button refreshShopButton({310.0f, 492.0f}, {180.0f, 46.0f}, "Refresh", font);
-    Button buyCardButton({526.0f, 492.0f}, {180.0f, 46.0f}, "Buy Card", font);
+    Button buyCardButton(
+        {EnableCoinPurchases ? 526.0f : 300.0f, 492.0f},
+        {EnableCoinPurchases ? 180.0f : 200.0f, 46.0f},
+        "Buy Card",
+        font);
     Button dismissRevealedCardButton({300.0f, 492.0f}, {200.0f, 46.0f}, "Dismiss", font);
     Button closeDeckCardPopupButton({PiecePopupX + 190.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
 
@@ -3014,8 +3019,11 @@ int main(int argc, char** argv)
         }
         else
         {
-            buyCoinPackButton.draw(window);
-            refreshShopButton.draw(window);
+            if (EnableCoinPurchases)
+            {
+                buyCoinPackButton.draw(window);
+                refreshShopButton.draw(window);
+            }
             buyCardButton.draw(window);
         }
         window.draw(messageText);
@@ -4771,11 +4779,17 @@ int main(int argc, char** argv)
                         revealStartedAt = 0.0f;
                         setMessage(messageText, "Revealed card dismissed. You can buy another card.", sf::Color(120, 220, 150));
                     }
-                    else if (!revealedCardTitle && refreshShopButton.isClicked(clickPos) && !shopBusy())
+                    else if (EnableCoinPurchases &&
+                             !revealedCardTitle &&
+                             refreshShopButton.isClicked(clickPos) &&
+                             !shopBusy())
                     {
                         refreshShop();
                     }
-                    else if (!revealedCardTitle && buyCoinPackButton.isClicked(clickPos) && !shopBusy())
+                    else if (EnableCoinPurchases &&
+                             !revealedCardTitle &&
+                             buyCoinPackButton.isClicked(clickPos) &&
+                             !shopBusy())
                     {
                         const std::string checkoutUrl = coinCheckoutUrl(loggedInUsername);
                         if (openExternalUrl(checkoutUrl))
@@ -5091,8 +5105,11 @@ int main(int argc, char** argv)
             }
             else
             {
-                buyCoinPackButton.update(mousePos);
-                refreshShopButton.update(mousePos);
+                if (EnableCoinPurchases)
+                {
+                    buyCoinPackButton.update(mousePos);
+                    refreshShopButton.update(mousePos);
+                }
                 buyCardButton.update(mousePos);
             }
         }
