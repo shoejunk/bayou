@@ -43,7 +43,7 @@ $env:BAYOU_STRIPE_PORT = "55005"
 $env:BAYOU_STRIPE_PUBLIC_BASE_URL = "http://127.0.0.1:55005"
 ```
 
-The client reads `payment_server_url` from `client.cfg`; the local default is `http://127.0.0.1:55005`.
+The Debug client reads `payment_server_url` from `client_debug.cfg`; the local default is `http://127.0.0.1:55005`.
 
 Use Stripe test-mode keys while developing. Test-mode purchases do not require
 connecting a real bank account.
@@ -53,10 +53,10 @@ connecting a real bank account.
 Start the game services:
 
 ```powershell
-.\run_services.bat
+.\debug_services.bat
 ```
 
-When `.env.stripe` exists, `run_services.bat` starts Stripe in its own window.
+When `.env.stripe` exists, `debug_services.bat` starts Stripe in its own window.
 Keep that window open while testing purchases. Closing it stops both the
 payment service and local webhook forwarding. You can still run
 `run_stripe.bat` directly when testing the payment service by itself.

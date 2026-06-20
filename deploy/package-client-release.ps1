@@ -17,7 +17,7 @@ if (Test-Path $outputPath) {
 
 New-Item -ItemType Directory -Force $outputPath | Out-Null
 Copy-Item (Join-Path $releasePath "SteamTactics.exe") $outputPath
-Copy-Item (Join-Path $repoRoot "client.cfg") $outputPath
+Copy-Item (Join-Path $repoRoot "client_release.cfg") $outputPath
 Copy-Item (Join-Path $repoRoot "assets") $outputPath -Recurse
 
 Get-ChildItem $releasePath -Filter "*.dll" | Copy-Item -Destination $outputPath

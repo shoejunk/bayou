@@ -73,8 +73,11 @@ if(BAYOU_BUILD_CLIENTS)
 
     add_custom_command(TARGET client POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/client.cfg"
-            "$<TARGET_FILE_DIR:client>/client.cfg")
+            "${CMAKE_CURRENT_SOURCE_DIR}/client_debug.cfg"
+            "$<TARGET_FILE_DIR:client>/client_debug.cfg"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/client_release.cfg"
+            "$<TARGET_FILE_DIR:client>/client_release.cfg")
 endif()
 
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)

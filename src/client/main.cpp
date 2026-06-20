@@ -48,7 +48,11 @@ constexpr const char* CoinPackId = "coins_50";
 constexpr int CoinPackCoins = 50;
 constexpr float CoinPurchasePollIntervalSeconds = 2.0f;
 constexpr float CoinPurchasePollTimeoutSeconds = 300.0f;
-constexpr const char* ClientConfigFileName = "client.cfg";
+#ifdef NDEBUG
+constexpr const char* ClientConfigFileName = "client_release.cfg";
+#else
+constexpr const char* ClientConfigFileName = "client_debug.cfg";
+#endif
 
 constexpr float DeckPanelX = 20.0f;
 constexpr float CurrentDeckPanelX = 290.0f;
@@ -76,6 +80,7 @@ constexpr std::size_t VisibleLibraryRows = 8;
 enum class GameState
 {
     Menu,
+    Options,
     Login,
     CreateAccount,
     Authenticated,
@@ -122,6 +127,9 @@ constexpr float PiecePopupScrollHeight = PiecePopupHeight - (PiecePopupScrollY -
 constexpr float PieceDoubleClickSeconds = 0.38f;
 constexpr float DeckCardDoubleClickSeconds = 0.38f;
 constexpr float GameDragStartDistanceSquared = 36.0f;
+constexpr float LogicalWidth = 800.0f;
+constexpr float LogicalHeight = 600.0f;
+constexpr const char* DisplaySettingsFileName = "display.cfg";
 
 struct ServerEndpoint
 {
@@ -136,6 +144,13 @@ struct ClientConfig
     ServerEndpoint card{DefaultServerHost, CardServerPort};
     std::string gameServerHost = DefaultServerHost;
     std::string paymentServerUrl = DefaultPaymentServerUrl;
+};
+
+struct DisplaySettings
+{
+    bool fullscreen = true;
+    unsigned int width = 0;
+    unsigned int height = 0;
 };
 
 std::string cardRarity(const card_data::Card& card)
@@ -274,6 +289,90 @@ std::string lowerKey(std::string value)
         return static_cast<char>(std::tolower(ch));
     });
     return value;
+}
+
+std::filesystem::path displaySettingsPath()
+{
+#ifdef _WIN32
+    if (const char* appData = std::getenv("APPDATA"); appData && *appData)
+    {
+        return std::filesystem::path(appData) / "SteamTactics" / DisplaySettingsFileName;
+    }
+#else
+    if (const char* home = std::getenv("HOME"); home && *home)
+    {
+        return std::filesystem::path(home) / ".config" / "SteamTactics" / DisplaySettingsFileName;
+    }
+#endif
+
+    if (!executableDirectory.empty())
+    {
+        return executableDirectory / DisplaySettingsFileName;
+    }
+    return DisplaySettingsFileName;
+}
+
+DisplaySettings loadDisplaySettings()
+{
+    DisplaySettings settings;
+    std::ifstream stream(displaySettingsPath());
+    std::string line;
+    while (std::getline(stream, line))
+    {
+        const std::size_t delimiter = line.find('=');
+        if (delimiter == std::string::npos)
+        {
+            continue;
+        }
+
+        const std::string key = lowerKey(trim(line.substr(0, delimiter)));
+        const std::string value = lowerKey(trim(line.substr(delimiter + 1)));
+        try
+        {
+            if (key == "fullscreen")
+            {
+                settings.fullscreen = value == "1" || value == "true" || value == "yes";
+            }
+            else if (key == "width")
+            {
+                settings.width = static_cast<unsigned int>(std::stoul(value));
+            }
+            else if (key == "height")
+            {
+                settings.height = static_cast<unsigned int>(std::stoul(value));
+            }
+        }
+        catch (const std::exception&)
+        {
+            // Ignore malformed values and retain safe defaults.
+        }
+    }
+    return settings;
+}
+
+bool saveDisplaySettings(const DisplaySettings& settings)
+{
+    const std::filesystem::path path = displaySettingsPath();
+    std::error_code error;
+    if (path.has_parent_path())
+    {
+        std::filesystem::create_directories(path.parent_path(), error);
+        if (error)
+        {
+            return false;
+        }
+    }
+
+    std::ofstream stream(path, std::ios::trunc);
+    if (!stream)
+    {
+        return false;
+    }
+
+    stream << "fullscreen=" << (settings.fullscreen ? "true" : "false") << '\n'
+           << "width=" << settings.width << '\n'
+           << "height=" << settings.height << '\n';
+    return static_cast<bool>(stream);
 }
 
 std::string stripTrailingSlashes(std::string value)
@@ -1500,8 +1599,104 @@ int main(int argc, char** argv)
 {
     setExecutableDirectory(argc > 0 ? argv[0] : nullptr);
 
-    sf::RenderWindow window(sf::VideoMode({800, 600}), "Steam Tactics");
-    window.setFramerateLimit(60);
+    const sf::VideoMode desktopMode = sf::VideoMode::getDesktopMode();
+    const std::vector<sf::VideoMode>& fullscreenModes = sf::VideoMode::getFullscreenModes();
+    std::vector<sf::Vector2u> displayResolutions;
+    auto addResolution = [&](sf::Vector2u size) {
+        if (size.x < static_cast<unsigned int>(LogicalWidth) ||
+            size.y < static_cast<unsigned int>(LogicalHeight) ||
+            size.x > desktopMode.size.x ||
+            size.y > desktopMode.size.y)
+        {
+            return;
+        }
+        if (std::find(displayResolutions.begin(), displayResolutions.end(), size) == displayResolutions.end())
+        {
+            displayResolutions.push_back(size);
+        }
+    };
+
+    addResolution({800, 600});
+    addResolution({1024, 768});
+    addResolution({1280, 720});
+    addResolution({1280, 800});
+    addResolution({1366, 768});
+    addResolution({1600, 900});
+    addResolution({1920, 1080});
+    addResolution({2560, 1440});
+    addResolution(desktopMode.size);
+    for (const sf::VideoMode& mode : fullscreenModes)
+    {
+        addResolution(mode.size);
+    }
+    std::sort(displayResolutions.begin(), displayResolutions.end(), [](sf::Vector2u left, sf::Vector2u right) {
+        const std::uint64_t leftPixels = static_cast<std::uint64_t>(left.x) * left.y;
+        const std::uint64_t rightPixels = static_cast<std::uint64_t>(right.x) * right.y;
+        return leftPixels == rightPixels ? left.x < right.x : leftPixels < rightPixels;
+    });
+
+    DisplaySettings displaySettings = loadDisplaySettings();
+    if (displaySettings.width == 0 || displaySettings.height == 0)
+    {
+        displaySettings.width = desktopMode.size.x;
+        displaySettings.height = desktopMode.size.y;
+    }
+    sf::Vector2u configuredSize{displaySettings.width, displaySettings.height};
+    if (std::find(displayResolutions.begin(), displayResolutions.end(), configuredSize) == displayResolutions.end())
+    {
+        configuredSize = desktopMode.size;
+        displaySettings.width = configuredSize.x;
+        displaySettings.height = configuredSize.y;
+    }
+
+    sf::RenderWindow window;
+    auto applyLogicalView = [&]() {
+        const sf::Vector2u windowSize = window.getSize();
+        if (windowSize.x == 0 || windowSize.y == 0)
+        {
+            return;
+        }
+
+        const float windowAspect = static_cast<float>(windowSize.x) / static_cast<float>(windowSize.y);
+        const float logicalAspect = LogicalWidth / LogicalHeight;
+        sf::FloatRect viewport({0.0f, 0.0f}, {1.0f, 1.0f});
+        if (windowAspect > logicalAspect)
+        {
+            viewport.size.x = logicalAspect / windowAspect;
+            viewport.position.x = (1.0f - viewport.size.x) * 0.5f;
+        }
+        else if (windowAspect < logicalAspect)
+        {
+            viewport.size.y = windowAspect / logicalAspect;
+            viewport.position.y = (1.0f - viewport.size.y) * 0.5f;
+        }
+
+        sf::View view(sf::FloatRect({0.0f, 0.0f}, {LogicalWidth, LogicalHeight}));
+        view.setViewport(viewport);
+        window.setView(view);
+    };
+
+    auto createDisplayWindow = [&](DisplaySettings& settings) {
+        sf::VideoMode mode({settings.width, settings.height});
+        if (settings.fullscreen)
+        {
+            const auto matchingMode = std::find_if(fullscreenModes.begin(), fullscreenModes.end(), [&](const sf::VideoMode& candidate) {
+                return candidate.size == mode.size;
+            });
+            mode = matchingMode != fullscreenModes.end() ? *matchingMode : desktopMode;
+            settings.width = mode.size.x;
+            settings.height = mode.size.y;
+            window.create(mode, "Steam Tactics", sf::State::Fullscreen);
+        }
+        else
+        {
+            window.create(mode, "Steam Tactics", sf::Style::Titlebar | sf::Style::Close, sf::State::Windowed);
+        }
+        window.setFramerateLimit(60);
+        applyLogicalView();
+    };
+
+    createDisplayWindow(displaySettings);
 
     sf::Font font;
     if (!font.openFromFile("assets/Roboto.ttf"))
@@ -1612,6 +1807,7 @@ int main(int argc, char** argv)
 
     Button loginButton({300.0f, 200.0f}, {200.0f, 60.0f}, "Login", font);
     Button createButton({300.0f, 300.0f}, {200.0f, 60.0f}, "Create Account", font);
+    Button menuOptionsButton({300.0f, 400.0f}, {200.0f, 60.0f}, "Options", font);
 
     InputBox usernameInput({300.0f, 140.0f}, {200.0f, 40.0f}, "Username", font);
     InputBox passwordInput({300.0f, 220.0f}, {200.0f, 40.0f}, "Password", font, true);
@@ -1621,9 +1817,18 @@ int main(int argc, char** argv)
     Button loginSubmitButton({300.0f, 300.0f}, {200.0f, 50.0f}, "Login", font);
     Button createSubmitButton({300.0f, 380.0f}, {200.0f, 50.0f}, "Create Account", font);
     Button backButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Back", font);
+    Button exitDesktopButton({20.0f, 520.0f}, {200.0f, 45.0f}, "Exit to Desktop", font);
     Button playButton({300.0f, 220.0f}, {200.0f, 60.0f}, "Play", font);
     Button deckEditorButton({300.0f, 300.0f}, {200.0f, 60.0f}, "Deck Editor", font);
     Button shopButton({300.0f, 380.0f}, {200.0f, 60.0f}, "Shop", font);
+    Button authenticatedOptionsButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Options", font);
+
+    Button displayModeButton({270.0f, 178.0f}, {260.0f, 54.0f}, "", font);
+    Button previousResolutionButton({210.0f, 276.0f}, {64.0f, 54.0f}, "<", font);
+    Button resolutionButton({290.0f, 276.0f}, {220.0f, 54.0f}, "", font);
+    Button nextResolutionButton({526.0f, 276.0f}, {64.0f, 54.0f}, ">", font);
+    Button applyOptionsButton({300.0f, 378.0f}, {200.0f, 54.0f}, "Apply", font);
+    Button optionsBackButton({300.0f, 458.0f}, {200.0f, 54.0f}, "Back", font);
 
     Button deckBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
     Button newDeckButton({34.0f, 140.0f}, {102.0f, 38.0f}, "New", font);
@@ -1650,6 +1855,12 @@ int main(int argc, char** argv)
     sf::Clock clock;
     float animationTime = 0.0f;
     GameState currentState = GameState::Menu;
+    GameState optionsReturnState = GameState::Menu;
+    DisplaySettings pendingDisplaySettings = displaySettings;
+    configuredSize = {displaySettings.width, displaySettings.height};
+    std::size_t selectedResolution = static_cast<std::size_t>(std::distance(
+        displayResolutions.begin(),
+        std::find(displayResolutions.begin(), displayResolutions.end(), configuredSize)));
     std::optional<std::future<ServerResult>> pendingRequest;
     std::optional<std::future<ServerResult>> pendingMatchmaking;
     std::optional<std::future<DeckEditorLoadResult>> pendingDeckEditorLoad;
@@ -1928,6 +2139,37 @@ int main(int argc, char** argv)
         {
             pendingAccountState = std::async(std::launch::async, fetchAccountState, loggedInUsername);
         }
+    };
+
+    auto updateOptionsLabels = [&]() {
+        displayModeButton.setLabel(pendingDisplaySettings.fullscreen ? "Fullscreen" : "Windowed");
+        const sf::Vector2u size = displayResolutions[selectedResolution];
+        resolutionButton.setLabel(std::to_string(size.x) + " x " + std::to_string(size.y));
+    };
+
+    auto showOptionsScreen = [&](GameState returnState) {
+        optionsReturnState = returnState;
+        currentState = GameState::Options;
+        pendingDisplaySettings = displaySettings;
+        const sf::Vector2u activeSize{displaySettings.width, displaySettings.height};
+        const auto found = std::find(displayResolutions.begin(), displayResolutions.end(), activeSize);
+        selectedResolution = found == displayResolutions.end()
+            ? displayResolutions.size() - 1
+            : static_cast<std::size_t>(std::distance(displayResolutions.begin(), found));
+        title.setString("Options");
+        centerText(title, 400.0f);
+        setMessageY(messageText, 540.0f);
+        setMessage(messageText, "", sf::Color::White);
+        clearFocus();
+        updateOptionsLabels();
+    };
+
+    auto leaveOptionsScreen = [&]() {
+        currentState = optionsReturnState;
+        title.setString(optionsReturnState == GameState::Authenticated ? "Logged In" : "Steam Tactics");
+        centerText(title, 400.0f);
+        setMessageY(messageText, optionsReturnState == GameState::Authenticated ? 500.0f : 450.0f);
+        setMessage(messageText, "", sf::Color::White);
     };
 
     auto showGameScreen = [&](std::shared_ptr<sf::TcpSocket> gameSocket) {
@@ -4513,6 +4755,21 @@ int main(int argc, char** argv)
             }
 
             if (const auto* mousePressed = event->getIf<sf::Event::MouseButtonPressed>();
+                mousePressed && mousePressed->button == sf::Mouse::Button::Left)
+            {
+                const sf::Vector2f clickPos = window.mapPixelToCoords(mousePressed->position);
+                const bool screenHasExitButton =
+                    currentState == GameState::Menu ||
+                    currentState == GameState::Authenticated ||
+                    currentState == GameState::Matchmaking;
+                if (screenHasExitButton && exitDesktopButton.isClicked(clickPos))
+                {
+                    window.close();
+                    break;
+                }
+            }
+
+            if (const auto* mousePressed = event->getIf<sf::Event::MouseButtonPressed>();
                 mousePressed && mousePressed->button == sf::Mouse::Button::Left && !pendingRequest && !pendingMatchmaking)
             {
                 sf::Vector2f clickPos = window.mapPixelToCoords(mousePressed->position);
@@ -4535,6 +4792,54 @@ int main(int argc, char** argv)
                         setMessageY(messageText, 450.0f);
                         resetForm(usernameInput, passwordInput, confirmInput, messageText);
                         focusCreateInput(0);
+                    }
+                    else if (menuOptionsButton.isClicked(clickPos))
+                    {
+                        showOptionsScreen(GameState::Menu);
+                    }
+                }
+                else if (currentState == GameState::Options)
+                {
+                    if (displayModeButton.isClicked(clickPos))
+                    {
+                        pendingDisplaySettings.fullscreen = !pendingDisplaySettings.fullscreen;
+                        updateOptionsLabels();
+                    }
+                    else if (previousResolutionButton.isClicked(clickPos))
+                    {
+                        selectedResolution = selectedResolution == 0
+                            ? displayResolutions.size() - 1
+                            : selectedResolution - 1;
+                        updateOptionsLabels();
+                    }
+                    else if (nextResolutionButton.isClicked(clickPos))
+                    {
+                        selectedResolution = (selectedResolution + 1) % displayResolutions.size();
+                        updateOptionsLabels();
+                    }
+                    else if (applyOptionsButton.isClicked(clickPos))
+                    {
+                        const sf::Vector2u size = displayResolutions[selectedResolution];
+                        pendingDisplaySettings.width = size.x;
+                        pendingDisplaySettings.height = size.y;
+                        createDisplayWindow(pendingDisplaySettings);
+                        displaySettings = pendingDisplaySettings;
+                        const sf::Vector2u appliedSize{displaySettings.width, displaySettings.height};
+                        if (const auto applied = std::find(displayResolutions.begin(), displayResolutions.end(), appliedSize);
+                            applied != displayResolutions.end())
+                        {
+                            selectedResolution = static_cast<std::size_t>(std::distance(displayResolutions.begin(), applied));
+                        }
+                        updateOptionsLabels();
+                        const bool saved = saveDisplaySettings(displaySettings);
+                        setMessage(
+                            messageText,
+                            saved ? "Display settings applied and saved." : "Settings applied, but could not be saved.",
+                            saved ? sf::Color(120, 220, 150) : sf::Color::Red);
+                    }
+                    else if (optionsBackButton.isClicked(clickPos))
+                    {
+                        leaveOptionsScreen();
                     }
                 }
                 else if (currentState == GameState::Login)
@@ -4600,6 +4905,10 @@ int main(int argc, char** argv)
                     else if (shopButton.isClicked(clickPos))
                     {
                         loadShop();
+                    }
+                    else if (authenticatedOptionsButton.isClicked(clickPos))
+                    {
+                        showOptionsScreen(GameState::Authenticated);
                     }
                 }
                 else if (currentState == GameState::DeckSelect)
@@ -4961,7 +5270,11 @@ int main(int argc, char** argv)
             {
                 if (keyPressed->code == sf::Keyboard::Key::Escape)
                 {
-                    if (currentState == GameState::Game && (inspectedPieceId || inspectedHandIndex))
+                    if (currentState == GameState::Options)
+                    {
+                        leaveOptionsScreen();
+                    }
+                    else if (currentState == GameState::Game && (inspectedPieceId || inspectedHandIndex))
                     {
                         inspectedPieceId.reset();
                         inspectedHandIndex.reset();
@@ -5040,6 +5353,11 @@ int main(int argc, char** argv)
             }
         }
 
+        if (!window.isOpen())
+        {
+            break;
+        }
+
         if (currentState == GameState::Game && pendingHandClickIndex &&
             !(inspectedPieceId || inspectedHandIndex) &&
             animationTime - pendingHandClickTime > PieceDoubleClickSeconds)
@@ -5051,6 +5369,17 @@ int main(int argc, char** argv)
         {
             loginButton.update(mousePos);
             createButton.update(mousePos);
+            menuOptionsButton.update(mousePos);
+            exitDesktopButton.update(mousePos);
+        }
+        else if (currentState == GameState::Options)
+        {
+            displayModeButton.update(mousePos);
+            previousResolutionButton.update(mousePos);
+            resolutionButton.update(mousePos);
+            nextResolutionButton.update(mousePos);
+            applyOptionsButton.update(mousePos);
+            optionsBackButton.update(mousePos);
         }
         else if (currentState == GameState::Login)
         {
@@ -5072,6 +5401,8 @@ int main(int argc, char** argv)
             playButton.update(mousePos);
             deckEditorButton.update(mousePos);
             shopButton.update(mousePos);
+            authenticatedOptionsButton.update(mousePos);
+            exitDesktopButton.update(mousePos);
         }
         else if (currentState == GameState::DeckSelect)
         {
@@ -5080,6 +5411,7 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Matchmaking)
         {
+            exitDesktopButton.update(mousePos);
         }
         else if (currentState == GameState::DeckEditor)
         {
@@ -5134,6 +5466,20 @@ int main(int argc, char** argv)
         {
             loginButton.draw(window);
             createButton.draw(window);
+            menuOptionsButton.draw(window);
+            exitDesktopButton.draw(window);
+        }
+        else if (currentState == GameState::Options)
+        {
+            drawText(window, font, "Display Mode", 18, {332.0f, 148.0f}, sf::Color(220, 224, 230));
+            displayModeButton.draw(window);
+            drawText(window, font, "Resolution", 18, {350.0f, 246.0f}, sf::Color(220, 224, 230));
+            previousResolutionButton.draw(window);
+            resolutionButton.draw(window);
+            nextResolutionButton.draw(window);
+            applyOptionsButton.draw(window);
+            optionsBackButton.draw(window);
+            window.draw(messageText);
         }
         else if (currentState == GameState::Login)
         {
@@ -5159,6 +5505,8 @@ int main(int argc, char** argv)
             playButton.draw(window);
             deckEditorButton.draw(window);
             shopButton.draw(window);
+            authenticatedOptionsButton.draw(window);
+            exitDesktopButton.draw(window);
             window.draw(messageText);
         }
         else if (currentState == GameState::DeckSelect)
@@ -5168,6 +5516,7 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Matchmaking)
         {
             window.draw(messageText);
+            exitDesktopButton.draw(window);
         }
         else if (currentState == GameState::DeckEditor)
         {

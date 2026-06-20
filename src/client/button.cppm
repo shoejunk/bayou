@@ -26,6 +26,16 @@ export struct Button
         text.setPosition({position.x + size.x / 2.0f, position.y + size.y / 2.0f});
     }
 
+    void setLabel(const std::string& label)
+    {
+        text.setString(label);
+        const sf::FloatRect textBounds = text.getLocalBounds();
+        text.setOrigin({textBounds.position.x + textBounds.size.x / 2.0f, textBounds.position.y + textBounds.size.y / 2.0f});
+        const sf::Vector2f position = shape.getPosition();
+        const sf::Vector2f size = shape.getSize();
+        text.setPosition({position.x + size.x / 2.0f, position.y + size.y / 2.0f});
+    }
+
     void update(const sf::Vector2f& mousePos)
     {
         hovered = shape.getGlobalBounds().contains(mousePos);
