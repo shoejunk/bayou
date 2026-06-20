@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cstdint>
 #include <exception>
 #include <memory>
@@ -34,6 +35,22 @@ constexpr int ShopCardCost = 5;
 constexpr const char* StarterDeckName = "Starter Deck";
 constexpr const char* PreferredStarterHero = "Steam Baron";
 constexpr std::int64_t RememberTokenLifetimeSeconds = 30LL * 24LL * 60LL * 60LL;
+constexpr std::int64_t AccessTokenLifetimeSeconds = 12LL * 60LL * 60LL;
+constexpr std::int64_t LoginAttemptWindowSeconds = 15LL * 60LL;
+constexpr std::int64_t LoginBlockSeconds = 15LL * 60LL;
+constexpr int MaximumLoginFailures = 5;
+constexpr int MaximumLoginFailuresPerAddress = 25;
+constexpr std::size_t MinimumPasswordLength = 15;
+constexpr std::size_t MaximumPasswordLength = 128;
+constexpr std::size_t MinimumUsernameLength = 3;
+constexpr std::size_t MaximumUsernameLength = 32;
+
+struct LoginAttempt
+{
+    int failures = 0;
+    std::int64_t windowStartedAt = 0;
+    std::int64_t blockedUntil = 0;
+};
 
 struct ShopCardEntry
 {
@@ -159,6 +176,8 @@ private:
     std::unique_ptr<sf::TcpListener> listener;
     std::unique_ptr<SQLite::Database> database;
     std::mutex databaseMutex;
+    std::mutex loginAttemptMutex;
+    std::unordered_map<std::string, LoginAttempt> loginAttempts;
     std::mt19937 rng{std::random_device{}()};
     std::atomic<bool> running{false};
     bool listening = false;
@@ -218,11 +237,26 @@ private:
         database->exec(
             "CREATE INDEX IF NOT EXISTS remember_tokens_username_idx "
             "ON remember_tokens(username)");
+        database->exec(
+            "CREATE TABLE IF NOT EXISTS access_tokens ("
+            "token_hash TEXT PRIMARY KEY NOT NULL,"
+            "username TEXT NOT NULL,"
+            "expires_at INTEGER NOT NULL,"
+            "created_at INTEGER NOT NULL,"
+            "last_used_at INTEGER NOT NULL,"
+            "FOREIGN KEY(username) REFERENCES accounts(username) ON DELETE CASCADE"
+            ")");
+        database->exec(
+            "CREATE INDEX IF NOT EXISTS access_tokens_username_idx "
+            "ON access_tokens(username)");
     }
 
     void handleClient(std::unique_ptr<sf::TcpSocket> client)
     {
         sf::Packet packet;
+        const std::string remoteAddress = client->getRemoteAddress()
+            ? client->getRemoteAddress()->toString()
+            : std::string("unknown");
 
         while (running)
         {
@@ -241,7 +275,7 @@ private:
                 {
                     std::string username, password;
                     packet >> username >> password;
-                    handleCreateAccount(*client, username, password);
+                    handleCreateAccount(*client, username, password, remoteAddress);
                     break;
                 }
                 case MessageType::Login:
@@ -249,7 +283,7 @@ private:
                     std::string username, password;
                     bool rememberMe = false;
                     packet >> username >> password >> rememberMe;
-                    handleLogin(*client, username, password, rememberMe);
+                    handleLogin(*client, username, password, rememberMe, remoteAddress);
                     break;
                 }
                 case MessageType::RememberLogin:
@@ -261,23 +295,23 @@ private:
                 }
                 case MessageType::RevokeRememberToken:
                 {
-                    std::string token;
-                    packet >> token;
-                    handleRevokeRememberToken(*client, token);
+                    std::string rememberToken, accessToken;
+                    packet >> rememberToken >> accessToken;
+                    handleRevokeRememberToken(*client, rememberToken, accessToken);
                     break;
                 }
                 case MessageType::DeckListRequest:
                 {
-                    std::string username;
-                    packet >> username;
-                    handleListDecks(*client, username);
+                    std::string accessToken;
+                    packet >> accessToken;
+                    handleListDecks(*client, accessToken);
                     break;
                 }
                 case MessageType::DeckSaveRequest:
                 {
-                    std::string username, originalName;
+                    std::string accessToken, originalName;
                     deck_data::Deck deck;
-                    packet >> username >> originalName;
+                    packet >> accessToken >> originalName;
                     if (!packet || !deck_data::readDeck(packet, deck))
                     {
                         sendDeckCommandResponse(
@@ -287,13 +321,13 @@ private:
                             "Invalid deck save payload");
                         break;
                     }
-                    handleSaveDeck(*client, username, originalName, deck);
+                    handleSaveDeck(*client, accessToken, originalName, deck);
                     break;
                 }
                 case MessageType::DeckDeleteRequest:
                 {
-                    std::string username, deckName;
-                    packet >> username >> deckName;
+                    std::string accessToken, deckName;
+                    packet >> accessToken >> deckName;
                     if (!packet)
                     {
                         sendDeckCommandResponse(
@@ -303,45 +337,45 @@ private:
                             "Invalid deck delete payload");
                         break;
                     }
-                    handleDeleteDeck(*client, username, deckName);
+                    handleDeleteDeck(*client, accessToken, deckName);
                     break;
                 }
                 case MessageType::AccountStateRequest:
                 {
-                    std::string username;
-                    packet >> username;
-                    handleAccountState(*client, username);
+                    std::string accessToken;
+                    packet >> accessToken;
+                    handleAccountState(*client, accessToken);
                     break;
                 }
                 case MessageType::WinRewardRequest:
                 {
-                    std::string username;
-                    packet >> username;
-                    handleWinReward(*client, username);
+                    std::string accessToken;
+                    packet >> accessToken;
+                    handleWinReward(*client, accessToken);
                     break;
                 }
                 case MessageType::ShopPurchaseRequest:
                 {
-                    std::string username;
-                    packet >> username;
-                    handleShopPurchase(*client, username);
+                    std::string accessToken;
+                    packet >> accessToken;
+                    handleShopPurchase(*client, accessToken);
                     break;
                 }
                 case MessageType::AdminUserListRequest:
                 {
-                    std::string username, search;
+                    std::string accessToken, search;
                     std::uint32_t page = 0;
                     std::uint32_t pageSize = 0;
-                    packet >> username >> search >> page >> pageSize;
-                    handleAdminUserList(*client, username, search, page, pageSize);
+                    packet >> accessToken >> search >> page >> pageSize;
+                    handleAdminUserList(*client, accessToken, search, page, pageSize);
                     break;
                 }
                 case MessageType::AdminUserPrivilegeRequest:
                 {
-                    std::string username, targetUsername;
+                    std::string accessToken, targetUsername;
                     bool makeAdmin = false;
-                    packet >> username >> targetUsername >> makeAdmin;
-                    handleAdminUserPrivilege(*client, username, targetUsername, makeAdmin);
+                    packet >> accessToken >> targetUsername >> makeAdmin;
+                    handleAdminUserPrivilege(*client, accessToken, targetUsername, makeAdmin);
                     break;
                 }
                 case MessageType::Disconnect:
@@ -356,14 +390,34 @@ private:
         }
     }
 
-    void handleCreateAccount(sf::TcpSocket& client, const std::string& username, const std::string& password)
+    void handleCreateAccount(
+        sf::TcpSocket& client,
+        const std::string& username,
+        const std::string& password,
+        const std::string& remoteAddress)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::CreateAccountResponse);
 
-        if (username.empty() || password.empty())
+        if (isLoginBlocked("create:" + remoteAddress))
         {
-            response << false << std::string("Username and password cannot be empty");
+            response << false << std::string("Too many account creation attempts; try again later");
+            [[maybe_unused]] auto result = client.send(response);
+            return;
+        }
+        recordLoginFailure("create:" + remoteAddress);
+
+        if (!isValidUsername(username))
+        {
+            response << false << std::string(
+                "Username must be 3-32 characters using letters, numbers, '_' or '-'");
+            [[maybe_unused]] auto result = client.send(response);
+            return;
+        }
+
+        if (!isValidNewPassword(password))
+        {
+            response << false << std::string("Password must be 15-128 characters");
             [[maybe_unused]] auto result = client.send(response);
             return;
         }
@@ -385,7 +439,9 @@ private:
                 insert.exec();
 
                 ensureStarterInventory(username);
-                response << true << std::string("Account created successfully");
+                const std::string accessToken = issueAccessToken(username);
+                response << true << std::string("Account created successfully")
+                         << username << accessToken << std::string();
                 fmt::println("Created account for user: {}", username);
             }
         }
@@ -400,30 +456,23 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    void handleListDecks(sf::TcpSocket& client, const std::string& username)
+    void handleListDecks(sf::TcpSocket& client, const std::string& accessToken)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::DeckListResponse);
 
-        if (username.empty())
-        {
-            response << false << std::string("Username cannot be empty");
-            response << static_cast<std::uint32_t>(0);
-            [[maybe_unused]] auto result = client.send(response);
-            return;
-        }
-
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            if (!accountExists(username))
+            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            if (!username)
             {
-                response << false << std::string("Username not found");
+                response << false << std::string("Authentication required");
                 response << static_cast<std::uint32_t>(0);
             }
             else
             {
-                const std::vector<deck_data::Deck> decks = loadDecks(username);
+                const std::vector<deck_data::Deck> decks = loadDecks(*username);
                 response << true << std::string("Decks loaded");
                 response << static_cast<std::uint32_t>(decks.size());
                 for (const deck_data::Deck& deck : decks)
@@ -446,16 +495,10 @@ private:
 
     void handleSaveDeck(
         sf::TcpSocket& client,
-        const std::string& username,
+        const std::string& accessToken,
         const std::string& originalName,
         const deck_data::Deck& deck)
     {
-        if (username.empty())
-        {
-            sendDeckCommandResponse(client, MessageType::DeckSaveResponse, false, "Username cannot be empty");
-            return;
-        }
-
         if (deck.name.empty())
         {
             sendDeckCommandResponse(client, MessageType::DeckSaveResponse, false, "Deck name cannot be empty");
@@ -465,21 +508,22 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            if (!accountExists(username))
+            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            if (!username)
             {
-                sendDeckCommandResponse(client, MessageType::DeckSaveResponse, false, "Username not found");
+                sendDeckCommandResponse(client, MessageType::DeckSaveResponse, false, "Authentication required");
                 return;
             }
 
-            if (const std::optional<std::string> collectionError = deckCollectionError(username, deck))
+            if (const std::optional<std::string> collectionError = deckCollectionError(*username, deck))
             {
                 sendDeckCommandResponse(client, MessageType::DeckSaveResponse, false, *collectionError);
                 return;
             }
 
-            saveDeck(username, originalName, deck);
+            saveDeck(*username, originalName, deck);
             sendDeckCommandResponse(client, MessageType::DeckSaveResponse, true, "Deck saved");
-            fmt::println("Saved deck '{}' for user {}", deck.name, username);
+            fmt::println("Saved deck '{}' for user {}", deck.name, *username);
         }
         catch (const std::exception& error)
         {
@@ -488,14 +532,8 @@ private:
         }
     }
 
-    void handleDeleteDeck(sf::TcpSocket& client, const std::string& username, const std::string& deckName)
+    void handleDeleteDeck(sf::TcpSocket& client, const std::string& accessToken, const std::string& deckName)
     {
-        if (username.empty())
-        {
-            sendDeckCommandResponse(client, MessageType::DeckDeleteResponse, false, "Username cannot be empty");
-            return;
-        }
-
         if (deckName.empty())
         {
             sendDeckCommandResponse(client, MessageType::DeckDeleteResponse, false, "Deck name cannot be empty");
@@ -505,20 +543,21 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            if (!accountExists(username))
+            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            if (!username)
             {
-                sendDeckCommandResponse(client, MessageType::DeckDeleteResponse, false, "Username not found");
+                sendDeckCommandResponse(client, MessageType::DeckDeleteResponse, false, "Authentication required");
                 return;
             }
 
-            if (!deleteDeck(username, deckName))
+            if (!deleteDeck(*username, deckName))
             {
                 sendDeckCommandResponse(client, MessageType::DeckDeleteResponse, false, "Deck not found");
                 return;
             }
 
             sendDeckCommandResponse(client, MessageType::DeckDeleteResponse, true, "Deck deleted");
-            fmt::println("Deleted deck '{}' for user {}", deckName, username);
+            fmt::println("Deleted deck '{}' for user {}", deckName, *username);
         }
         catch (const std::exception& error)
         {
@@ -527,31 +566,26 @@ private:
         }
     }
 
-    void handleAccountState(sf::TcpSocket& client, const std::string& username)
+    void handleAccountState(sf::TcpSocket& client, const std::string& accessToken)
     {
-        if (username.empty())
-        {
-            sendAccountStateResponse(client, false, "Username cannot be empty", 0, false, {});
-            return;
-        }
-
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            if (!accountExists(username))
+            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            if (!username)
             {
-                sendAccountStateResponse(client, false, "Username not found", 0, false, {});
+                sendAccountStateResponse(client, false, "Authentication required", 0, false, {});
                 return;
             }
 
-            ensureStarterInventory(username);
+            ensureStarterInventory(*username);
             sendAccountStateResponse(
                 client,
                 true,
                 "Account loaded",
-                loadCoins(username),
-                isAdmin(username),
-                loadCollection(username));
+                loadCoins(*username),
+                isAdmin(*username),
+                loadCollection(*username));
         }
         catch (const std::exception& error)
         {
@@ -560,26 +594,21 @@ private:
         }
     }
 
-    void handleWinReward(sf::TcpSocket& client, const std::string& username)
+    void handleWinReward(sf::TcpSocket& client, const std::string& accessToken)
     {
-        if (username.empty())
-        {
-            sendCoinResponse(client, MessageType::WinRewardResponse, false, "Username cannot be empty", 0);
-            return;
-        }
-
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            if (!accountExists(username))
+            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            if (!username)
             {
-                sendCoinResponse(client, MessageType::WinRewardResponse, false, "Username not found", 0);
+                sendCoinResponse(client, MessageType::WinRewardResponse, false, "Authentication required", 0);
                 return;
             }
 
             SQLite::Statement update(*database, "UPDATE accounts SET coins = coins + ? WHERE username = ?");
             update.bind(1, WinRewardCoins);
-            update.bind(2, username);
+            update.bind(2, *username);
             update.exec();
 
             sendCoinResponse(
@@ -587,7 +616,7 @@ private:
                 MessageType::WinRewardResponse,
                 true,
                 "+" + std::to_string(WinRewardCoins) + " coins",
-                loadCoins(username));
+                loadCoins(*username));
         }
         catch (const std::exception& error)
         {
@@ -596,24 +625,19 @@ private:
         }
     }
 
-    void handleShopPurchase(sf::TcpSocket& client, const std::string& username)
+    void handleShopPurchase(sf::TcpSocket& client, const std::string& accessToken)
     {
-        if (username.empty())
-        {
-            sendShopPurchaseResponse(client, false, "Username cannot be empty", 0, "");
-            return;
-        }
-
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            if (!accountExists(username))
+            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            if (!username)
             {
-                sendShopPurchaseResponse(client, false, "Username not found", 0, "");
+                sendShopPurchaseResponse(client, false, "Authentication required", 0, "");
                 return;
             }
 
-            const int coins = loadCoins(username);
+            const int coins = loadCoins(*username);
             if (coins < ShopCardCost)
             {
                 sendShopPurchaseResponse(client, false, "Need 5 coins to buy a card", coins, "");
@@ -632,9 +656,9 @@ private:
             SQLite::Transaction transaction(*database);
             SQLite::Statement spend(*database, "UPDATE accounts SET coins = coins - ? WHERE username = ?");
             spend.bind(1, ShopCardCost);
-            spend.bind(2, username);
+            spend.bind(2, *username);
             spend.exec();
-            addCollectionCopies(username, cardTitle, 1);
+            addCollectionCopies(*username, cardTitle, 1);
             transaction.commit();
 
             sendShopPurchaseResponse(
@@ -643,7 +667,7 @@ private:
                 "Added " + cardTitle + " to your collection",
                 coins - ShopCardCost,
                 cardTitle);
-            fmt::println("User {} bought random card '{}'", username, cardTitle);
+            fmt::println("User {} bought random card '{}'", *username, cardTitle);
         }
         catch (const std::exception& error)
         {
@@ -654,21 +678,13 @@ private:
 
     void handleAdminUserList(
         sf::TcpSocket& client,
-        const std::string& username,
+        const std::string& accessToken,
         const std::string& search,
         std::uint32_t page,
         std::uint32_t pageSize)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::AdminUserListResponse);
-
-        if (username.empty() || !isAdmin(username))
-        {
-            response << false << std::string("Admin access required")
-                     << static_cast<std::uint32_t>(0) << page << pageSize << static_cast<std::uint32_t>(0);
-            [[maybe_unused]] auto result = client.send(response);
-            return;
-        }
 
         const std::uint32_t safePageSize = std::clamp<std::uint32_t>(pageSize == 0 ? 25 : pageSize, 1, 100);
         const std::uint32_t safePage = page;
@@ -677,6 +693,16 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            if (!username || !isAdmin(*username))
+            {
+                response << false << std::string("Admin access required")
+                         << static_cast<std::uint32_t>(0) << safePage << safePageSize
+                         << static_cast<std::uint32_t>(0);
+                [[maybe_unused]] auto result = client.send(response);
+                return;
+            }
+
             SQLite::Statement countQuery(*database,
                 "SELECT COUNT(*) FROM accounts WHERE username LIKE ? COLLATE NOCASE");
             countQuery.bind(1, like);
@@ -720,19 +746,12 @@ private:
 
     void handleAdminUserPrivilege(
         sf::TcpSocket& client,
-        const std::string& username,
+        const std::string& accessToken,
         const std::string& targetUsername,
         bool makeAdmin)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::AdminUserPrivilegeResponse);
-
-        if (username.empty() || !isAdmin(username))
-        {
-            response << false << std::string("Admin access required") << false;
-            [[maybe_unused]] auto result = client.send(response);
-            return;
-        }
 
         if (targetUsername.empty())
         {
@@ -741,16 +760,24 @@ private:
             return;
         }
 
-        if (!makeAdmin && targetUsername == username)
-        {
-            response << false << std::string("You cannot revoke your own admin privilege") << true;
-            [[maybe_unused]] auto result = client.send(response);
-            return;
-        }
-
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            if (!username || !isAdmin(*username))
+            {
+                response << false << std::string("Admin access required") << false;
+                [[maybe_unused]] auto result = client.send(response);
+                return;
+            }
+
+            if (!makeAdmin && targetUsername == *username)
+            {
+                response << false << std::string("You cannot revoke your own admin privilege") << true;
+                [[maybe_unused]] auto result = client.send(response);
+                return;
+            }
+
             if (!accountExists(targetUsername))
             {
                 response << false << std::string("Username not found") << false;
@@ -781,15 +808,34 @@ private:
         sf::TcpSocket& client,
         const std::string& username,
         const std::string& password,
-        bool rememberMe)
+        bool rememberMe,
+        const std::string& remoteAddress)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::LoginResponse);
+        std::string normalizedUsername = username;
+        std::transform(
+            normalizedUsername.begin(),
+            normalizedUsername.end(),
+            normalizedUsername.begin(),
+            [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        const std::string userRateLimitKey = "login-user:" + normalizedUsername;
+        const std::string addressRateLimitKey = "login-address:" + remoteAddress;
 
-        if (username.empty() || password.empty())
+        if (isLoginBlocked(userRateLimitKey) || isLoginBlocked(addressRateLimitKey))
+        {
+            response << false << std::string("Too many login attempts; try again later")
+                     << std::string() << std::string() << std::string();
+            [[maybe_unused]] auto result = client.send(response);
+            return;
+        }
+
+        if (username.empty() || password.empty() || password.size() > MaximumPasswordLength)
         {
             response << false << std::string("Username and password cannot be empty")
-                     << std::string() << std::string();
+                     << std::string() << std::string() << std::string();
+            recordLoginFailure(userRateLimitKey, MaximumLoginFailures);
+            recordLoginFailure(addressRateLimitKey, MaximumLoginFailuresPerAddress);
             [[maybe_unused]] auto result = client.send(response);
             return;
         }
@@ -804,26 +850,33 @@ private:
 
             if (!query.executeStep())
             {
+                [[maybe_unused]] const bool ignored = verifyPassword(dummyPasswordHash(), password);
+                recordLoginFailure(userRateLimitKey, MaximumLoginFailures);
+                recordLoginFailure(addressRateLimitKey, MaximumLoginFailuresPerAddress);
                 response << false << std::string("Invalid username or password")
-                         << std::string() << std::string();
+                         << std::string() << std::string() << std::string();
             }
             else
             {
                 const std::string storedHash = query.getColumn(0).getString();
                 if (!verifyPassword(storedHash, password))
                 {
+                    recordLoginFailure(userRateLimitKey, MaximumLoginFailures);
+                    recordLoginFailure(addressRateLimitKey, MaximumLoginFailuresPerAddress);
                     response << false << std::string("Invalid username or password")
-                             << std::string() << std::string();
+                             << std::string() << std::string() << std::string();
                 }
                 else
                 {
-                    if (!isModernPasswordHash(storedHash))
+                    clearLoginFailures(userRateLimitKey);
+                    if (passwordHashNeedsUpgrade(storedHash))
                     {
                         updatePasswordHash(username, password);
                     }
                     ensureStarterInventory(username);
+                    const std::string accessToken = issueAccessToken(username);
                     const std::string rememberToken = rememberMe ? issueRememberToken(username) : std::string();
-                    response << true << std::string("Login successful") << username << rememberToken;
+                    response << true << std::string("Login successful") << username << accessToken << rememberToken;
                     fmt::println("User logged in: {}", username);
                 }
             }
@@ -834,7 +887,7 @@ private:
             response.clear();
             response << static_cast<uint8_t>(MessageType::LoginResponse);
             response << false << std::string("Database error while logging in")
-                     << std::string() << std::string();
+                     << std::string() << std::string() << std::string();
         }
 
         [[maybe_unused]] auto result = client.send(response);
@@ -848,7 +901,7 @@ private:
         if (token.empty())
         {
             response << false << std::string("Saved login is invalid")
-                     << std::string() << std::string();
+                     << std::string() << std::string() << std::string();
             [[maybe_unused]] auto result = client.send(response);
             return;
         }
@@ -858,7 +911,7 @@ private:
             std::lock_guard<std::mutex> lock(databaseMutex);
             deleteExpiredRememberTokens();
 
-            const std::string oldHash = hashRememberToken(token);
+            const std::string oldHash = hashToken(token);
             SQLite::Statement query(
                 *database,
                 "SELECT username FROM remember_tokens "
@@ -869,7 +922,7 @@ private:
             if (!query.executeStep())
             {
                 response << false << std::string("Saved login has expired")
-                         << std::string() << std::string();
+                         << std::string() << std::string() << std::string();
             }
             else
             {
@@ -881,14 +934,15 @@ private:
                     "UPDATE remember_tokens "
                     "SET token_hash = ?, expires_at = ?, last_used_at = ? "
                     "WHERE token_hash = ?");
-                rotate.bind(1, hashRememberToken(replacement));
+                rotate.bind(1, hashToken(replacement));
                 rotate.bind(2, now + RememberTokenLifetimeSeconds);
                 rotate.bind(3, now);
                 rotate.bind(4, oldHash);
                 rotate.exec();
 
                 ensureStarterInventory(username);
-                response << true << std::string("Login successful") << username << replacement;
+                const std::string accessToken = issueAccessToken(username);
+                response << true << std::string("Login successful") << username << accessToken << replacement;
                 fmt::println("User restored from remembered login: {}", username);
             }
         }
@@ -898,23 +952,34 @@ private:
             response.clear();
             response << static_cast<uint8_t>(MessageType::RememberLoginResponse);
             response << false << std::string("Database error while restoring login")
-                     << std::string() << std::string();
+                     << std::string() << std::string() << std::string();
         }
 
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    void handleRevokeRememberToken(sf::TcpSocket& client, const std::string& token)
+    void handleRevokeRememberToken(
+        sf::TcpSocket& client,
+        const std::string& rememberToken,
+        const std::string& accessToken)
     {
         try
         {
-            if (!token.empty())
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            if (!rememberToken.empty())
             {
-                std::lock_guard<std::mutex> lock(databaseMutex);
                 SQLite::Statement revoke(
                     *database,
                     "DELETE FROM remember_tokens WHERE token_hash = ?");
-                revoke.bind(1, hashRememberToken(token));
+                revoke.bind(1, hashToken(rememberToken));
+                revoke.exec();
+            }
+            if (!accessToken.empty())
+            {
+                SQLite::Statement revoke(
+                    *database,
+                    "DELETE FROM access_tokens WHERE token_hash = ?");
+                revoke.bind(1, hashToken(accessToken));
                 revoke.exec();
             }
         }
@@ -1467,6 +1532,37 @@ private:
         return hash.starts_with("$argon2");
     }
 
+    static bool passwordHashNeedsUpgrade(const std::string& hash)
+    {
+        if (!isModernPasswordHash(hash))
+        {
+            return true;
+        }
+
+        return crypto_pwhash_str_needs_rehash(
+            hash.c_str(),
+            crypto_pwhash_OPSLIMIT_INTERACTIVE,
+            crypto_pwhash_MEMLIMIT_INTERACTIVE) != 0;
+    }
+
+    static bool isValidUsername(const std::string& username)
+    {
+        if (username.size() < MinimumUsernameLength || username.size() > MaximumUsernameLength)
+        {
+            return false;
+        }
+
+        return std::all_of(username.begin(), username.end(), [](unsigned char ch) {
+            return std::isalnum(ch) != 0 || ch == '_' || ch == '-';
+        });
+    }
+
+    static bool isValidNewPassword(const std::string& password)
+    {
+        return password.size() >= MinimumPasswordLength &&
+               password.size() <= MaximumPasswordLength;
+    }
+
     static std::string hashPassword(const std::string& password)
     {
         std::array<char, crypto_pwhash_STRBYTES> hash{};
@@ -1480,6 +1576,13 @@ private:
             throw std::runtime_error("Unable to hash password");
         }
         return hash.data();
+    }
+
+    static const std::string& dummyPasswordHash()
+    {
+        static const std::string hash = hashPassword(
+            "not-a-real-account-password-used-only-to-equalize-login-work");
+        return hash;
     }
 
     static bool verifyPassword(const std::string& storedHash, const std::string& password)
@@ -1522,7 +1625,7 @@ private:
         return encoded.data();
     }
 
-    static std::string hashRememberToken(const std::string& token)
+    static std::string hashToken(const std::string& token)
     {
         std::array<unsigned char, crypto_generichash_BYTES> hash{};
         std::array<char, crypto_generichash_BYTES * 2 + 1> encoded{};
@@ -1556,13 +1659,118 @@ private:
             "INSERT INTO remember_tokens "
             "(token_hash, username, expires_at, created_at, last_used_at) "
             "VALUES (?, ?, ?, ?, ?)");
-        insert.bind(1, hashRememberToken(token));
+        insert.bind(1, hashToken(token));
         insert.bind(2, username);
         insert.bind(3, now + RememberTokenLifetimeSeconds);
         insert.bind(4, now);
         insert.bind(5, now);
         insert.exec();
         return token;
+    }
+
+    void deleteExpiredAccessTokens()
+    {
+        SQLite::Statement cleanup(
+            *database,
+            "DELETE FROM access_tokens WHERE expires_at <= ?");
+        cleanup.bind(1, unixTime());
+        cleanup.exec();
+    }
+
+    std::string issueAccessToken(const std::string& username)
+    {
+        deleteExpiredAccessTokens();
+        const std::string token = generateRememberToken();
+        const std::int64_t now = unixTime();
+        SQLite::Statement insert(
+            *database,
+            "INSERT INTO access_tokens "
+            "(token_hash, username, expires_at, created_at, last_used_at) "
+            "VALUES (?, ?, ?, ?, ?)");
+        insert.bind(1, hashToken(token));
+        insert.bind(2, username);
+        insert.bind(3, now + AccessTokenLifetimeSeconds);
+        insert.bind(4, now);
+        insert.bind(5, now);
+        insert.exec();
+        return token;
+    }
+
+    std::optional<std::string> authenticateAccessToken(const std::string& token)
+    {
+        if (token.empty())
+        {
+            return std::nullopt;
+        }
+
+        const std::int64_t now = unixTime();
+        const std::string tokenHash = hashToken(token);
+        std::optional<std::string> username;
+        {
+            SQLite::Statement query(
+                *database,
+                "SELECT username FROM access_tokens WHERE token_hash = ? AND expires_at > ?");
+            query.bind(1, tokenHash);
+            query.bind(2, now);
+            if (!query.executeStep())
+            {
+                return std::nullopt;
+            }
+            username = query.getColumn(0).getString();
+        }
+
+        SQLite::Statement touch(
+            *database,
+            "UPDATE access_tokens SET last_used_at = ? WHERE token_hash = ?");
+        touch.bind(1, now);
+        touch.bind(2, tokenHash);
+        touch.exec();
+        return username;
+    }
+
+    bool isLoginBlocked(const std::string& key)
+    {
+        const std::int64_t now = unixTime();
+        std::lock_guard<std::mutex> lock(loginAttemptMutex);
+        auto found = loginAttempts.find(key);
+        if (found == loginAttempts.end())
+        {
+            return false;
+        }
+
+        LoginAttempt& attempt = found->second;
+        if (attempt.blockedUntil > now)
+        {
+            return true;
+        }
+        if (now - attempt.windowStartedAt >= LoginAttemptWindowSeconds)
+        {
+            loginAttempts.erase(found);
+        }
+        return false;
+    }
+
+    void recordLoginFailure(const std::string& key, int maximumFailures = MaximumLoginFailures)
+    {
+        const std::int64_t now = unixTime();
+        std::lock_guard<std::mutex> lock(loginAttemptMutex);
+        LoginAttempt& attempt = loginAttempts[key];
+        if (attempt.windowStartedAt == 0 || now - attempt.windowStartedAt >= LoginAttemptWindowSeconds)
+        {
+            attempt = LoginAttempt{0, now, 0};
+        }
+
+        ++attempt.failures;
+        if (attempt.failures >= maximumFailures)
+        {
+            attempt.blockedUntil = now + LoginBlockSeconds;
+        }
+    }
+
+    void clearLoginFailures(const std::string& key)
+    {
+        std::lock_guard<std::mutex> lock(loginAttemptMutex);
+        loginAttempts.erase(key);
     }
 };
 

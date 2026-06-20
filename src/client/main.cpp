@@ -203,6 +203,7 @@ struct ServerResult
     std::string message;
     std::shared_ptr<sf::TcpSocket> gameSocket;
     std::string username;
+    std::string accessToken;
     std::string rememberToken;
     bool rejectStoredCredential = false;
 };
@@ -1270,10 +1271,12 @@ ServerResult sendAccountRequest(
     }
 
     std::string authenticatedUsername;
+    std::string accessToken;
     std::string rememberToken;
-    if (requestType == network::MessageType::Login)
+    if (requestType == network::MessageType::Login ||
+        (requestType == network::MessageType::CreateAccount && success))
     {
-        response >> authenticatedUsername >> rememberToken;
+        response >> authenticatedUsername >> accessToken >> rememberToken;
         if (!response)
         {
             socket.disconnect();
@@ -1286,6 +1289,7 @@ ServerResult sendAccountRequest(
     result.success = success;
     result.message = std::move(message);
     result.username = std::move(authenticatedUsername);
+    result.accessToken = std::move(accessToken);
     result.rememberToken = std::move(rememberToken);
     return result;
 }
@@ -1317,8 +1321,9 @@ ServerResult sendRememberLogin(const std::string& token)
     bool success = false;
     std::string message;
     std::string username;
+    std::string accessToken;
     std::string replacementToken;
-    response >> responseType >> success >> message >> username >> replacementToken;
+    response >> responseType >> success >> message >> username >> accessToken >> replacementToken;
     socket.disconnect();
     if (!response ||
         static_cast<network::MessageType>(responseType) != network::MessageType::RememberLoginResponse)
@@ -1330,14 +1335,15 @@ ServerResult sendRememberLogin(const std::string& token)
     result.success = success;
     result.message = std::move(message);
     result.username = std::move(username);
+    result.accessToken = std::move(accessToken);
     result.rememberToken = std::move(replacementToken);
     result.rejectStoredCredential = !success;
     return result;
 }
 
-void revokeRememberToken(const std::string& token)
+void revokeLoginTokens(const std::string& rememberToken, const std::string& accessToken)
 {
-    if (token.empty())
+    if (rememberToken.empty() && accessToken.empty())
     {
         return;
     }
@@ -1349,7 +1355,8 @@ void revokeRememberToken(const std::string& token)
     }
 
     sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::RevokeRememberToken) << token;
+    request << static_cast<std::uint8_t>(network::MessageType::RevokeRememberToken)
+            << rememberToken << accessToken;
     if (socket.send(request) == sf::Socket::Status::Done)
     {
         sf::Packet response;
@@ -1409,7 +1416,7 @@ CardListResult fetchCards()
     return {success, message, cards};
 }
 
-DeckListResult fetchDecks(const std::string& username)
+DeckListResult fetchDecks(const std::string& accessToken)
 {
     sf::TcpSocket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
@@ -1419,7 +1426,7 @@ DeckListResult fetchDecks(const std::string& username)
 
     sf::Packet request;
     request << static_cast<std::uint8_t>(network::MessageType::DeckListRequest);
-    request << username;
+    request << accessToken;
     if (socket.send(request) != sf::Socket::Status::Done)
     {
         socket.disconnect();
@@ -1461,7 +1468,7 @@ DeckListResult fetchDecks(const std::string& username)
     return {success, message, decks};
 }
 
-AccountStateResult fetchAccountState(const std::string& username)
+AccountStateResult fetchAccountState(const std::string& accessToken)
 {
     sf::TcpSocket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
@@ -1471,7 +1478,7 @@ AccountStateResult fetchAccountState(const std::string& username)
 
     sf::Packet request;
     request << static_cast<std::uint8_t>(network::MessageType::AccountStateRequest);
-    request << username;
+    request << accessToken;
     if (socket.send(request) != sf::Socket::Status::Done)
     {
         socket.disconnect();
@@ -1532,7 +1539,7 @@ DeckCommandResult readDeckCommandResponse(
 }
 
 DeckCommandResult saveDeckToAccount(
-    const std::string& username,
+    const std::string& accessToken,
     const std::string& originalName,
     const deck_data::Deck& deck)
 {
@@ -1544,7 +1551,7 @@ DeckCommandResult saveDeckToAccount(
 
     sf::Packet request;
     request << static_cast<std::uint8_t>(network::MessageType::DeckSaveRequest);
-    request << username << originalName;
+    request << accessToken << originalName;
     deck_data::writeDeck(request, deck);
     if (socket.send(request) != sf::Socket::Status::Done)
     {
@@ -1562,7 +1569,7 @@ DeckCommandResult saveDeckToAccount(
     return result;
 }
 
-DeckCommandResult deleteDeckFromAccount(const std::string& username, const std::string& deckName)
+DeckCommandResult deleteDeckFromAccount(const std::string& accessToken, const std::string& deckName)
 {
     deck_data::Deck deck;
     deck.name = deckName;
@@ -1575,7 +1582,7 @@ DeckCommandResult deleteDeckFromAccount(const std::string& username, const std::
 
     sf::Packet request;
     request << static_cast<std::uint8_t>(network::MessageType::DeckDeleteRequest);
-    request << username << deckName;
+    request << accessToken << deckName;
     if (socket.send(request) != sf::Socket::Status::Done)
     {
         socket.disconnect();
@@ -1595,7 +1602,7 @@ DeckCommandResult deleteDeckFromAccount(const std::string& username, const std::
 AccountCommandResult sendCoinCommand(
     network::MessageType requestType,
     network::MessageType expectedResponseType,
-    const std::string& username)
+    const std::string& accessToken)
 {
     sf::TcpSocket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
@@ -1605,7 +1612,7 @@ AccountCommandResult sendCoinCommand(
 
     sf::Packet request;
     request << static_cast<std::uint8_t>(requestType);
-    request << username;
+    request << accessToken;
     if (socket.send(request) != sf::Socket::Status::Done)
     {
         socket.disconnect();
@@ -1634,15 +1641,15 @@ AccountCommandResult sendCoinCommand(
     return {success, message, coins};
 }
 
-AccountCommandResult claimWinReward(const std::string& username)
+AccountCommandResult claimWinReward(const std::string& accessToken)
 {
     return sendCoinCommand(
         network::MessageType::WinRewardRequest,
         network::MessageType::WinRewardResponse,
-        username);
+        accessToken);
 }
 
-AccountCommandResult purchaseRandomCard(const std::string& username)
+AccountCommandResult purchaseRandomCard(const std::string& accessToken)
 {
     sf::TcpSocket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
@@ -1652,7 +1659,7 @@ AccountCommandResult purchaseRandomCard(const std::string& username)
 
     sf::Packet request;
     request << static_cast<std::uint8_t>(network::MessageType::ShopPurchaseRequest);
-    request << username;
+    request << accessToken;
     if (socket.send(request) != sf::Socket::Status::Done)
     {
         socket.disconnect();
@@ -1683,7 +1690,7 @@ AccountCommandResult purchaseRandomCard(const std::string& username)
 }
 
 AdminUsersLoadResult loadAdminUsers(
-    const std::string& username,
+    const std::string& accessToken,
     const std::string& search,
     std::uint32_t page,
     std::uint32_t pageSize)
@@ -1696,7 +1703,7 @@ AdminUsersLoadResult loadAdminUsers(
 
     sf::Packet request;
     request << static_cast<std::uint8_t>(network::MessageType::AdminUserListRequest);
-    request << username << search << page << pageSize;
+    request << accessToken << search << page << pageSize;
     if (socket.send(request) != sf::Socket::Status::Done)
     {
         socket.disconnect();
@@ -1743,7 +1750,7 @@ AdminUsersLoadResult loadAdminUsers(
 }
 
 AdminUserPrivilegeResult updateAdminUserPrivilege(
-    const std::string& username,
+    const std::string& accessToken,
     const std::string& targetUsername,
     bool makeAdmin)
 {
@@ -1755,7 +1762,7 @@ AdminUserPrivilegeResult updateAdminUserPrivilege(
 
     sf::Packet request;
     request << static_cast<std::uint8_t>(network::MessageType::AdminUserPrivilegeRequest);
-    request << username << targetUsername << makeAdmin;
+    request << accessToken << targetUsername << makeAdmin;
     if (socket.send(request) != sf::Socket::Status::Done)
     {
         socket.disconnect();
@@ -1785,7 +1792,7 @@ AdminUserPrivilegeResult updateAdminUserPrivilege(
     return {success, message, targetIsAdmin};
 }
 
-DeckEditorLoadResult loadDeckEditorData(const std::string& username)
+DeckEditorLoadResult loadDeckEditorData(const std::string& accessToken)
 {
     CardListResult cardResult = fetchCards();
     if (!cardResult.success)
@@ -1793,13 +1800,13 @@ DeckEditorLoadResult loadDeckEditorData(const std::string& username)
         return {false, cardResult.message};
     }
 
-    AccountStateResult accountResult = fetchAccountState(username);
+    AccountStateResult accountResult = fetchAccountState(accessToken);
     if (!accountResult.success)
     {
         return {false, accountResult.message};
     }
 
-    DeckListResult deckResult = fetchDecks(username);
+    DeckListResult deckResult = fetchDecks(accessToken);
     if (!deckResult.success)
     {
         return {
@@ -1824,7 +1831,7 @@ DeckEditorLoadResult loadDeckEditorData(const std::string& username)
         std::move(accountResult.collection)};
 }
 
-ShopLoadResult loadShopData(const std::string& username)
+ShopLoadResult loadShopData(const std::string& accessToken)
 {
     CardListResult cardResult = fetchCards();
     if (!cardResult.success)
@@ -1832,7 +1839,7 @@ ShopLoadResult loadShopData(const std::string& username)
         return {false, cardResult.message};
     }
 
-    AccountStateResult accountResult = fetchAccountState(username);
+    AccountStateResult accountResult = fetchAccountState(accessToken);
     if (!accountResult.success)
     {
         return {false, accountResult.message, std::move(cardResult.cards)};
@@ -2175,6 +2182,7 @@ int main(int argc, char** argv)
     InputBox adminSearchInput({120.0f, 94.0f}, {520.0f, 36.0f}, "Search users", font);
 
     Button rememberMeButton({300.0f, 280.0f}, {200.0f, 42.0f}, "Remember Me: Off", font);
+    Button passwordVisibilityButton({520.0f, 220.0f}, {180.0f, 40.0f}, "Show Password", font);
     Button loginSubmitButton({300.0f, 342.0f}, {200.0f, 50.0f}, "Login", font);
     Button createSubmitButton({300.0f, 380.0f}, {200.0f, 50.0f}, "Create Account", font);
     Button backButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Back", font);
@@ -2250,8 +2258,10 @@ int main(int argc, char** argv)
     float coinPurchasePollDeadline = 0.0f;
     std::shared_ptr<sf::TcpSocket> activeGameSocket;
     std::string loggedInUsername;
+    std::string activeAccessToken;
     std::string activeRememberToken;
     bool rememberMeChecked = false;
+    bool passwordVisible = false;
     bool pendingAutoLogin = false;
     bool pendingRememberRequested = false;
     std::vector<card_data::Card> cardLibrary;
@@ -2478,6 +2488,7 @@ int main(int argc, char** argv)
             activeGameSocket.reset();
         }
         loggedInUsername.clear();
+        activeAccessToken.clear();
         cardLibrary.clear();
         allCardLibrary.clear();
         playerDecks.clear();
@@ -2539,7 +2550,7 @@ int main(int argc, char** argv)
         clearFocus();
         if (!loggedInUsername.empty())
         {
-            pendingAccountState = std::async(std::launch::async, fetchAccountState, loggedInUsername);
+            pendingAccountState = std::async(std::launch::async, fetchAccountState, activeAccessToken);
         }
     };
 
@@ -2562,7 +2573,7 @@ int main(int argc, char** argv)
         pendingAdminUsersLoad = std::async(
             std::launch::async,
             loadAdminUsers,
-            loggedInUsername,
+            activeAccessToken,
             adminSearchQuery,
             adminUsersPage,
             adminUsersPageSize);
@@ -2684,7 +2695,7 @@ int main(int argc, char** argv)
         deckCardListOffset = 0;
         libraryOffset = 0;
         deckNameInput.clear();
-        pendingDeckEditorLoad = std::async(std::launch::async, loadDeckEditorData, loggedInUsername);
+        pendingDeckEditorLoad = std::async(std::launch::async, loadDeckEditorData, activeAccessToken);
     };
 
     auto deckEditorBusy = [&]() {
@@ -2702,7 +2713,7 @@ int main(int argc, char** argv)
         revealedCardTitle.reset();
         revealStartedAt = 0.0f;
         coinPurchasePolling = false;
-        pendingShopLoad = std::async(std::launch::async, loadShopData, loggedInUsername);
+        pendingShopLoad = std::async(std::launch::async, loadShopData, activeAccessToken);
     };
 
     auto shopBusy = [&]() {
@@ -2711,7 +2722,7 @@ int main(int argc, char** argv)
 
     auto refreshShop = [&]() {
         setMessage(messageText, "Refreshing coins...", sf::Color::Yellow);
-        pendingShopLoad = std::async(std::launch::async, loadShopData, loggedInUsername);
+        pendingShopLoad = std::async(std::launch::async, loadShopData, activeAccessToken);
     };
 
     auto submitLogin = [&]() {
@@ -2729,10 +2740,20 @@ int main(int argc, char** argv)
         rememberMeButton.setLabel(rememberMeChecked ? "Remember Me: On" : "Remember Me: Off");
     };
 
+    auto updatePasswordVisibility = [&]() {
+        passwordInput.setPasswordMode(!passwordVisible);
+        confirmInput.setPasswordMode(!passwordVisible);
+        passwordVisibilityButton.setLabel(passwordVisible ? "Hide Password" : "Show Password");
+    };
+
     auto submitCreateAccount = [&]() {
         if (usernameInput.getContent().empty() || passwordInput.getContent().empty())
         {
             setMessage(messageText, "Username and password cannot be empty", sf::Color::Red);
+        }
+        else if (passwordInput.getContent().size() < 15 || passwordInput.getContent().size() > 128)
+        {
+            setMessage(messageText, "Password must be 15-128 characters", sf::Color::Red);
         }
         else if (passwordInput.getContent() != confirmInput.getContent())
         {
@@ -2838,7 +2859,7 @@ int main(int argc, char** argv)
         }
 
         setMessage(messageText, "Saving deck...", sf::Color::Yellow);
-        pendingDeckSave = std::async(std::launch::async, saveDeckToAccount, loggedInUsername, activeDeckOriginalName, deck);
+        pendingDeckSave = std::async(std::launch::async, saveDeckToAccount, activeAccessToken, activeDeckOriginalName, deck);
     };
 
     auto deleteCurrentDeck = [&]() {
@@ -2854,7 +2875,7 @@ int main(int argc, char** argv)
         }
 
         setMessage(messageText, "Deleting deck...", sf::Color::Yellow);
-        pendingDeckDelete = std::async(std::launch::async, deleteDeckFromAccount, loggedInUsername, activeDeckOriginalName);
+        pendingDeckDelete = std::async(std::launch::async, deleteDeckFromAccount, activeAccessToken, activeDeckOriginalName);
     };
 
     auto addLibraryCardToDeck = [&](std::size_t libraryIndex, const std::string& message) {
@@ -3070,7 +3091,7 @@ int main(int argc, char** argv)
         deckListOffset = 0;
         setMessageY(messageText, 524.0f);
         setMessage(messageText, "Loading decks...", sf::Color::Yellow);
-        pendingPlayLoad = std::async(std::launch::async, loadDeckEditorData, loggedInUsername);
+        pendingPlayLoad = std::async(std::launch::async, loadDeckEditorData, activeAccessToken);
     };
 
     auto findMatch = [&]() {
@@ -4067,7 +4088,7 @@ int main(int argc, char** argv)
                     {
                         winRewardRequested = true;
                         gameRewardText = "Awarding +10 coins...";
-                        pendingWinReward = std::async(std::launch::async, claimWinReward, loggedInUsername);
+                        pendingWinReward = std::async(std::launch::async, claimWinReward, activeAccessToken);
                     }
                 }
             }
@@ -5034,6 +5055,7 @@ int main(int argc, char** argv)
             if (result.success)
             {
                 loggedInUsername = result.username.empty() ? usernameInput.getContent() : result.username;
+                activeAccessToken = std::move(result.accessToken);
                 bool rememberSaveFailed = false;
                 if (!result.rememberToken.empty())
                 {
@@ -5135,7 +5157,7 @@ int main(int argc, char** argv)
             {
                 nextCoinPurchasePollAt = animationTime + CoinPurchasePollIntervalSeconds;
                 setMessage(messageText, "Checking for completed payment...", sf::Color::Yellow);
-                pendingShopLoad = std::async(std::launch::async, loadShopData, loggedInUsername);
+                pendingShopLoad = std::async(std::launch::async, loadShopData, activeAccessToken);
             }
         }
 
@@ -5409,7 +5431,9 @@ int main(int argc, char** argv)
                         setMessageY(messageText, 450.0f);
                         resetForm(usernameInput, passwordInput, confirmInput, messageText);
                         rememberMeChecked = false;
+                        passwordVisible = false;
                         updateRememberMeLabel();
+                        updatePasswordVisibility();
                         focusLoginInput(0);
                     }
                     else if (createButton.isClicked(clickPos))
@@ -5419,6 +5443,8 @@ int main(int argc, char** argv)
                         centerText(title, 400.0f);
                         setMessageY(messageText, 450.0f);
                         resetForm(usernameInput, passwordInput, confirmInput, messageText);
+                        passwordVisible = false;
+                        updatePasswordVisibility();
                         focusCreateInput(0);
                     }
                     else if (menuOptionsButton.isClicked(clickPos))
@@ -5485,6 +5511,11 @@ int main(int argc, char** argv)
                         rememberMeChecked = !rememberMeChecked;
                         updateRememberMeLabel();
                     }
+                    else if (passwordVisibilityButton.isClicked(clickPos))
+                    {
+                        passwordVisible = !passwordVisible;
+                        updatePasswordVisibility();
+                    }
                     else if (usernameInput.contains(clickPos))
                     {
                         focusLoginInput(0);
@@ -5507,6 +5538,11 @@ int main(int argc, char** argv)
                     else if (createSubmitButton.isClicked(clickPos))
                     {
                         submitCreateAccount();
+                    }
+                    else if (passwordVisibilityButton.isClicked(clickPos))
+                    {
+                        passwordVisible = !passwordVisible;
+                        updatePasswordVisibility();
                     }
                     else if (usernameInput.contains(clickPos))
                     {
@@ -5554,12 +5590,17 @@ int main(int argc, char** argv)
                     }
                     else if (logoutButton.isClicked(clickPos))
                     {
-                        const std::string tokenToRevoke = activeRememberToken;
+                        const std::string rememberTokenToRevoke = activeRememberToken;
+                        const std::string accessTokenToRevoke = activeAccessToken;
                         activeRememberToken.clear();
                         clearRememberToken();
-                        if (!tokenToRevoke.empty())
+                        if (!rememberTokenToRevoke.empty() || !accessTokenToRevoke.empty())
                         {
-                            pendingLogout = std::async(std::launch::async, revokeRememberToken, tokenToRevoke);
+                            pendingLogout = std::async(
+                                std::launch::async,
+                                revokeLoginTokens,
+                                rememberTokenToRevoke,
+                                accessTokenToRevoke);
                         }
                         returnToMenu();
                     }
@@ -5606,7 +5647,7 @@ int main(int argc, char** argv)
                                     pendingAdminPrivilege = std::async(
                                         std::launch::async,
                                         updateAdminUserPrivilege,
-                                        loggedInUsername,
+                                        activeAccessToken,
                                         targetUsername,
                                         false);
                                     setMessage(messageText, "Revoking admin privilege...", sf::Color::Yellow);
@@ -5618,7 +5659,7 @@ int main(int argc, char** argv)
                             pendingAdminPrivilege = std::async(
                                 std::launch::async,
                                 updateAdminUserPrivilege,
-                                loggedInUsername,
+                                activeAccessToken,
                                 targetUsername,
                                 true);
                             setMessage(messageText, "Granting admin privilege...", sf::Color::Yellow);
@@ -5852,7 +5893,7 @@ int main(int argc, char** argv)
                         else
                         {
                             setMessage(messageText, "Opening card...", sf::Color::Yellow);
-                            pendingShopPurchase = std::async(std::launch::async, purchaseRandomCard, loggedInUsername);
+                            pendingShopPurchase = std::async(std::launch::async, purchaseRandomCard, activeAccessToken);
                         }
                     }
                 }
@@ -6130,6 +6171,7 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Login)
         {
             rememberMeButton.update(mousePos);
+            passwordVisibilityButton.update(mousePos);
             loginSubmitButton.update(mousePos);
             backButton.update(mousePos);
             usernameInput.updateCursor(deltaTime);
@@ -6137,6 +6179,7 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::CreateAccount)
         {
+            passwordVisibilityButton.update(mousePos);
             createSubmitButton.update(mousePos);
             backButton.update(mousePos);
             usernameInput.updateCursor(deltaTime);
@@ -6264,6 +6307,7 @@ int main(int argc, char** argv)
         {
             usernameInput.draw(window);
             passwordInput.draw(window);
+            passwordVisibilityButton.draw(window);
             rememberMeButton.draw(window);
             loginSubmitButton.draw(window);
             backButton.draw(window);
@@ -6274,6 +6318,7 @@ int main(int argc, char** argv)
             usernameInput.draw(window);
             passwordInput.draw(window);
             confirmInput.draw(window);
+            passwordVisibilityButton.draw(window);
             createSubmitButton.draw(window);
             backButton.draw(window);
             window.draw(messageText);

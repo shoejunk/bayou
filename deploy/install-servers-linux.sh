@@ -25,14 +25,15 @@ if ! id -u "${APP_USER}" >/dev/null 2>&1; then
     useradd --system --home-dir "${DATA_DIR}" --shell /usr/sbin/nologin "${APP_USER}"
 fi
 
-install -d -m 0755 "${RELEASE_DIR}/bin" "${DATA_DIR}"
+install -d -m 0755 "${RELEASE_DIR}/bin"
+install -d -m 0700 -o "${APP_USER}" -g "${APP_USER}" "${DATA_DIR}"
 for executable in accounts cardserver gameserver matchmaking; do
     install -m 0755 "${SOURCE_PREFIX}/bin/${executable}" "${RELEASE_DIR}/bin/${executable}"
 done
 
 for database in accounts.db cards.db; do
     if [[ ! -f "${DATA_DIR}/${database}" && -f "${REPO_ROOT}/${database}" ]]; then
-        install -m 0640 -o "${APP_USER}" -g "${APP_USER}" \
+        install -m 0600 -o "${APP_USER}" -g "${APP_USER}" \
             "${REPO_ROOT}/${database}" "${DATA_DIR}/${database}"
     fi
 done

@@ -78,6 +78,9 @@ struct LoginResponse
 {
     bool success = false;
     std::string message;
+    std::string username;
+    std::string accessToken;
+    std::string rememberToken;
 };
 
 struct MatchFoundResponse

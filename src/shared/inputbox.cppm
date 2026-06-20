@@ -253,6 +253,12 @@ export struct InputBox
     const std::string& getContent() const { return content; }
     const std::string& getValue() const { return content; }
 
+    void setPasswordMode(bool password)
+    {
+        isPassword = password;
+        refreshText();
+    }
+
     void setContent(const std::string& value)
     {
         setValue(value);

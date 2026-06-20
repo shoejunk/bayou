@@ -1,15 +1,23 @@
+import os
 import sqlite3
 
-def fnv1a(password: str) -> str:
-    h = 14695981039346656037
-    mask = 0xFFFFFFFFFFFFFFFF
-    for ch in password.encode('utf-8'):
-        h ^= ch
-        h = (h * 1099511628211) & mask
-    return f"{h:016x}"
+from argon2 import PasswordHasher
+from argon2.low_level import Type
 
-pw = fnv1a("test1234")
-print("hash(test1234) =", pw)
+password = os.environ.get("BAYOU_SEED_PASSWORD", "")
+if not 15 <= len(password) <= 128:
+    raise SystemExit("Set BAYOU_SEED_PASSWORD to a 15-128 character development password.")
+
+admin_username = os.environ.get("BAYOU_SEED_ADMIN_USERNAME", "").strip()
+password_hasher = PasswordHasher(
+    time_cost=2,
+    memory_cost=65536,
+    parallelism=1,
+    hash_len=32,
+    salt_len=16,
+    type=Type.ID,
+)
+pw = password_hasher.hash(password)
 
 con = sqlite3.connect("accounts.db")
 cur = con.cursor()
@@ -104,8 +112,11 @@ bravo_deck = ["Gear Knight", "Marsh Witch"] + cards40
 set_collection("bravo", bravo_deck)
 set_deck("bravo", "Knight Coven", bravo_deck)  # 2 heroes, cost 9
 
-ensure_account("shoejunk", is_admin=True)
+if admin_username:
+    ensure_account(admin_username, is_admin=True)
 
 con.commit()
 con.close()
-print("Seeded accounts alpha/bravo (password test1234) with collections, coins, and valid decks.")
+print("Seeded development accounts alpha/bravo with collections, coins, and valid decks.")
+if admin_username:
+    print(f"Seeded admin account: {admin_username}")
