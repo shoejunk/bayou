@@ -1,18 +1,22 @@
 #include <SFML/Network.hpp>
 #include <SQLiteCpp/SQLiteCpp.h>
 #include <fmt/core.h>
+#include <sodium.h>
 
 #include "../shared/account_data.hpp"
 #include "../shared/deck_data.hpp"
 
 #include <atomic>
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cstdint>
 #include <exception>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -29,6 +33,7 @@ constexpr int WinRewardCoins = 10;
 constexpr int ShopCardCost = 5;
 constexpr const char* StarterDeckName = "Starter Deck";
 constexpr const char* PreferredStarterHero = "Steam Baron";
+constexpr std::int64_t RememberTokenLifetimeSeconds = 30LL * 24LL * 60LL * 60LL;
 
 struct ShopCardEntry
 {
@@ -92,6 +97,12 @@ public:
     AccountServer(unsigned short port)
         : listener(std::make_unique<sf::TcpListener>())
     {
+        if (sodium_init() < 0)
+        {
+            fmt::println("Failed to initialize cryptography");
+            return;
+        }
+
         try
         {
             database = std::make_unique<SQLite::Database>("accounts.db", SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
@@ -191,6 +202,18 @@ private:
             "PRIMARY KEY(username, card_title),"
             "FOREIGN KEY(username) REFERENCES accounts(username) ON DELETE CASCADE"
             ")");
+        database->exec(
+            "CREATE TABLE IF NOT EXISTS remember_tokens ("
+            "token_hash TEXT PRIMARY KEY NOT NULL,"
+            "username TEXT NOT NULL,"
+            "expires_at INTEGER NOT NULL,"
+            "created_at INTEGER NOT NULL,"
+            "last_used_at INTEGER NOT NULL,"
+            "FOREIGN KEY(username) REFERENCES accounts(username) ON DELETE CASCADE"
+            ")");
+        database->exec(
+            "CREATE INDEX IF NOT EXISTS remember_tokens_username_idx "
+            "ON remember_tokens(username)");
     }
 
     void handleClient(std::unique_ptr<sf::TcpSocket> client)
@@ -220,8 +243,23 @@ private:
                 case MessageType::Login:
                 {
                     std::string username, password;
-                    packet >> username >> password;
-                    handleLogin(*client, username, password);
+                    bool rememberMe = false;
+                    packet >> username >> password >> rememberMe;
+                    handleLogin(*client, username, password, rememberMe);
+                    break;
+                }
+                case MessageType::RememberLogin:
+                {
+                    std::string token;
+                    packet >> token;
+                    handleRememberLogin(*client, token);
+                    break;
+                }
+                case MessageType::RevokeRememberToken:
+                {
+                    std::string token;
+                    packet >> token;
+                    handleRevokeRememberToken(*client, token);
                     break;
                 }
                 case MessageType::DeckListRequest:
@@ -587,19 +625,22 @@ private:
         }
     }
 
-    void handleLogin(sf::TcpSocket& client, const std::string& username, const std::string& password)
+    void handleLogin(
+        sf::TcpSocket& client,
+        const std::string& username,
+        const std::string& password,
+        bool rememberMe)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::LoginResponse);
 
         if (username.empty() || password.empty())
         {
-            response << false << std::string("Username and password cannot be empty");
+            response << false << std::string("Username and password cannot be empty")
+                     << std::string() << std::string();
             [[maybe_unused]] auto result = client.send(response);
             return;
         }
-
-        const std::string passwordHash = hashPassword(password);
 
         try
         {
@@ -611,17 +652,28 @@ private:
 
             if (!query.executeStep())
             {
-                response << false << std::string("Username not found");
-            }
-            else if (query.getColumn(0).getString() != passwordHash)
-            {
-                response << false << std::string("Invalid password");
+                response << false << std::string("Invalid username or password")
+                         << std::string() << std::string();
             }
             else
             {
-                ensureStarterInventory(username);
-                response << true << std::string("Login successful");
-                fmt::println("User logged in: {}", username);
+                const std::string storedHash = query.getColumn(0).getString();
+                if (!verifyPassword(storedHash, password))
+                {
+                    response << false << std::string("Invalid username or password")
+                             << std::string() << std::string();
+                }
+                else
+                {
+                    if (!isModernPasswordHash(storedHash))
+                    {
+                        updatePasswordHash(username, password);
+                    }
+                    ensureStarterInventory(username);
+                    const std::string rememberToken = rememberMe ? issueRememberToken(username) : std::string();
+                    response << true << std::string("Login successful") << username << rememberToken;
+                    fmt::println("User logged in: {}", username);
+                }
             }
         }
         catch (const std::exception& error)
@@ -629,9 +681,98 @@ private:
             fmt::println("Database error while logging in: {}", error.what());
             response.clear();
             response << static_cast<uint8_t>(MessageType::LoginResponse);
-            response << false << std::string("Database error while logging in");
+            response << false << std::string("Database error while logging in")
+                     << std::string() << std::string();
         }
 
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleRememberLogin(sf::TcpSocket& client, const std::string& token)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::RememberLoginResponse);
+
+        if (token.empty())
+        {
+            response << false << std::string("Saved login is invalid")
+                     << std::string() << std::string();
+            [[maybe_unused]] auto result = client.send(response);
+            return;
+        }
+
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            deleteExpiredRememberTokens();
+
+            const std::string oldHash = hashRememberToken(token);
+            SQLite::Statement query(
+                *database,
+                "SELECT username FROM remember_tokens "
+                "WHERE token_hash = ? AND expires_at > ?");
+            query.bind(1, oldHash);
+            query.bind(2, unixTime());
+
+            if (!query.executeStep())
+            {
+                response << false << std::string("Saved login has expired")
+                         << std::string() << std::string();
+            }
+            else
+            {
+                const std::string username = query.getColumn(0).getString();
+                const std::string replacement = generateRememberToken();
+                const std::int64_t now = unixTime();
+                SQLite::Statement rotate(
+                    *database,
+                    "UPDATE remember_tokens "
+                    "SET token_hash = ?, expires_at = ?, last_used_at = ? "
+                    "WHERE token_hash = ?");
+                rotate.bind(1, hashRememberToken(replacement));
+                rotate.bind(2, now + RememberTokenLifetimeSeconds);
+                rotate.bind(3, now);
+                rotate.bind(4, oldHash);
+                rotate.exec();
+
+                ensureStarterInventory(username);
+                response << true << std::string("Login successful") << username << replacement;
+                fmt::println("User restored from remembered login: {}", username);
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while restoring login: {}", error.what());
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::RememberLoginResponse);
+            response << false << std::string("Database error while restoring login")
+                     << std::string() << std::string();
+        }
+
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleRevokeRememberToken(sf::TcpSocket& client, const std::string& token)
+    {
+        try
+        {
+            if (!token.empty())
+            {
+                std::lock_guard<std::mutex> lock(databaseMutex);
+                SQLite::Statement revoke(
+                    *database,
+                    "DELETE FROM remember_tokens WHERE token_hash = ?");
+                revoke.bind(1, hashRememberToken(token));
+                revoke.exec();
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while revoking remembered login: {}", error.what());
+        }
+
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::RevokeRememberTokenResponse) << true;
         [[maybe_unused]] auto result = client.send(response);
     }
 
@@ -1138,7 +1279,13 @@ private:
         transaction.commit();
     }
 
-    static std::string hashPassword(const std::string& password)
+    static std::int64_t unixTime()
+    {
+        return std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    }
+
+    static std::string legacyPasswordHash(const std::string& password)
     {
         std::uint64_t hash = 14695981039346656037ull;
         for (unsigned char c : password)
@@ -1148,6 +1295,109 @@ private:
         }
 
         return fmt::format("{:016x}", hash);
+    }
+
+    static bool isModernPasswordHash(const std::string& hash)
+    {
+        return hash.starts_with("$argon2");
+    }
+
+    static std::string hashPassword(const std::string& password)
+    {
+        std::array<char, crypto_pwhash_STRBYTES> hash{};
+        if (crypto_pwhash_str(
+                hash.data(),
+                password.data(),
+                static_cast<unsigned long long>(password.size()),
+                crypto_pwhash_OPSLIMIT_INTERACTIVE,
+                crypto_pwhash_MEMLIMIT_INTERACTIVE) != 0)
+        {
+            throw std::runtime_error("Unable to hash password");
+        }
+        return hash.data();
+    }
+
+    static bool verifyPassword(const std::string& storedHash, const std::string& password)
+    {
+        if (!isModernPasswordHash(storedHash))
+        {
+            const std::string expected = legacyPasswordHash(password);
+            if (storedHash.size() != expected.size())
+            {
+                return false;
+            }
+            return sodium_memcmp(
+                storedHash.data(),
+                expected.data(),
+                expected.size()) == 0;
+        }
+
+        return crypto_pwhash_str_verify(
+            storedHash.c_str(),
+            password.data(),
+            static_cast<unsigned long long>(password.size())) == 0;
+    }
+
+    void updatePasswordHash(const std::string& username, const std::string& password)
+    {
+        SQLite::Statement update(
+            *database,
+            "UPDATE accounts SET password_hash = ? WHERE username = ?");
+        update.bind(1, hashPassword(password));
+        update.bind(2, username);
+        update.exec();
+    }
+
+    static std::string generateRememberToken()
+    {
+        std::array<unsigned char, 32> bytes{};
+        std::array<char, 65> encoded{};
+        randombytes_buf(bytes.data(), bytes.size());
+        sodium_bin2hex(encoded.data(), encoded.size(), bytes.data(), bytes.size());
+        return encoded.data();
+    }
+
+    static std::string hashRememberToken(const std::string& token)
+    {
+        std::array<unsigned char, crypto_generichash_BYTES> hash{};
+        std::array<char, crypto_generichash_BYTES * 2 + 1> encoded{};
+        crypto_generichash(
+            hash.data(),
+            hash.size(),
+            reinterpret_cast<const unsigned char*>(token.data()),
+            static_cast<unsigned long long>(token.size()),
+            nullptr,
+            0);
+        sodium_bin2hex(encoded.data(), encoded.size(), hash.data(), hash.size());
+        return encoded.data();
+    }
+
+    void deleteExpiredRememberTokens()
+    {
+        SQLite::Statement cleanup(
+            *database,
+            "DELETE FROM remember_tokens WHERE expires_at <= ?");
+        cleanup.bind(1, unixTime());
+        cleanup.exec();
+    }
+
+    std::string issueRememberToken(const std::string& username)
+    {
+        deleteExpiredRememberTokens();
+        const std::string token = generateRememberToken();
+        const std::int64_t now = unixTime();
+        SQLite::Statement insert(
+            *database,
+            "INSERT INTO remember_tokens "
+            "(token_hash, username, expires_at, created_at, last_used_at) "
+            "VALUES (?, ?, ?, ?, ?)");
+        insert.bind(1, hashRememberToken(token));
+        insert.bind(2, username);
+        insert.bind(3, now + RememberTokenLifetimeSeconds);
+        insert.bind(4, now);
+        insert.bind(5, now);
+        insert.exec();
+        return token;
     }
 };
 

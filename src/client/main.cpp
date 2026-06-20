@@ -29,6 +29,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <wincrypt.h>
 #include <shellapi.h>
 #endif
 
@@ -130,6 +131,7 @@ constexpr float GameDragStartDistanceSquared = 36.0f;
 constexpr float LogicalWidth = 800.0f;
 constexpr float LogicalHeight = 600.0f;
 constexpr const char* DisplaySettingsFileName = "display.cfg";
+constexpr const char* RememberTokenFileName = "remember_me.dat";
 
 struct ServerEndpoint
 {
@@ -196,6 +198,9 @@ struct ServerResult
     bool success = false;
     std::string message;
     std::shared_ptr<sf::TcpSocket> gameSocket;
+    std::string username;
+    std::string rememberToken;
+    bool rejectStoredCredential = false;
 };
 
 struct CardListResult
@@ -310,6 +315,146 @@ std::filesystem::path displaySettingsPath()
         return executableDirectory / DisplaySettingsFileName;
     }
     return DisplaySettingsFileName;
+}
+
+std::filesystem::path userDataPath(const char* fileName)
+{
+#ifdef _WIN32
+    if (const char* appData = std::getenv("APPDATA"); appData && *appData)
+    {
+        return std::filesystem::path(appData) / "SteamTactics" / fileName;
+    }
+#else
+    if (const char* home = std::getenv("HOME"); home && *home)
+    {
+        return std::filesystem::path(home) / ".config" / "SteamTactics" / fileName;
+    }
+#endif
+
+    if (!executableDirectory.empty())
+    {
+        return executableDirectory / fileName;
+    }
+    return fileName;
+}
+
+std::filesystem::path rememberTokenPath()
+{
+    return userDataPath(RememberTokenFileName);
+}
+
+bool saveRememberToken(const std::string& token)
+{
+    if (token.empty())
+    {
+        return false;
+    }
+
+    std::vector<std::uint8_t> stored;
+#ifdef _WIN32
+    DATA_BLOB plaintext{
+        static_cast<DWORD>(token.size()),
+        reinterpret_cast<BYTE*>(const_cast<char*>(token.data()))};
+    DATA_BLOB protectedData{};
+    if (!CryptProtectData(
+            &plaintext,
+            L"Steam Tactics remembered login",
+            nullptr,
+            nullptr,
+            nullptr,
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &protectedData))
+    {
+        return false;
+    }
+    stored.assign(protectedData.pbData, protectedData.pbData + protectedData.cbData);
+    LocalFree(protectedData.pbData);
+#else
+    stored.assign(token.begin(), token.end());
+#endif
+
+    const std::filesystem::path path = rememberTokenPath();
+    std::error_code error;
+    if (path.has_parent_path())
+    {
+        std::filesystem::create_directories(path.parent_path(), error);
+        if (error)
+        {
+            return false;
+        }
+    }
+
+    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+    if (!stream)
+    {
+        return false;
+    }
+    stream.write(
+        reinterpret_cast<const char*>(stored.data()),
+        static_cast<std::streamsize>(stored.size()));
+    stream.close();
+    if (!stream)
+    {
+        return false;
+    }
+
+#ifndef _WIN32
+    std::filesystem::permissions(
+        path,
+        std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
+        std::filesystem::perm_options::replace,
+        error);
+#endif
+    return true;
+}
+
+std::optional<std::string> loadRememberToken()
+{
+    std::ifstream stream(rememberTokenPath(), std::ios::binary);
+    if (!stream)
+    {
+        return std::nullopt;
+    }
+
+    std::vector<std::uint8_t> stored(
+        (std::istreambuf_iterator<char>(stream)),
+        std::istreambuf_iterator<char>());
+    if (stored.empty())
+    {
+        return std::nullopt;
+    }
+
+#ifdef _WIN32
+    DATA_BLOB protectedData{
+        static_cast<DWORD>(stored.size()),
+        reinterpret_cast<BYTE*>(stored.data())};
+    DATA_BLOB plaintext{};
+    if (!CryptUnprotectData(
+            &protectedData,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &plaintext))
+    {
+        return std::nullopt;
+    }
+    std::string token(
+        reinterpret_cast<const char*>(plaintext.pbData),
+        plaintext.cbData);
+    SecureZeroMemory(plaintext.pbData, plaintext.cbData);
+    LocalFree(plaintext.pbData);
+    return token.empty() ? std::nullopt : std::optional<std::string>(std::move(token));
+#else
+    return std::string(stored.begin(), stored.end());
+#endif
+}
+
+void clearRememberToken()
+{
+    std::error_code error;
+    std::filesystem::remove(rememberTokenPath(), error);
 }
 
 DisplaySettings loadDisplaySettings()
@@ -1060,7 +1205,8 @@ ServerResult sendAccountRequest(
     network::MessageType requestType,
     network::MessageType expectedResponseType,
     const std::string& username,
-    const std::string& password)
+    const std::string& password,
+    bool rememberMe = false)
 {
     sf::TcpSocket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
@@ -1072,6 +1218,10 @@ ServerResult sendAccountRequest(
     packet << static_cast<uint8_t>(requestType);
     packet << username;
     packet << password;
+    if (requestType == network::MessageType::Login)
+    {
+        packet << rememberMe;
+    }
 
     if (socket.send(packet) != sf::Socket::Status::Done)
     {
@@ -1097,8 +1247,93 @@ ServerResult sendAccountRequest(
         return {false, "Unexpected account server response"};
     }
 
+    std::string authenticatedUsername;
+    std::string rememberToken;
+    if (requestType == network::MessageType::Login)
+    {
+        response >> authenticatedUsername >> rememberToken;
+        if (!response)
+        {
+            socket.disconnect();
+            return {false, "Invalid account server response"};
+        }
+    }
+
     sendDisconnect(socket);
-    return {success, message};
+    ServerResult result;
+    result.success = success;
+    result.message = std::move(message);
+    result.username = std::move(authenticatedUsername);
+    result.rememberToken = std::move(rememberToken);
+    return result;
+}
+
+ServerResult sendRememberLogin(const std::string& token)
+{
+    sf::TcpSocket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {false, "Could not restore saved login; account server is unavailable"};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::RememberLogin) << token;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Could not restore saved login"};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Could not restore saved login"};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    std::string username;
+    std::string replacementToken;
+    response >> responseType >> success >> message >> username >> replacementToken;
+    socket.disconnect();
+    if (!response ||
+        static_cast<network::MessageType>(responseType) != network::MessageType::RememberLoginResponse)
+    {
+        return {false, "Unexpected account server response"};
+    }
+
+    ServerResult result;
+    result.success = success;
+    result.message = std::move(message);
+    result.username = std::move(username);
+    result.rememberToken = std::move(replacementToken);
+    result.rejectStoredCredential = !success;
+    return result;
+}
+
+void revokeRememberToken(const std::string& token)
+{
+    if (token.empty())
+    {
+        return;
+    }
+
+    sf::TcpSocket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return;
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::RevokeRememberToken) << token;
+    if (socket.send(request) == sf::Socket::Status::Done)
+    {
+        sf::Packet response;
+        [[maybe_unused]] auto status = socket.receive(response);
+    }
+    socket.disconnect();
 }
 
 CardListResult fetchCards()
@@ -1814,7 +2049,8 @@ int main(int argc, char** argv)
     InputBox confirmInput({300.0f, 300.0f}, {200.0f, 40.0f}, "Confirm Password", font, true);
     InputBox deckNameInput({304.0f, 154.0f}, {222.0f, 40.0f}, "Deck Name", font);
 
-    Button loginSubmitButton({300.0f, 300.0f}, {200.0f, 50.0f}, "Login", font);
+    Button rememberMeButton({300.0f, 280.0f}, {200.0f, 42.0f}, "Remember Me: Off", font);
+    Button loginSubmitButton({300.0f, 342.0f}, {200.0f, 50.0f}, "Login", font);
     Button createSubmitButton({300.0f, 380.0f}, {200.0f, 50.0f}, "Create Account", font);
     Button backButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Back", font);
     Button exitDesktopButton({20.0f, 520.0f}, {200.0f, 45.0f}, "Exit to Desktop", font);
@@ -1822,6 +2058,7 @@ int main(int argc, char** argv)
     Button deckEditorButton({300.0f, 300.0f}, {200.0f, 60.0f}, "Deck Editor", font);
     Button shopButton({300.0f, 380.0f}, {200.0f, 60.0f}, "Shop", font);
     Button authenticatedOptionsButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Options", font);
+    Button logoutButton({664.0f, 520.0f}, {112.0f, 45.0f}, "Log Out", font);
 
     Button displayModeButton({270.0f, 178.0f}, {260.0f, 54.0f}, "", font);
     Button previousResolutionButton({210.0f, 276.0f}, {64.0f, 54.0f}, "<", font);
@@ -1863,6 +2100,7 @@ int main(int argc, char** argv)
         std::find(displayResolutions.begin(), displayResolutions.end(), configuredSize)));
     std::optional<std::future<ServerResult>> pendingRequest;
     std::optional<std::future<ServerResult>> pendingMatchmaking;
+    std::optional<std::future<void>> pendingLogout;
     std::optional<std::future<DeckEditorLoadResult>> pendingDeckEditorLoad;
     std::optional<std::future<DeckCommandResult>> pendingDeckSave;
     std::optional<std::future<DeckCommandResult>> pendingDeckDelete;
@@ -1876,6 +2114,10 @@ int main(int argc, char** argv)
     float coinPurchasePollDeadline = 0.0f;
     std::shared_ptr<sf::TcpSocket> activeGameSocket;
     std::string loggedInUsername;
+    std::string activeRememberToken;
+    bool rememberMeChecked = false;
+    bool pendingAutoLogin = false;
+    bool pendingRememberRequested = false;
     std::vector<card_data::Card> cardLibrary;
     std::vector<card_data::Card> allCardLibrary;
     std::vector<deck_data::Deck> playerDecks;
@@ -2066,13 +2308,16 @@ int main(int argc, char** argv)
     auto startRequest = [&](network::MessageType requestType, network::MessageType expectedResponseType) {
         setMessageY(messageText, 450.0f);
         setMessage(messageText, requestType == network::MessageType::Login ? "Logging in..." : "Creating account...", sf::Color::Yellow);
+        pendingAutoLogin = false;
+        pendingRememberRequested = requestType == network::MessageType::Login && rememberMeChecked;
         pendingRequest = std::async(
             std::launch::async,
             sendAccountRequest,
             requestType,
             expectedResponseType,
             usernameInput.getContent(),
-            passwordInput.getContent());
+            passwordInput.getContent(),
+            pendingRememberRequested);
     };
 
     auto returnToMenu = [&]() {
@@ -2276,6 +2521,10 @@ int main(int argc, char** argv)
         {
             startRequest(network::MessageType::Login, network::MessageType::LoginResponse);
         }
+    };
+
+    auto updateRememberMeLabel = [&]() {
+        rememberMeButton.setLabel(rememberMeChecked ? "Remember Me: On" : "Remember Me: Off");
     };
 
     auto submitCreateAccount = [&]() {
@@ -4477,6 +4726,17 @@ int main(int argc, char** argv)
         window.draw(messageText);
     };
 
+    if (const std::optional<std::string> savedToken = loadRememberToken())
+    {
+        activeRememberToken = *savedToken;
+        pendingAutoLogin = true;
+        pendingRememberRequested = true;
+        title.setString("Signing In");
+        centerText(title, 400.0f);
+        setMessage(messageText, "Restoring saved login...", sf::Color::Yellow);
+        pendingRequest = std::async(std::launch::async, sendRememberLogin, activeRememberToken);
+    }
+
     while (window.isOpen())
     {
         const float deltaTime = clock.restart().asSeconds();
@@ -4495,13 +4755,41 @@ int main(int argc, char** argv)
             pendingRequest.reset();
             if (result.success)
             {
-                loggedInUsername = usernameInput.getContent();
+                loggedInUsername = result.username.empty() ? usernameInput.getContent() : result.username;
+                bool rememberSaveFailed = false;
+                if (!result.rememberToken.empty())
+                {
+                    activeRememberToken = result.rememberToken;
+                    rememberSaveFailed = !saveRememberToken(activeRememberToken);
+                }
+                else if (pendingRememberRequested)
+                {
+                    activeRememberToken.clear();
+                    clearRememberToken();
+                }
                 showAuthenticatedScreen();
+                if (rememberSaveFailed)
+                {
+                    setMessage(messageText, "Logged in, but the saved login could not be stored.", sf::Color::Red);
+                }
             }
             else
             {
+                if (pendingAutoLogin)
+                {
+                    if (result.rejectStoredCredential)
+                    {
+                        activeRememberToken.clear();
+                        clearRememberToken();
+                    }
+                    currentState = GameState::Menu;
+                    title.setString("Steam Tactics");
+                    centerText(title, 400.0f);
+                }
                 setMessage(messageText, result.message, sf::Color::Red);
             }
+            pendingAutoLogin = false;
+            pendingRememberRequested = false;
         }
 
         if (pendingAccountState &&
@@ -4782,6 +5070,8 @@ int main(int argc, char** argv)
                         centerText(title, 400.0f);
                         setMessageY(messageText, 450.0f);
                         resetForm(usernameInput, passwordInput, confirmInput, messageText);
+                        rememberMeChecked = false;
+                        updateRememberMeLabel();
                         focusLoginInput(0);
                     }
                     else if (createButton.isClicked(clickPos))
@@ -4852,6 +5142,11 @@ int main(int argc, char** argv)
                     {
                         submitLogin();
                     }
+                    else if (rememberMeButton.isClicked(clickPos))
+                    {
+                        rememberMeChecked = !rememberMeChecked;
+                        updateRememberMeLabel();
+                    }
                     else if (usernameInput.contains(clickPos))
                     {
                         focusLoginInput(0);
@@ -4909,6 +5204,17 @@ int main(int argc, char** argv)
                     else if (authenticatedOptionsButton.isClicked(clickPos))
                     {
                         showOptionsScreen(GameState::Authenticated);
+                    }
+                    else if (logoutButton.isClicked(clickPos))
+                    {
+                        const std::string tokenToRevoke = activeRememberToken;
+                        activeRememberToken.clear();
+                        clearRememberToken();
+                        if (!tokenToRevoke.empty())
+                        {
+                            pendingLogout = std::async(std::launch::async, revokeRememberToken, tokenToRevoke);
+                        }
+                        returnToMenu();
                     }
                 }
                 else if (currentState == GameState::DeckSelect)
@@ -5383,6 +5689,7 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Login)
         {
+            rememberMeButton.update(mousePos);
             loginSubmitButton.update(mousePos);
             backButton.update(mousePos);
             usernameInput.updateCursor(deltaTime);
@@ -5402,6 +5709,7 @@ int main(int argc, char** argv)
             deckEditorButton.update(mousePos);
             shopButton.update(mousePos);
             authenticatedOptionsButton.update(mousePos);
+            logoutButton.update(mousePos);
             exitDesktopButton.update(mousePos);
         }
         else if (currentState == GameState::DeckSelect)
@@ -5485,6 +5793,7 @@ int main(int argc, char** argv)
         {
             usernameInput.draw(window);
             passwordInput.draw(window);
+            rememberMeButton.draw(window);
             loginSubmitButton.draw(window);
             backButton.draw(window);
             window.draw(messageText);
@@ -5506,6 +5815,7 @@ int main(int argc, char** argv)
             deckEditorButton.draw(window);
             shopButton.draw(window);
             authenticatedOptionsButton.draw(window);
+            logoutButton.draw(window);
             exitDesktopButton.draw(window);
             window.draw(messageText);
         }

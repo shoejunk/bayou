@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(CppModulesExample CXX)
+project(CppModulesExample LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -49,6 +49,15 @@ CPMAddPackage(
         "SFML_BUILD_GRAPHICS ${BAYOU_BUILD_CLIENTS}"
 )
 
+if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
+    set(SODIUM_DISABLE_TESTS ON CACHE BOOL "" FORCE)
+    CPMAddPackage(
+        NAME Sodium
+        GITHUB_REPOSITORY robinlinden/libsodium-cmake
+        GIT_TAG cfebfd3da486d5a86c644c8b47067e5411c7599c
+    )
+endif()
+
 # Shared modules
 set(SHARED_MODULES
     src/shared/network.cppm
@@ -69,6 +78,9 @@ if(BAYOU_BUILD_CLIENTS)
     )
 
     target_link_libraries(client PRIVATE fmt::fmt SFML::Graphics SFML::Window SFML::System SFML::Network)
+    if(WIN32)
+        target_link_libraries(client PRIVATE Crypt32)
+    endif()
     set_target_properties(client PROPERTIES OUTPUT_NAME "SteamTactics")
 
     add_custom_command(TARGET client POST_BUILD
@@ -89,7 +101,7 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
             src/accounts/main.cpp
     )
 
-    target_link_libraries(accounts PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network)
+    target_link_libraries(accounts PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network sodium)
     install(TARGETS accounts RUNTIME DESTINATION bin)
 endif()
 

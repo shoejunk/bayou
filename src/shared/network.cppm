@@ -47,7 +47,11 @@ enum class MessageType : uint8_t
     MovePiece,
     AttackPiece,
     EndTurn,
-    GameOver
+    GameOver,
+    RememberLogin,
+    RememberLoginResponse,
+    RevokeRememberToken,
+    RevokeRememberTokenResponse
 };
 
 struct CreateAccountRequest
