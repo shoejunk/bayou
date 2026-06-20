@@ -1,0 +1,22 @@
+[Unit]
+Description=Bayou Stripe Payments
+After=network-online.target bayou-accounts.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bayou
+Group=bayou
+WorkingDirectory=/var/lib/bayou/shared
+EnvironmentFile=/etc/bayou/stripe.env
+ExecStart=/opt/bayou/payments-venv/bin/python /opt/bayou/current/payments/stripe_coin_service.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/bayou/shared
+
+[Install]
+WantedBy=multi-user.target

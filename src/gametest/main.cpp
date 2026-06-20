@@ -15,7 +15,7 @@
 #include "../shared/card_data.hpp"
 #include "../shared/game_data.hpp"
 
-import network;
+#include "../shared/network.hpp"
 
 using namespace network;
 using namespace game_data;

@@ -1,2 +1,2 @@
 @echo off
-.\build\Debug\client.exe
+.\build\Debug\SteamTactics.exe

@@ -1,0 +1,21 @@
+[Unit]
+Description=Bayou Accounts
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bayou
+Group=bayou
+WorkingDirectory=/var/lib/bayou/shared
+ExecStart=/opt/bayou/current/bin/accounts
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/bayou/shared
+
+[Install]
+WantedBy=multi-user.target

@@ -16,12 +16,15 @@
 #ifdef _WIN32
 #define NOMINMAX
 #include <windows.h>
+#else
+#include <limits.h>
+#include <unistd.h>
 #endif
 
 #include "../shared/card_data.hpp"
 #include "../shared/game_data.hpp"
 
-import network;
+#include "../shared/network.hpp"
 
 using namespace network;
 using namespace game_data;
@@ -44,6 +47,12 @@ std::string executablePath()
     const DWORD length = GetModuleFileNameA(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
     return std::string(buffer.data(), length);
 #else
+    std::array<char, PATH_MAX> buffer{};
+    const ssize_t length = readlink("/proc/self/exe", buffer.data(), buffer.size() - 1);
+    if (length > 0)
+    {
+        return std::string(buffer.data(), static_cast<std::size_t>(length));
+    }
     return "gameserver";
 #endif
 }

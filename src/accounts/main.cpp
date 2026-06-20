@@ -18,7 +18,7 @@
 #include <unordered_map>
 #include <vector>
 
-import network;
+#include "../shared/network.hpp"
 
 using namespace network;
 
@@ -719,7 +719,7 @@ private:
 
         while (query.executeStep())
         {
-            const long long deckId = query.getColumn(0).getInt64();
+            const std::int64_t deckId = query.getColumn(0).getInt64();
             deck_data::Deck deck;
             deck.name = query.getColumn(1).getString();
             deck.cardTitles = loadDeckCards(deckId);
@@ -729,7 +729,7 @@ private:
         return decks;
     }
 
-    std::vector<std::string> loadDeckCards(long long deckId)
+    std::vector<std::string> loadDeckCards(std::int64_t deckId)
     {
         std::vector<std::string> cardTitles;
         SQLite::Statement query(
@@ -833,7 +833,7 @@ private:
     void saveDeckRows(const std::string& username, const std::string& originalName, const deck_data::Deck& deck)
     {
         const std::string lookupName = originalName.empty() ? deck.name : originalName;
-        std::optional<long long> deckId = findDeckId(username, lookupName);
+        std::optional<std::int64_t> deckId = findDeckId(username, lookupName);
         if (deckId)
         {
             SQLite::Statement update(
@@ -873,7 +873,7 @@ private:
 
     bool deleteDeck(const std::string& username, const std::string& deckName)
     {
-        const std::optional<long long> deckId = findDeckId(username, deckName);
+        const std::optional<std::int64_t> deckId = findDeckId(username, deckName);
         if (!deckId)
         {
             return false;
@@ -887,7 +887,7 @@ private:
         return true;
     }
 
-    std::optional<long long> findDeckId(const std::string& username, const std::string& deckName)
+    std::optional<std::int64_t> findDeckId(const std::string& username, const std::string& deckName)
     {
         SQLite::Statement query(
             *database,

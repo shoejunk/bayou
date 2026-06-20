@@ -12,8 +12,8 @@ option(BAYOU_BUILD_MATCHMAKING "Build the matchmaking server executable" ON)
 option(BAYOU_BUILD_GAMESERVER "Build the game server executable" ON)
 option(BAYOU_BUILD_CARDSERVER "Build the card server executable" ON)
 
-if(BAYOU_BUILD_CLIENTS OR BAYOU_BUILD_ACCOUNTS OR BAYOU_BUILD_MATCHMAKING OR BAYOU_BUILD_GAMESERVER)
-    # Enable modules for targets that still import src/shared/network.cppm.
+if(BAYOU_BUILD_CLIENTS)
+    # Enable modules for the graphical targets.
     set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 else()
     set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
@@ -69,6 +69,7 @@ if(BAYOU_BUILD_CLIENTS)
     )
 
     target_link_libraries(client PRIVATE fmt::fmt SFML::Graphics SFML::Window SFML::System SFML::Network)
+    set_target_properties(client PROPERTIES OUTPUT_NAME "SteamTactics")
 
     add_custom_command(TARGET client POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -83,12 +84,10 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
     target_sources(accounts
         PUBLIC
             src/accounts/main.cpp
-        PUBLIC
-            FILE_SET CXX_MODULES FILES
-                src/shared/network.cppm
     )
 
     target_link_libraries(accounts PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network)
+    install(TARGETS accounts RUNTIME DESTINATION bin)
 endif()
 
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_MATCHMAKING)
@@ -98,12 +97,10 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_MATCHMAKING)
     target_sources(matchmaking
         PUBLIC
             src/matchmaking/main.cpp
-        PUBLIC
-            FILE_SET CXX_MODULES FILES
-                src/shared/network.cppm
     )
 
     target_link_libraries(matchmaking PRIVATE fmt::fmt SFML::System SFML::Network)
+    install(TARGETS matchmaking RUNTIME DESTINATION bin)
 endif()
 
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
@@ -113,12 +110,10 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
     target_sources(gameserver
         PUBLIC
             src/gameserver/main.cpp
-        PUBLIC
-            FILE_SET CXX_MODULES FILES
-                src/shared/network.cppm
     )
 
     target_link_libraries(gameserver PRIVATE fmt::fmt SFML::System SFML::Network)
+    install(TARGETS gameserver RUNTIME DESTINATION bin)
 endif()
 
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
@@ -128,9 +123,6 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
     target_sources(gametest
         PUBLIC
             src/gametest/main.cpp
-        PUBLIC
-            FILE_SET CXX_MODULES FILES
-                src/shared/network.cppm
     )
 
     target_link_libraries(gametest PRIVATE fmt::fmt SFML::System SFML::Network)

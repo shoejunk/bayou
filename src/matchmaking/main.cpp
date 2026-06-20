@@ -5,7 +5,7 @@
 #include <memory>
 #include <string>
 
-import network;
+#include "../shared/network.hpp"
 
 using namespace network;
 
