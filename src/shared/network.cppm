@@ -59,7 +59,9 @@ enum class MessageType : uint8_t
     RevokeRememberToken,
     RevokeRememberTokenResponse,
     ChangePasswordRequest,
-    ChangePasswordResponse
+    ChangePasswordResponse,
+    AdminUserGoldRequest,
+    AdminUserGoldResponse
 };
 
 struct CreateAccountRequest
@@ -127,6 +129,7 @@ struct AdminUserSummary
 {
     std::string username;
     bool isAdmin;
+    int gold;
 };
 
 struct AdminUserListResponse
@@ -150,6 +153,19 @@ struct AdminUserPrivilegeResponse
     bool success;
     std::string message;
     bool targetIsAdmin;
+};
+
+struct AdminUserGoldRequest
+{
+    std::string targetUsername;
+    int amount;
+};
+
+struct AdminUserGoldResponse
+{
+    bool success;
+    std::string message;
+    int targetGold;
 };
 
 } // namespace network

@@ -72,7 +72,9 @@ constexpr float DeckCardsY = 252.0f;
 constexpr float DeckCardsWidth = 222.0f;
 constexpr float DeckCardRowHeight = 40.0f;
 constexpr std::size_t VisibleDeckCardRows = 6;
-constexpr std::uint32_t AdminUsersPageSize = 10;
+constexpr std::uint32_t AdminUsersPageSize = 6;
+constexpr float AdminUserRowY = 174.0f;
+constexpr float AdminUserRowHeight = 43.0f;
 
 constexpr float LibraryX = 574.0f;
 constexpr float LibraryY = 168.0f;
@@ -282,6 +284,14 @@ struct AdminUserPrivilegeResult
     bool success = false;
     std::string message;
     bool targetIsAdmin = false;
+};
+
+struct AdminUserGoldResult
+{
+    bool success = false;
+    std::string message;
+    std::string targetUsername;
+    int targetGold = 0;
 };
 
 struct BoardCellMetrics
@@ -1796,7 +1806,7 @@ AdminUsersLoadResult loadAdminUsers(
     for (std::uint32_t i = 0; i < count; ++i)
     {
         network::AdminUserSummary user;
-        response >> user.username >> user.isAdmin;
+        response >> user.username >> user.isAdmin >> user.gold;
         if (!response)
         {
             socket.disconnect();
@@ -1850,6 +1860,49 @@ AdminUserPrivilegeResult updateAdminUserPrivilege(
 
     sendDisconnect(socket);
     return {success, message, targetIsAdmin};
+}
+
+AdminUserGoldResult updateAdminUserGold(
+    const std::string& accessToken,
+    const std::string& targetUsername,
+    int amount)
+{
+    sf::TcpSocket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {false, "Failed to connect to account server " + endpointText(clientConfig().account), targetUsername};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::AdminUserGoldRequest);
+    request << accessToken << targetUsername << amount;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send admin gold request", targetUsername};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No admin gold response", targetUsername};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    int targetGold = 0;
+    response >> responseType >> success >> message >> targetGold;
+    if (!response ||
+        static_cast<network::MessageType>(responseType) != network::MessageType::AdminUserGoldResponse)
+    {
+        socket.disconnect();
+        return {false, "Unexpected admin gold response", targetUsername};
+    }
+
+    sendDisconnect(socket);
+    return {success, message, targetUsername, targetGold};
 }
 
 DeckEditorLoadResult loadDeckEditorData(const std::string& accessToken)
@@ -2243,6 +2296,7 @@ int main(int argc, char** argv)
     InputBox confirmNewPasswordInput({300.0f, 310.0f}, {200.0f, 40.0f}, "Confirm New Password", font, true);
     InputBox deckNameInput({304.0f, 154.0f}, {222.0f, 40.0f}, "Deck Name", font);
     InputBox adminSearchInput({120.0f, 94.0f}, {520.0f, 36.0f}, "Search users", font);
+    InputBox adminGoldInput({234.0f, 460.0f}, {130.0f, 36.0f}, "Gold amount", font);
 
     Button rememberMeButton({300.0f, 280.0f}, {200.0f, 42.0f}, "Remember Me: Off", font);
     Button passwordVisibilityButton({520.0f, 220.0f}, {180.0f, 40.0f}, "Show Password", font);
@@ -2287,11 +2341,13 @@ int main(int argc, char** argv)
         font);
     Button dismissRevealedCardButton({300.0f, 492.0f}, {200.0f, 46.0f}, "Dismiss", font);
     Button adminBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
-    Button adminPrevPageButton({270.0f, 492.0f}, {52.0f, 42.0f}, "<", font);
-    Button adminNextPageButton({478.0f, 492.0f}, {52.0f, 42.0f}, ">", font);
-    Button adminRefreshButton({332.0f, 492.0f}, {104.0f, 42.0f}, "Refresh", font);
-    Button adminGrantButton({42.0f, 492.0f}, {150.0f, 42.0f}, "Grant Admin", font);
-    Button adminRevokeButton({42.0f, 492.0f}, {150.0f, 42.0f}, "Revoke Admin", font);
+    Button adminPrevPageButton({270.0f, 516.0f}, {52.0f, 38.0f}, "<", font);
+    Button adminNextPageButton({478.0f, 516.0f}, {52.0f, 38.0f}, ">", font);
+    Button adminRefreshButton({332.0f, 516.0f}, {104.0f, 38.0f}, "Refresh", font);
+    Button adminGrantButton({42.0f, 458.0f}, {150.0f, 42.0f}, "Grant Admin", font);
+    Button adminRevokeButton({42.0f, 458.0f}, {150.0f, 42.0f}, "Revoke Admin", font);
+    Button adminGrantGoldButton({378.0f, 458.0f}, {150.0f, 42.0f}, "Grant Gold", font);
+    Button adminRemoveGoldButton({542.0f, 458.0f}, {150.0f, 42.0f}, "Remove Gold", font);
     Button closeDeckCardPopupButton({PiecePopupX + 190.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
 
     sf::Text messageText(font, "", 20);
@@ -2320,6 +2376,7 @@ int main(int argc, char** argv)
     std::optional<std::future<AccountCommandResult>> pendingWinReward;
     std::optional<std::future<AdminUsersLoadResult>> pendingAdminUsersLoad;
     std::optional<std::future<AdminUserPrivilegeResult>> pendingAdminPrivilege;
+    std::optional<std::future<AdminUserGoldResult>> pendingAdminGold;
     std::optional<std::future<AccountCommandResult>> pendingPasswordChange;
     bool coinPurchasePolling = false;
     int coinPurchaseStartingCoins = 0;
@@ -2425,6 +2482,7 @@ int main(int argc, char** argv)
         confirmNewPasswordInput.setActive(false);
         deckNameInput.setActive(false);
         adminSearchInput.setActive(false);
+        adminGoldInput.setActive(false);
     };
 
     auto focusLoginInput = [&](int index) {
@@ -2590,6 +2648,7 @@ int main(int argc, char** argv)
         adminUsersTotalCount = 0;
         selectedAdminUser.reset();
         adminSearchInput.clear();
+        adminGoldInput.clear();
         coinPurchasePolling = false;
         selectedDeck.reset();
         selectedDeckCard.reset();
@@ -2655,7 +2714,7 @@ int main(int argc, char** argv)
         adminSearchInput.setActive(true);
         adminUsers.clear();
         selectedAdminUser.reset();
-        setMessageY(messageText, 540.0f);
+        setMessageY(messageText, 566.0f);
         setMessage(messageText, "Loading users...", sf::Color::Yellow);
         pendingAdminUsersLoad = std::async(
             std::launch::async,
@@ -2670,6 +2729,48 @@ int main(int argc, char** argv)
         adminSearchQuery = trim(adminSearchInput.getContent());
         adminUsersPage = 0;
         loadAdminUsersScreen();
+    };
+
+    auto changeSelectedUserGold = [&](bool grant) {
+        if (!selectedAdminUser || *selectedAdminUser >= adminUsers.size() || pendingAdminGold)
+        {
+            return;
+        }
+
+        const std::string amountText = trim(adminGoldInput.getContent());
+        if (amountText.empty() ||
+            !std::all_of(amountText.begin(), amountText.end(), [](unsigned char c) { return std::isdigit(c) != 0; }))
+        {
+            setMessage(messageText, "Enter a positive whole-number gold amount", sf::Color::Red);
+            return;
+        }
+
+        try
+        {
+            const long long parsedAmount = std::stoll(amountText);
+            if (parsedAmount <= 0 || parsedAmount > std::numeric_limits<int>::max())
+            {
+                setMessage(messageText, "Gold amount is out of range", sf::Color::Red);
+                return;
+            }
+
+            const int amount = static_cast<int>(parsedAmount) * (grant ? 1 : -1);
+            const std::string targetUsername = adminUsers[*selectedAdminUser].username;
+            pendingAdminGold = std::async(
+                std::launch::async,
+                updateAdminUserGold,
+                activeAccessToken,
+                targetUsername,
+                amount);
+            setMessage(
+                messageText,
+                grant ? "Granting gold..." : "Removing gold...",
+                sf::Color::Yellow);
+        }
+        catch (const std::exception&)
+        {
+            setMessage(messageText, "Gold amount is out of range", sf::Color::Red);
+        }
     };
 
     auto showCardEditorScreen = [&]() {
@@ -2954,23 +3055,14 @@ int main(int argc, char** argv)
         return stats;
     };
 
-    auto deckValidationError = [&](const DeckStats& stats) -> std::string {
-        if (stats.cardCount != game_data::DeckCardCount)
+    auto deckValidationError = [&](const deck_data::Deck& deck) -> std::string {
+        const std::vector<card_data::Card> resolved = resolveDeckCards(deck, cardLibrary);
+        if (resolved.size() != deck.cardTitles.size())
         {
-            return "Need exactly " + std::to_string(game_data::DeckCardCount) + " non-hero cards (have " +
-                   std::to_string(stats.cardCount) + ")";
+            return "Deck contains a card that is no longer available";
         }
-        if (stats.heroCount < game_data::MinHeroes || stats.heroCount > game_data::MaxHeroes)
-        {
-            return "Need " + std::to_string(game_data::MinHeroes) + "-" + std::to_string(game_data::MaxHeroes) +
-                   " heroes (have " + std::to_string(stats.heroCount) + ")";
-        }
-        if (stats.heroCost > game_data::HeroCostLimit)
-        {
-            return "Hero cost " + std::to_string(stats.heroCost) + " exceeds limit " +
-                   std::to_string(game_data::HeroCostLimit);
-        }
-        return "";
+        const std::optional<std::string> error = game_data::deckRulesError(resolved);
+        return error.value_or("");
     };
 
     auto deckCollectionError = [&]() -> std::string {
@@ -3008,7 +3100,7 @@ int main(int argc, char** argv)
             return;
         }
 
-        const std::string validationError = deckValidationError(computeDeckStats());
+        const std::string validationError = deckValidationError(deck);
         if (!validationError.empty())
         {
             setMessage(messageText, validationError, sf::Color::Red);
@@ -3042,6 +3134,17 @@ int main(int argc, char** argv)
         }
 
         const std::string& title = cardLibrary[libraryIndex].title;
+        const bool isHero = game_data::isHeroCard(cardLibrary[libraryIndex]);
+        const int copyLimit = isHero ? game_data::MaxHeroCopies : game_data::MaxCardCopies;
+        if (deckCopies(title) >= copyLimit)
+        {
+            setMessage(
+                messageText,
+                "Deck limit is " + std::to_string(copyLimit) + " " +
+                    (isHero ? "copy of hero " : "copies of card ") + title,
+                sf::Color::Red);
+            return;
+        }
         if (deckCopies(title) >= ownedCopies(title))
         {
             setMessage(messageText, "No extra owned copies of " + title, sf::Color::Red);
@@ -3255,6 +3358,13 @@ int main(int argc, char** argv)
         if (!selectedDeck || *selectedDeck >= playerDecks.size())
         {
             setMessage(messageText, "Select a deck first", sf::Color::Red);
+            return;
+        }
+
+        const std::string validationError = deckValidationError(playerDecks[*selectedDeck]);
+        if (!validationError.empty())
+        {
+            setMessage(messageText, validationError, sf::Color::Red);
             return;
         }
 
@@ -3935,19 +4045,21 @@ int main(int argc, char** argv)
         drawText(window, font, "Search", 16, {42.0f, 98.0f}, sf::Color::White);
         adminSearchInput.draw(window);
 
-        drawPanel(window, {24.0f, 160.0f}, {752.0f, 322.0f});
-        const std::size_t lastUser = std::min(adminUsers.size(), static_cast<std::size_t>(10));
+        drawPanel(window, {24.0f, 160.0f}, {752.0f, 278.0f});
+        const std::size_t lastUser =
+            std::min(adminUsers.size(), static_cast<std::size_t>(AdminUsersPageSize));
         for (std::size_t i = 0; i < lastUser; ++i)
         {
-            const float y = 178.0f + static_cast<float>(i) * 30.0f;
+            const float y = AdminUserRowY + static_cast<float>(i) * AdminUserRowHeight;
             const bool selected = selectedAdminUser && *selectedAdminUser == i;
             drawRow(
                 window,
                 font,
                 {38.0f, y},
-                {704.0f, 26.0f},
+                {704.0f, 40.0f},
                 adminUsers[i].username,
-                adminUsers[i].isAdmin ? "Admin" : "User",
+                std::string(adminUsers[i].isAdmin ? "Admin" : "Player") +
+                    "  |  Gold: " + std::to_string(adminUsers[i].gold),
                 selected);
         }
         if (adminUsers.empty() && !pendingAdminUsersLoad)
@@ -3960,6 +4072,9 @@ int main(int argc, char** argv)
         adminNextPageButton.draw(window);
         if (selectedAdminUser && *selectedAdminUser < adminUsers.size())
         {
+            adminGoldInput.draw(window);
+            adminGrantGoldButton.draw(window);
+            adminRemoveGoldButton.draw(window);
             const bool targetIsAdmin = adminUsers[*selectedAdminUser].isAdmin;
             if (targetIsAdmin)
             {
@@ -3970,7 +4085,7 @@ int main(int argc, char** argv)
                         font,
                         "You cannot revoke your own admin status",
                         14,
-                        {42.0f, 504.0f},
+                        {42.0f, 466.0f},
                         sf::Color(248, 214, 112),
                         190.0f);
                 }
@@ -5527,6 +5642,30 @@ int main(int argc, char** argv)
             }
         }
 
+        if (pendingAdminGold &&
+            pendingAdminGold->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            AdminUserGoldResult result = pendingAdminGold->get();
+            pendingAdminGold.reset();
+            if (!loggedInUsername.empty() && currentState == GameState::AdminUsers)
+            {
+                const auto target = std::find_if(
+                    adminUsers.begin(),
+                    adminUsers.end(),
+                    [&](const network::AdminUserSummary& user) {
+                        return user.username == result.targetUsername;
+                    });
+                if (result.success && target != adminUsers.end())
+                {
+                    target->gold = result.targetGold;
+                }
+                setMessage(
+                    messageText,
+                    result.message,
+                    result.success ? sf::Color(120, 220, 150) : sf::Color::Red);
+            }
+        }
+
         if (pendingPasswordChange &&
             pendingPasswordChange->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
@@ -5966,14 +6105,39 @@ int main(int argc, char** argv)
                         searchAdminUsers();
                     }
                     else if (const std::optional<std::size_t> userIndex = rowIndexAt(
-                                 clickPos, 38.0f, 178.0f, 704.0f, 30.0f, 10, 0, adminUsers.size()))
+                                 clickPos,
+                                 38.0f,
+                                 AdminUserRowY,
+                                 704.0f,
+                                 AdminUserRowHeight,
+                                 AdminUsersPageSize,
+                                 0,
+                                 adminUsers.size()))
                     {
                         selectedAdminUser = *userIndex;
+                    }
+                    else if (adminSearchInput.contains(clickPos))
+                    {
+                        clearFocus();
+                        adminSearchInput.setActive(true);
                     }
                     else if (selectedAdminUser && *selectedAdminUser < adminUsers.size())
                     {
                         const std::string& targetUsername = adminUsers[*selectedAdminUser].username;
-                        if (adminUsers[*selectedAdminUser].isAdmin)
+                        if (adminGrantGoldButton.isClicked(clickPos))
+                        {
+                            changeSelectedUserGold(true);
+                        }
+                        else if (adminRemoveGoldButton.isClicked(clickPos))
+                        {
+                            changeSelectedUserGold(false);
+                        }
+                        else if (adminGoldInput.contains(clickPos))
+                        {
+                            clearFocus();
+                            adminGoldInput.setActive(true);
+                        }
+                        else if (adminUsers[*selectedAdminUser].isAdmin)
                         {
                             if (adminRevokeButton.isClicked(clickPos))
                             {
@@ -6003,14 +6167,16 @@ int main(int argc, char** argv)
                                 true);
                             setMessage(messageText, "Granting admin privilege...", sf::Color::Yellow);
                         }
-                    }
-                    else if (adminSearchInput.contains(clickPos))
-                    {
-                        adminSearchInput.setActive(true);
+                        else
+                        {
+                            adminSearchInput.setActive(false);
+                            adminGoldInput.setActive(false);
+                        }
                     }
                     else
                     {
                         adminSearchInput.setActive(false);
+                        adminGoldInput.setActive(false);
                     }
                 }
                 else if (currentState == GameState::DeckSelect)
@@ -6383,6 +6549,7 @@ int main(int argc, char** argv)
             if (currentState == GameState::AdminUsers)
             {
                 adminSearchInput.handleEvent(*event, window);
+                adminGoldInput.handleEvent(*event, window);
             }
 
             if (currentState == GameState::CardEditor)
@@ -6514,7 +6681,14 @@ int main(int argc, char** argv)
                 {
                     if (keyPressed->code == sf::Keyboard::Key::Enter)
                     {
-                        searchAdminUsers();
+                        if (adminGoldInput.isActive())
+                        {
+                            changeSelectedUserGold(true);
+                        }
+                        else
+                        {
+                            searchAdminUsers();
+                        }
                     }
                 }
                 else if (currentState == GameState::DeckEditor && !deckEditorBusy())
@@ -6619,6 +6793,8 @@ int main(int argc, char** argv)
             adminNextPageButton.update(mousePos);
             if (selectedAdminUser && *selectedAdminUser < adminUsers.size())
             {
+                adminGrantGoldButton.update(mousePos);
+                adminRemoveGoldButton.update(mousePos);
                 if (adminUsers[*selectedAdminUser].isAdmin)
                 {
                     if (adminUsers[*selectedAdminUser].username != loggedInUsername)
@@ -6632,6 +6808,7 @@ int main(int argc, char** argv)
                 }
             }
             adminSearchInput.updateCursor(deltaTime);
+            adminGoldInput.updateCursor(deltaTime);
         }
         else if (currentState == GameState::DeckSelect)
         {

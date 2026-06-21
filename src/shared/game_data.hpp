@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -21,10 +22,70 @@ constexpr int BoardSize = 8;
 constexpr int BoardSquares = BoardSize * BoardSize;
 
 // Deck-building constraints.
-constexpr int DeckCardCount = 40;   // non-hero cards
+constexpr int DeckCardCount = 20;   // non-hero cards
+constexpr int MaxCardCopies = 2;
+constexpr int MaxHeroCopies = 1;
 constexpr int MinHeroes = 1;
 constexpr int MaxHeroes = 4;
 constexpr int HeroCostLimit = 100;
+
+inline std::optional<std::string> deckRulesError(const std::vector<card_data::Card>& cards)
+{
+    int cardCount = 0;
+    int heroCount = 0;
+    int heroCost = 0;
+    std::unordered_map<std::string, int> used;
+
+    for (const card_data::Card& card : cards)
+    {
+        if (card.title.empty())
+        {
+            return "Deck contains a card with no title";
+        }
+
+        const bool isHero = card.type == "Hero";
+        const int count = ++used[card.title];
+        const int copyLimit = isHero ? MaxHeroCopies : MaxCardCopies;
+        if (count > copyLimit)
+        {
+            return "Deck can contain at most " + std::to_string(copyLimit) + " " +
+                (isHero ? "copy of hero " : "copies of card ") + card.title;
+        }
+
+        if (isHero)
+        {
+            ++heroCount;
+            for (const card_data::KeyIntPair& value : card.integerValues)
+            {
+                if (value.key == "heroCost")
+                {
+                    heroCost += value.value;
+                    break;
+                }
+            }
+        }
+        else
+        {
+            ++cardCount;
+        }
+    }
+
+    if (cardCount != DeckCardCount)
+    {
+        return "Deck must contain exactly " + std::to_string(DeckCardCount) + " non-hero cards";
+    }
+    if (heroCount < MinHeroes || heroCount > MaxHeroes)
+    {
+        return "Deck must contain " + std::to_string(MinHeroes) + "-" +
+            std::to_string(MaxHeroes) + " heroes";
+    }
+    if (heroCost > HeroCostLimit)
+    {
+        return "Hero cost exceeds limit " + std::to_string(HeroCostLimit);
+    }
+
+    return std::nullopt;
+}
 
 // Hand / steam tuning.
 constexpr int StartingHandSize = 4;

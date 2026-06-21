@@ -99,16 +99,16 @@ starter_nonheroes = [
     "Overpressure", "Gearwright", "Brass Medic", "Boiler Imp", "Railgunner",
     "Swamp Skiff", "Arc Lantern", "Sprocket Swarm", "Chain Harpoon", "Mudslide",
 ]
-cards40 = [title for title in starter_nonheroes for _ in range(2)]
-assert len(cards40) == 40, len(cards40)
+cards20 = [title for title in starter_nonheroes[:10] for _ in range(2)]
+assert len(cards20) == 20, len(cards20)
 
 ensure_account("alpha")
-alpha_deck = ["Steam Baron"] + cards40
+alpha_deck = ["Steam Baron"] + cards20
 set_collection("alpha", alpha_deck)
 set_deck("alpha", "Baron Brawl", alpha_deck)  # 1 hero, cost 100
 
 ensure_account("bravo")
-bravo_deck = ["Gear Knight", "Marsh Witch"] + cards40
+bravo_deck = ["Gear Knight", "Marsh Witch"] + cards20
 set_collection("bravo", bravo_deck)
 set_deck("bravo", "Knight Coven", bravo_deck)  # 2 heroes, cost 90
 

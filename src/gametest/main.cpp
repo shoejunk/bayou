@@ -60,10 +60,10 @@ std::vector<card_data::Card> makeTestDeck()
     deck.push_back(makeCard("Cog Tinker", "Hero",
         {{"heroCost", 2}, {"health", 9}, {"attack", 3}, {"range", 1}, {"move", 1}},
         {{"movement", "omni"}}));
-    // Twenty cheap units.
+    // Twenty cheap units: two copies each of ten cards.
     for (int i = 0; i < 20; ++i)
     {
-        deck.push_back(makeCard("Brass Pawn", "Unit",
+        deck.push_back(makeCard("Test Unit " + std::to_string(i / 2), "Unit",
             {{"cost", 1}, {"health", 4}, {"attack", 2}, {"range", 1}, {"move", 1}},
             {{"movement", "ortho"}}));
     }

@@ -5,6 +5,7 @@
 
 #include "../shared/account_data.hpp"
 #include "../shared/deck_data.hpp"
+#include "../shared/game_data.hpp"
 
 #include <atomic>
 #include <algorithm>
@@ -13,6 +14,7 @@
 #include <cctype>
 #include <cstdint>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -29,7 +31,7 @@ using namespace network;
 
 namespace
 {
-constexpr int StarterNonHeroKinds = 20;
+constexpr int StarterNonHeroKinds = game_data::DeckCardCount / game_data::MaxCardCopies;
 constexpr int WinRewardCoins = 10;
 constexpr int ShopCardCost = 5;
 constexpr const char* StarterDeckName = "Starter Deck";
@@ -378,6 +380,14 @@ private:
                     handleAdminUserPrivilege(*client, accessToken, targetUsername, makeAdmin);
                     break;
                 }
+                case MessageType::AdminUserGoldRequest:
+                {
+                    std::string accessToken, targetUsername;
+                    int amount = 0;
+                    packet >> accessToken >> targetUsername >> amount;
+                    handleAdminUserGold(*client, accessToken, targetUsername, amount);
+                    break;
+                }
                 case MessageType::ChangePasswordRequest:
                 {
                     std::string accessToken, currentPassword, newPassword;
@@ -535,6 +545,12 @@ private:
             if (const std::optional<std::string> collectionError = deckCollectionError(*username, deck))
             {
                 sendDeckCommandResponse(client, MessageType::DeckSaveResponse, false, *collectionError);
+                return;
+            }
+
+            if (const std::optional<std::string> rulesError = deckRulesError(deck))
+            {
+                sendDeckCommandResponse(client, MessageType::DeckSaveResponse, false, *rulesError);
                 return;
             }
 
@@ -728,7 +744,7 @@ private:
                 : 0;
 
             SQLite::Statement query(*database,
-                "SELECT username, is_admin FROM accounts "
+                "SELECT username, is_admin, coins FROM accounts "
                 "WHERE username LIKE ? COLLATE NOCASE "
                 "ORDER BY username COLLATE NOCASE "
                 "LIMIT ? OFFSET ?");
@@ -740,13 +756,16 @@ private:
             std::vector<network::AdminUserSummary> users;
             while (query.executeStep())
             {
-                users.push_back({query.getColumn(0).getString(), query.getColumn(1).getInt() != 0});
+                users.push_back({
+                    query.getColumn(0).getString(),
+                    query.getColumn(1).getInt() != 0,
+                    query.getColumn(2).getInt()});
                 ++rowCount;
             }
             response << true << std::string("Users loaded") << totalCount << safePage << safePageSize << rowCount;
             for (const auto& user : users)
             {
-                response << user.username << user.isAdmin;
+                response << user.username << user.isAdmin << user.gold;
             }
         }
         catch (const std::exception& error)
@@ -909,6 +928,77 @@ private:
             response.clear();
             response << static_cast<uint8_t>(MessageType::AdminUserPrivilegeResponse);
             response << false << std::string("Database error while updating admin privilege") << false;
+        }
+
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleAdminUserGold(
+        sf::TcpSocket& client,
+        const std::string& accessToken,
+        const std::string& targetUsername,
+        int amount)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::AdminUserGoldResponse);
+
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            if (!username || !isAdmin(*username))
+            {
+                response << false << std::string("Admin access required") << 0;
+            }
+            else if (targetUsername.empty())
+            {
+                response << false << std::string("Target username cannot be empty") << 0;
+            }
+            else if (!accountExists(targetUsername))
+            {
+                response << false << std::string("Username not found") << 0;
+            }
+            else if (amount == 0)
+            {
+                response << false << std::string("Gold amount must not be zero") << loadCoins(targetUsername);
+            }
+            else
+            {
+                const int currentGold = loadCoins(targetUsername);
+                const std::int64_t updatedGold =
+                    static_cast<std::int64_t>(currentGold) + static_cast<std::int64_t>(amount);
+                if (updatedGold < 0)
+                {
+                    response << false << std::string("Cannot remove more gold than the player has") << currentGold;
+                }
+                else if (updatedGold > std::numeric_limits<int>::max())
+                {
+                    response << false << std::string("Gold balance is too large") << currentGold;
+                }
+                else
+                {
+                    SQLite::Statement update(*database, "UPDATE accounts SET coins = ? WHERE username = ?");
+                    update.bind(1, static_cast<int>(updatedGold));
+                    update.bind(2, targetUsername);
+                    update.exec();
+                    response << true
+                             << (amount > 0 ? std::string("Gold granted") : std::string("Gold removed"))
+                             << static_cast<int>(updatedGold);
+                    fmt::println(
+                        "{} adjusted gold for {} by {:+}; new balance {}",
+                        *username,
+                        targetUsername,
+                        amount,
+                        updatedGold);
+                }
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while updating player gold: {}", error.what());
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::AdminUserGoldResponse);
+            response << false << std::string("Database error while updating player gold") << 0;
         }
 
         [[maybe_unused]] auto result = client.send(response);
@@ -1303,6 +1393,70 @@ private:
         return std::nullopt;
     }
 
+    std::optional<std::string> deckRulesError(const deck_data::Deck& deck)
+    {
+        SQLite::Database cardsDatabase("cards.db", SQLite::OPEN_READONLY);
+        SQLite::Statement cardQuery(cardsDatabase, "SELECT type FROM cards WHERE title = ? LIMIT 1");
+
+        int cardCount = 0;
+        int heroCount = 0;
+        int heroCost = 0;
+        std::unordered_map<std::string, int> used;
+
+        for (const std::string& title : deck.cardTitles)
+        {
+            cardQuery.reset();
+            cardQuery.bind(1, title);
+            if (!cardQuery.executeStep())
+            {
+                return "Unknown card in deck: " + title;
+            }
+
+            const bool isHero = cardQuery.getColumn(0).getString() == "Hero";
+            const int count = ++used[title];
+            const int copyLimit = isHero ? game_data::MaxHeroCopies : game_data::MaxCardCopies;
+            if (count > copyLimit)
+            {
+                return "Deck can contain at most " + std::to_string(copyLimit) + " " +
+                    (isHero ? "copy of hero " : "copies of card ") + title;
+            }
+
+            if (isHero)
+            {
+                ++heroCount;
+                SQLite::Statement costQuery(
+                    cardsDatabase,
+                    "SELECT value FROM card_integer_values WHERE title = ? AND key = 'heroCost' LIMIT 1");
+                costQuery.bind(1, title);
+                if (costQuery.executeStep())
+                {
+                    heroCost += costQuery.getColumn(0).getInt();
+                }
+            }
+            else
+            {
+                ++cardCount;
+            }
+        }
+
+        if (cardCount != game_data::DeckCardCount)
+        {
+            return "Deck must contain exactly " + std::to_string(game_data::DeckCardCount) +
+                " non-hero cards";
+        }
+        if (heroCount < game_data::MinHeroes || heroCount > game_data::MaxHeroes)
+        {
+            return "Deck must contain " + std::to_string(game_data::MinHeroes) + "-" +
+                std::to_string(game_data::MaxHeroes) + " heroes";
+        }
+        if (heroCost > game_data::HeroCostLimit)
+        {
+            return "Hero cost exceeds limit " + std::to_string(game_data::HeroCostLimit);
+        }
+
+        return std::nullopt;
+    }
+
     void saveDeck(const std::string& username, const std::string& originalName, const deck_data::Deck& deck)
     {
         SQLite::Transaction transaction(*database);
@@ -1588,8 +1742,10 @@ private:
         deck.cardTitles.push_back(starterHeroTitle());
         for (const std::string& title : starterNonHeroSlots())
         {
-            deck.cardTitles.push_back(title);
-            deck.cardTitles.push_back(title);
+            for (int copy = 0; copy < game_data::MaxCardCopies; ++copy)
+            {
+                deck.cardTitles.push_back(title);
+            }
         }
         return deck;
     }

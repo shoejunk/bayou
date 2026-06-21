@@ -994,6 +994,16 @@ private:
             cards.push_back(card);
         }
 
+        if (const std::optional<std::string> error = game_data::deckRulesError(cards))
+        {
+            fmt::println(
+                "Game {} rejected deck for player {}: {}",
+                matchId,
+                playerNumber,
+                *error);
+            return false;
+        }
+
         engine.submitDeck(playerNumber, cards);
         fmt::println("Game {} received deck for player {} ({} cards)", matchId, playerNumber, count);
         return true;
