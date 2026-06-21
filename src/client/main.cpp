@@ -2411,6 +2411,7 @@ int main(int argc, char** argv)
     std::unordered_map<int, PieceMoveAnimation> pieceMoveAnimations;
 
     Button findMatchButton({300.0f, 458.0f}, {200.0f, 52.0f}, "Find Match", font);
+    Button abilityButton({InfoPanelX + 64.0f, 398.0f}, {176.0f, 40.0f}, "Use Ability", font);
     Button endTurnButton({InfoPanelX + 64.0f, 446.0f}, {176.0f, 44.0f}, "Pass Turn", font);
     Button leaveGameButton({684.0f, 14.0f}, {100.0f, 36.0f}, "Leave", font);
     Button closePiecePopupButton({PiecePopupX + 190.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
@@ -3477,6 +3478,14 @@ int main(int argc, char** argv)
         return loadTexture(walkAnimPath);
     };
 
+    auto pieceTokenPath = [](const game_data::Piece& piece) -> const std::string& {
+        return piece.owner == 1 ? piece.blueTokenPath : piece.redTokenPath;
+    };
+
+    auto pieceWalkAnimPath = [](const game_data::Piece& piece) -> const std::string& {
+        return piece.owner == 1 ? piece.blueWalkAnimPath : piece.redWalkAnimPath;
+    };
+
     auto cardInAllLibraryByTitle = [&](const std::string& title) -> const card_data::Card* {
         const auto found = std::find_if(allCardLibrary.begin(), allCardLibrary.end(), [&](const card_data::Card& card) {
             return card.title == title;
@@ -4065,6 +4074,12 @@ int main(int argc, char** argv)
         sendGamePacket(packet);
     };
 
+    auto sendUseAbility = [&](int pieceId) {
+        sf::Packet packet;
+        packet << static_cast<std::uint8_t>(network::MessageType::UseAbility) << pieceId;
+        sendGamePacket(packet);
+    };
+
     auto sendEndTurn = [&]() {
         sf::Packet packet;
         packet << static_cast<std::uint8_t>(network::MessageType::EndTurn);
@@ -4205,19 +4220,9 @@ int main(int argc, char** argv)
         {
             if (const game_data::Piece* piece = gamePieceById(*draggingPieceId))
             {
-                const game_data::Piece* target = gamePieceAt(row, column);
-                if (target && target->owner != piece->owner)
-                {
-                    if (game_data::isLegalAttackingMove(gameSnapshot.pieces, *piece, row, column))
-                    {
-                        sendMovePiece(piece->id, row, column);
-                    }
-                    else
-                    {
-                        sendAttackPiece(piece->id, row, column);
-                    }
-                }
-                else if (!target && (piece->row != row || piece->column != column))
+                const game_data::ActionResolution action = game_data::resolvePieceAction(
+                    gameSnapshot.pieces, gameSnapshot.holes, *piece, row, column);
+                if (action.legal)
                 {
                     sendMovePiece(piece->id, row, column);
                 }
@@ -4347,13 +4352,11 @@ int main(int argc, char** argv)
             {
                 if (clicked && clicked->owner != me)
                 {
-                    if (game_data::isLegalAttackingMove(gameSnapshot.pieces, *selected, row, column))
+                    const game_data::ActionResolution action = game_data::resolvePieceAction(
+                        gameSnapshot.pieces, gameSnapshot.holes, *selected, row, column);
+                    if (action.legal)
                     {
                         sendMovePiece(selected->id, row, column);
-                    }
-                    else
-                    {
-                        sendAttackPiece(selected->id, row, column);
                     }
                     selectedPieceId.reset();
                     return;
@@ -4363,7 +4366,12 @@ int main(int argc, char** argv)
                     selectedPieceId = clicked->hasActed ? std::nullopt : std::optional<int>(clicked->id);
                     return;
                 }
-                sendMovePiece(selected->id, row, column);
+                const game_data::ActionResolution action = game_data::resolvePieceAction(
+                    gameSnapshot.pieces, gameSnapshot.holes, *selected, row, column);
+                if (action.legal)
+                {
+                    sendMovePiece(selected->id, row, column);
+                }
                 selectedPieceId.reset();
                 return;
             }
@@ -4662,11 +4670,18 @@ int main(int argc, char** argv)
         bool drewArt = false;
         if (piece)
         {
-            if (sf::Texture* walkSheet = walkAnimTexture(piece->walkAnimPath))
+            if (sf::Texture* token = loadTexture(pieceTokenPath(*piece)))
             {
-                constexpr int WalkFrameCount = 4;
+                drawContainSprite(
+                    *token,
+                    {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}});
+                drewArt = true;
+            }
+            else if (sf::Texture* walkSheet = walkAnimTexture(pieceWalkAnimPath(*piece)))
+            {
+                const int walkFrameCount = std::max(1, piece->walkAnimFrames);
                 const sf::Vector2u sheetSize = walkSheet->getSize();
-                const int frameWidth = static_cast<int>(sheetSize.x / WalkFrameCount);
+                const int frameWidth = static_cast<int>(sheetSize.x / static_cast<unsigned int>(walkFrameCount));
                 const int frameHeight = static_cast<int>(sheetSize.y);
                 if (frameWidth > 0 && frameHeight > 0)
                 {
@@ -4674,8 +4689,7 @@ int main(int argc, char** argv)
                         *walkSheet,
                         sf::IntRect({0, 0}, {frameWidth, frameHeight}),
                         {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}},
-                        sf::Color::White,
-                        piece->owner == 2);
+                        sf::Color::White);
                     drewArt = true;
                 }
             }
@@ -4835,18 +4849,11 @@ int main(int argc, char** argv)
                     for (int c = 0; c < game_data::BoardSize; ++c)
                     {
                         const std::size_t idx = static_cast<std::size_t>(game_data::squareIndex(r, c));
-                        const game_data::Piece* occupant = gamePieceAt(r, c);
-                        if (occupant && occupant->owner != me)
+                        const game_data::ActionResolution action = game_data::resolvePieceAction(
+                            gameSnapshot.pieces, gameSnapshot.holes, *actingPiece, r, c);
+                        if (action.legal)
                         {
-                            if (game_data::isLegalAttackingMove(gameSnapshot.pieces, *actingPiece, r, c) ||
-                                game_data::isLegalAttack(*actingPiece, *occupant))
-                            {
-                                highlight[idx] = 2;
-                            }
-                        }
-                        else if (game_data::isLegalMove(gameSnapshot.pieces, *actingPiece, r, c))
-                        {
-                            highlight[idx] = 1;
+                            highlight[idx] = action.attacks ? 2 : 1;
                         }
                     }
                 }
@@ -4926,6 +4933,19 @@ int main(int argc, char** argv)
                     drawQuad(metrics.corners, sf::Color(255, 239, 190, 16));
                 }
 
+                if (gameSnapshot.holes[idx] != 0)
+                {
+                    const sf::Vector2f anchor = boardCellAnchor(metrics);
+                    const float radius = 8.0f * metrics.depthScale;
+                    sf::CircleShape hole(radius);
+                    hole.setScale({1.0f, 0.48f});
+                    hole.setPosition({anchor.x - radius, anchor.y - radius * 0.42f});
+                    hole.setFillColor(sf::Color(3, 7, 8, 225));
+                    hole.setOutlineThickness(1.5f);
+                    hole.setOutlineColor(sf::Color(108, 78, 46));
+                    window.draw(hole);
+                }
+
                 if (highlight[idx] != 0)
                 {
                     sf::Color colors[5] = {
@@ -4994,23 +5014,55 @@ int main(int argc, char** argv)
                                   static_cast<std::uint8_t>(color.b * 0.55f));
             }
 
-            if (sf::Texture* walkSheet = walkAnimTexture(piece.walkAnimPath))
+            const std::string& walkPath = pieceWalkAnimPath(piece);
+            const std::string& tokenPath = pieceTokenPath(piece);
+            if (isMoving && !walkPath.empty() && walkAnimTexture(walkPath) != nullptr)
             {
-                constexpr int WalkFrameCount = 4;
+                if (sf::Texture* walkSheet = walkAnimTexture(walkPath))
+                {
+                    const int walkFrameCount = std::max(1, piece.walkAnimFrames);
+                    const sf::Vector2u sheetSize = walkSheet->getSize();
+                    const int frameWidth = static_cast<int>(
+                        sheetSize.x / static_cast<unsigned int>(walkFrameCount));
+                    const int frameHeight = static_cast<int>(sheetSize.y);
+                    if (frameWidth > 0 && frameHeight > 0)
+                    {
+                        const int frame = static_cast<int>(animationTime * 7.0f) % walkFrameCount;
+                        drawTextureRectContain(
+                            *walkSheet,
+                            sf::IntRect({frame * frameWidth, 0}, {frameWidth, frameHeight}),
+                            pieceTargetRect(anchor, pieceScale, true),
+                            piece.hasActed && piece.owner == gameSnapshot.activePlayer
+                                ? sf::Color(150, 150, 150, 215)
+                                : sf::Color::White);
+                    }
+                }
+            }
+            else if (sf::Texture* token = loadTexture(tokenPath))
+            {
+                drawContainSprite(
+                    *token,
+                    pieceTargetRect(anchor, pieceScale, true),
+                    piece.hasActed && piece.owner == gameSnapshot.activePlayer
+                        ? sf::Color(150, 150, 150, 215)
+                        : sf::Color::White);
+            }
+            else if (sf::Texture* walkSheet = walkAnimTexture(walkPath))
+            {
+                const int walkFrameCount = std::max(1, piece.walkAnimFrames);
                 const sf::Vector2u sheetSize = walkSheet->getSize();
-                const int frameWidth = static_cast<int>(sheetSize.x / WalkFrameCount);
+                const int frameWidth = static_cast<int>(
+                    sheetSize.x / static_cast<unsigned int>(walkFrameCount));
                 const int frameHeight = static_cast<int>(sheetSize.y);
                 if (frameWidth > 0 && frameHeight > 0)
                 {
-                    const int frame = isMoving ? static_cast<int>(animationTime * 5.0f) % WalkFrameCount : 0;
                     drawTextureRectContain(
                         *walkSheet,
-                        sf::IntRect({frame * frameWidth, 0}, {frameWidth, frameHeight}),
+                        sf::IntRect({0, 0}, {frameWidth, frameHeight}),
                         pieceTargetRect(anchor, pieceScale, true),
                         piece.hasActed && piece.owner == gameSnapshot.activePlayer
                             ? sf::Color(150, 150, 150, 215)
-                            : sf::Color::White,
-                        piece.owner == 2);
+                            : sf::Color::White);
                 }
             }
             else if (sf::Texture* art = cardArtTexture(piece.imagePath))
@@ -5018,8 +5070,7 @@ int main(int argc, char** argv)
                 drawContainSprite(*art, pieceTargetRect(anchor, pieceScale, false),
                                   piece.hasActed && piece.owner == gameSnapshot.activePlayer
                                       ? sf::Color(130, 130, 130)
-                                      : sf::Color::White,
-                                  piece.owner == 2);
+                                      : sf::Color::White);
             }
             else
             {
@@ -5094,6 +5145,18 @@ int main(int argc, char** argv)
                          game_data::movePatternName(selectedPiece->movePattern) + " " + std::to_string(selectedPiece->moveRange), 13,
                      {InfoPanelX + 14.0f, y}, sf::Color(170, 180, 196), InfoPanelWidth - 28.0f);
             y += 18.0f;
+            if (selectedPiece->growTurnsRemaining > 0)
+            {
+                drawText(window, font, "Growing: " + std::to_string(selectedPiece->growTurnsRemaining) + " turn(s)", 13,
+                         {InfoPanelX + 14.0f, y}, sf::Color(210, 180, 105), InfoPanelWidth - 28.0f);
+                y += 18.0f;
+            }
+            else if (selectedPiece->disabledTurns > 0)
+            {
+                drawText(window, font, "Disabled: " + std::to_string(selectedPiece->disabledTurns) + " turn(s)", 13,
+                         {InfoPanelX + 14.0f, y}, sf::Color(225, 130, 110), InfoPanelWidth - 28.0f);
+                y += 18.0f;
+            }
         }
 
         // Status line near the bottom of the panel.
@@ -5102,6 +5165,14 @@ int main(int argc, char** argv)
 
         if (phase == game_data::Phase::Playing && gameSnapshot.activePlayer == me)
         {
+            if (selectedPiece && selectedPiece->owner == me && !selectedPiece->hasActed &&
+                !selectedPiece->ability.empty() && selectedPiece->growTurnsRemaining == 0 &&
+                selectedPiece->disabledTurns == 0 &&
+                (selectedPiece->ability != "dig" || selectedPiece->abilityUses > 0))
+            {
+                abilityButton.setLabel(game_data::pieceAbilityLabel(*selectedPiece));
+                abilityButton.draw(window);
+            }
             endTurnButton.draw(window);
         }
         leaveGameButton.draw(window);
@@ -5139,11 +5210,20 @@ int main(int argc, char** argv)
                 ghost.setOutlineColor(ownerColor(draggedPiece->owner));
                 window.draw(ghost);
 
-                if (sf::Texture* walkSheet = walkAnimTexture(draggedPiece->walkAnimPath))
+                if (sf::Texture* token = loadTexture(pieceTokenPath(*draggedPiece)))
                 {
-                    constexpr int WalkFrameCount = 4;
+                    drawContainSprite(
+                        *token,
+                        {{gameDragCurrentPos.x - CellSize / 2.0f + 7.0f, gameDragCurrentPos.y - CellSize / 2.0f},
+                         {CellSize - 14.0f, CellSize - 8.0f}},
+                        sf::Color(255, 255, 255, 210));
+                }
+                else if (sf::Texture* walkSheet = walkAnimTexture(pieceWalkAnimPath(*draggedPiece)))
+                {
+                    const int walkFrameCount = std::max(1, draggedPiece->walkAnimFrames);
                     const sf::Vector2u sheetSize = walkSheet->getSize();
-                    const int frameWidth = static_cast<int>(sheetSize.x / WalkFrameCount);
+                    const int frameWidth = static_cast<int>(
+                        sheetSize.x / static_cast<unsigned int>(walkFrameCount));
                     const int frameHeight = static_cast<int>(sheetSize.y);
                     if (frameWidth > 0 && frameHeight > 0)
                     {
@@ -5152,8 +5232,7 @@ int main(int argc, char** argv)
                             sf::IntRect({0, 0}, {frameWidth, frameHeight}),
                             {{gameDragCurrentPos.x - CellSize / 2.0f + 7.0f, gameDragCurrentPos.y - CellSize / 2.0f},
                              {CellSize - 14.0f, CellSize - 8.0f}},
-                            sf::Color(255, 255, 255, 210),
-                            draggedPiece->owner == 2);
+                            sf::Color(255, 255, 255, 210));
                     }
                 }
                 else if (sf::Texture* art = cardArtTexture(draggedPiece->imagePath))
@@ -5162,8 +5241,7 @@ int main(int argc, char** argv)
                         *art,
                         {{gameDragCurrentPos.x - CellSize / 2.0f + 10.0f, gameDragCurrentPos.y - CellSize / 2.0f + 10.0f},
                          {CellSize - 20.0f, CellSize - 20.0f}},
-                        sf::Color(255, 255, 255, 210),
-                        draggedPiece->owner == 2);
+                        sf::Color(255, 255, 255, 210));
                 }
             }
         }
@@ -5970,6 +6048,23 @@ int main(int argc, char** argv)
                         pendingHandClickIndex.reset();
                         leaveGame();
                     }
+                    else if (haveSnapshot && selectedPieceId &&
+                             static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::Playing &&
+                             gameSnapshot.activePlayer == gameSnapshot.yourPlayer &&
+                             abilityButton.isClicked(clickPos))
+                    {
+                        if (const game_data::Piece* piece = gamePieceById(*selectedPieceId);
+                            piece && piece->owner == gameSnapshot.yourPlayer && !piece->hasActed &&
+                            !piece->ability.empty() && piece->growTurnsRemaining == 0 &&
+                            piece->disabledTurns == 0 &&
+                            (piece->ability != "dig" || piece->abilityUses > 0))
+                        {
+                            pendingHandClickIndex.reset();
+                            sendUseAbility(piece->id);
+                            selectedPieceId.reset();
+                            selectedHandIndex.reset();
+                        }
+                    }
                     else if (haveSnapshot &&
                              static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::Playing &&
                              gameSnapshot.activePlayer == gameSnapshot.yourPlayer &&
@@ -6591,6 +6686,19 @@ int main(int argc, char** argv)
             }
             else
             {
+                if (haveSnapshot && selectedPieceId &&
+                    static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::Playing &&
+                    gameSnapshot.activePlayer == gameSnapshot.yourPlayer)
+                {
+                    if (const game_data::Piece* piece = gamePieceById(*selectedPieceId);
+                        piece && piece->owner == gameSnapshot.yourPlayer && !piece->hasActed &&
+                        !piece->ability.empty() && piece->growTurnsRemaining == 0 &&
+                        piece->disabledTurns == 0 &&
+                        (piece->ability != "dig" || piece->abilityUses > 0))
+                    {
+                        abilityButton.update(mousePos);
+                    }
+                }
                 endTurnButton.update(mousePos);
                 leaveGameButton.update(mousePos);
             }

@@ -4,8 +4,10 @@
 
 #include "card_data.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -22,7 +24,7 @@ constexpr int BoardSquares = BoardSize * BoardSize;
 constexpr int DeckCardCount = 40;   // non-hero cards
 constexpr int MinHeroes = 1;
 constexpr int MaxHeroes = 4;
-constexpr int HeroCostLimit = 10;
+constexpr int HeroCostLimit = 100;
 
 // Hand / steam tuning.
 constexpr int StartingHandSize = 4;
@@ -41,7 +43,34 @@ enum class MovePattern : std::uint8_t
     Ortho = 1,  // rook-like, straight lines
     Diag = 2,   // bishop-like, diagonals
     Omni = 3,   // king/queen-like, all eight directions
-    Jump = 4    // knight-like, fixed L offsets
+    Jump = 4,   // knight-like, fixed L offsets
+    Horizontal = 5,
+    Vertical = 6
+};
+
+enum class ActionKind : std::uint8_t
+{
+    Slide = 0,
+    Ranged = 1,
+    Hop = 2,
+    Teleport = 3,
+    Tunnel = 4
+};
+
+struct ActionProfile
+{
+    std::uint8_t kind = static_cast<std::uint8_t>(ActionKind::Slide);
+    std::uint8_t pattern = static_cast<std::uint8_t>(MovePattern::Omni);
+    int state = 0;
+    int minRange = 1;
+    int maxRange = 1;
+    int damage = 0;
+    int statusTurns = 0;
+    int cooldownTurns = 0;
+    bool canMove = true;
+    bool canAttack = false;
+    bool passThrough = false;
+    bool lineOfSight = false;
 };
 
 inline std::uint8_t parseMovePattern(const std::string& value)
@@ -58,6 +87,14 @@ inline std::uint8_t parseMovePattern(const std::string& value)
     {
         return static_cast<std::uint8_t>(MovePattern::Jump);
     }
+    if (value == "horizontal")
+    {
+        return static_cast<std::uint8_t>(MovePattern::Horizontal);
+    }
+    if (value == "vertical")
+    {
+        return static_cast<std::uint8_t>(MovePattern::Vertical);
+    }
     if (value == "none")
     {
         return static_cast<std::uint8_t>(MovePattern::None);
@@ -73,6 +110,8 @@ inline std::string movePatternName(std::uint8_t pattern)
         case MovePattern::Diag: return "Diagonal";
         case MovePattern::Omni: return "Any direction";
         case MovePattern::Jump: return "Knight jump";
+        case MovePattern::Horizontal: return "Horizontal";
+        case MovePattern::Vertical: return "Vertical";
         default: return "Stationary";
     }
 }
@@ -102,6 +141,109 @@ inline std::string cardStr(const card_data::Card& card, const std::string& key, 
     return fallback;
 }
 
+inline std::vector<std::string> cardList(const card_data::Card& card, const std::string& key)
+{
+    for (const card_data::KeyStringList& item : card.stringLists)
+    {
+        if (item.key == key)
+        {
+            return item.values;
+        }
+    }
+    return {};
+}
+
+inline std::vector<std::string> splitValue(const std::string& value, char delimiter)
+{
+    std::vector<std::string> parts;
+    std::size_t start = 0;
+    while (start <= value.size())
+    {
+        const std::size_t end = value.find(delimiter, start);
+        parts.push_back(value.substr(start, end == std::string::npos ? std::string::npos : end - start));
+        if (end == std::string::npos)
+        {
+            break;
+        }
+        start = end + 1;
+    }
+    return parts;
+}
+
+inline int parseInt(const std::string& value, int fallback)
+{
+    try
+    {
+        std::size_t parsed = 0;
+        const int result = std::stoi(value, &parsed);
+        return parsed == value.size() ? result : fallback;
+    }
+    catch (...)
+    {
+        return fallback;
+    }
+}
+
+inline bool flagPresent(const std::string& flags, const std::string& wanted)
+{
+    for (const std::string& flag : splitValue(flags, ','))
+    {
+        if (flag == wanted)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline std::uint8_t parseActionKind(const std::string& value)
+{
+    if (value == "ranged")
+    {
+        return static_cast<std::uint8_t>(ActionKind::Ranged);
+    }
+    if (value == "hop")
+    {
+        return static_cast<std::uint8_t>(ActionKind::Hop);
+    }
+    if (value == "teleport")
+    {
+        return static_cast<std::uint8_t>(ActionKind::Teleport);
+    }
+    if (value == "tunnel")
+    {
+        return static_cast<std::uint8_t>(ActionKind::Tunnel);
+    }
+    return static_cast<std::uint8_t>(ActionKind::Slide);
+}
+
+// Database format:
+// state|kind|pattern|minRange|maxRange|damage|flags|statusTurns|cooldownTurns
+// Flags are comma-separated: move, attack, pass, los.
+inline std::optional<ActionProfile> parseActionProfile(const std::string& value)
+{
+    const std::vector<std::string> fields = splitValue(value, '|');
+    if (fields.size() != 9)
+    {
+        return std::nullopt;
+    }
+
+    ActionProfile action;
+    action.state = parseInt(fields[0], 0);
+    action.kind = parseActionKind(fields[1]);
+    action.pattern = parseMovePattern(fields[2]);
+    action.minRange = parseInt(fields[3], 1);
+    action.maxRange = parseInt(fields[4], 1);
+    action.damage = parseInt(fields[5], 0);
+    action.canMove = flagPresent(fields[6], "move");
+    action.canAttack = flagPresent(fields[6], "attack");
+    action.passThrough = flagPresent(fields[6], "pass");
+    action.lineOfSight = flagPresent(fields[6], "los");
+    action.statusTurns = parseInt(fields[7], 0);
+    action.cooldownTurns = parseInt(fields[8], 0);
+    return action;
+}
+
 inline bool isHeroCard(const card_data::Card& card)
 {
     return card.type == "Hero";
@@ -119,6 +261,11 @@ struct GameCard
     std::string type;      // "Unit", "Spell", or "Hero"
     std::string imagePath;
     std::string walkAnimPath;
+    std::string blueTokenPath;
+    std::string redTokenPath;
+    std::string blueWalkAnimPath;
+    std::string redWalkAnimPath;
+    int walkAnimFrames = 4;
     int cost = 1;          // steam cost (units / spells)
     int heroCost = 0;      // hero-cost budget contribution (heroes)
     int health = 1;
@@ -130,6 +277,12 @@ struct GameCard
     std::string effect = "none";  // spells: "damage", "heal", "steam"
     std::string target = "none";  // spells: "enemy", "ally", "none"
     int power = 0;                // spell magnitude
+    bool canControl = true;
+    int growTurns = 0;
+    std::vector<ActionProfile> actions;
+    std::string ability;
+    std::vector<std::string> abilityLabels;
+    int abilityUses = 0;
 };
 
 inline GameCard toGameCard(const card_data::Card& card)
@@ -139,6 +292,16 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.type = card.type;
     g.imagePath = card.imagePath;
     g.walkAnimPath = cardStr(card, "WalkAnim");
+    g.blueTokenPath = cardStr(card, "TokenBlue");
+    g.redTokenPath = cardStr(card, "TokenRed");
+    g.blueWalkAnimPath = cardStr(card, "WalkAnimBlue");
+    g.redWalkAnimPath = cardStr(card, "WalkAnimRed");
+    if (g.blueWalkAnimPath.empty() && g.redWalkAnimPath.empty())
+    {
+        g.blueWalkAnimPath = g.walkAnimPath;
+        g.redWalkAnimPath = g.walkAnimPath;
+    }
+    g.walkAnimFrames = std::max(1, cardInt(card, "WalkAnimFrames", 4));
     g.cost = cardInt(card, "cost", 1);
     g.heroCost = cardInt(card, "heroCost", 0);
     g.health = cardInt(card, "health", 1);
@@ -150,6 +313,46 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.effect = cardStr(card, "effect", "none");
     g.target = cardStr(card, "target", "none");
     g.power = cardInt(card, "power", 0);
+    g.canControl = cardInt(card, "canControl", 1) != 0;
+    g.growTurns = cardInt(card, "growTurns", 0);
+    g.ability = cardStr(card, "ability");
+    g.abilityLabels = cardList(card, "abilityLabels");
+    g.abilityUses = cardInt(card, "abilityUses", 0);
+
+    for (const std::string& encoded : cardList(card, "actions"))
+    {
+        if (const std::optional<ActionProfile> action = parseActionProfile(encoded))
+        {
+            g.actions.push_back(*action);
+        }
+    }
+
+    if (g.actions.empty() && g.movePattern != static_cast<std::uint8_t>(MovePattern::None) && g.moveRange > 0)
+    {
+        ActionProfile move;
+        move.pattern = g.movePattern;
+        move.maxRange = g.moveRange;
+        move.damage = g.attack;
+        move.canMove = true;
+        move.canAttack = g.attackingMove;
+        g.actions.push_back(move);
+    }
+    if (g.actions.empty() || (g.attack > 0 && !g.attackingMove))
+    {
+        if (g.attack > 0)
+        {
+            ActionProfile attack;
+            attack.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+            // None intentionally means any square within Chebyshev range for
+            // legacy cards. Imported ranged attacks use a line pattern.
+            attack.pattern = static_cast<std::uint8_t>(MovePattern::None);
+            attack.maxRange = g.attackRange;
+            attack.damage = g.attack;
+            attack.canMove = false;
+            attack.canAttack = true;
+            g.actions.push_back(attack);
+        }
+    }
     return g;
 }
 
@@ -163,6 +366,11 @@ struct Piece
     std::string name;
     std::string imagePath;
     std::string walkAnimPath;
+    std::string blueTokenPath;
+    std::string redTokenPath;
+    std::string blueWalkAnimPath;
+    std::string redWalkAnimPath;
+    int walkAnimFrames = 4;
     int maxHealth = 1;
     int health = 1;
     int attack = 0;
@@ -170,6 +378,15 @@ struct Piece
     std::uint8_t movePattern = static_cast<std::uint8_t>(MovePattern::Omni);
     int moveRange = 1;
     bool attackingMove = false;
+    bool canControl = true;
+    int growTurnsRemaining = 0;
+    int disabledTurns = 0;
+    std::vector<ActionProfile> actions;
+    int actionState = 0;
+    std::string ability;
+    std::vector<std::string> abilityLabels;
+    int abilityUses = 0;
+    bool hidden = false;
     bool isHero = false;
     bool hasActed = false;
 };
@@ -195,6 +412,7 @@ struct Snapshot
     int winner = 0;  // 0 = none
     std::array<PlayerSnapshot, 2> players{};
     std::array<std::uint8_t, BoardSquares> control{};  // 0 neutral, 1, 2
+    std::array<std::uint8_t, BoardSquares> holes{};
     std::vector<Piece> pieces;
     std::vector<GameCard> hand;  // recipient's hand
     std::string status;
@@ -204,34 +422,108 @@ struct Snapshot
 
 inline void writeGameCard(sf::Packet& packet, const GameCard& card)
 {
-    packet << card.title << card.type << card.imagePath << card.walkAnimPath << card.cost << card.heroCost
+    packet << card.title << card.type << card.imagePath << card.walkAnimPath
+           << card.blueTokenPath << card.redTokenPath
+           << card.blueWalkAnimPath << card.redWalkAnimPath << card.walkAnimFrames
+           << card.cost << card.heroCost
            << card.health << card.attack << card.attackRange
            << card.movePattern << card.moveRange << card.attackingMove
-           << card.effect << card.target << card.power;
+           << card.effect << card.target << card.power
+           << card.canControl << card.growTurns;
+    packet << static_cast<std::uint32_t>(card.actions.size());
+    for (const ActionProfile& action : card.actions)
+    {
+        packet << action.kind << action.pattern << action.state << action.minRange << action.maxRange
+               << action.damage << action.statusTurns << action.cooldownTurns
+               << action.canMove << action.canAttack << action.passThrough << action.lineOfSight;
+    }
+    packet << card.ability;
+    card_data::writeStringVector(packet, card.abilityLabels);
+    packet << card.abilityUses;
 }
 
 inline bool readGameCard(sf::Packet& packet, GameCard& card)
 {
-    packet >> card.title >> card.type >> card.imagePath >> card.walkAnimPath >> card.cost >> card.heroCost
+    packet >> card.title >> card.type >> card.imagePath >> card.walkAnimPath
+           >> card.blueTokenPath >> card.redTokenPath
+           >> card.blueWalkAnimPath >> card.redWalkAnimPath >> card.walkAnimFrames
+           >> card.cost >> card.heroCost
            >> card.health >> card.attack >> card.attackRange
            >> card.movePattern >> card.moveRange >> card.attackingMove
-           >> card.effect >> card.target >> card.power;
+           >> card.effect >> card.target >> card.power
+           >> card.canControl >> card.growTurns;
+    std::uint32_t actionCount = 0;
+    packet >> actionCount;
+    card.actions.clear();
+    card.actions.reserve(actionCount);
+    for (std::uint32_t i = 0; i < actionCount; ++i)
+    {
+        ActionProfile action;
+        packet >> action.kind >> action.pattern >> action.state >> action.minRange >> action.maxRange
+               >> action.damage >> action.statusTurns >> action.cooldownTurns
+               >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight;
+        if (!packet)
+        {
+            return false;
+        }
+        card.actions.push_back(action);
+    }
+    packet >> card.ability;
+    if (!packet || !card_data::readStringVector(packet, card.abilityLabels))
+    {
+        return false;
+    }
+    packet >> card.abilityUses;
     return static_cast<bool>(packet);
 }
 
 inline void writePiece(sf::Packet& packet, const Piece& piece)
 {
     packet << piece.id << piece.owner << piece.row << piece.column << piece.name << piece.imagePath << piece.walkAnimPath
+           << piece.blueTokenPath << piece.redTokenPath
+           << piece.blueWalkAnimPath << piece.redWalkAnimPath << piece.walkAnimFrames
            << piece.maxHealth << piece.health << piece.attack << piece.attackRange
-           << piece.movePattern << piece.moveRange << piece.attackingMove << piece.isHero << piece.hasActed;
+           << piece.movePattern << piece.moveRange << piece.attackingMove
+           << piece.canControl << piece.growTurnsRemaining << piece.disabledTurns
+           << piece.actionState << piece.ability << piece.abilityUses << piece.hidden
+           << piece.isHero << piece.hasActed;
+    packet << static_cast<std::uint32_t>(piece.actions.size());
+    for (const ActionProfile& action : piece.actions)
+    {
+        packet << action.kind << action.pattern << action.state << action.minRange << action.maxRange
+               << action.damage << action.statusTurns << action.cooldownTurns
+               << action.canMove << action.canAttack << action.passThrough << action.lineOfSight;
+    }
+    card_data::writeStringVector(packet, piece.abilityLabels);
 }
 
 inline bool readPiece(sf::Packet& packet, Piece& piece)
 {
     packet >> piece.id >> piece.owner >> piece.row >> piece.column >> piece.name >> piece.imagePath >> piece.walkAnimPath
+           >> piece.blueTokenPath >> piece.redTokenPath
+           >> piece.blueWalkAnimPath >> piece.redWalkAnimPath >> piece.walkAnimFrames
            >> piece.maxHealth >> piece.health >> piece.attack >> piece.attackRange
-           >> piece.movePattern >> piece.moveRange >> piece.attackingMove >> piece.isHero >> piece.hasActed;
-    return static_cast<bool>(packet);
+           >> piece.movePattern >> piece.moveRange >> piece.attackingMove
+           >> piece.canControl >> piece.growTurnsRemaining >> piece.disabledTurns
+           >> piece.actionState >> piece.ability >> piece.abilityUses >> piece.hidden
+           >> piece.isHero >> piece.hasActed;
+    std::uint32_t actionCount = 0;
+    packet >> actionCount;
+    piece.actions.clear();
+    piece.actions.reserve(actionCount);
+    for (std::uint32_t i = 0; i < actionCount; ++i)
+    {
+        ActionProfile action;
+        packet >> action.kind >> action.pattern >> action.state >> action.minRange >> action.maxRange
+               >> action.damage >> action.statusTurns >> action.cooldownTurns
+               >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight;
+        if (!packet)
+        {
+            return false;
+        }
+        piece.actions.push_back(action);
+    }
+    return packet && card_data::readStringVector(packet, piece.abilityLabels);
 }
 
 inline void writePlayerSnapshot(sf::Packet& packet, const PlayerSnapshot& player)
@@ -257,6 +549,10 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
     for (std::uint8_t control : snapshot.control)
     {
         packet << control;
+    }
+    for (std::uint8_t hole : snapshot.holes)
+    {
+        packet << hole;
     }
 
     packet << static_cast<std::uint32_t>(snapshot.pieces.size());
@@ -286,6 +582,14 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot)
     for (std::uint8_t& control : snapshot.control)
     {
         packet >> control;
+        if (!packet)
+        {
+            return false;
+        }
+    }
+    for (std::uint8_t& hole : snapshot.holes)
+    {
+        packet >> hole;
         if (!packet)
         {
             return false;
@@ -486,5 +790,294 @@ inline bool isLegalAttack(const Piece& attacker, const Piece& target)
         return false;
     }
     return chebyshev(attacker.row, attacker.column, target.row, target.column) <= attacker.attackRange;
+}
+
+struct ActionResolution
+{
+    bool legal = false;
+    bool moves = false;
+    bool attacks = false;
+    int actionIndex = -1;
+    int targetId = 0;
+    int damage = 0;
+    int statusTurns = 0;
+    int cooldownTurns = 0;
+    int stagingRow = 0;
+    int stagingColumn = 0;
+};
+
+inline bool actionPatternMatches(
+    std::uint8_t patternValue,
+    int deltaRow,
+    int deltaColumn,
+    int minRange,
+    int maxRange)
+{
+    if (deltaRow == 0 && deltaColumn == 0)
+    {
+        return false;
+    }
+
+    const int absoluteRow = absInt(deltaRow);
+    const int absoluteColumn = absInt(deltaColumn);
+    const int distance = absoluteRow > absoluteColumn ? absoluteRow : absoluteColumn;
+    if (distance < minRange || distance > maxRange)
+    {
+        return false;
+    }
+
+    const MovePattern pattern = static_cast<MovePattern>(patternValue);
+    if (pattern == MovePattern::None)
+    {
+        return true;
+    }
+    if (pattern == MovePattern::Jump)
+    {
+        return (absoluteRow == 1 && absoluteColumn == 2) ||
+               (absoluteRow == 2 && absoluteColumn == 1);
+    }
+
+    const bool straight = deltaRow == 0 || deltaColumn == 0;
+    const bool diagonal = absoluteRow == absoluteColumn;
+    if (pattern == MovePattern::Ortho)
+    {
+        return straight;
+    }
+    if (pattern == MovePattern::Diag)
+    {
+        return diagonal;
+    }
+    if (pattern == MovePattern::Horizontal)
+    {
+        return deltaRow == 0;
+    }
+    if (pattern == MovePattern::Vertical)
+    {
+        return deltaColumn == 0;
+    }
+    return straight || diagonal;
+}
+
+inline bool actionPathClear(
+    const std::vector<Piece>& pieces,
+    const Piece& piece,
+    int toRow,
+    int toColumn,
+    bool passThrough)
+{
+    if (passThrough)
+    {
+        return true;
+    }
+
+    const int deltaRow = toRow - piece.row;
+    const int deltaColumn = toColumn - piece.column;
+    const int stepRow = (deltaRow > 0) - (deltaRow < 0);
+    const int stepColumn = (deltaColumn > 0) - (deltaColumn < 0);
+    int row = piece.row + stepRow;
+    int column = piece.column + stepColumn;
+    while (row != toRow || column != toColumn)
+    {
+        if (findPieceAt(pieces, row, column) != nullptr)
+        {
+            return false;
+        }
+        row += stepRow;
+        column += stepColumn;
+    }
+    return true;
+}
+
+inline ActionResolution resolvePieceAction(
+    const std::vector<Piece>& pieces,
+    const std::array<std::uint8_t, BoardSquares>& holes,
+    const Piece& piece,
+    int toRow,
+    int toColumn)
+{
+    ActionResolution best;
+    if (!inBounds(toRow, toColumn) || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
+    {
+        return best;
+    }
+
+    const Piece* destination = findPieceAt(pieces, toRow, toColumn);
+    const int deltaRow = toRow - piece.row;
+    const int deltaColumn = toColumn - piece.column;
+
+    for (std::size_t index = 0; index < piece.actions.size(); ++index)
+    {
+        const ActionProfile& action = piece.actions[index];
+        if (action.state != piece.actionState)
+        {
+            continue;
+        }
+
+        ActionResolution candidate;
+        candidate.actionIndex = static_cast<int>(index);
+        candidate.damage = action.damage;
+        candidate.statusTurns = action.statusTurns;
+        candidate.cooldownTurns = action.cooldownTurns;
+        candidate.stagingRow = piece.row;
+        candidate.stagingColumn = piece.column;
+
+        const ActionKind kind = static_cast<ActionKind>(action.kind);
+        if (kind == ActionKind::Teleport)
+        {
+            if (action.canMove && destination == nullptr && (deltaRow != 0 || deltaColumn != 0))
+            {
+                candidate.legal = true;
+                candidate.moves = true;
+            }
+        }
+        else if (kind == ActionKind::Tunnel)
+        {
+            const std::size_t fromIndex = static_cast<std::size_t>(squareIndex(piece.row, piece.column));
+            const std::size_t toIndex = static_cast<std::size_t>(squareIndex(toRow, toColumn));
+            if (action.canMove && destination == nullptr && holes[fromIndex] != 0 && holes[toIndex] != 0 &&
+                (deltaRow != 0 || deltaColumn != 0))
+            {
+                candidate.legal = true;
+                candidate.moves = true;
+            }
+        }
+        else if (kind == ActionKind::Hop)
+        {
+            const int absoluteRow = absInt(deltaRow);
+            const int absoluteColumn = absInt(deltaColumn);
+            const bool hopGeometry =
+                (absoluteRow == 2 && deltaColumn == 0) ||
+                (absoluteColumn == 2 && deltaRow == 0) ||
+                (absoluteRow == 2 && absoluteColumn == 2);
+            if (action.canMove && destination == nullptr && hopGeometry)
+            {
+                const Piece* pivot = findPieceAt(
+                    pieces,
+                    piece.row + deltaRow / 2,
+                    piece.column + deltaColumn / 2);
+                if (pivot != nullptr)
+                {
+                    candidate.legal = true;
+                    candidate.moves = true;
+                    if (action.canAttack && pivot->owner != piece.owner)
+                    {
+                        candidate.attacks = true;
+                        candidate.targetId = pivot->id;
+                    }
+                }
+            }
+        }
+        else if (kind == ActionKind::Ranged)
+        {
+            if (action.canAttack && destination != nullptr && destination->owner != piece.owner &&
+                actionPatternMatches(
+                    action.pattern,
+                    deltaRow,
+                    deltaColumn,
+                    action.minRange,
+                    action.maxRange) &&
+                (!action.lineOfSight || actionPathClear(pieces, piece, toRow, toColumn, false)))
+            {
+                candidate.legal = true;
+                candidate.attacks = true;
+                candidate.targetId = destination->id;
+            }
+        }
+        else
+        {
+            if (!actionPatternMatches(
+                    action.pattern,
+                    deltaRow,
+                    deltaColumn,
+                    action.minRange,
+                    action.maxRange))
+            {
+                continue;
+            }
+
+            const bool jumping = static_cast<MovePattern>(action.pattern) == MovePattern::Jump;
+            if (!jumping && !actionPathClear(pieces, piece, toRow, toColumn, action.passThrough))
+            {
+                continue;
+            }
+
+            if (destination == nullptr && action.canMove)
+            {
+                candidate.legal = true;
+                candidate.moves = true;
+            }
+            else if (destination != nullptr && destination->owner != piece.owner && action.canAttack)
+            {
+                candidate.legal = true;
+                candidate.attacks = true;
+                candidate.moves = action.canMove;
+                candidate.targetId = destination->id;
+                if (!jumping)
+                {
+                    const int stepRow = (deltaRow > 0) - (deltaRow < 0);
+                    const int stepColumn = (deltaColumn > 0) - (deltaColumn < 0);
+                    candidate.stagingRow = toRow - stepRow;
+                    candidate.stagingColumn = toColumn - stepColumn;
+                }
+            }
+        }
+
+        if (!candidate.legal)
+        {
+            continue;
+        }
+
+        const int candidateImpact = candidate.attacks
+            ? candidate.damage + candidate.statusTurns
+            : 0;
+        const int bestImpact = best.attacks ? best.damage + best.statusTurns : 0;
+        if (!best.legal || candidateImpact > bestImpact)
+        {
+            best = candidate;
+        }
+    }
+
+    return best;
+}
+
+inline bool isLegalPieceMove(
+    const std::vector<Piece>& pieces,
+    const std::array<std::uint8_t, BoardSquares>& holes,
+    const Piece& piece,
+    int toRow,
+    int toColumn)
+{
+    const ActionResolution action = resolvePieceAction(pieces, holes, piece, toRow, toColumn);
+    return action.legal && action.moves;
+}
+
+inline bool isLegalPieceAttack(
+    const std::vector<Piece>& pieces,
+    const std::array<std::uint8_t, BoardSquares>& holes,
+    const Piece& piece,
+    int toRow,
+    int toColumn)
+{
+    const ActionResolution action = resolvePieceAction(pieces, holes, piece, toRow, toColumn);
+    return action.legal && action.attacks;
+}
+
+inline std::string pieceAbilityLabel(const Piece& piece)
+{
+    if (piece.ability.empty())
+    {
+        return "";
+    }
+    if (!piece.abilityLabels.empty())
+    {
+        const std::size_t index = static_cast<std::size_t>(
+            piece.actionState % static_cast<int>(piece.abilityLabels.size()));
+        return piece.abilityLabels[index];
+    }
+    if (piece.ability == "dig")
+    {
+        return "Dig";
+    }
+    return "Use Ability";
 }
 }

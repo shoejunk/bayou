@@ -48,6 +48,7 @@ enum class MessageType : std::uint8_t
     PlayCard,
     MovePiece,
     AttackPiece,
+    UseAbility,
     EndTurn,
     GameOver,
     RememberLogin,

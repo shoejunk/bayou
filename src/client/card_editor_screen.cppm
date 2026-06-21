@@ -1798,11 +1798,11 @@ private:
         y = drawInstructionBullet(window, "Title: the unique card name. Renaming an existing card updates that card; duplicate titles are not valid.", y);
         y = drawInstructionBullet(window, "Type: enter exactly Hero, Unit, or Spell. Type matching is case-sensitive.", y);
         y = drawInstructionBullet(window, "Image Path: a path under the assets folder, such as cards/clockwork-rook.png. Do not include an absolute path or use .. to leave the assets folder.", y);
-        y = drawInstructionBullet(window, "Walk animation: add a String Field named WalkAnim with an asset-relative spritesheet path, for example animations/clockwork-rook-walk.png. It is used by Heroes and Units.", y);
+        y = drawInstructionBullet(window, "Board art: TokenBlue and TokenRed select team-colored resting images. WalkAnimBlue and WalkAnimRed select team-colored horizontal walking sprite sheets; WalkAnimFrames gives their frame count. WalkAnim remains the shared-sheet fallback.", y);
         y += 12.0f;
 
         y = drawInstructionSection(window, "2. Card types", y);
-        y = drawInstructionBullet(window, "Hero: selected during deck building and placed on one of the player's four starting squares before play. Use heroCost instead of cost. A deck has 1-4 Heroes and a total Hero cost limit of 10. Losing every Hero loses the game.", y, sf::Color(248, 214, 112));
+        y = drawInstructionBullet(window, "Hero: selected during deck building and placed on one of the player's four starting squares before play. Use heroCost instead of cost. A deck has 1-4 Heroes and a total Hero cost limit of 100. Losing every Hero loses the game.", y, sf::Color(248, 214, 112));
         y = drawInstructionBullet(window, "Unit: goes into the 40-card main deck. It costs steam to play and deploys to an empty square the player controls. A newly deployed Unit cannot move or attack until its owner's next turn.", y, sf::Color(150, 210, 235));
         y = drawInstructionBullet(window, "Spell: goes into the main deck, costs steam, resolves immediately, and leaves the hand. Spells do not use health, attack, range, move, movement, or WalkAnim.", y, sf::Color(205, 175, 235));
         y += 12.0f;
@@ -1815,6 +1815,9 @@ private:
         y = drawInstructionBullet(window, "range: maximum attack distance. Distance counts the larger of the row or column difference, so diagonals count the same as straight lines. Attacks do not check intervening pieces. Default: 1.", y);
         y = drawInstructionBullet(window, "move: maximum squares moved in one action for ortho, diag, and omni movement. Jump always uses a fixed knight jump and ignores this distance. Default: 1.", y);
         y = drawInstructionBullet(window, "attackingMove: set to 1 to let this Hero or Unit use a legal move onto an enemy and deal its attack damage. Use 0 or omit the field for normal non-attacking movement. Default: 0.", y);
+        y = drawInstructionBullet(window, "canControl: set to 0 for pieces that do not claim their occupied square or influence adjacent territory. Default: 1.", y);
+        y = drawInstructionBullet(window, "growTurns: owner turns a newly summoned piece must wait before it can act. Default: 0.", y);
+        y = drawInstructionBullet(window, "abilityUses: number of uses for a limited ability such as dig.", y);
         y = drawInstructionBullet(window, "power: spell amount. It is damage dealt, health restored, or steam gained depending on effect. Default: 0.", y);
         y += 12.0f;
 
@@ -1825,6 +1828,7 @@ private:
         y = drawInstructionBullet(window, "diag: move diagonally, like a chess bishop, up to the move value.", y);
         y = drawInstructionBullet(window, "omni: move horizontally, vertically, or diagonally, up to the move value. This is the default if the field is missing or unrecognized.", y);
         y = drawInstructionBullet(window, "jump: move in a fixed L shape: two squares on one axis and one on the other, like a chess knight. It may jump over pieces.", y);
+        y = drawInstructionBullet(window, "horizontal or vertical: move only along that single board axis.", y);
         y = drawInstructionBullet(window, "none: the piece cannot move.", y);
         y = drawInstructionParagraph(window, "For ortho, diag, and omni, every square along the path must be empty. The destination must also be empty unless attackingMove=1 and it contains an enemy. A move uses the piece's action for that turn.", y + 5.0f, sf::Color(198, 210, 224));
         y += 10.0f;
@@ -1841,23 +1845,26 @@ private:
         y = drawInstructionSection(window, "6. Rarity, Keywords, and String Lists", y);
         y = drawInstructionBullet(window, "Rarity: add a String Field named rarity with value common, rare, or legendary. Missing or unknown values count as common. Shop selection odds are 70% common, 25% rare, and 5% legendary; cards within a rarity are equally likely.", y);
         y = drawInstructionBullet(window, "Keywords: free-form labels shown in card details. The current game engine does not attach rules to them.", y);
-        y = drawInstructionBullet(window, "String Lists: free-form named lists shown in card details. The current game engine does not attach rules to them.", y);
+        y = drawInstructionBullet(window, "ability: transform, dematerialize, or dig. Transform-style abilities switch action states; dig creates a tunnel hole on the piece's square.", y);
+        y = drawInstructionBullet(window, "actions list values use state|kind|pattern|min|max|damage|flags|status|cooldown. Kinds: slide, ranged, hop, teleport, tunnel. Flags: move, attack, pass, los.", y);
+        y = drawInstructionBullet(window, "abilityLabels is an ordered String List containing the button label for each action state.", y);
+        y = drawInstructionBullet(window, "Other String Lists are free-form named lists shown in card details.", y);
         y = drawInstructionBullet(window, "Unknown Integer or String Fields are stored and displayed, but they do not change gameplay unless code is added to read them.", y);
         y += 12.0f;
 
         y = drawInstructionSection(window, "7. Turn and board rules that affect balance", y);
         y = drawInstructionBullet(window, "On a turn, playing a card, moving, or attacking ends the turn. A piece can therefore move or attack, not both, before the opponent acts.", y);
-        y = drawInstructionBullet(window, "Each occupied square is controlled by its occupant. Empty squares are controlled by whichever player has more adjacent pieces, including diagonals; ties keep the current controller.", y);
+        y = drawInstructionBullet(window, "A piece with canControl=1 controls its occupied square and influences adjacent territory. Pieces with canControl=0 do neither. Ties keep the current controller.", y);
         y = drawInstructionBullet(window, "At the start of a turn, the player gains 1 steam per controlled square, draws one card if below the 8-card hand limit, and refreshes their pieces.", y);
         y = drawInstructionBullet(window, "Normal attacks may target an enemy within range in any direction. Attack range uses square/diagonal distance and ignores blockers.", y);
         y += 12.0f;
 
         y = drawInstructionSection(window, "8. Complete examples", y);
-        y = drawInstructionParagraph(window, "Unit example - Type: Unit | Integer Fields: cost=4; health=12; attack=5; range=1; move=7; attackingMove=1 | String Fields: movement=ortho; rarity=rare; WalkAnim=animations/clockwork-rook-walk.png", y, sf::Color(150, 210, 235));
+        y = drawInstructionParagraph(window, "Unit example - Type: Unit | Integer Fields: cost=40; health=12; attack=5; range=1; move=7; attackingMove=1 | String Fields: movement=ortho; rarity=rare; WalkAnim=animations/clockwork-rook-walk.png", y, sf::Color(150, 210, 235));
         y += 10.0f;
-        y = drawInstructionParagraph(window, "Hero example - Type: Hero | Integer Fields: heroCost=5; health=16; attack=6; range=3; move=2 | String Fields: movement=diag; rarity=rare; WalkAnim=animations/marsh-witch-walk.png", y, sf::Color(248, 214, 112));
+        y = drawInstructionParagraph(window, "Hero example - Type: Hero | Integer Fields: heroCost=50; health=16; attack=6; range=3; move=2 | String Fields: movement=diag; rarity=rare; WalkAnim=animations/marsh-witch-walk.png", y, sf::Color(248, 214, 112));
         y += 10.0f;
-        y = drawInstructionParagraph(window, "Spell example - Type: Spell | Integer Fields: cost=2; power=6 | String Fields: effect=heal; target=ally; rarity=common", y, sf::Color(205, 175, 235));
+        y = drawInstructionParagraph(window, "Spell example - Type: Spell | Integer Fields: cost=20; power=6 | String Fields: effect=heal; target=ally; rarity=common", y, sf::Color(205, 175, 235));
         y += 22.0f;
 
         y = drawInstructionSection(window, "9. Using the editor safely", y);

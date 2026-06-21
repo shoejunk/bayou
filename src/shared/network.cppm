@@ -51,6 +51,7 @@ enum class MessageType : uint8_t
     PlayCard,
     MovePiece,
     AttackPiece,
+    UseAbility,
     EndTurn,
     GameOver,
     RememberLogin,

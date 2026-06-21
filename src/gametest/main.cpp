@@ -53,7 +53,7 @@ card_data::Card makeCard(
 std::vector<card_data::Card> makeTestDeck()
 {
     std::vector<card_data::Card> deck;
-    // Two heroes (hero cost 4 + 2 = 6, within the limit of 10).
+    // Two heroes (hero cost 4 + 2 = 6, within the scaled limit of 100).
     deck.push_back(makeCard("Gear Knight", "Hero",
         {{"heroCost", 4}, {"health", 18}, {"attack", 6}, {"range", 1}, {"move", 1}},
         {{"movement", "jump"}}));
@@ -178,6 +178,140 @@ int main(int argc, char** argv)
           "attacking jump can target a knight-reachable enemy");
     check(attackingMoveFallbackSquare(movementTestPieces[0], 5, 2) == std::pair<int, int>{3, 1},
           "failed attacking jump stays at its starting square");
+
+    std::array<std::uint8_t, BoardSquares> holes{};
+    Piece profilePiece;
+    profilePiece.id = 10;
+    profilePiece.owner = 1;
+    profilePiece.row = 3;
+    profilePiece.column = 3;
+
+    ActionProfile horizontal;
+    horizontal.pattern = static_cast<std::uint8_t>(MovePattern::Horizontal);
+    horizontal.canMove = true;
+    profilePiece.actions = {horizontal};
+    check(resolvePieceAction({profilePiece}, holes, profilePiece, 3, 4).legal,
+          "horizontal profile moves along its row");
+    check(!resolvePieceAction({profilePiece}, holes, profilePiece, 4, 3).legal,
+          "horizontal profile rejects vertical movement");
+
+    ActionProfile teleport;
+    teleport.kind = static_cast<std::uint8_t>(ActionKind::Teleport);
+    teleport.canMove = true;
+    profilePiece.actions = {teleport};
+    check(resolvePieceAction({profilePiece}, holes, profilePiece, 7, 7).legal,
+          "teleport reaches any empty square");
+
+    Piece hopTarget;
+    hopTarget.id = 11;
+    hopTarget.owner = 2;
+    hopTarget.row = 3;
+    hopTarget.column = 4;
+    ActionProfile hop;
+    hop.kind = static_cast<std::uint8_t>(ActionKind::Hop);
+    hop.canMove = true;
+    hop.canAttack = true;
+    hop.damage = 1;
+    profilePiece.actions = {hop};
+    const std::vector<Piece> hopPieces = {profilePiece, hopTarget};
+    const ActionResolution hopResult =
+        resolvePieceAction(hopPieces, holes, hopPieces[0], 3, 5);
+    check(hopResult.legal && hopResult.moves && hopResult.attacks && hopResult.targetId == 11,
+          "hop moves to an empty landing square and attacks the pivot enemy");
+
+    ActionProfile tunnel;
+    tunnel.kind = static_cast<std::uint8_t>(ActionKind::Tunnel);
+    tunnel.canMove = true;
+    profilePiece.actions = {tunnel};
+    holes[static_cast<std::size_t>(squareIndex(3, 3))] = 1;
+    holes[static_cast<std::size_t>(squareIndex(6, 6))] = 1;
+    check(resolvePieceAction({profilePiece}, holes, profilePiece, 6, 6).legal,
+          "tunnel connects decorated hole squares");
+    check(!resolvePieceAction({profilePiece}, holes, profilePiece, 6, 5).legal,
+          "tunnel rejects a destination without a hole");
+
+    ActionProfile paralyze;
+    paralyze.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
+    paralyze.maxRange = 2;
+    paralyze.canMove = true;
+    paralyze.canAttack = true;
+    paralyze.statusTurns = 2;
+    profilePiece.actions = {paralyze};
+    Piece adjacentEnemy = hopTarget;
+    adjacentEnemy.row = 4;
+    adjacentEnemy.column = 4;
+    const std::vector<Piece> paralyzePieces = {profilePiece, adjacentEnemy};
+    const ActionResolution paralyzeResult =
+        resolvePieceAction(paralyzePieces, holes, paralyzePieces[0], 4, 4);
+    check(paralyzeResult.legal && paralyzeResult.attacks && paralyzeResult.statusTurns == 2,
+          "status-only attacking movement is legal");
+
+    ActionProfile stateOne = horizontal;
+    stateOne.state = 1;
+    profilePiece.actions = {stateOne};
+    profilePiece.actionState = 0;
+    check(!resolvePieceAction({profilePiece}, holes, profilePiece, 3, 4).legal,
+          "inactive transform state actions are unavailable");
+    profilePiece.actionState = 1;
+    check(resolvePieceAction({profilePiece}, holes, profilePiece, 3, 4).legal,
+          "active transform state actions are available");
+
+    card_data::Card encodedCard;
+    encodedCard.title = "Encoded";
+    encodedCard.type = "Unit";
+    encodedCard.stringLists.push_back(
+        {"actions", {"0|slide|diag|1|7|2|move,attack|0|0"}});
+    const GameCard decodedCard = toGameCard(encodedCard);
+    check(decodedCard.actions.size() == 1 &&
+              decodedCard.actions[0].damage == 2 &&
+              decodedCard.actions[0].canMove &&
+              decodedCard.actions[0].canAttack,
+          "database action profile encoding decodes into gameplay data");
+
+    GameCard serializedCard = decodedCard;
+    serializedCard.blueTokenPath = "characters/blue/test.png";
+    serializedCard.redTokenPath = "characters/red/test.png";
+    serializedCard.blueWalkAnimPath = "animations/blue/test.png";
+    serializedCard.redWalkAnimPath = "animations/red/test.png";
+    serializedCard.walkAnimFrames = 7;
+    serializedCard.ability = "transform";
+    serializedCard.abilityLabels = {"Ready", "Lower"};
+    serializedCard.abilityUses = 2;
+    sf::Packet cardPacket;
+    writeGameCard(cardPacket, serializedCard);
+    GameCard roundTrippedCard;
+    check(readGameCard(cardPacket, roundTrippedCard) &&
+              roundTrippedCard.actions.size() == 1 &&
+              roundTrippedCard.blueTokenPath == "characters/blue/test.png" &&
+              roundTrippedCard.redWalkAnimPath == "animations/red/test.png" &&
+              roundTrippedCard.walkAnimFrames == 7 &&
+              roundTrippedCard.abilityLabels.size() == 2 &&
+              roundTrippedCard.abilityUses == 2,
+          "extended game card fields survive network serialization");
+
+    Piece serializedPiece = profilePiece;
+    serializedPiece.ability = "dig";
+    serializedPiece.blueTokenPath = "characters/blue/test.png";
+    serializedPiece.redTokenPath = "characters/red/test.png";
+    serializedPiece.blueWalkAnimPath = "animations/blue/test.png";
+    serializedPiece.redWalkAnimPath = "animations/red/test.png";
+    serializedPiece.walkAnimFrames = 6;
+    serializedPiece.abilityLabels = {"Dig"};
+    serializedPiece.abilityUses = 1;
+    serializedPiece.growTurnsRemaining = 2;
+    serializedPiece.disabledTurns = 1;
+    sf::Packet piecePacket;
+    writePiece(piecePacket, serializedPiece);
+    Piece roundTrippedPiece;
+    check(readPiece(piecePacket, roundTrippedPiece) &&
+              roundTrippedPiece.actions.size() == 1 &&
+              roundTrippedPiece.blueTokenPath == "characters/blue/test.png" &&
+              roundTrippedPiece.redWalkAnimPath == "animations/red/test.png" &&
+              roundTrippedPiece.walkAnimFrames == 6 &&
+              roundTrippedPiece.ability == "dig" &&
+              roundTrippedPiece.growTurnsRemaining == 2 &&
+              roundTrippedPiece.disabledTurns == 1,
+          "extended piece fields survive network serialization");
 
     if (argc == 2 && std::string(argv[1]) == "--movement-only")
     {

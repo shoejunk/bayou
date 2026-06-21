@@ -237,118 +237,56 @@ public:
 
     void movePiece(int playerNumber, int pieceId, int toRow, int toColumn)
     {
-        if (phaseValue != Phase::Playing || playerNumber != activePlayer)
-        {
-            return;
-        }
-
-        Piece* piece = pieceById(pieceId);
-        if (piece == nullptr || piece->owner != playerNumber || piece->hasActed)
-        {
-            return;
-        }
-
-        Piece* target = pieceAt(toRow, toColumn);
-        if (target != nullptr)
-        {
-            if (!game_data::isLegalAttackingMove(pieces, *piece, toRow, toColumn))
-            {
-                setStatusFor(playerNumber, "That piece cannot attack with its movement there.");
-                return;
-            }
-
-            const int attackerId = piece->id;
-            const int targetId = target->id;
-            const int damage = piece->attack;
-            const std::string attackerName = piece->name;
-            const std::string targetName = target->name;
-            target->health -= damage;
-
-            if (target->health <= 0)
-            {
-                const int victimOwner = target->owner;
-                removePiece(targetId);
-                Piece* survivingAttacker = pieceById(attackerId);
-                if (survivingAttacker != nullptr)
-                {
-                    survivingAttacker->row = toRow;
-                    survivingAttacker->column = toColumn;
-                    survivingAttacker->hasActed = true;
-                }
-                checkForWinner(victimOwner);
-                if (phaseValue == Phase::GameOver)
-                {
-                    return;
-                }
-                advanceTurn(fmt::format("{} charged into {} for {} damage and destroyed it!",
-                                        attackerName, targetName, damage));
-            }
-            else
-            {
-                const auto [fallbackRow, fallbackColumn] =
-                    game_data::attackingMoveFallbackSquare(*piece, toRow, toColumn);
-                piece->row = fallbackRow;
-                piece->column = fallbackColumn;
-                piece->hasActed = true;
-                advanceTurn(fmt::format("{} charged into {} for {} damage.",
-                                        attackerName, targetName, damage));
-            }
-            return;
-        }
-
-        if (!game_data::isLegalMove(pieces, *piece, toRow, toColumn))
-        {
-            setStatusFor(playerNumber, "That piece cannot reach there.");
-            return;
-        }
-
-        piece->row = toRow;
-        piece->column = toColumn;
-        piece->hasActed = true;
-        advanceTurn(fmt::format("{} moved.", piece->name));
+        performPieceAction(playerNumber, pieceId, toRow, toColumn);
     }
 
     void attackPiece(int playerNumber, int attackerId, int targetRow, int targetColumn)
+    {
+        performPieceAction(playerNumber, attackerId, targetRow, targetColumn);
+    }
+
+    void useAbility(int playerNumber, int pieceId)
     {
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
         {
             return;
         }
 
-        Piece* attacker = pieceById(attackerId);
-        Piece* target = pieceAt(targetRow, targetColumn);
-        if (attacker == nullptr || target == nullptr || attacker->owner != playerNumber ||
-            attacker->hasActed)
+        Piece* piece = pieceById(pieceId);
+        if (piece == nullptr || piece->owner != playerNumber || piece->hasActed ||
+            piece->ability.empty() || piece->growTurnsRemaining > 0 || piece->disabledTurns > 0)
         {
             return;
         }
 
-        if (!game_data::isLegalAttack(*attacker, *target))
+        const std::string abilityLabel = pieceAbilityLabel(*piece);
+        if (piece->ability == "dig")
         {
-            setStatusFor(playerNumber, "Target is out of range.");
-            return;
-        }
-
-        target->health -= attacker->attack;
-        attacker->hasActed = true;
-
-        const std::string attackerName = attacker->name;
-        const std::string targetName = target->name;
-        if (target->health <= 0)
-        {
-            const int victimOwner = target->owner;
-            removePiece(target->id);
-            checkForWinner(victimOwner);
-            if (phaseValue == Phase::GameOver)
+            if (piece->abilityUses <= 0)
             {
+                setStatusFor(playerNumber, "That piece has already dug its hole.");
                 return;
             }
-            advanceTurn(fmt::format("{} destroyed {}!", attackerName, targetName));
+            holes[static_cast<std::size_t>(squareIndex(piece->row, piece->column))] = 1;
+            --piece->abilityUses;
+        }
+        else if (piece->ability == "transform" || piece->ability == "dematerialize")
+        {
+            int stateCount = 1;
+            for (const ActionProfile& action : piece->actions)
+            {
+                stateCount = std::max(stateCount, action.state + 1);
+            }
+            piece->actionState = (piece->actionState + 1) % stateCount;
+            piece->hidden = piece->ability == "dematerialize" && piece->actionState != 0;
         }
         else
         {
-            advanceTurn(fmt::format("{} hit {} for {}.", attackerName, targetName, attacker->attack));
+            return;
         }
+
+        piece->hasActed = true;
+        advanceTurn(fmt::format("{} used {}.", piece->name, abilityLabel));
     }
 
     void endTurn(int playerNumber)
@@ -370,7 +308,15 @@ public:
         snapshot.yourPlayer = playerNumber;
         snapshot.winner = winnerValue;
         snapshot.control = control;
-        snapshot.pieces = pieces;
+        snapshot.holes = holes;
+        snapshot.pieces.clear();
+        for (const Piece& piece : pieces)
+        {
+            if (!piece.hidden || piece.owner == playerNumber)
+            {
+                snapshot.pieces.push_back(piece);
+            }
+        }
         snapshot.hand = playerRef(playerNumber).hand;
         snapshot.status = status;
 
@@ -406,6 +352,7 @@ private:
     int activePlayer = 1;
     int winnerValue = 0;
     std::array<std::uint8_t, BoardSquares> control{};
+    std::array<std::uint8_t, BoardSquares> holes{};
     std::vector<Piece> pieces;
     std::array<EnginePlayer, 2> players{};
     int nextPieceId = 1;
@@ -423,6 +370,7 @@ private:
     void initializeControl()
     {
         control.fill(0);
+        holes.fill(0);
         for (int playerNumber = 1; playerNumber <= 2; ++playerNumber)
         {
             for (const auto& [row, column] : homeSquares(playerNumber))
@@ -487,6 +435,105 @@ private:
             pieces.end());
     }
 
+    void performPieceAction(int playerNumber, int pieceId, int toRow, int toColumn)
+    {
+        if (phaseValue != Phase::Playing || playerNumber != activePlayer)
+        {
+            return;
+        }
+
+        Piece* piece = pieceById(pieceId);
+        if (piece == nullptr || piece->owner != playerNumber || piece->hasActed)
+        {
+            return;
+        }
+
+        const ActionResolution action = resolvePieceAction(pieces, holes, *piece, toRow, toColumn);
+        if (!action.legal)
+        {
+            setStatusFor(playerNumber, "That piece cannot act there.");
+            return;
+        }
+
+        const int attackerId = piece->id;
+        const std::string attackerName = piece->name;
+        std::string targetName;
+        bool targetDestroyed = false;
+        bool targetAtDestination = false;
+        int victimOwner = 0;
+
+        if (action.attacks)
+        {
+            Piece* target = pieceById(action.targetId);
+            if (target == nullptr)
+            {
+                return;
+            }
+
+            targetName = target->name;
+            targetAtDestination = target->row == toRow && target->column == toColumn;
+            victimOwner = target->owner;
+            target->health -= action.damage;
+            target->disabledTurns = std::max(target->disabledTurns, action.statusTurns);
+            if (target->health <= 0)
+            {
+                targetDestroyed = true;
+                removePiece(target->id);
+            }
+        }
+
+        Piece* survivingAttacker = pieceById(attackerId);
+        if (survivingAttacker == nullptr)
+        {
+            return;
+        }
+
+        if (action.moves)
+        {
+            if (!action.attacks || !targetAtDestination || targetDestroyed)
+            {
+                survivingAttacker->row = toRow;
+                survivingAttacker->column = toColumn;
+            }
+            else
+            {
+                survivingAttacker->row = action.stagingRow;
+                survivingAttacker->column = action.stagingColumn;
+            }
+        }
+        survivingAttacker->disabledTurns =
+            std::max(survivingAttacker->disabledTurns, action.cooldownTurns);
+        survivingAttacker->hasActed = true;
+
+        if (targetDestroyed)
+        {
+            checkForWinner(victimOwner);
+            if (phaseValue == Phase::GameOver)
+            {
+                return;
+            }
+        }
+
+        if (action.attacks)
+        {
+            std::string result = fmt::format(
+                "{} hit {} for {}",
+                attackerName,
+                targetName,
+                action.damage);
+            if (action.statusTurns > 0)
+            {
+                result += fmt::format(" and disabled it for {} turn(s)", action.statusTurns);
+            }
+            result += targetDestroyed ? " and destroyed it!" : ".";
+            advanceTurn(result);
+        }
+        else
+        {
+            advanceTurn(fmt::format("{} moved.", attackerName));
+        }
+    }
+
     void spawnPiece(int playerNumber, const GameCard& card, int row, int column, bool isHero)
     {
         Piece piece;
@@ -497,6 +544,11 @@ private:
         piece.name = card.title;
         piece.imagePath = card.imagePath;
         piece.walkAnimPath = card.walkAnimPath;
+        piece.blueTokenPath = card.blueTokenPath;
+        piece.redTokenPath = card.redTokenPath;
+        piece.blueWalkAnimPath = card.blueWalkAnimPath;
+        piece.redWalkAnimPath = card.redWalkAnimPath;
+        piece.walkAnimFrames = card.walkAnimFrames;
         piece.maxHealth = card.health;
         piece.health = card.health;
         piece.attack = card.attack;
@@ -504,6 +556,12 @@ private:
         piece.movePattern = card.movePattern;
         piece.moveRange = card.moveRange;
         piece.attackingMove = card.attackingMove;
+        piece.canControl = card.canControl;
+        piece.growTurnsRemaining = card.growTurns;
+        piece.actions = card.actions;
+        piece.ability = card.ability;
+        piece.abilityLabels = card.abilityLabels;
+        piece.abilityUses = card.abilityUses;
         piece.isHero = isHero;
         piece.hasActed = false;
         pieces.push_back(piece);
@@ -563,6 +621,16 @@ private:
             if (piece.owner == playerNumber)
             {
                 piece.hasActed = false;
+                if (piece.growTurnsRemaining > 0)
+                {
+                    --piece.growTurnsRemaining;
+                    piece.hasActed = piece.growTurnsRemaining > 0;
+                }
+                if (piece.disabledTurns > 0)
+                {
+                    --piece.disabledTurns;
+                    piece.hasActed = true;
+                }
             }
         }
 
@@ -669,7 +737,10 @@ private:
                 const std::size_t index = static_cast<std::size_t>(squareIndex(row, column));
                 if (const Piece* occupant = pieceAt(row, column))
                 {
-                    next[index] = static_cast<std::uint8_t>(occupant->owner);
+                    if (occupant->canControl)
+                    {
+                        next[index] = static_cast<std::uint8_t>(occupant->owner);
+                    }
                     continue;
                 }
 
@@ -687,6 +758,10 @@ private:
                             ? pieceAt(row + dr, column + dc)
                             : nullptr;
                         if (neighbor == nullptr)
+                        {
+                            continue;
+                        }
+                        if (!neighbor->canControl)
                         {
                             continue;
                         }
@@ -1017,6 +1092,13 @@ private:
                 int column = 0;
                 packet >> attackerId >> row >> column;
                 engine.attackPiece(playerNumber, attackerId, row, column);
+                return true;
+            }
+            case MessageType::UseAbility:
+            {
+                int pieceId = 0;
+                packet >> pieceId;
+                engine.useAbility(playerNumber, pieceId);
                 return true;
             }
             case MessageType::EndTurn:

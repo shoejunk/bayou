@@ -105,12 +105,12 @@ assert len(cards40) == 40, len(cards40)
 ensure_account("alpha")
 alpha_deck = ["Steam Baron"] + cards40
 set_collection("alpha", alpha_deck)
-set_deck("alpha", "Baron Brawl", alpha_deck)  # 1 hero, cost 10
+set_deck("alpha", "Baron Brawl", alpha_deck)  # 1 hero, cost 100
 
 ensure_account("bravo")
 bravo_deck = ["Gear Knight", "Marsh Witch"] + cards40
 set_collection("bravo", bravo_deck)
-set_deck("bravo", "Knight Coven", bravo_deck)  # 2 heroes, cost 9
+set_deck("bravo", "Knight Coven", bravo_deck)  # 2 heroes, cost 90
 
 if admin_username:
     ensure_account(admin_username, is_admin=True)
