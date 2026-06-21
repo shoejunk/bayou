@@ -89,7 +89,8 @@ inline std::optional<std::string> deckRulesError(const std::vector<card_data::Ca
 
 // Hand / steam tuning.
 constexpr int StartingHandSize = 4;
-constexpr int MaxHandSize = 8;
+constexpr int MaxHandSize = 4;
+constexpr int DiscardSteamGain = 10;  // steam gained by discarding a card (ends the turn)
 
 enum class Phase : std::uint8_t
 {

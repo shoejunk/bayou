@@ -235,6 +235,30 @@ public:
         advanceTurn(fmt::format("Player {} played {}.", playerNumber, card.title));
     }
 
+    // Discarding sends the card to the bottom of the draw pile, grants steam, and
+    // counts as the turn's action (it ends the turn like any other play).
+    void discardCard(int playerNumber, int handIndex)
+    {
+        if (phaseValue != Phase::Playing || playerNumber != activePlayer)
+        {
+            return;
+        }
+
+        EnginePlayer& player = playerRef(playerNumber);
+        if (handIndex < 0 || handIndex >= static_cast<int>(player.hand.size()))
+        {
+            return;
+        }
+
+        const GameCard card = player.hand[static_cast<std::size_t>(handIndex)];
+        player.hand.erase(player.hand.begin() + handIndex);
+        // The draw pile is drawn from the back, so the front is the bottom of the deck.
+        player.drawPile.insert(player.drawPile.begin(), card);
+        player.steam += DiscardSteamGain;
+        advanceTurn(fmt::format(
+            "Player {} discarded {} for {} steam.", playerNumber, card.title, DiscardSteamGain));
+    }
+
     void movePiece(int playerNumber, int pieceId, int toRow, int toColumn)
     {
         performPieceAction(playerNumber, pieceId, toRow, toColumn);
@@ -1109,6 +1133,13 @@ private:
                 int pieceId = 0;
                 packet >> pieceId;
                 engine.useAbility(playerNumber, pieceId);
+                return true;
+            }
+            case MessageType::DiscardCard:
+            {
+                int handIndex = 0;
+                packet >> handIndex;
+                engine.discardCard(playerNumber, handIndex);
                 return true;
             }
             case MessageType::EndTurn:

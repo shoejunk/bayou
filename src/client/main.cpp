@@ -2471,7 +2471,9 @@ int main(int argc, char** argv)
     Button abilityButton({InfoPanelX + 64.0f, 398.0f}, {176.0f, 40.0f}, "Use Ability", font);
     Button endTurnButton({InfoPanelX + 64.0f, 446.0f}, {176.0f, 44.0f}, "Pass Turn", font);
     Button leaveGameButton({684.0f, 14.0f}, {100.0f, 36.0f}, "Leave", font);
-    Button closePiecePopupButton({PiecePopupX + 190.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
+    Button closePiecePopupButton({PiecePopupX + 358.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
+    Button discardCardButton({PiecePopupX + 22.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {220.0f, 38.0f},
+                             "Discard (+" + std::to_string(game_data::DiscardSteamGain) + " steam)", font);
 
     auto clearFocus = [&]() {
         usernameInput.setActive(false);
@@ -4201,6 +4203,19 @@ int main(int argc, char** argv)
         sendGamePacket(packet);
     };
 
+    auto sendDiscardCard = [&](int handIndex) {
+        sf::Packet packet;
+        packet << static_cast<std::uint8_t>(network::MessageType::DiscardCard) << handIndex;
+        sendGamePacket(packet);
+    };
+
+    auto canDiscardInspectedHandCard = [&]() {
+        return haveSnapshot && inspectedHandIndex &&
+            *inspectedHandIndex < gameSnapshot.hand.size() &&
+            static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::Playing &&
+            gameSnapshot.activePlayer == gameSnapshot.yourPlayer;
+    };
+
     auto handleHandCardClick = [&](std::size_t handIndex) {
         if (handIndex >= gameSnapshot.hand.size())
         {
@@ -4922,6 +4937,10 @@ int main(int argc, char** argv)
             window.draw(thumb);
         }
 
+        if (canDiscardInspectedHandCard())
+        {
+            discardCardButton.draw(window);
+        }
         closePiecePopupButton.draw(window);
     };
 
@@ -6200,7 +6219,17 @@ int main(int argc, char** argv)
                 {
                     if (inspectedPieceId || inspectedHandIndex)
                     {
-                        if (closePiecePopupButton.isClicked(clickPos) ||
+                        if (canDiscardInspectedHandCard() && discardCardButton.isClicked(clickPos))
+                        {
+                            sendDiscardCard(static_cast<int>(*inspectedHandIndex));
+                            inspectedPieceId.reset();
+                            inspectedHandIndex.reset();
+                            inspectedPieceScroll = 0.0f;
+                            selectedPieceId.reset();
+                            selectedHandIndex.reset();
+                            resetGameDrag();
+                        }
+                        else if (closePiecePopupButton.isClicked(clickPos) ||
                             !isInsideRect(clickPos, PiecePopupX, PiecePopupY, PiecePopupWidth, PiecePopupHeight))
                         {
                             inspectedPieceId.reset();
@@ -6859,6 +6888,10 @@ int main(int argc, char** argv)
         {
             if (inspectedPieceId || inspectedHandIndex)
             {
+                if (canDiscardInspectedHandCard())
+                {
+                    discardCardButton.update(mousePos);
+                }
                 closePiecePopupButton.update(mousePos);
             }
             else

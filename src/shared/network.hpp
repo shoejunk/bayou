@@ -58,7 +58,8 @@ enum class MessageType : std::uint8_t
     ChangePasswordRequest,
     ChangePasswordResponse,
     AdminUserGoldRequest,
-    AdminUserGoldResponse
+    AdminUserGoldResponse,
+    DiscardCard
 };
 
 struct CreateAccountRequest
