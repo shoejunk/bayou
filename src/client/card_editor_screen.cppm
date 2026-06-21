@@ -218,6 +218,60 @@ std::string elideToWidth(sf::Font& font, const std::string& value, unsigned int 
     return "...";
 }
 
+std::vector<std::string> wrapText(sf::Font& font, const std::string& value, unsigned int size, float maxWidth)
+{
+    std::vector<std::string> lines;
+    std::string line;
+    std::string word;
+
+    auto appendWord = [&]() {
+        if (word.empty())
+        {
+            return;
+        }
+        const std::string candidate = line.empty() ? word : line + " " + word;
+        sf::Text text(font, candidate, size);
+        if (!line.empty() && text.getLocalBounds().size.x > maxWidth)
+        {
+            lines.push_back(line);
+            line = word;
+        }
+        else
+        {
+            line = candidate;
+        }
+        word.clear();
+    };
+
+    for (char ch : value)
+    {
+        if (ch == '\n')
+        {
+            appendWord();
+            lines.push_back(line);
+            line.clear();
+        }
+        else if (std::isspace(static_cast<unsigned char>(ch)) != 0)
+        {
+            appendWord();
+        }
+        else
+        {
+            word += ch;
+        }
+    }
+    appendWord();
+    if (!line.empty())
+    {
+        lines.push_back(line);
+    }
+    if (lines.empty())
+    {
+        lines.push_back("");
+    }
+    return lines;
+}
+
 void drawText(
     sf::RenderWindow& window,
     sf::Font& font,
@@ -370,6 +424,50 @@ public:
         window.setView(makeEditorView(window));
 
         bool shouldClose = false;
+        if (instructionsVisible)
+        {
+            if (const auto* keyEvent = event.getIf<sf::Event::KeyPressed>())
+            {
+                if (keyEvent->code == sf::Keyboard::Key::Escape)
+                {
+                    instructionsVisible = false;
+                }
+                else if (keyEvent->code == sf::Keyboard::Key::PageDown)
+                {
+                    scrollInstructions(480.0f);
+                }
+                else if (keyEvent->code == sf::Keyboard::Key::PageUp)
+                {
+                    scrollInstructions(-480.0f);
+                }
+                else if (keyEvent->code == sf::Keyboard::Key::Home)
+                {
+                    instructionScroll = 0.0f;
+                }
+                else if (keyEvent->code == sf::Keyboard::Key::End)
+                {
+                    instructionScroll = instructionMaxScroll();
+                }
+            }
+
+            if (const auto* mousePressed = event.getIf<sf::Event::MouseButtonPressed>())
+            {
+                const sf::Vector2f mouse = window.mapPixelToCoords(mousePressed->position);
+                if (mousePressed->button == sf::Mouse::Button::Left && instructionsBackButton.contains(mouse))
+                {
+                    instructionsVisible = false;
+                }
+            }
+
+            if (const auto* wheel = event.getIf<sf::Event::MouseWheelScrolled>())
+            {
+                scrollInstructions(wheel->delta < 0.0f ? 64.0f : -64.0f);
+            }
+
+            window.setView(previousView);
+            return false;
+        }
+
         if (!focusOrder.empty())
         {
             const std::string previousImagePath = imageField.getValue();
@@ -432,6 +530,12 @@ public:
         window.setView(previousView);
 
         backButton.update(mouse);
+        instructionsButton.update(mouse);
+        instructionsBackButton.update(mouse);
+        if (instructionsVisible)
+        {
+            return;
+        }
         newButton.update(mouse);
         refreshButton.update(mouse);
         saveButton.update(mouse);
@@ -481,9 +585,16 @@ public:
         background.setFillColor(sf::Color(18, 22, 30));
         window.draw(background);
         drawHeader(window);
-        drawListPanel(window);
-        drawEditorPanel(window);
-        drawPreviewPanel(window);
+        if (instructionsVisible)
+        {
+            drawInstructions(window);
+        }
+        else
+        {
+            drawListPanel(window);
+            drawEditorPanel(window);
+            drawPreviewPanel(window);
+        }
         window.setView(previousView);
     }
 
@@ -525,6 +636,9 @@ private:
     std::vector<std::pair<std::string, sf::Vector2f>> arraySectionLabels;
     sf::Texture previewTexture;
     bool hasPreviewImage = false;
+    bool instructionsVisible = false;
+    float instructionScroll = 0.0f;
+    float instructionContentHeight = 1840.0f;
 
     InputBox titleField;
     InputBox imageField;
@@ -536,6 +650,8 @@ private:
     std::vector<InputBox> stringValueFields;
     std::vector<StringListEditor> listEditors;
     EditorButton backButton;
+    EditorButton instructionsButton;
+    EditorButton instructionsBackButton;
     EditorButton newButton;
     EditorButton refreshButton;
     EditorButton saveButton;
@@ -738,6 +854,8 @@ private:
     void buildControls()
     {
         backButton = EditorButton(font, "Back", {1124.0f, 22.0f}, {112.0f, 38.0f}, sf::Color(45, 70, 83));
+        instructionsButton = EditorButton(font, "Instructions", {970.0f, 22.0f}, {142.0f, 38.0f}, AccentDark);
+        instructionsBackButton = EditorButton(font, "Back to Editor", {1060.0f, 22.0f}, {176.0f, 38.0f}, AccentDark);
         newButton = EditorButton(font, "New", {42.0f, 690.0f}, {96.0f, 42.0f}, sf::Color(45, 70, 83));
         refreshButton = EditorButton(font, "Refresh", {150.0f, 690.0f}, {120.0f, 42.0f}, sf::Color(45, 70, 83));
         saveButton = EditorButton(font, "Save Card", {660.0f, 690.0f}, {156.0f, 42.0f}, AccentDark);
@@ -1420,6 +1538,16 @@ private:
     {
         layoutArrayControls();
 
+        if (instructionsButton.contains(mouse))
+        {
+            instructionsVisible = true;
+            instructionScroll = 0.0f;
+            for (InputBox* field : focusOrder)
+            {
+                field->setActive(false);
+            }
+            return false;
+        }
         if (backButton.contains(mouse))
         {
             return true;
@@ -1588,8 +1716,172 @@ private:
         bar.setFillColor(sf::Color(24, 29, 38));
         window.draw(bar);
         drawText(window, font, "Bayou Card Editor", 30, {30.0f, 22.0f}, Ink);
-        drawText(window, font, fmt::format("Card server {}", endpointText()), 15, {890.0f, 31.0f}, Muted, 214.0f);
-        backButton.draw(window);
+        if (instructionsVisible)
+        {
+            drawText(window, font, "Card creation reference", 15, {340.0f, 31.0f}, Muted, 500.0f);
+            instructionsBackButton.draw(window);
+        }
+        else
+        {
+            drawText(window, font, fmt::format("Card server {}", endpointText()), 15, {744.0f, 31.0f}, Muted, 214.0f);
+            instructionsButton.draw(window);
+            backButton.draw(window);
+        }
+    }
+
+    float instructionMaxScroll() const
+    {
+        return std::max(0.0f, instructionContentHeight - 552.0f);
+    }
+
+    void scrollInstructions(float delta)
+    {
+        instructionScroll = std::clamp(instructionScroll + delta, 0.0f, instructionMaxScroll());
+    }
+
+    float drawInstructionParagraph(
+        sf::RenderWindow& window,
+        const std::string& value,
+        float y,
+        sf::Color color = Ink,
+        unsigned int size = 16,
+        float indent = 0.0f)
+    {
+        constexpr float Left = 68.0f;
+        constexpr float Width = 1080.0f;
+        const float screenY = y - instructionScroll;
+        const float lineHeight = static_cast<float>(size) + 6.0f;
+        const std::vector<std::string> lines = wrapText(font, value, size, Width - indent);
+        for (std::size_t i = 0; i < lines.size(); ++i)
+        {
+            const float lineY = screenY + static_cast<float>(i) * lineHeight;
+            if (lineY >= 158.0f && lineY <= 706.0f)
+            {
+                drawText(window, font, lines[i], size, {Left + indent, lineY}, color);
+            }
+        }
+        return y + static_cast<float>(lines.size()) * lineHeight;
+    }
+
+    float drawInstructionSection(sf::RenderWindow& window, const std::string& title, float y)
+    {
+        const float screenY = y - instructionScroll;
+        if (screenY >= 158.0f && screenY <= 706.0f)
+        {
+            drawText(window, font, title, 22, {50.0f, screenY}, Accent);
+            sf::RectangleShape line({1146.0f, 1.0f});
+            line.setPosition({50.0f, screenY + 32.0f});
+            line.setFillColor(Line);
+            window.draw(line);
+        }
+        return y + 44.0f;
+    }
+
+    float drawInstructionBullet(sf::RenderWindow& window, const std::string& value, float y, sf::Color color = Ink)
+    {
+        const float screenY = y - instructionScroll;
+        if (screenY >= 158.0f && screenY <= 706.0f)
+        {
+            drawText(window, font, "-", 17, {68.0f, screenY}, Accent);
+        }
+        return drawInstructionParagraph(window, value, y, color, 16, 22.0f) + 5.0f;
+    }
+
+    void drawInstructions(sf::RenderWindow& window)
+    {
+        drawRoundedPanel(window, {24.0f, 100.0f}, {1232.0f, 640.0f}, Panel);
+        drawText(window, font, "How to Make a Card", 28, {50.0f, 116.0f}, Ink);
+        drawText(window, font, "Mouse wheel or Page Up/Page Down to scroll. Escape returns to the editor.", 14, {650.0f, 124.0f}, Muted, 548.0f);
+
+        float y = 164.0f;
+        y = drawInstructionSection(window, "1. Card identity", y);
+        y = drawInstructionBullet(window, "Title: the unique card name. Renaming an existing card updates that card; duplicate titles are not valid.", y);
+        y = drawInstructionBullet(window, "Type: enter exactly Hero, Unit, or Spell. Type matching is case-sensitive.", y);
+        y = drawInstructionBullet(window, "Image Path: a path under the assets folder, such as cards/clockwork-rook.png. Do not include an absolute path or use .. to leave the assets folder.", y);
+        y = drawInstructionBullet(window, "Walk animation: add a String Field named WalkAnim with an asset-relative spritesheet path, for example animations/clockwork-rook-walk.png. It is used by Heroes and Units.", y);
+        y += 12.0f;
+
+        y = drawInstructionSection(window, "2. Card types", y);
+        y = drawInstructionBullet(window, "Hero: selected during deck building and placed on one of the player's four starting squares before play. Use heroCost instead of cost. A deck has 1-4 Heroes and a total Hero cost limit of 10. Losing every Hero loses the game.", y, sf::Color(248, 214, 112));
+        y = drawInstructionBullet(window, "Unit: goes into the 40-card main deck. It costs steam to play and deploys to an empty square the player controls. A newly deployed Unit cannot move or attack until its owner's next turn.", y, sf::Color(150, 210, 235));
+        y = drawInstructionBullet(window, "Spell: goes into the main deck, costs steam, resolves immediately, and leaves the hand. Spells do not use health, attack, range, move, movement, or WalkAnim.", y, sf::Color(205, 175, 235));
+        y += 12.0f;
+
+        y = drawInstructionSection(window, "3. Integer Fields (key = whole number)", y);
+        y = drawInstructionBullet(window, "cost: steam paid to play a Unit or Spell. Default: 1.", y);
+        y = drawInstructionBullet(window, "heroCost: deck-building Hero budget. Use only on Heroes. Default: 0.", y);
+        y = drawInstructionBullet(window, "health: starting and maximum hit points for a Hero or Unit. Default: 1.", y);
+        y = drawInstructionBullet(window, "attack: damage dealt by a normal attack. A value of 0 cannot attack. Default: 0.", y);
+        y = drawInstructionBullet(window, "range: maximum attack distance. Distance counts the larger of the row or column difference, so diagonals count the same as straight lines. Attacks do not check intervening pieces. Default: 1.", y);
+        y = drawInstructionBullet(window, "move: maximum squares moved in one action for ortho, diag, and omni movement. Jump always uses a fixed knight jump and ignores this distance. Default: 1.", y);
+        y = drawInstructionBullet(window, "power: spell amount. It is damage dealt, health restored, or steam gained depending on effect. Default: 0.", y);
+        y += 12.0f;
+
+        y = drawInstructionSection(window, "4. Movement String Field", y);
+        y = drawInstructionParagraph(window, "Add a String Field with key movement. Its value must be one of the following lowercase values:", y, Muted);
+        y += 5.0f;
+        y = drawInstructionBullet(window, "ortho: move horizontally or vertically, like a chess rook, up to the move value.", y);
+        y = drawInstructionBullet(window, "diag: move diagonally, like a chess bishop, up to the move value.", y);
+        y = drawInstructionBullet(window, "omni: move horizontally, vertically, or diagonally, up to the move value. This is the default if the field is missing or unrecognized.", y);
+        y = drawInstructionBullet(window, "jump: move in a fixed L shape: two squares on one axis and one on the other, like a chess knight. It may jump over pieces.", y);
+        y = drawInstructionBullet(window, "none: the piece cannot move.", y);
+        y = drawInstructionParagraph(window, "For ortho, diag, and omni, the destination must be empty and every square along the path must be empty. A move uses the piece's action for that turn.", y + 5.0f, sf::Color(198, 210, 224));
+        y += 17.0f;
+
+        y = drawInstructionSection(window, "5. Spell String Fields", y);
+        y = drawInstructionBullet(window, "effect=damage with target=enemy: subtract power from an enemy Hero or Unit. If health reaches 0, that piece is destroyed.", y);
+        y = drawInstructionBullet(window, "effect=heal with target=ally: restore power health to a friendly Hero or Unit, up to its maximum health.", y);
+        y = drawInstructionBullet(window, "effect=steam with target=none: immediately add power steam to the player. No board target is required.", y);
+        y = drawInstructionParagraph(window, "Use the lowercase values exactly. The current game resolves targeting from effect; target documents the intended target and is displayed in card details.", y + 5.0f, Muted);
+        y += 17.0f;
+
+        y = drawInstructionSection(window, "6. Rarity, Keywords, and String Lists", y);
+        y = drawInstructionBullet(window, "Rarity: add a String Field named rarity with value common, rare, or legendary. Missing or unknown values count as common. Shop selection odds are 70% common, 25% rare, and 5% legendary; cards within a rarity are equally likely.", y);
+        y = drawInstructionBullet(window, "Keywords: free-form labels shown in card details. The current game engine does not attach rules to them.", y);
+        y = drawInstructionBullet(window, "String Lists: free-form named lists shown in card details. The current game engine does not attach rules to them.", y);
+        y = drawInstructionBullet(window, "Unknown Integer or String Fields are stored and displayed, but they do not change gameplay unless code is added to read them.", y);
+        y += 12.0f;
+
+        y = drawInstructionSection(window, "7. Turn and board rules that affect balance", y);
+        y = drawInstructionBullet(window, "On a turn, playing a card, moving, or attacking ends the turn. A piece can therefore move or attack, not both, before the opponent acts.", y);
+        y = drawInstructionBullet(window, "Each occupied square is controlled by its occupant. Empty squares are controlled by whichever player has more adjacent pieces, including diagonals; ties keep the current controller.", y);
+        y = drawInstructionBullet(window, "At the start of a turn, the player gains 1 steam per controlled square, draws one card if below the 8-card hand limit, and refreshes their pieces.", y);
+        y = drawInstructionBullet(window, "Normal attacks may target an enemy within range in any direction. Attack range uses square/diagonal distance and ignores blockers.", y);
+        y += 12.0f;
+
+        y = drawInstructionSection(window, "8. Complete examples", y);
+        y = drawInstructionParagraph(window, "Unit example - Type: Unit | Integer Fields: cost=4; health=12; attack=5; range=1; move=7 | String Fields: movement=ortho; rarity=rare; WalkAnim=animations/clockwork-rook-walk.png", y, sf::Color(150, 210, 235));
+        y += 10.0f;
+        y = drawInstructionParagraph(window, "Hero example - Type: Hero | Integer Fields: heroCost=5; health=16; attack=6; range=3; move=2 | String Fields: movement=diag; rarity=rare; WalkAnim=animations/marsh-witch-walk.png", y, sf::Color(248, 214, 112));
+        y += 10.0f;
+        y = drawInstructionParagraph(window, "Spell example - Type: Spell | Integer Fields: cost=2; power=6 | String Fields: effect=heal; target=ally; rarity=common", y, sf::Color(205, 175, 235));
+        y += 22.0f;
+
+        y = drawInstructionSection(window, "9. Using the editor safely", y);
+        y = drawInstructionBullet(window, "Use the + button beside each section to add a field and the - button beside a row to remove it. Empty keys, empty keywords, and empty list values are not saved.", y);
+        y = drawInstructionBullet(window, "Integer values must be valid whole numbers. An invalid or blank number is omitted from the saved card, causing the game to use that field's default.", y);
+        y = drawInstructionBullet(window, "Tab and Shift+Tab move between fields. Enter saves. The mouse wheel scrolls the field list when the pointer is over it.", y);
+        y = drawInstructionBullet(window, "Save Card creates a draft or updates the selected card. Delete removes the selected saved card. Refresh discards the local form state by reloading the server library.", y);
+        y = drawInstructionBullet(window, "Check the Preview panel before saving. It shows the stored values, but only the recognized keys documented above affect the game.", y);
+        y += 22.0f;
+
+        instructionContentHeight = y - 100.0f;
+        if (instructionMaxScroll() > 0.0f)
+        {
+            const float trackTop = 158.0f;
+            const float trackHeight = 548.0f;
+            sf::RectangleShape track({5.0f, trackHeight});
+            track.setPosition({1224.0f, trackTop});
+            track.setFillColor(sf::Color(49, 57, 70));
+            window.draw(track);
+
+            const float thumbHeight = std::max(42.0f, trackHeight * 552.0f / instructionContentHeight);
+            const float thumbY = trackTop + (trackHeight - thumbHeight) * instructionScroll / instructionMaxScroll();
+            sf::RectangleShape thumb({5.0f, thumbHeight});
+            thumb.setPosition({1224.0f, thumbY});
+            thumb.setFillColor(Accent);
+            window.draw(thumb);
+        }
     }
 
     void drawListPanel(sf::RenderWindow& window)

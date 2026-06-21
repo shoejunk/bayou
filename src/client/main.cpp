@@ -2268,6 +2268,7 @@ int main(int argc, char** argv)
     Button changePasswordVisibilityButton({520.0f, 230.0f}, {180.0f, 40.0f}, "Show Passwords", font);
     Button changePasswordSubmitButton({300.0f, 390.0f}, {200.0f, 50.0f}, "Change Password", font);
     Button changePasswordBackButton({300.0f, 470.0f}, {200.0f, 50.0f}, "Back", font);
+    Button dismissPasswordChangedButton({320.0f, 344.0f}, {160.0f, 46.0f}, "OK", font);
 
     Button deckBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
     Button newDeckButton({34.0f, 140.0f}, {102.0f, 38.0f}, "New", font);
@@ -2331,6 +2332,7 @@ int main(int argc, char** argv)
     bool rememberMeChecked = false;
     bool passwordVisible = false;
     bool changePasswordsVisible = false;
+    bool passwordChangedPopupVisible = false;
     bool pendingAutoLogin = false;
     bool pendingRememberRequested = false;
     std::vector<card_data::Card> cardLibrary;
@@ -2732,12 +2734,27 @@ int main(int argc, char** argv)
         newPasswordInput.clear();
         confirmNewPasswordInput.clear();
         changePasswordsVisible = false;
+        passwordChangedPopupVisible = false;
         updateChangePasswordVisibility();
         focusChangePasswordInput(0);
     };
 
     auto leaveChangePasswordScreen = [&]() {
         showOptionsScreen(GameState::Authenticated);
+    };
+
+    auto dismissPasswordChangedPopup = [&]() {
+        const std::string accessTokenToRevoke = activeAccessToken;
+        passwordChangedPopupVisible = false;
+        if (!accessTokenToRevoke.empty())
+        {
+            pendingLogout = std::async(
+                std::launch::async,
+                revokeLoginTokens,
+                std::string(),
+                accessTokenToRevoke);
+        }
+        returnToMenu();
     };
 
     auto showGameScreen = [&](std::shared_ptr<sf::TcpSocket> gameSocket) {
@@ -5413,7 +5430,8 @@ int main(int argc, char** argv)
                     currentPasswordInput.clear();
                     newPasswordInput.clear();
                     confirmNewPasswordInput.clear();
-                    focusChangePasswordInput(0);
+                    clearFocus();
+                    passwordChangedPopupVisible = true;
                 }
             }
         }
@@ -5665,7 +5683,14 @@ int main(int argc, char** argv)
                 }
                 else if (currentState == GameState::ChangePassword)
                 {
-                    if (changePasswordBackButton.isClicked(clickPos) && !pendingPasswordChange)
+                    if (passwordChangedPopupVisible)
+                    {
+                        if (dismissPasswordChangedButton.isClicked(clickPos))
+                        {
+                            dismissPasswordChangedPopup();
+                        }
+                    }
+                    else if (changePasswordBackButton.isClicked(clickPos) && !pendingPasswordChange)
                     {
                         leaveChangePasswordScreen();
                     }
@@ -6217,7 +6242,7 @@ int main(int argc, char** argv)
                 usernameInput.handleEvent(*event, window);
                 passwordInput.handleEvent(*event, window);
             }
-            if (currentState == GameState::ChangePassword)
+            if (currentState == GameState::ChangePassword && !passwordChangedPopupVisible)
             {
                 currentPasswordInput.handleEvent(*event, window);
                 newPasswordInput.handleEvent(*event, window);
@@ -6251,7 +6276,11 @@ int main(int argc, char** argv)
             {
                 if (keyPressed->code == sf::Keyboard::Key::Escape)
                 {
-                    if (currentState == GameState::Options)
+                    if (currentState == GameState::ChangePassword && passwordChangedPopupVisible)
+                    {
+                        dismissPasswordChangedPopup();
+                    }
+                    else if (currentState == GameState::Options)
                     {
                         leaveOptionsScreen();
                     }
@@ -6332,6 +6361,12 @@ int main(int argc, char** argv)
                         submitCreateAccount();
                     }
                 }
+                else if (currentState == GameState::ChangePassword &&
+                         passwordChangedPopupVisible &&
+                         keyPressed->code == sf::Keyboard::Key::Enter)
+                {
+                    dismissPasswordChangedPopup();
+                }
                 else if (currentState == GameState::ChangePassword && !pendingPasswordChange)
                 {
                     if (keyPressed->code == sf::Keyboard::Key::Tab)
@@ -6398,12 +6433,19 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::ChangePassword)
         {
-            changePasswordVisibilityButton.update(mousePos);
-            changePasswordSubmitButton.update(mousePos);
-            changePasswordBackButton.update(mousePos);
-            currentPasswordInput.updateCursor(deltaTime);
-            newPasswordInput.updateCursor(deltaTime);
-            confirmNewPasswordInput.updateCursor(deltaTime);
+            if (passwordChangedPopupVisible)
+            {
+                dismissPasswordChangedButton.update(mousePos);
+            }
+            else
+            {
+                changePasswordVisibilityButton.update(mousePos);
+                changePasswordSubmitButton.update(mousePos);
+                changePasswordBackButton.update(mousePos);
+                currentPasswordInput.updateCursor(deltaTime);
+                newPasswordInput.updateCursor(deltaTime);
+                confirmNewPasswordInput.updateCursor(deltaTime);
+            }
         }
         else if (currentState == GameState::Login)
         {
@@ -6553,6 +6595,38 @@ int main(int argc, char** argv)
             changePasswordSubmitButton.draw(window);
             changePasswordBackButton.draw(window);
             window.draw(messageText);
+            if (passwordChangedPopupVisible)
+            {
+                sf::RectangleShape overlay({800.0f, 600.0f});
+                overlay.setFillColor(sf::Color(0, 0, 0, 170));
+                window.draw(overlay);
+                drawPanel(window, {220.0f, 190.0f}, {360.0f, 220.0f});
+                drawText(
+                    window,
+                    font,
+                    "Password Changed",
+                    28,
+                    {270.0f, 225.0f},
+                    sf::Color(248, 224, 172),
+                    260.0f);
+                drawText(
+                    window,
+                    font,
+                    "Your password was changed",
+                    18,
+                    {280.0f, 280.0f},
+                    sf::Color(220, 224, 230),
+                    240.0f);
+                drawText(
+                    window,
+                    font,
+                    "successfully.",
+                    18,
+                    {330.0f, 307.0f},
+                    sf::Color(220, 224, 230),
+                    140.0f);
+                dismissPasswordChangedButton.draw(window);
+            }
         }
         else if (currentState == GameState::Login)
         {
