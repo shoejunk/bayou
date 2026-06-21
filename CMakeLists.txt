@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(CppModulesExample LANGUAGES C CXX)
+project(Bayou LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -57,11 +57,6 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
         GIT_TAG cfebfd3da486d5a86c644c8b47067e5411c7599c
     )
 endif()
-
-# Shared modules
-set(SHARED_MODULES
-    src/shared/network.cppm
-)
 
 if(BAYOU_BUILD_CLIENTS)
     # Client executable

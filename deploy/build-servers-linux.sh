@@ -25,4 +25,4 @@ cmake --build "${BUILD_DIR}" --target gameserver --parallel 1
 cmake --build "${BUILD_DIR}" --target matchmaking --parallel 1
 cmake --install "${BUILD_DIR}"
 
-echo "Installed server release to ${INSTALL_PREFIX}"
+printf 'Installed server release to %s\n' "${INSTALL_PREFIX}"

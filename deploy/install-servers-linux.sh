@@ -49,8 +49,10 @@ install -m 0644 "${SCRIPT_DIR}/bayou-payments.service" \
     /etc/systemd/system/bayou-payments.service
 
 systemctl daemon-reload
-systemctl enable bayou-accounts bayou-cardserver bayou-gameserver bayou-matchmaking
-systemctl restart bayou-accounts bayou-cardserver bayou-gameserver bayou-matchmaking
+systemctl enable \
+    bayou-accounts bayou-cardserver bayou-gameserver bayou-matchmaking
+systemctl restart \
+    bayou-accounts bayou-cardserver bayou-gameserver bayou-matchmaking
 
 if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
     firewall-cmd --permanent --add-port=55000-55002/tcp
