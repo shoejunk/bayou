@@ -388,6 +388,13 @@ private:
                     handleAdminUserGold(*client, accessToken, targetUsername, amount);
                     break;
                 }
+                case MessageType::AdminUserDeleteRequest:
+                {
+                    std::string accessToken, targetUsername;
+                    packet >> accessToken >> targetUsername;
+                    handleAdminUserDelete(*client, accessToken, targetUsername);
+                    break;
+                }
                 case MessageType::ChangePasswordRequest:
                 {
                     std::string accessToken, currentPassword, newPassword;
@@ -999,6 +1006,56 @@ private:
             response.clear();
             response << static_cast<uint8_t>(MessageType::AdminUserGoldResponse);
             response << false << std::string("Database error while updating player gold") << 0;
+        }
+
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleAdminUserDelete(
+        sf::TcpSocket& client,
+        const std::string& accessToken,
+        const std::string& targetUsername)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::AdminUserDeleteResponse);
+
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            if (!username || !isAdmin(*username))
+            {
+                response << false << std::string("Admin access required");
+            }
+            else if (targetUsername.empty())
+            {
+                response << false << std::string("Target username cannot be empty");
+            }
+            else if (targetUsername == *username)
+            {
+                response << false << std::string("You cannot delete your own account");
+            }
+            else if (!accountExists(targetUsername))
+            {
+                response << false << std::string("Username not found");
+            }
+            else
+            {
+                // Decks, card collections, and saved login tokens are removed via the
+                // ON DELETE CASCADE foreign keys defined in initializeDatabase.
+                SQLite::Statement remove(*database, "DELETE FROM accounts WHERE username = ?");
+                remove.bind(1, targetUsername);
+                remove.exec();
+                response << true << std::string("User deleted");
+                fmt::println("{} deleted account {}", *username, targetUsername);
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while deleting user: {}", error.what());
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::AdminUserDeleteResponse);
+            response << false << std::string("Database error while deleting user");
         }
 
         [[maybe_unused]] auto result = client.send(response);

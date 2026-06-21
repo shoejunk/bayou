@@ -294,6 +294,13 @@ struct AdminUserGoldResult
     int targetGold = 0;
 };
 
+struct AdminUserDeleteResult
+{
+    bool success = false;
+    std::string message;
+    std::string targetUsername;
+};
+
 struct BoardCellMetrics
 {
     std::array<sf::Vector2f, 4> corners{};
@@ -1905,6 +1912,47 @@ AdminUserGoldResult updateAdminUserGold(
     return {success, message, targetUsername, targetGold};
 }
 
+AdminUserDeleteResult deleteAdminUser(
+    const std::string& accessToken,
+    const std::string& targetUsername)
+{
+    sf::TcpSocket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {false, "Failed to connect to account server " + endpointText(clientConfig().account), targetUsername};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::AdminUserDeleteRequest);
+    request << accessToken << targetUsername;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send delete user request", targetUsername};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No delete user response", targetUsername};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    response >> responseType >> success >> message;
+    if (!response ||
+        static_cast<network::MessageType>(responseType) != network::MessageType::AdminUserDeleteResponse)
+    {
+        socket.disconnect();
+        return {false, "Unexpected delete user response", targetUsername};
+    }
+
+    sendDisconnect(socket);
+    return {success, message, targetUsername};
+}
+
 DeckEditorLoadResult loadDeckEditorData(const std::string& accessToken)
 {
     CardListResult cardResult = fetchCards();
@@ -2348,6 +2396,9 @@ int main(int argc, char** argv)
     Button adminRevokeButton({42.0f, 458.0f}, {150.0f, 42.0f}, "Revoke Admin", font);
     Button adminGrantGoldButton({378.0f, 458.0f}, {150.0f, 42.0f}, "Grant Gold", font);
     Button adminRemoveGoldButton({542.0f, 458.0f}, {150.0f, 42.0f}, "Remove Gold", font);
+    Button adminDeleteButton({600.0f, 514.0f}, {176.0f, 40.0f}, "Delete User", font);
+    Button cancelDeleteUserButton({250.0f, 366.0f}, {130.0f, 42.0f}, "Cancel", font);
+    Button confirmDeleteUserButton({420.0f, 366.0f}, {130.0f, 42.0f}, "Delete", font);
     Button closeDeckCardPopupButton({PiecePopupX + 190.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
 
     sf::Text messageText(font, "", 20);
@@ -2377,6 +2428,7 @@ int main(int argc, char** argv)
     std::optional<std::future<AdminUsersLoadResult>> pendingAdminUsersLoad;
     std::optional<std::future<AdminUserPrivilegeResult>> pendingAdminPrivilege;
     std::optional<std::future<AdminUserGoldResult>> pendingAdminGold;
+    std::optional<std::future<AdminUserDeleteResult>> pendingAdminUserDelete;
     std::optional<std::future<AccountCommandResult>> pendingPasswordChange;
     bool coinPurchasePolling = false;
     int coinPurchaseStartingCoins = 0;
@@ -2406,6 +2458,8 @@ int main(int argc, char** argv)
     std::uint32_t adminUsersPageSize = AdminUsersPageSize;
     std::uint32_t adminUsersTotalCount = 0;
     std::optional<std::size_t> selectedAdminUser;
+    bool deleteUserPopupVisible = false;
+    std::string adminUserDeleteTarget;
     std::optional<std::size_t> selectedDeck;
     std::optional<std::size_t> selectedDeckCard;
     std::optional<std::size_t> selectedLibraryCard;
@@ -2649,6 +2703,8 @@ int main(int argc, char** argv)
         adminUsersPage = 0;
         adminUsersTotalCount = 0;
         selectedAdminUser.reset();
+        deleteUserPopupVisible = false;
+        adminUserDeleteTarget.clear();
         adminSearchInput.clear();
         adminGoldInput.clear();
         coinPurchasePolling = false;
@@ -2716,6 +2772,8 @@ int main(int argc, char** argv)
         adminSearchInput.setActive(true);
         adminUsers.clear();
         selectedAdminUser.reset();
+        deleteUserPopupVisible = false;
+        adminUserDeleteTarget.clear();
         setMessageY(messageText, 566.0f);
         setMessage(messageText, "Loading users...", sf::Color::Yellow);
         pendingAdminUsersLoad = std::async(
@@ -2773,6 +2831,42 @@ int main(int argc, char** argv)
         {
             setMessage(messageText, "Gold amount is out of range", sf::Color::Red);
         }
+    };
+
+    auto openDeleteUserPopup = [&]() {
+        if (!selectedAdminUser || *selectedAdminUser >= adminUsers.size())
+        {
+            return;
+        }
+        const std::string& targetUsername = adminUsers[*selectedAdminUser].username;
+        if (targetUsername == loggedInUsername)
+        {
+            setMessage(messageText, "You cannot delete your own account", sf::Color::Red);
+            return;
+        }
+        adminUserDeleteTarget = targetUsername;
+        deleteUserPopupVisible = true;
+        adminSearchInput.setActive(false);
+        adminGoldInput.setActive(false);
+    };
+
+    auto dismissDeleteUserPopup = [&]() {
+        deleteUserPopupVisible = false;
+        adminUserDeleteTarget.clear();
+    };
+
+    auto confirmUserDeletion = [&]() {
+        if (pendingAdminUserDelete || adminUserDeleteTarget.empty())
+        {
+            return;
+        }
+        pendingAdminUserDelete = std::async(
+            std::launch::async,
+            deleteAdminUser,
+            activeAccessToken,
+            adminUserDeleteTarget);
+        setMessage(messageText, "Deleting user...", sf::Color::Yellow);
+        deleteUserPopupVisible = false;
     };
 
     auto showCardEditorScreen = [&]() {
@@ -4100,8 +4194,27 @@ int main(int argc, char** argv)
             {
                 adminGrantButton.draw(window);
             }
+            if (adminUsers[*selectedAdminUser].username != loggedInUsername)
+            {
+                adminDeleteButton.draw(window);
+            }
         }
         window.draw(messageText);
+
+        if (deleteUserPopupVisible)
+        {
+            sf::RectangleShape overlay({800.0f, 600.0f});
+            overlay.setFillColor(sf::Color(0, 0, 0, 170));
+            window.draw(overlay);
+            drawPanel(window, {220.0f, 176.0f}, {360.0f, 248.0f});
+            drawText(window, font, "Delete User", 28, {250.0f, 200.0f}, sf::Color(248, 224, 172), 300.0f);
+            drawText(window, font, "Permanently delete account:", 16, {250.0f, 252.0f}, sf::Color(220, 224, 230), 300.0f);
+            drawText(window, font, adminUserDeleteTarget, 20, {250.0f, 276.0f}, sf::Color(248, 214, 112), 300.0f);
+            drawText(window, font, "This also removes their decks and", 13, {250.0f, 314.0f}, sf::Color(214, 150, 140), 300.0f);
+            drawText(window, font, "cannot be undone.", 13, {250.0f, 332.0f}, sf::Color(214, 150, 140), 300.0f);
+            cancelDeleteUserButton.draw(window);
+            confirmDeleteUserButton.draw(window);
+        }
     };
 
     auto handCardAtPixel = [&](sf::Vector2f point) -> std::optional<std::size_t> {
@@ -5685,6 +5798,39 @@ int main(int argc, char** argv)
             }
         }
 
+        if (pendingAdminUserDelete &&
+            pendingAdminUserDelete->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            AdminUserDeleteResult result = pendingAdminUserDelete->get();
+            pendingAdminUserDelete.reset();
+            if (!loggedInUsername.empty() && currentState == GameState::AdminUsers)
+            {
+                if (result.success)
+                {
+                    const auto target = std::find_if(
+                        adminUsers.begin(),
+                        adminUsers.end(),
+                        [&](const network::AdminUserSummary& user) {
+                            return user.username == result.targetUsername;
+                        });
+                    if (target != adminUsers.end())
+                    {
+                        adminUsers.erase(target);
+                    }
+                    if (adminUsersTotalCount > 0)
+                    {
+                        --adminUsersTotalCount;
+                    }
+                    selectedAdminUser.reset();
+                    adminUserDeleteTarget.clear();
+                }
+                setMessage(
+                    messageText,
+                    result.message,
+                    result.success ? sf::Color(120, 220, 150) : sf::Color::Red);
+            }
+        }
+
         if (pendingPasswordChange &&
             pendingPasswordChange->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
@@ -6104,7 +6250,18 @@ int main(int argc, char** argv)
                 }
                 else if (currentState == GameState::AdminUsers)
                 {
-                    if (adminBackButton.isClicked(clickPos))
+                    if (deleteUserPopupVisible)
+                    {
+                        if (confirmDeleteUserButton.isClicked(clickPos))
+                        {
+                            confirmUserDeletion();
+                        }
+                        else if (cancelDeleteUserButton.isClicked(clickPos))
+                        {
+                            dismissDeleteUserPopup();
+                        }
+                    }
+                    else if (adminBackButton.isClicked(clickPos))
                     {
                         showAuthenticatedScreen();
                     }
@@ -6155,6 +6312,10 @@ int main(int argc, char** argv)
                         {
                             clearFocus();
                             adminGoldInput.setActive(true);
+                        }
+                        else if (targetUsername != loggedInUsername && adminDeleteButton.isClicked(clickPos))
+                        {
+                            openDeleteUserPopup();
                         }
                         else if (adminUsers[*selectedAdminUser].isAdmin)
                         {
@@ -6575,7 +6736,7 @@ int main(int argc, char** argv)
                 newPasswordInput.handleEvent(*event, window);
                 confirmNewPasswordInput.handleEvent(*event, window);
             }
-            if (currentState == GameState::AdminUsers)
+            if (currentState == GameState::AdminUsers && !deleteUserPopupVisible)
             {
                 adminSearchInput.handleEvent(*event, window);
                 adminGoldInput.handleEvent(*event, window);
@@ -6627,6 +6788,10 @@ int main(int argc, char** argv)
                         inspectedDeckEditorCardTitle.reset();
                         lastDeckEditorClickedCardTitle.reset();
                         inspectedDeckEditorCardScroll = 0.0f;
+                    }
+                    else if (currentState == GameState::AdminUsers && deleteUserPopupVisible)
+                    {
+                        dismissDeleteUserPopup();
                     }
                     else if (currentState == GameState::AdminUsers)
                     {
@@ -6706,7 +6871,13 @@ int main(int argc, char** argv)
                         submitPasswordChange();
                     }
                 }
-                else if (currentState == GameState::AdminUsers)
+                else if (currentState == GameState::AdminUsers &&
+                         deleteUserPopupVisible &&
+                         keyPressed->code == sf::Keyboard::Key::Enter)
+                {
+                    confirmUserDeletion();
+                }
+                else if (currentState == GameState::AdminUsers && !deleteUserPopupVisible)
                 {
                     if (keyPressed->code == sf::Keyboard::Key::Enter)
                     {
@@ -6816,24 +6987,36 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::AdminUsers)
         {
-            adminBackButton.update(mousePos);
-            adminPrevPageButton.update(mousePos);
-            adminRefreshButton.update(mousePos);
-            adminNextPageButton.update(mousePos);
-            if (selectedAdminUser && *selectedAdminUser < adminUsers.size())
+            if (deleteUserPopupVisible)
             {
-                adminGrantGoldButton.update(mousePos);
-                adminRemoveGoldButton.update(mousePos);
-                if (adminUsers[*selectedAdminUser].isAdmin)
+                cancelDeleteUserButton.update(mousePos);
+                confirmDeleteUserButton.update(mousePos);
+            }
+            else
+            {
+                adminBackButton.update(mousePos);
+                adminPrevPageButton.update(mousePos);
+                adminRefreshButton.update(mousePos);
+                adminNextPageButton.update(mousePos);
+                if (selectedAdminUser && *selectedAdminUser < adminUsers.size())
                 {
+                    adminGrantGoldButton.update(mousePos);
+                    adminRemoveGoldButton.update(mousePos);
+                    if (adminUsers[*selectedAdminUser].isAdmin)
+                    {
+                        if (adminUsers[*selectedAdminUser].username != loggedInUsername)
+                        {
+                            adminRevokeButton.update(mousePos);
+                        }
+                    }
+                    else
+                    {
+                        adminGrantButton.update(mousePos);
+                    }
                     if (adminUsers[*selectedAdminUser].username != loggedInUsername)
                     {
-                        adminRevokeButton.update(mousePos);
+                        adminDeleteButton.update(mousePos);
                     }
-                }
-                else
-                {
-                    adminGrantButton.update(mousePos);
                 }
             }
             adminSearchInput.updateCursor(deltaTime);
