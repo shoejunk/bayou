@@ -53,7 +53,9 @@ enum class MessageType : std::uint8_t
     RememberLogin,
     RememberLoginResponse,
     RevokeRememberToken,
-    RevokeRememberTokenResponse
+    RevokeRememberTokenResponse,
+    ChangePasswordRequest,
+    ChangePasswordResponse
 };
 
 struct CreateAccountRequest
@@ -81,6 +83,18 @@ struct LoginResponse
     std::string username;
     std::string accessToken;
     std::string rememberToken;
+};
+
+struct ChangePasswordRequest
+{
+    std::string currentPassword;
+    std::string newPassword;
+};
+
+struct ChangePasswordResponse
+{
+    bool success = false;
+    std::string message;
 };
 
 struct MatchFoundResponse

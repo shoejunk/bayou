@@ -86,6 +86,7 @@ enum class GameState
     Options,
     Login,
     CreateAccount,
+    ChangePassword,
     Authenticated,
     DeckSelect,
     Matchmaking,
@@ -1689,6 +1690,65 @@ AccountCommandResult purchaseRandomCard(const std::string& accessToken)
     return {success, message, coins, cardTitle};
 }
 
+AccountCommandResult changePassword(
+    const std::string& accessToken,
+    const std::string& currentPassword,
+    const std::string& newPassword)
+{
+    sf::TcpSocket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::ChangePasswordRequest)
+            << accessToken << currentPassword << newPassword;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send password change request"};
+    }
+
+    socket.setBlocking(false);
+    sf::Packet response;
+    const auto responseDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    sf::Socket::Status receiveStatus = sf::Socket::Status::NotReady;
+    while (std::chrono::steady_clock::now() < responseDeadline)
+    {
+        receiveStatus = socket.receive(response);
+        if (receiveStatus != sf::Socket::Status::NotReady)
+        {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    if (receiveStatus != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {
+            false,
+            receiveStatus == sf::Socket::Status::NotReady
+                ? "Password change timed out; restart the account server with the latest build"
+                : "No password change response"};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    response >> responseType >> success >> message;
+    if (!response ||
+        static_cast<network::MessageType>(responseType) != network::MessageType::ChangePasswordResponse)
+    {
+        socket.disconnect();
+        return {false, "Unexpected password change response"};
+    }
+
+    sendDisconnect(socket);
+    return {success, message};
+}
+
 AdminUsersLoadResult loadAdminUsers(
     const std::string& accessToken,
     const std::string& search,
@@ -2178,6 +2238,9 @@ int main(int argc, char** argv)
     InputBox usernameInput({300.0f, 140.0f}, {200.0f, 40.0f}, "Username", font);
     InputBox passwordInput({300.0f, 220.0f}, {200.0f, 40.0f}, "Password", font, true);
     InputBox confirmInput({300.0f, 300.0f}, {200.0f, 40.0f}, "Confirm Password", font, true);
+    InputBox currentPasswordInput({300.0f, 150.0f}, {200.0f, 40.0f}, "Current Password", font, true);
+    InputBox newPasswordInput({300.0f, 230.0f}, {200.0f, 40.0f}, "New Password", font, true);
+    InputBox confirmNewPasswordInput({300.0f, 310.0f}, {200.0f, 40.0f}, "Confirm New Password", font, true);
     InputBox deckNameInput({304.0f, 154.0f}, {222.0f, 40.0f}, "Deck Name", font);
     InputBox adminSearchInput({120.0f, 94.0f}, {520.0f, 36.0f}, "Search users", font);
 
@@ -2199,8 +2262,12 @@ int main(int argc, char** argv)
     Button previousResolutionButton({210.0f, 276.0f}, {64.0f, 54.0f}, "<", font);
     Button resolutionButton({290.0f, 276.0f}, {220.0f, 54.0f}, "", font);
     Button nextResolutionButton({526.0f, 276.0f}, {64.0f, 54.0f}, ">", font);
-    Button applyOptionsButton({300.0f, 378.0f}, {200.0f, 54.0f}, "Apply", font);
-    Button optionsBackButton({300.0f, 458.0f}, {200.0f, 54.0f}, "Back", font);
+    Button applyOptionsButton({300.0f, 350.0f}, {200.0f, 54.0f}, "Apply", font);
+    Button changePasswordOptionButton({300.0f, 414.0f}, {200.0f, 54.0f}, "Change Password", font);
+    Button optionsBackButton({300.0f, 478.0f}, {200.0f, 54.0f}, "Back", font);
+    Button changePasswordVisibilityButton({520.0f, 230.0f}, {180.0f, 40.0f}, "Show Passwords", font);
+    Button changePasswordSubmitButton({300.0f, 390.0f}, {200.0f, 50.0f}, "Change Password", font);
+    Button changePasswordBackButton({300.0f, 470.0f}, {200.0f, 50.0f}, "Back", font);
 
     Button deckBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
     Button newDeckButton({34.0f, 140.0f}, {102.0f, 38.0f}, "New", font);
@@ -2252,6 +2319,7 @@ int main(int argc, char** argv)
     std::optional<std::future<AccountCommandResult>> pendingWinReward;
     std::optional<std::future<AdminUsersLoadResult>> pendingAdminUsersLoad;
     std::optional<std::future<AdminUserPrivilegeResult>> pendingAdminPrivilege;
+    std::optional<std::future<AccountCommandResult>> pendingPasswordChange;
     bool coinPurchasePolling = false;
     int coinPurchaseStartingCoins = 0;
     float nextCoinPurchasePollAt = 0.0f;
@@ -2262,6 +2330,7 @@ int main(int argc, char** argv)
     std::string activeRememberToken;
     bool rememberMeChecked = false;
     bool passwordVisible = false;
+    bool changePasswordsVisible = false;
     bool pendingAutoLogin = false;
     bool pendingRememberRequested = false;
     std::vector<card_data::Card> cardLibrary;
@@ -2348,6 +2417,9 @@ int main(int argc, char** argv)
         usernameInput.setActive(false);
         passwordInput.setActive(false);
         confirmInput.setActive(false);
+        currentPasswordInput.setActive(false);
+        newPasswordInput.setActive(false);
+        confirmNewPasswordInput.setActive(false);
         deckNameInput.setActive(false);
         adminSearchInput.setActive(false);
     };
@@ -2367,6 +2439,18 @@ int main(int argc, char** argv)
         passwordInput.setActive(focusedInput == 1);
         confirmInput.setActive(focusedInput == 2);
         deckNameInput.setActive(false);
+    };
+
+    auto focusChangePasswordInput = [&](int index) {
+        focusedInput = (index + 3) % 3;
+        usernameInput.setActive(false);
+        passwordInput.setActive(false);
+        confirmInput.setActive(false);
+        currentPasswordInput.setActive(focusedInput == 0);
+        newPasswordInput.setActive(focusedInput == 1);
+        confirmNewPasswordInput.setActive(focusedInput == 2);
+        deckNameInput.setActive(false);
+        adminSearchInput.setActive(false);
     };
 
     auto sortDecks = [&]() {
@@ -2616,7 +2700,7 @@ int main(int argc, char** argv)
             : static_cast<std::size_t>(std::distance(displayResolutions.begin(), found));
         title.setString("Options");
         centerText(title, 400.0f);
-        setMessageY(messageText, 540.0f);
+        setMessageY(messageText, 558.0f);
         setMessage(messageText, "", sf::Color::White);
         clearFocus();
         updateOptionsLabels();
@@ -2628,6 +2712,32 @@ int main(int argc, char** argv)
         centerText(title, 400.0f);
         setMessageY(messageText, optionsReturnState == GameState::Authenticated ? 500.0f : 450.0f);
         setMessage(messageText, "", sf::Color::White);
+    };
+
+    auto updateChangePasswordVisibility = [&]() {
+        currentPasswordInput.setPasswordMode(!changePasswordsVisible);
+        newPasswordInput.setPasswordMode(!changePasswordsVisible);
+        confirmNewPasswordInput.setPasswordMode(!changePasswordsVisible);
+        changePasswordVisibilityButton.setLabel(
+            changePasswordsVisible ? "Hide Passwords" : "Show Passwords");
+    };
+
+    auto showChangePasswordScreen = [&]() {
+        currentState = GameState::ChangePassword;
+        title.setString("Change Password");
+        centerText(title, 400.0f);
+        setMessageY(messageText, 550.0f);
+        setMessage(messageText, "", sf::Color::White);
+        currentPasswordInput.clear();
+        newPasswordInput.clear();
+        confirmNewPasswordInput.clear();
+        changePasswordsVisible = false;
+        updateChangePasswordVisibility();
+        focusChangePasswordInput(0);
+    };
+
+    auto leaveChangePasswordScreen = [&]() {
+        showOptionsScreen(GameState::Authenticated);
     };
 
     auto showGameScreen = [&](std::shared_ptr<sf::TcpSocket> gameSocket) {
@@ -2762,6 +2872,35 @@ int main(int argc, char** argv)
         else
         {
             startRequest(network::MessageType::CreateAccount, network::MessageType::CreateAccountResponse);
+        }
+    };
+
+    auto submitPasswordChange = [&]() {
+        if (currentPasswordInput.getContent().empty() || newPasswordInput.getContent().empty())
+        {
+            setMessage(messageText, "Current and new passwords cannot be empty", sf::Color::Red);
+        }
+        else if (newPasswordInput.getContent().size() < 15 || newPasswordInput.getContent().size() > 128)
+        {
+            setMessage(messageText, "New password must be 15-128 characters", sf::Color::Red);
+        }
+        else if (newPasswordInput.getContent() != confirmNewPasswordInput.getContent())
+        {
+            setMessage(messageText, "New passwords do not match", sf::Color::Red);
+        }
+        else if (currentPasswordInput.getContent() == newPasswordInput.getContent())
+        {
+            setMessage(messageText, "New password must be different", sf::Color::Red);
+        }
+        else
+        {
+            setMessage(messageText, "Changing password...", sf::Color::Yellow);
+            pendingPasswordChange = std::async(
+                std::launch::async,
+                changePassword,
+                activeAccessToken,
+                currentPasswordInput.getContent(),
+                newPasswordInput.getContent());
         }
     };
 
@@ -5256,6 +5395,29 @@ int main(int argc, char** argv)
             }
         }
 
+        if (pendingPasswordChange &&
+            pendingPasswordChange->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            AccountCommandResult result = pendingPasswordChange->get();
+            pendingPasswordChange.reset();
+            if (!loggedInUsername.empty() && currentState == GameState::ChangePassword)
+            {
+                setMessage(
+                    messageText,
+                    result.message,
+                    result.success ? sf::Color(120, 220, 150) : sf::Color::Red);
+                if (result.success)
+                {
+                    activeRememberToken.clear();
+                    clearRememberToken();
+                    currentPasswordInput.clear();
+                    newPasswordInput.clear();
+                    confirmNewPasswordInput.clear();
+                    focusChangePasswordInput(0);
+                }
+            }
+        }
+
         if (pendingMatchmaking &&
             pendingMatchmaking->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
@@ -5491,9 +5653,46 @@ int main(int argc, char** argv)
                             saved ? "Display settings applied and saved." : "Settings applied, but could not be saved.",
                             saved ? sf::Color(120, 220, 150) : sf::Color::Red);
                     }
+                    else if (optionsReturnState == GameState::Authenticated &&
+                             changePasswordOptionButton.isClicked(clickPos))
+                    {
+                        showChangePasswordScreen();
+                    }
                     else if (optionsBackButton.isClicked(clickPos))
                     {
                         leaveOptionsScreen();
+                    }
+                }
+                else if (currentState == GameState::ChangePassword)
+                {
+                    if (changePasswordBackButton.isClicked(clickPos) && !pendingPasswordChange)
+                    {
+                        leaveChangePasswordScreen();
+                    }
+                    else if (changePasswordSubmitButton.isClicked(clickPos) && !pendingPasswordChange)
+                    {
+                        submitPasswordChange();
+                    }
+                    else if (changePasswordVisibilityButton.isClicked(clickPos))
+                    {
+                        changePasswordsVisible = !changePasswordsVisible;
+                        updateChangePasswordVisibility();
+                    }
+                    else if (currentPasswordInput.contains(clickPos))
+                    {
+                        focusChangePasswordInput(0);
+                    }
+                    else if (newPasswordInput.contains(clickPos))
+                    {
+                        focusChangePasswordInput(1);
+                    }
+                    else if (confirmNewPasswordInput.contains(clickPos))
+                    {
+                        focusChangePasswordInput(2);
+                    }
+                    else
+                    {
+                        clearFocus();
                     }
                 }
                 else if (currentState == GameState::Login)
@@ -6018,6 +6217,12 @@ int main(int argc, char** argv)
                 usernameInput.handleEvent(*event, window);
                 passwordInput.handleEvent(*event, window);
             }
+            if (currentState == GameState::ChangePassword)
+            {
+                currentPasswordInput.handleEvent(*event, window);
+                newPasswordInput.handleEvent(*event, window);
+                confirmNewPasswordInput.handleEvent(*event, window);
+            }
             if (currentState == GameState::AdminUsers)
             {
                 adminSearchInput.handleEvent(*event, window);
@@ -6049,6 +6254,10 @@ int main(int argc, char** argv)
                     if (currentState == GameState::Options)
                     {
                         leaveOptionsScreen();
+                    }
+                    else if (currentState == GameState::ChangePassword && !pendingPasswordChange)
+                    {
+                        leaveChangePasswordScreen();
                     }
                     else if (currentState == GameState::Game && (inspectedPieceId || inspectedHandIndex))
                     {
@@ -6092,6 +6301,10 @@ int main(int argc, char** argv)
                     {
                         // Busy editor/shop requests keep their screen until they finish.
                     }
+                    else if (currentState == GameState::ChangePassword && pendingPasswordChange)
+                    {
+                        // Keep the password form open until the request finishes.
+                    }
                     else if (!pendingRequest && !pendingMatchmaking)
                     {
                         returnToMenu();
@@ -6117,6 +6330,17 @@ int main(int argc, char** argv)
                     else if (keyPressed->code == sf::Keyboard::Key::Enter)
                     {
                         submitCreateAccount();
+                    }
+                }
+                else if (currentState == GameState::ChangePassword && !pendingPasswordChange)
+                {
+                    if (keyPressed->code == sf::Keyboard::Key::Tab)
+                    {
+                        focusChangePasswordInput(focusedInput + (keyPressed->shift ? -1 : 1));
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter)
+                    {
+                        submitPasswordChange();
                     }
                 }
                 else if (currentState == GameState::AdminUsers)
@@ -6166,7 +6390,20 @@ int main(int argc, char** argv)
             resolutionButton.update(mousePos);
             nextResolutionButton.update(mousePos);
             applyOptionsButton.update(mousePos);
+            if (optionsReturnState == GameState::Authenticated)
+            {
+                changePasswordOptionButton.update(mousePos);
+            }
             optionsBackButton.update(mousePos);
+        }
+        else if (currentState == GameState::ChangePassword)
+        {
+            changePasswordVisibilityButton.update(mousePos);
+            changePasswordSubmitButton.update(mousePos);
+            changePasswordBackButton.update(mousePos);
+            currentPasswordInput.updateCursor(deltaTime);
+            newPasswordInput.updateCursor(deltaTime);
+            confirmNewPasswordInput.updateCursor(deltaTime);
         }
         else if (currentState == GameState::Login)
         {
@@ -6300,7 +6537,21 @@ int main(int argc, char** argv)
             resolutionButton.draw(window);
             nextResolutionButton.draw(window);
             applyOptionsButton.draw(window);
+            if (optionsReturnState == GameState::Authenticated)
+            {
+                changePasswordOptionButton.draw(window);
+            }
             optionsBackButton.draw(window);
+            window.draw(messageText);
+        }
+        else if (currentState == GameState::ChangePassword)
+        {
+            currentPasswordInput.draw(window);
+            newPasswordInput.draw(window);
+            confirmNewPasswordInput.draw(window);
+            changePasswordVisibilityButton.draw(window);
+            changePasswordSubmitButton.draw(window);
+            changePasswordBackButton.draw(window);
             window.draw(messageText);
         }
         else if (currentState == GameState::Login)

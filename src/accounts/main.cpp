@@ -378,6 +378,23 @@ private:
                     handleAdminUserPrivilege(*client, accessToken, targetUsername, makeAdmin);
                     break;
                 }
+                case MessageType::ChangePasswordRequest:
+                {
+                    std::string accessToken, currentPassword, newPassword;
+                    packet >> accessToken >> currentPassword >> newPassword;
+                    if (!packet)
+                    {
+                        sendChangePasswordResponse(*client, false, "Invalid password change request");
+                        break;
+                    }
+                    handleChangePassword(
+                        *client,
+                        accessToken,
+                        currentPassword,
+                        newPassword,
+                        remoteAddress);
+                    break;
+                }
                 case MessageType::Disconnect:
                     fmt::println("Client requested disconnect");
                     return;
@@ -742,6 +759,99 @@ private:
         }
 
         [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleChangePassword(
+        sf::TcpSocket& client,
+        const std::string& accessToken,
+        const std::string& currentPassword,
+        const std::string& newPassword,
+        const std::string& remoteAddress)
+    {
+        if (currentPassword.empty() || currentPassword.size() > MaximumPasswordLength)
+        {
+            sendChangePasswordResponse(client, false, "Current password is incorrect");
+            return;
+        }
+        if (!isValidNewPassword(newPassword))
+        {
+            sendChangePasswordResponse(client, false, "New password must be 15-128 characters");
+            return;
+        }
+
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            if (!username)
+            {
+                sendChangePasswordResponse(client, false, "Authentication required");
+                return;
+            }
+
+            const std::string userRateLimitKey = "password-change-user:" + *username;
+            const std::string addressRateLimitKey = "password-change-address:" + remoteAddress;
+            if (isLoginBlocked(userRateLimitKey) || isLoginBlocked(addressRateLimitKey))
+            {
+                sendChangePasswordResponse(client, false, "Too many password attempts; try again later");
+                return;
+            }
+
+            std::string storedHash;
+            {
+                SQLite::Statement query(
+                    *database,
+                    "SELECT password_hash FROM accounts WHERE username = ?");
+                query.bind(1, *username);
+                if (query.executeStep())
+                {
+                    storedHash = query.getColumn(0).getString();
+                }
+            }
+            if (storedHash.empty() || !verifyPassword(storedHash, currentPassword))
+            {
+                recordLoginFailure(userRateLimitKey);
+                recordLoginFailure(addressRateLimitKey, MaximumLoginFailuresPerAddress);
+                sendChangePasswordResponse(client, false, "Current password is incorrect");
+                return;
+            }
+
+            if (currentPassword == newPassword)
+            {
+                sendChangePasswordResponse(
+                    client,
+                    false,
+                    "New password must be different from the current password");
+                return;
+            }
+
+            SQLite::Transaction transaction(*database);
+            updatePasswordHash(*username, newPassword);
+
+            SQLite::Statement deleteRememberTokens(
+                *database,
+                "DELETE FROM remember_tokens WHERE username = ?");
+            deleteRememberTokens.bind(1, *username);
+            deleteRememberTokens.exec();
+
+            SQLite::Statement deleteOtherAccessTokens(
+                *database,
+                "DELETE FROM access_tokens WHERE username = ? AND token_hash <> ?");
+            deleteOtherAccessTokens.bind(1, *username);
+            deleteOtherAccessTokens.bind(2, hashToken(accessToken));
+            deleteOtherAccessTokens.exec();
+            transaction.commit();
+
+            clearLoginFailures(userRateLimitKey);
+            clearLoginFailures(addressRateLimitKey);
+            fmt::println("Password changed for user: {}", *username);
+            sendChangePasswordResponse(client, true, "Password changed successfully");
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while changing password: {}", error.what());
+            sendChangePasswordResponse(client, false, "Database error while changing password");
+        }
     }
 
     void handleAdminUserPrivilege(
@@ -1614,6 +1724,17 @@ private:
         update.bind(1, hashPassword(password));
         update.bind(2, username);
         update.exec();
+    }
+
+    static void sendChangePasswordResponse(
+        sf::TcpSocket& client,
+        bool success,
+        const std::string& message)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::ChangePasswordResponse)
+                 << success << message;
+        [[maybe_unused]] auto result = client.send(response);
     }
 
     static std::string generateRememberToken()
