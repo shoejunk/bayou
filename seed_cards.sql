@@ -6,6 +6,7 @@
 --   int   attack    damage dealt per attack
 --   int   range     attack range (Chebyshev distance)
 --   int   move      movement steps per action
+--   int   attackingMove  1 lets movement target enemies; 0/missing disables it
 --   int   power     spell magnitude
 --   str   movement  ortho | diag | omni | jump
 --   str   effect    damage | heal | steam (spells)

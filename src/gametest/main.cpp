@@ -150,9 +150,39 @@ void sendEndTurn(sf::TcpSocket& socket)
 }
 }
 
-int main()
+int main(int argc, char** argv)
 {
     fmt::println("=== Steam Tactics integration test ===");
+
+    Piece slidingAttacker;
+    slidingAttacker.owner = 1;
+    slidingAttacker.row = 3;
+    slidingAttacker.column = 1;
+    slidingAttacker.attack = 4;
+    slidingAttacker.movePattern = static_cast<std::uint8_t>(MovePattern::Ortho);
+    slidingAttacker.moveRange = 4;
+    slidingAttacker.attackingMove = true;
+    Piece slidingTarget;
+    slidingTarget.owner = 2;
+    slidingTarget.row = 3;
+    slidingTarget.column = 4;
+    std::vector<Piece> movementTestPieces = {slidingAttacker, slidingTarget};
+    check(isLegalAttackingMove(movementTestPieces, movementTestPieces[0], 3, 4),
+          "attacking slide can target a reachable enemy");
+    check(attackingMoveFallbackSquare(movementTestPieces[0], 3, 4) == std::pair<int, int>{3, 3},
+          "failed attacking slide stops before the enemy");
+    movementTestPieces[0].movePattern = static_cast<std::uint8_t>(MovePattern::Jump);
+    movementTestPieces[1].row = 5;
+    movementTestPieces[1].column = 2;
+    check(isLegalAttackingMove(movementTestPieces, movementTestPieces[0], 5, 2),
+          "attacking jump can target a knight-reachable enemy");
+    check(attackingMoveFallbackSquare(movementTestPieces[0], 5, 2) == std::pair<int, int>{3, 1},
+          "failed attacking jump stays at its starting square");
+
+    if (argc == 2 && std::string(argv[1]) == "--movement-only")
+    {
+        return failures == 0 ? 0 : 1;
+    }
 
     // --- matchmaking -------------------------------------------------------
     sf::TcpSocket mmA;

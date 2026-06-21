@@ -126,6 +126,7 @@ struct GameCard
     int attackRange = 1;
     std::uint8_t movePattern = static_cast<std::uint8_t>(MovePattern::Omni);
     int moveRange = 1;
+    bool attackingMove = false;
     std::string effect = "none";  // spells: "damage", "heal", "steam"
     std::string target = "none";  // spells: "enemy", "ally", "none"
     int power = 0;                // spell magnitude
@@ -145,6 +146,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.attackRange = cardInt(card, "range", 1);
     g.movePattern = parseMovePattern(cardStr(card, "movement", "omni"));
     g.moveRange = cardInt(card, "move", 1);
+    g.attackingMove = cardInt(card, "attackingMove", 0) != 0;
     g.effect = cardStr(card, "effect", "none");
     g.target = cardStr(card, "target", "none");
     g.power = cardInt(card, "power", 0);
@@ -167,6 +169,7 @@ struct Piece
     int attackRange = 1;
     std::uint8_t movePattern = static_cast<std::uint8_t>(MovePattern::Omni);
     int moveRange = 1;
+    bool attackingMove = false;
     bool isHero = false;
     bool hasActed = false;
 };
@@ -203,7 +206,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
 {
     packet << card.title << card.type << card.imagePath << card.walkAnimPath << card.cost << card.heroCost
            << card.health << card.attack << card.attackRange
-           << card.movePattern << card.moveRange
+           << card.movePattern << card.moveRange << card.attackingMove
            << card.effect << card.target << card.power;
 }
 
@@ -211,7 +214,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
 {
     packet >> card.title >> card.type >> card.imagePath >> card.walkAnimPath >> card.cost >> card.heroCost
            >> card.health >> card.attack >> card.attackRange
-           >> card.movePattern >> card.moveRange
+           >> card.movePattern >> card.moveRange >> card.attackingMove
            >> card.effect >> card.target >> card.power;
     return static_cast<bool>(packet);
 }
@@ -220,14 +223,14 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
 {
     packet << piece.id << piece.owner << piece.row << piece.column << piece.name << piece.imagePath << piece.walkAnimPath
            << piece.maxHealth << piece.health << piece.attack << piece.attackRange
-           << piece.movePattern << piece.moveRange << piece.isHero << piece.hasActed;
+           << piece.movePattern << piece.moveRange << piece.attackingMove << piece.isHero << piece.hasActed;
 }
 
 inline bool readPiece(sf::Packet& packet, Piece& piece)
 {
     packet >> piece.id >> piece.owner >> piece.row >> piece.column >> piece.name >> piece.imagePath >> piece.walkAnimPath
            >> piece.maxHealth >> piece.health >> piece.attack >> piece.attackRange
-           >> piece.movePattern >> piece.moveRange >> piece.isHero >> piece.hasActed;
+           >> piece.movePattern >> piece.moveRange >> piece.attackingMove >> piece.isHero >> piece.hasActed;
     return static_cast<bool>(packet);
 }
 
@@ -378,9 +381,15 @@ inline const Piece* findPieceAt(const std::vector<Piece>& pieces, int row, int c
 
 // Shared rules used by both the authoritative server and the client (for
 // highlighting reachable squares). The server remains the source of truth.
-inline bool isLegalMove(const std::vector<Piece>& pieces, const Piece& piece, int toRow, int toColumn)
+inline bool hasLegalMoveGeometry(
+    const std::vector<Piece>& pieces,
+    const Piece& piece,
+    int toRow,
+    int toColumn,
+    bool allowOccupiedDestination)
 {
-    if (!inBounds(toRow, toColumn) || findPieceAt(pieces, toRow, toColumn) != nullptr)
+    if (!inBounds(toRow, toColumn) ||
+        (!allowOccupiedDestination && findPieceAt(pieces, toRow, toColumn) != nullptr))
     {
         return false;
     }
@@ -440,6 +449,34 @@ inline bool isLegalMove(const std::vector<Piece>& pieces, const Piece& piece, in
         currentColumn += stepC;
     }
     return true;
+}
+
+inline bool isLegalMove(const std::vector<Piece>& pieces, const Piece& piece, int toRow, int toColumn)
+{
+    return hasLegalMoveGeometry(pieces, piece, toRow, toColumn, false);
+}
+
+inline bool isLegalAttackingMove(
+    const std::vector<Piece>& pieces,
+    const Piece& piece,
+    int toRow,
+    int toColumn)
+{
+    const Piece* target = findPieceAt(pieces, toRow, toColumn);
+    return piece.attackingMove && target != nullptr && target->owner != piece.owner &&
+        hasLegalMoveGeometry(pieces, piece, toRow, toColumn, true);
+}
+
+inline std::pair<int, int> attackingMoveFallbackSquare(const Piece& piece, int targetRow, int targetColumn)
+{
+    if (static_cast<MovePattern>(piece.movePattern) == MovePattern::Jump)
+    {
+        return {piece.row, piece.column};
+    }
+
+    const int stepR = (targetRow > piece.row) - (targetRow < piece.row);
+    const int stepC = (targetColumn > piece.column) - (targetColumn < piece.column);
+    return {targetRow - stepR, targetColumn - stepC};
 }
 
 inline bool isLegalAttack(const Piece& attacker, const Piece& target)

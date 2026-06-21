@@ -248,6 +248,54 @@ public:
             return;
         }
 
+        Piece* target = pieceAt(toRow, toColumn);
+        if (target != nullptr)
+        {
+            if (!game_data::isLegalAttackingMove(pieces, *piece, toRow, toColumn))
+            {
+                setStatusFor(playerNumber, "That piece cannot attack with its movement there.");
+                return;
+            }
+
+            const int attackerId = piece->id;
+            const int targetId = target->id;
+            const int damage = piece->attack;
+            const std::string attackerName = piece->name;
+            const std::string targetName = target->name;
+            target->health -= damage;
+
+            if (target->health <= 0)
+            {
+                const int victimOwner = target->owner;
+                removePiece(targetId);
+                Piece* survivingAttacker = pieceById(attackerId);
+                if (survivingAttacker != nullptr)
+                {
+                    survivingAttacker->row = toRow;
+                    survivingAttacker->column = toColumn;
+                    survivingAttacker->hasActed = true;
+                }
+                checkForWinner(victimOwner);
+                if (phaseValue == Phase::GameOver)
+                {
+                    return;
+                }
+                advanceTurn(fmt::format("{} charged into {} for {} damage and destroyed it!",
+                                        attackerName, targetName, damage));
+            }
+            else
+            {
+                const auto [fallbackRow, fallbackColumn] =
+                    game_data::attackingMoveFallbackSquare(*piece, toRow, toColumn);
+                piece->row = fallbackRow;
+                piece->column = fallbackColumn;
+                piece->hasActed = true;
+                advanceTurn(fmt::format("{} charged into {} for {} damage.",
+                                        attackerName, targetName, damage));
+            }
+            return;
+        }
+
         if (!game_data::isLegalMove(pieces, *piece, toRow, toColumn))
         {
             setStatusFor(playerNumber, "That piece cannot reach there.");
@@ -455,6 +503,7 @@ private:
         piece.attackRange = card.attackRange;
         piece.movePattern = card.movePattern;
         piece.moveRange = card.moveRange;
+        piece.attackingMove = card.attackingMove;
         piece.isHero = isHero;
         piece.hasActed = false;
         pieces.push_back(piece);

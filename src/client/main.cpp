@@ -3580,7 +3580,10 @@ int main(int argc, char** argv)
                 sf::Color(224, 210, 176)});
             details.push_back({
                 "Movement: " + game_data::movePatternName(movement) + " " +
-                    std::to_string(game_data::cardInt(card, "move", 1)) + ".",
+                    std::to_string(game_data::cardInt(card, "move", 1)) +
+                    (game_data::cardInt(card, "attackingMove", 0) != 0
+                        ? ". May move into an enemy to deal attack damage."
+                        : "."),
                 sf::Color(143, 220, 205)});
             details.push_back({
                 "Board role: controls its occupied square and influences adjacent empty squares after deployment.",
@@ -4205,7 +4208,14 @@ int main(int argc, char** argv)
                 const game_data::Piece* target = gamePieceAt(row, column);
                 if (target && target->owner != piece->owner)
                 {
-                    sendAttackPiece(piece->id, row, column);
+                    if (game_data::isLegalAttackingMove(gameSnapshot.pieces, *piece, row, column))
+                    {
+                        sendMovePiece(piece->id, row, column);
+                    }
+                    else
+                    {
+                        sendAttackPiece(piece->id, row, column);
+                    }
                 }
                 else if (!target && (piece->row != row || piece->column != column))
                 {
@@ -4337,7 +4347,14 @@ int main(int argc, char** argv)
             {
                 if (clicked && clicked->owner != me)
                 {
-                    sendAttackPiece(selected->id, row, column);
+                    if (game_data::isLegalAttackingMove(gameSnapshot.pieces, *selected, row, column))
+                    {
+                        sendMovePiece(selected->id, row, column);
+                    }
+                    else
+                    {
+                        sendAttackPiece(selected->id, row, column);
+                    }
                     selectedPieceId.reset();
                     return;
                 }
@@ -4425,7 +4442,13 @@ int main(int argc, char** argv)
         }
         if (pattern == game_data::MovePattern::Jump)
         {
-            return std::string("Move: jumps in an L shape, one square on one axis and two on the other. Path blockers do not stop a jump.");
+            std::string description =
+                "Move: jumps in an L shape, one square on one axis and two on the other. Path blockers do not stop a jump.";
+            if (piece.attackingMove)
+            {
+                description += " It may jump onto an enemy and deal attack damage; if the enemy survives, this piece stays where it started.";
+            }
+            return description;
         }
 
         std::string direction;
@@ -4442,8 +4465,18 @@ int main(int argc, char** argv)
             direction = "in any straight or diagonal direction";
         }
 
-        return "Move: travels up to " + squareText(piece.moveRange) + " " + direction +
-            ". The path must be clear and the destination must be empty.";
+        std::string description = "Move: travels up to " + squareText(piece.moveRange) + " " + direction +
+            ". The path must be clear";
+        if (piece.attackingMove)
+        {
+            description +=
+                ". It may move onto an enemy and deal attack damage. If the enemy survives, this piece stops on the last empty square before it";
+        }
+        else
+        {
+            description += " and the destination must be empty";
+        }
+        return description + ".";
     };
 
     auto attackDescription = [&](const game_data::Piece& piece) {
@@ -4547,6 +4580,7 @@ int main(int argc, char** argv)
             game_data::Piece preview;
             preview.movePattern = card.movePattern;
             preview.moveRange = card.moveRange;
+            preview.attackingMove = card.attackingMove;
             preview.attack = card.attack;
             preview.attackRange = card.attackRange;
             descriptions.push_back({moveDescription(preview), sf::Color(210, 216, 228)});
@@ -4679,7 +4713,8 @@ int main(int argc, char** argv)
                      14, {statX, y}, sf::Color(224, 210, 176));
             y += 22.0f;
             drawText(window, font, "Movement: " + game_data::movePatternName(piece->movePattern) +
-                         " " + std::to_string(piece->moveRange),
+                         " " + std::to_string(piece->moveRange) +
+                         (piece->attackingMove ? " (attacking)" : ""),
                      14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
         }
         else
@@ -4697,7 +4732,8 @@ int main(int argc, char** argv)
                          14, {statX, y}, sf::Color(224, 210, 176));
                 y += 22.0f;
                 drawText(window, font, "Movement: " + game_data::movePatternName(card->movePattern) +
-                             " " + std::to_string(card->moveRange),
+                             " " + std::to_string(card->moveRange) +
+                             (card->attackingMove ? " (attacking)" : ""),
                          14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
             }
             else
@@ -4802,7 +4838,8 @@ int main(int argc, char** argv)
                         const game_data::Piece* occupant = gamePieceAt(r, c);
                         if (occupant && occupant->owner != me)
                         {
-                            if (game_data::isLegalAttack(*actingPiece, *occupant))
+                            if (game_data::isLegalAttackingMove(gameSnapshot.pieces, *actingPiece, r, c) ||
+                                game_data::isLegalAttack(*actingPiece, *occupant))
                             {
                                 highlight[idx] = 2;
                             }

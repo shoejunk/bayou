@@ -1814,6 +1814,7 @@ private:
         y = drawInstructionBullet(window, "attack: damage dealt by a normal attack. A value of 0 cannot attack. Default: 0.", y);
         y = drawInstructionBullet(window, "range: maximum attack distance. Distance counts the larger of the row or column difference, so diagonals count the same as straight lines. Attacks do not check intervening pieces. Default: 1.", y);
         y = drawInstructionBullet(window, "move: maximum squares moved in one action for ortho, diag, and omni movement. Jump always uses a fixed knight jump and ignores this distance. Default: 1.", y);
+        y = drawInstructionBullet(window, "attackingMove: set to 1 to let this Hero or Unit use a legal move onto an enemy and deal its attack damage. Use 0 or omit the field for normal non-attacking movement. Default: 0.", y);
         y = drawInstructionBullet(window, "power: spell amount. It is damage dealt, health restored, or steam gained depending on effect. Default: 0.", y);
         y += 12.0f;
 
@@ -1825,7 +1826,9 @@ private:
         y = drawInstructionBullet(window, "omni: move horizontally, vertically, or diagonally, up to the move value. This is the default if the field is missing or unrecognized.", y);
         y = drawInstructionBullet(window, "jump: move in a fixed L shape: two squares on one axis and one on the other, like a chess knight. It may jump over pieces.", y);
         y = drawInstructionBullet(window, "none: the piece cannot move.", y);
-        y = drawInstructionParagraph(window, "For ortho, diag, and omni, the destination must be empty and every square along the path must be empty. A move uses the piece's action for that turn.", y + 5.0f, sf::Color(198, 210, 224));
+        y = drawInstructionParagraph(window, "For ortho, diag, and omni, every square along the path must be empty. The destination must also be empty unless attackingMove=1 and it contains an enemy. A move uses the piece's action for that turn.", y + 5.0f, sf::Color(198, 210, 224));
+        y += 10.0f;
+        y = drawInstructionParagraph(window, "Attacking movement: if the attack destroys the enemy, the mover occupies the enemy's square. If the enemy survives, a sliding mover stops on the last empty square before the enemy; a jumping mover returns to its starting square. Clicking an enemy uses attacking movement when the movement pattern can legally reach it, otherwise it uses the piece's normal attack.", y, sf::Color(225, 170, 150));
         y += 17.0f;
 
         y = drawInstructionSection(window, "5. Spell String Fields", y);
@@ -1850,7 +1853,7 @@ private:
         y += 12.0f;
 
         y = drawInstructionSection(window, "8. Complete examples", y);
-        y = drawInstructionParagraph(window, "Unit example - Type: Unit | Integer Fields: cost=4; health=12; attack=5; range=1; move=7 | String Fields: movement=ortho; rarity=rare; WalkAnim=animations/clockwork-rook-walk.png", y, sf::Color(150, 210, 235));
+        y = drawInstructionParagraph(window, "Unit example - Type: Unit | Integer Fields: cost=4; health=12; attack=5; range=1; move=7; attackingMove=1 | String Fields: movement=ortho; rarity=rare; WalkAnim=animations/clockwork-rook-walk.png", y, sf::Color(150, 210, 235));
         y += 10.0f;
         y = drawInstructionParagraph(window, "Hero example - Type: Hero | Integer Fields: heroCost=5; health=16; attack=6; range=3; move=2 | String Fields: movement=diag; rarity=rare; WalkAnim=animations/marsh-witch-walk.png", y, sf::Color(248, 214, 112));
         y += 10.0f;
