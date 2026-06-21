@@ -1,2 +1,13 @@
-*.sh text eol=lf
-*.service text eol=lf
+# Normalize line endings: all text files use LF in the repo and working tree.
+# Git auto-detects text vs binary; the explicit rules below pin the assets.
+* text=auto eol=lf
+
+# Binary assets — never normalize or diff as text.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.ico  binary
+*.ttf  binary
+*.otf  binary
+*.db   binary
+*.zip  binary
