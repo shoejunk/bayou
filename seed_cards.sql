@@ -597,7 +597,7 @@ INSERT INTO card_integer_values (title, key, value) VALUES
   ('Stingy', 'WalkAnimFrames', 6),
   ('Sweetykins', 'WalkAnimFrames', 6),
   ('Telematron', 'WalkAnimFrames', 10),
-  ('Tinkering Tom', 'WalkAnimFrames', 6);
+  ('Tinkering Tom', 'WalkAnimFrames', 81);
 
 -- ---- Spells -------------------------------------------------------------
 INSERT INTO cards (title, type, image_path) VALUES ('Smoke Bomb', 'Spell', 'cards/smoke-bomb-v2.png');

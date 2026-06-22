@@ -114,6 +114,7 @@ constexpr float PieceNearScale = 1.22f;
 constexpr float PieceBaseWidth = 48.0f;
 constexpr float PieceBaseHeight = 50.0f;
 constexpr float PieceWalkBaseHeight = 54.0f;
+constexpr float WalkAnimationLoopSeconds = 1.0f;
 constexpr float InfoPanelX = 472.0f;
 constexpr float InfoPanelY = 70.0f;
 constexpr float InfoPanelWidth = 304.0f;
@@ -4911,41 +4912,40 @@ int main(int argc, char** argv)
         window.draw(artFrame);
 
         bool drewArt = false;
+        if (sf::Texture* art = cardArtTexture(piece ? piece->imagePath : card->imagePath))
+        {
+            drawContainSprite(
+                *art,
+                {{PiecePopupX + 30.0f, PiecePopupY + 70.0f}, {88.0f, 88.0f}});
+            drewArt = true;
+        }
         if (piece)
         {
-            if (sf::Texture* token = loadTexture(pieceTokenPath(*piece)))
+            if (!drewArt)
             {
-                drawContainSprite(
-                    *token,
-                    {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}});
-                drewArt = true;
-            }
-            else if (sf::Texture* walkSheet = walkAnimTexture(pieceWalkAnimPath(*piece)))
-            {
-                const int walkFrameCount = std::max(1, piece->walkAnimFrames);
-                const sf::Vector2u sheetSize = walkSheet->getSize();
-                const int frameWidth = static_cast<int>(sheetSize.x / static_cast<unsigned int>(walkFrameCount));
-                const int frameHeight = static_cast<int>(sheetSize.y);
-                if (frameWidth > 0 && frameHeight > 0)
+                if (sf::Texture* token = loadTexture(pieceTokenPath(*piece)))
                 {
-                    drawTextureRectContain(
-                        *walkSheet,
-                        sf::IntRect({0, 0}, {frameWidth, frameHeight}),
-                        {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}},
-                        sf::Color::White);
+                    drawContainSprite(
+                        *token,
+                        {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}});
                     drewArt = true;
                 }
-            }
-        }
-        if (!drewArt)
-        {
-            if (sf::Texture* art = cardArtTexture(piece ? piece->imagePath : card->imagePath))
-            {
-                drawContainSprite(
-                    *art,
-                    {{PiecePopupX + 30.0f, PiecePopupY + 70.0f}, {88.0f, 88.0f}},
-                    sf::Color::White,
-                    piece && piece->owner == 2);
+                else if (sf::Texture* walkSheet = walkAnimTexture(pieceWalkAnimPath(*piece)))
+                {
+                    const int walkFrameCount = std::max(1, piece->walkAnimFrames);
+                    const sf::Vector2u sheetSize = walkSheet->getSize();
+                    const int frameWidth = static_cast<int>(sheetSize.x / static_cast<unsigned int>(walkFrameCount));
+                    const int frameHeight = static_cast<int>(sheetSize.y);
+                    if (frameWidth > 0 && frameHeight > 0)
+                    {
+                        drawTextureRectContain(
+                            *walkSheet,
+                            sf::IntRect({0, 0}, {frameWidth, frameHeight}),
+                            {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}},
+                            sf::Color::White);
+                        drewArt = true;
+                    }
+                }
             }
         }
 
@@ -5230,9 +5230,11 @@ int main(int argc, char** argv)
             sf::Vector2f anchor = boardCellAnchor(cell);
             float pieceScale = cell.depthScale;
             bool isMoving = false;
+            float walkAnimationElapsed = 0.0f;
             if (const auto animation = pieceMoveAnimations.find(piece.id); animation != pieceMoveAnimations.end())
             {
-                const float progress = std::min((animationTime - animation->second.startTime) / animation->second.duration, 1.0f);
+                walkAnimationElapsed = std::max(0.0f, animationTime - animation->second.startTime);
+                const float progress = std::min(walkAnimationElapsed / animation->second.duration, 1.0f);
                 if (progress < 1.0f)
                 {
                     isMoving = true;
@@ -5274,7 +5276,12 @@ int main(int argc, char** argv)
                     const int frameHeight = static_cast<int>(sheetSize.y);
                     if (frameWidth > 0 && frameHeight > 0)
                     {
-                        const int frame = static_cast<int>(animationTime * 7.0f) % walkFrameCount;
+                        const float loopProgress =
+                            std::fmod(walkAnimationElapsed, WalkAnimationLoopSeconds) /
+                            WalkAnimationLoopSeconds;
+                        const int frame = std::min(
+                            static_cast<int>(loopProgress * static_cast<float>(walkFrameCount)),
+                            walkFrameCount - 1);
                         drawTextureRectContain(
                             *walkSheet,
                             sf::IntRect({frame * frameWidth, 0}, {frameWidth, frameHeight}),
