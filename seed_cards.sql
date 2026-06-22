@@ -187,7 +187,7 @@ INSERT INTO card_string_values (title, key, value) VALUES ('Mudslide', 'WalkAnim
 -- The original game used energy values ten times larger than Steam Tactics'
 -- steam scale. Imported costs and noble/hero costs are rounded up at 10:1.
 
-INSERT INTO cards (title, type, image_path) VALUES ('Automatick', 'Unit', 'cards/legacy/automatick.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Automatick', 'Unit', 'cards/automatick.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Automatick', 'cost', 3), ('Automatick', 'health', 1),
   ('Automatick', 'attack', 1), ('Automatick', 'range', 1),
@@ -200,7 +200,7 @@ INSERT INTO card_keywords (title, keyword) VALUES ('Automatick', 'mechanical');
 INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Automatick', 'actions', 0, '0|slide|jump|1|2|1|move,attack|0|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Bramble Drone', 'Unit', 'cards/legacy/bramble-drone.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Bramble Drone', 'Unit', 'cards/bramble-drone.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Bramble Drone', 'cost', 2), ('Bramble Drone', 'health', 2),
   ('Bramble Drone', 'attack', 2), ('Bramble Drone', 'range', 1),
@@ -213,7 +213,7 @@ INSERT INTO card_keywords (title, keyword) VALUES ('Bramble Drone', 'bio');
 INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Bramble Drone', 'actions', 0, '0|slide|omni|1|1|2|move,attack|0|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Choking Blossom', 'Unit', 'cards/legacy/choking-blossom.jpg');
+INSERT INTO cards (title, type, image_path) VALUES ('Choking Blossom', 'Unit', 'cards/choking-blossom.jpg');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Choking Blossom', 'cost', 10), ('Choking Blossom', 'health', 2),
   ('Choking Blossom', 'attack', 1), ('Choking Blossom', 'range', 2),
@@ -227,7 +227,7 @@ INSERT INTO card_keywords (title, keyword) VALUES
 INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Choking Blossom', 'actions', 0, '0|slide|omni|1|2|1|move,attack|1|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Curious Spirit', 'Unit', 'cards/legacy/curious-spirit.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Curious Spirit', 'Unit', 'cards/curious-spirit.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Curious Spirit', 'cost', 8), ('Curious Spirit', 'health', 1),
   ('Curious Spirit', 'attack', 0), ('Curious Spirit', 'range', 1),
@@ -239,7 +239,7 @@ INSERT INTO card_keywords (title, keyword) VALUES ('Curious Spirit', 'occult');
 INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Curious Spirit', 'actions', 0, '0|slide|diag|1|7|0|move|0|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Delving Daphodilus', 'Unit', 'cards/legacy/delving-daphodilus.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Delving Daphodilus', 'Unit', 'cards/delving-daphodilus.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Delving Daphodilus', 'cost', 12), ('Delving Daphodilus', 'health', 2),
   ('Delving Daphodilus', 'attack', 2), ('Delving Daphodilus', 'range', 1),
@@ -255,7 +255,7 @@ INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Delving Daphodilus', 'actions', 0, '0|slide|diag|1|7|2|move,attack|0|0'),
   ('Delving Daphodilus', 'actions', 1, '0|tunnel|none|1|7|0|move|0|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Elias Tiberion', 'Hero', 'cards/legacy/elias-tiberion.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Elias Tiberion', 'Hero', 'cards/elias-tiberion.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Elias Tiberion', 'heroCost', 4), ('Elias Tiberion', 'health', 2),
   ('Elias Tiberion', 'attack', 3), ('Elias Tiberion', 'range', 1),
@@ -296,7 +296,7 @@ INSERT INTO card_keywords (title, keyword) VALUES ('Gentle Bot', 'mechanical');
 INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Gentle Bot', 'actions', 0, '0|slide|omni|1|1|0|move|0|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Hired Gun', 'Unit', 'cards/legacy/hired-gun.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Hired Gun', 'Unit', 'cards/hired-gun.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Hired Gun', 'cost', 12), ('Hired Gun', 'health', 2),
   ('Hired Gun', 'attack', 3), ('Hired Gun', 'range', 1),
@@ -325,7 +325,7 @@ INSERT INTO card_keywords (title, keyword) VALUES ('Hop Bot', 'mechanical');
 INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Hop Bot', 'actions', 0, '0|hop|none|2|2|1|move,attack|0|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Lady Worthington', 'Unit', 'cards/legacy/lady-worthington.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Lady Worthington', 'Unit', 'cards/lady-worthington.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Lady Worthington', 'cost', 16), ('Lady Worthington', 'health', 1),
   ('Lady Worthington', 'attack', 0), ('Lady Worthington', 'range', 1),
@@ -341,7 +341,7 @@ INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Lady Worthington', 'abilityLabels', 0, 'Dematerialize'),
   ('Lady Worthington', 'abilityLabels', 1, 'Materialize');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Lesser Demon', 'Unit', 'cards/legacy/lesser-demon.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Lesser Demon', 'Unit', 'cards/lesser-demon.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Lesser Demon', 'cost', 16), ('Lesser Demon', 'health', 2),
   ('Lesser Demon', 'attack', 2), ('Lesser Demon', 'range', 1),
@@ -367,7 +367,7 @@ INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Patrol Bot', 'actions', 0, '0|slide|horizontal|1|1|0|move|0|0'),
   ('Patrol Bot', 'actions', 1, '0|slide|diag|1|1|2|attack|0|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Professor Glumpkin', 'Hero', 'cards/legacy/professor-glumpkin.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Professor Glumpkin', 'Hero', 'cards/professor-glumpkin.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Professor Glumpkin', 'heroCost', 7), ('Professor Glumpkin', 'health', 1),
   ('Professor Glumpkin', 'attack', 1), ('Professor Glumpkin', 'range', 1),
@@ -380,7 +380,7 @@ INSERT INTO card_keywords (title, keyword) VALUES ('Professor Glumpkin', 'occult
 INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Professor Glumpkin', 'actions', 0, '0|slide|omni|1|1|1|move,attack|0|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('River Dweller', 'Unit', 'cards/legacy/river-dweller.png');
+INSERT INTO cards (title, type, image_path) VALUES ('River Dweller', 'Unit', 'cards/river-dweller.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('River Dweller', 'cost', 8), ('River Dweller', 'health', 1),
   ('River Dweller', 'attack', 0), ('River Dweller', 'range', 1),
@@ -392,7 +392,7 @@ INSERT INTO card_keywords (title, keyword) VALUES ('River Dweller', 'occult');
 INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('River Dweller', 'actions', 0, '0|slide|diag|1|7|0|move|0|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Rustbucket', 'Unit', 'cards/legacy/rustbucket.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Rustbucket', 'Unit', 'cards/rustbucket.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Rustbucket', 'cost', 5), ('Rustbucket', 'health', 1),
   ('Rustbucket', 'attack', 1), ('Rustbucket', 'range', 2),
@@ -405,7 +405,7 @@ INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Rustbucket', 'actions', 0, '0|slide|omni|1|1|0|move|0|0'),
   ('Rustbucket', 'actions', 1, '0|ranged|omni|1|2|1|attack|0|1');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Scarlett Glumpkin', 'Hero', 'cards/legacy/scarlett-glumpkin.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Scarlett Glumpkin', 'Hero', 'cards/scarlett-glumpkin.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Scarlett Glumpkin', 'heroCost', 2), ('Scarlett Glumpkin', 'health', 2),
   ('Scarlett Glumpkin', 'attack', 0), ('Scarlett Glumpkin', 'range', 2),
@@ -418,7 +418,7 @@ INSERT INTO card_keywords (title, keyword) VALUES ('Scarlett Glumpkin', 'bio');
 INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Scarlett Glumpkin', 'actions', 0, '0|slide|omni|1|2|0|move,attack|2|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Sentroid', 'Unit', 'cards/legacy/sentroid.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Sentroid', 'Unit', 'cards/sentroid.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Sentroid', 'cost', 1), ('Sentroid', 'health', 1),
   ('Sentroid', 'attack', 1), ('Sentroid', 'range', 1),
@@ -443,7 +443,7 @@ INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Sky Pirate', 'actions', 0, '0|slide|diag|1|1|0|move|0|0'),
   ('Sky Pirate', 'actions', 1, '0|ranged|omni|1|1|1|attack|0|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Stingy', 'Unit', 'cards/legacy/stingy.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Stingy', 'Unit', 'cards/stingy.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Stingy', 'cost', 3), ('Stingy', 'health', 1),
   ('Stingy', 'attack', 1), ('Stingy', 'range', 1),
@@ -456,7 +456,7 @@ INSERT INTO card_keywords (title, keyword) VALUES ('Stingy', 'mechanical');
 INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Stingy', 'actions', 0, '0|slide|diag|1|7|1|move,attack|0|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Sweetykins', 'Unit', 'cards/legacy/sweetykins.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Sweetykins', 'Unit', 'cards/sweetykins.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Sweetykins', 'cost', 5), ('Sweetykins', 'health', 1),
   ('Sweetykins', 'attack', 1), ('Sweetykins', 'range', 1),
@@ -469,7 +469,7 @@ INSERT INTO card_keywords (title, keyword) VALUES ('Sweetykins', 'mechanical');
 INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Sweetykins', 'actions', 0, '0|slide|ortho|1|7|1|move,attack|0|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Telematron', 'Unit', 'cards/legacy/telematron.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Telematron', 'Unit', 'cards/telematron.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Telematron', 'cost', 10), ('Telematron', 'health', 1),
   ('Telematron', 'attack', 1), ('Telematron', 'range', 1),
@@ -482,7 +482,7 @@ INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Telematron', 'actions', 0, '0|teleport|none|1|7|0|move|0|0'),
   ('Telematron', 'actions', 1, '0|slide|omni|1|1|1|attack|0|0');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Tinkering Tom', 'Hero', 'cards/legacy/tinkering-tom.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Tinkering Tom', 'Hero', 'cards/tinkering-tom.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Tinkering Tom', 'heroCost', 3), ('Tinkering Tom', 'health', 1),
   ('Tinkering Tom', 'attack', 1), ('Tinkering Tom', 'range', 1),
@@ -499,82 +499,82 @@ INSERT INTO card_string_lists (title, key, item_index, value) VALUES
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Automatick', 'TokenBlue', 'characters/blue/automatick.png'),
   ('Automatick', 'TokenRed', 'characters/red/automatick.png'),
-  ('Automatick', 'WalkAnimBlue', 'animations/legacy/blue/automatick-walk.png'),
-  ('Automatick', 'WalkAnimRed', 'animations/legacy/red/automatick-walk.png'),
+  ('Automatick', 'WalkAnimBlue', 'animations/blue/automatick-walk.png'),
+  ('Automatick', 'WalkAnimRed', 'animations/red/automatick-walk.png'),
   ('Bramble Drone', 'TokenBlue', 'characters/blue/brambleDrone.png'),
   ('Bramble Drone', 'TokenRed', 'characters/red/brambleDrone.png'),
-  ('Bramble Drone', 'WalkAnimBlue', 'animations/legacy/blue/brambleDrone-walk.png'),
-  ('Bramble Drone', 'WalkAnimRed', 'animations/legacy/red/brambleDrone-walk.png'),
+  ('Bramble Drone', 'WalkAnimBlue', 'animations/blue/brambleDrone-walk.png'),
+  ('Bramble Drone', 'WalkAnimRed', 'animations/red/brambleDrone-walk.png'),
   ('Choking Blossom', 'TokenBlue', 'characters/blue/chokingBlossom.png'),
   ('Choking Blossom', 'TokenRed', 'characters/red/chokingBlossom.png'),
-  ('Choking Blossom', 'WalkAnimBlue', 'animations/legacy/blue/chokingBlossom-walk.png'),
-  ('Choking Blossom', 'WalkAnimRed', 'animations/legacy/red/chokingBlossom-walk.png'),
+  ('Choking Blossom', 'WalkAnimBlue', 'animations/blue/chokingBlossom-walk.png'),
+  ('Choking Blossom', 'WalkAnimRed', 'animations/red/chokingBlossom-walk.png'),
   ('Curious Spirit', 'TokenBlue', 'characters/blue/curiousSpirit.png'),
   ('Curious Spirit', 'TokenRed', 'characters/red/curiousSpirit.png'),
-  ('Curious Spirit', 'WalkAnimBlue', 'animations/legacy/blue/curiousSpirit-walk.png'),
-  ('Curious Spirit', 'WalkAnimRed', 'animations/legacy/red/curiousSpirit-walk.png'),
+  ('Curious Spirit', 'WalkAnimBlue', 'animations/blue/curiousSpirit-walk.png'),
+  ('Curious Spirit', 'WalkAnimRed', 'animations/red/curiousSpirit-walk.png'),
   ('Delving Daphodilus', 'TokenBlue', 'characters/blue/delvingDaphodilus.png'),
   ('Delving Daphodilus', 'TokenRed', 'characters/red/delvingDaphodilus.png'),
-  ('Delving Daphodilus', 'WalkAnimBlue', 'animations/legacy/blue/delvingDaphodilus-walk.png'),
-  ('Delving Daphodilus', 'WalkAnimRed', 'animations/legacy/red/delvingDaphodilus-walk.png'),
+  ('Delving Daphodilus', 'WalkAnimBlue', 'animations/blue/delvingDaphodilus-walk.png'),
+  ('Delving Daphodilus', 'WalkAnimRed', 'animations/red/delvingDaphodilus-walk.png'),
   ('Elias Tiberion', 'TokenBlue', 'characters/blue/eliasTiberion.png'),
   ('Elias Tiberion', 'TokenRed', 'characters/red/eliasTiberion.png'),
-  ('Elias Tiberion', 'WalkAnimBlue', 'animations/legacy/blue/eliasTiberion-walk.png'),
-  ('Elias Tiberion', 'WalkAnimRed', 'animations/legacy/red/eliasTiberion-walk.png'),
-  ('Gentle Bot', 'WalkAnimRed', 'animations/legacy/red/gentleBot-walk.png'),
+  ('Elias Tiberion', 'WalkAnimBlue', 'animations/blue/eliasTiberion-walk.png'),
+  ('Elias Tiberion', 'WalkAnimRed', 'animations/red/eliasTiberion-walk.png'),
+  ('Gentle Bot', 'WalkAnimRed', 'animations/red/gentleBot-walk.png'),
   ('Hired Gun', 'TokenBlue', 'characters/blue/hiredGun.png'),
   ('Hired Gun', 'TokenRed', 'characters/red/hiredGun.png'),
-  ('Hired Gun', 'WalkAnimBlue', 'animations/legacy/blue/hiredGun-walk.png'),
-  ('Hired Gun', 'WalkAnimRed', 'animations/legacy/red/hiredGun-walk.png'),
-  ('Hop Bot', 'WalkAnimBlue', 'animations/legacy/blue/hopBot-walk.png'),
-  ('Hop Bot', 'WalkAnimRed', 'animations/legacy/red/hopBot-walk.png'),
+  ('Hired Gun', 'WalkAnimBlue', 'animations/blue/hiredGun-walk.png'),
+  ('Hired Gun', 'WalkAnimRed', 'animations/red/hiredGun-walk.png'),
+  ('Hop Bot', 'WalkAnimBlue', 'animations/blue/hopBot-walk.png'),
+  ('Hop Bot', 'WalkAnimRed', 'animations/red/hopBot-walk.png'),
   ('Lady Worthington', 'TokenBlue', 'characters/blue/ladyWorthington.png'),
   ('Lady Worthington', 'TokenRed', 'characters/red/ladyWorthington.png'),
-  ('Lady Worthington', 'WalkAnimBlue', 'animations/legacy/blue/ladyWorthington-walk.png'),
-  ('Lady Worthington', 'WalkAnimRed', 'animations/legacy/red/ladyWorthington-walk.png'),
+  ('Lady Worthington', 'WalkAnimBlue', 'animations/blue/ladyWorthington-walk.png'),
+  ('Lady Worthington', 'WalkAnimRed', 'animations/red/ladyWorthington-walk.png'),
   ('Lesser Demon', 'TokenBlue', 'characters/blue/lesserDemon.png'),
   ('Lesser Demon', 'TokenRed', 'characters/red/lesserDemon.png'),
-  ('Lesser Demon', 'WalkAnimBlue', 'animations/legacy/blue/lesserDemon-walk.png'),
-  ('Lesser Demon', 'WalkAnimRed', 'animations/legacy/red/lesserDemon-walk.png'),
+  ('Lesser Demon', 'WalkAnimBlue', 'animations/blue/lesserDemon-walk.png'),
+  ('Lesser Demon', 'WalkAnimRed', 'animations/red/lesserDemon-walk.png'),
   ('Patrol Bot', 'TokenBlue', 'characters/blue/patrolBot.png'),
   ('Patrol Bot', 'TokenRed', 'characters/red/patrolBot.png'),
-  ('Patrol Bot', 'WalkAnimBlue', 'animations/legacy/blue/patrolBot-walk.png'),
-  ('Patrol Bot', 'WalkAnimRed', 'animations/legacy/red/patrolBot-walk.png'),
+  ('Patrol Bot', 'WalkAnimBlue', 'animations/blue/patrolBot-walk.png'),
+  ('Patrol Bot', 'WalkAnimRed', 'animations/red/patrolBot-walk.png'),
   ('Professor Glumpkin', 'TokenBlue', 'characters/blue/professorGlumpkin.png'),
   ('Professor Glumpkin', 'TokenRed', 'characters/red/professorGlumpkin.png'),
-  ('Professor Glumpkin', 'WalkAnimRed', 'animations/legacy/red/professorGlumpkin-walk.jpg'),
+  ('Professor Glumpkin', 'WalkAnimRed', 'animations/red/professorGlumpkin-walk.jpg'),
   ('River Dweller', 'TokenBlue', 'characters/blue/riverDweller.png'),
   ('River Dweller', 'TokenRed', 'characters/red/riverDweller.png'),
-  ('River Dweller', 'WalkAnimBlue', 'animations/legacy/blue/riverDweller-walk.png'),
-  ('River Dweller', 'WalkAnimRed', 'animations/legacy/red/riverDweller-walk.png'),
+  ('River Dweller', 'WalkAnimBlue', 'animations/blue/riverDweller-walk.png'),
+  ('River Dweller', 'WalkAnimRed', 'animations/red/riverDweller-walk.png'),
   ('Rustbucket', 'TokenBlue', 'characters/blue/rustbucket.png'),
   ('Rustbucket', 'TokenRed', 'characters/red/rustbucket.png'),
-  ('Rustbucket', 'WalkAnimBlue', 'animations/legacy/blue/rustbucket-walk.png'),
-  ('Rustbucket', 'WalkAnimRed', 'animations/legacy/red/rustbucket-walk.png'),
+  ('Rustbucket', 'WalkAnimBlue', 'animations/blue/rustbucket-walk.png'),
+  ('Rustbucket', 'WalkAnimRed', 'animations/red/rustbucket-walk.png'),
   ('Scarlett Glumpkin', 'TokenBlue', 'characters/blue/scarlettGlumpkin.png'),
   ('Scarlett Glumpkin', 'TokenRed', 'characters/red/scarlettGlumpkin.png'),
-  ('Scarlett Glumpkin', 'WalkAnimBlue', 'animations/legacy/blue/scarlettGlumpkin-walk.png'),
-  ('Scarlett Glumpkin', 'WalkAnimRed', 'animations/legacy/red/scarlettGlumpkin-walk.png'),
+  ('Scarlett Glumpkin', 'WalkAnimBlue', 'animations/blue/scarlettGlumpkin-walk.png'),
+  ('Scarlett Glumpkin', 'WalkAnimRed', 'animations/red/scarlettGlumpkin-walk.png'),
   ('Sentroid', 'TokenBlue', 'characters/blue/sentroid.png'),
   ('Sentroid', 'TokenRed', 'characters/red/sentroid.png'),
-  ('Sentroid', 'WalkAnimBlue', 'animations/legacy/blue/sentroid-walk.png'),
-  ('Sentroid', 'WalkAnimRed', 'animations/legacy/red/sentroid-walk.png'),
+  ('Sentroid', 'WalkAnimBlue', 'animations/blue/sentroid-walk.png'),
+  ('Sentroid', 'WalkAnimRed', 'animations/red/sentroid-walk.png'),
   ('Stingy', 'TokenBlue', 'characters/blue/stingy.png'),
   ('Stingy', 'TokenRed', 'characters/red/stingy.png'),
-  ('Stingy', 'WalkAnimBlue', 'animations/legacy/blue/stingy-walk.png'),
-  ('Stingy', 'WalkAnimRed', 'animations/legacy/red/stingy-walk.png'),
+  ('Stingy', 'WalkAnimBlue', 'animations/blue/stingy-walk.png'),
+  ('Stingy', 'WalkAnimRed', 'animations/red/stingy-walk.png'),
   ('Sweetykins', 'TokenBlue', 'characters/blue/sweetykins.png'),
   ('Sweetykins', 'TokenRed', 'characters/red/sweetykins.png'),
-  ('Sweetykins', 'WalkAnimBlue', 'animations/legacy/blue/sweetykins-walk.png'),
-  ('Sweetykins', 'WalkAnimRed', 'animations/legacy/red/sweetykins-walk.png'),
+  ('Sweetykins', 'WalkAnimBlue', 'animations/blue/sweetykins-walk.png'),
+  ('Sweetykins', 'WalkAnimRed', 'animations/red/sweetykins-walk.png'),
   ('Telematron', 'TokenBlue', 'characters/blue/telematron.png'),
   ('Telematron', 'TokenRed', 'characters/red/telematron.png'),
-  ('Telematron', 'WalkAnimBlue', 'animations/legacy/blue/telematron-walk.png'),
-  ('Telematron', 'WalkAnimRed', 'animations/legacy/red/telematron-walk.png'),
+  ('Telematron', 'WalkAnimBlue', 'animations/blue/telematron-walk.png'),
+  ('Telematron', 'WalkAnimRed', 'animations/red/telematron-walk.png'),
   ('Tinkering Tom', 'TokenBlue', 'characters/blue/tinkeringTom.png'),
   ('Tinkering Tom', 'TokenRed', 'characters/red/tinkeringTom.png'),
-  ('Tinkering Tom', 'WalkAnimBlue', 'animations/legacy/blue/tinkeringTom-walk.png'),
-  ('Tinkering Tom', 'WalkAnimRed', 'animations/legacy/red/tinkeringTom-walk.png');
+  ('Tinkering Tom', 'WalkAnimBlue', 'animations/blue/tinkeringTom-walk.png'),
+  ('Tinkering Tom', 'WalkAnimRed', 'animations/red/tinkeringTom-walk.png');
 
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Automatick', 'WalkAnimFrames', 7),
