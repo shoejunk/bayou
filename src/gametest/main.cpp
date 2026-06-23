@@ -128,10 +128,10 @@ void settle(sf::TcpSocket& a, sf::TcpSocket& b, Snapshot& sa, Snapshot& sb, int 
     }
 }
 
-void sendPlaceHero(sf::TcpSocket& socket, int row, int column)
+void sendPlaceHero(sf::TcpSocket& socket, int row, int column, int heroIndex = 0)
 {
     sf::Packet packet;
-    packet << static_cast<std::uint8_t>(MessageType::PlaceHero) << 0 << row << column;
+    packet << static_cast<std::uint8_t>(MessageType::PlaceHero) << heroIndex << row << column;
     send(socket, packet);
 }
 
@@ -146,6 +146,13 @@ void sendEndTurn(sf::TcpSocket& socket)
 {
     sf::Packet packet;
     packet << static_cast<std::uint8_t>(MessageType::EndTurn);
+    send(socket, packet);
+}
+
+void sendDiscardCard(sf::TcpSocket& socket, int handIndex)
+{
+    sf::Packet packet;
+    packet << static_cast<std::uint8_t>(MessageType::DiscardCard) << handIndex;
     send(socket, packet);
 }
 }
@@ -432,11 +439,29 @@ int main(int argc, char** argv)
     check(s1.phase == static_cast<std::uint8_t>(Phase::HeroPlacement), "phase is HeroPlacement after decks");
     check(s1.players[0].heroesToPlace == 2, "player 1 has 2 heroes to place");
     check(s1.players[1].heroesToPlace == 2, "player 2 has 2 heroes to place");
+    check(s1.hand.size() == 2, "player 1 sees hero cards in hand during placement");
+    check(s2.hand.size() == 2, "player 2 sees hero cards in hand during placement");
+    check(s1.hand.size() == 2 && s1.hand[0].type == "Hero" && s1.hand[1].type == "Hero",
+          "placement hand contains only heroes");
+
+    // Normal turn actions cannot start or mutate the placement hand.
+    sendEndTurn(p1);
+    sendPlayCard(p1, 0, 2, 0);
+    sendDiscardCard(p1, 0);
+    settle(p1, p2, s1, s2, 400);
+    check(s1.phase == static_cast<std::uint8_t>(Phase::HeroPlacement), "turn actions cannot end hero placement");
+    check(s1.players[0].heroesToPlace == 2 && s1.hand.size() == 2,
+          "heroes cannot be played or discarded during placement");
 
     // --- hero placement ----------------------------------------------------
     // Player 1 home column 0 middle rows; player 2 home column 7 middle rows.
-    sendPlaceHero(p1, 2, 0);
+    sendPlaceHero(p1, 2, 0, 1);
     settle(p1, p2, s1, s2, 400);
+    const Piece* firstPlacedHero = findPieceAt(s1.pieces, 2, 0);
+    check(firstPlacedHero && firstPlacedHero->name == "Cog Tinker",
+          "placing a hero uses the selected hand index");
+    check(s1.hand.size() == 1 && s1.hand[0].title == "Gear Knight",
+          "placed hero is removed from the placement hand");
     sendPlaceHero(p1, 3, 0);
     sendPlaceHero(p2, 2, 7);
     settle(p1, p2, s1, s2, 400);

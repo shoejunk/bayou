@@ -3693,6 +3693,71 @@ int main(int argc, char** argv)
         return piece.owner == 1 ? piece.blueWalkAnimPath : piece.redWalkAnimPath;
     };
 
+    auto cardTokenPath = [](const game_data::GameCard& card, int owner) -> const std::string& {
+        return owner == 1 ? card.blueTokenPath : card.redTokenPath;
+    };
+
+    auto cardWalkAnimPath = [](const game_data::GameCard& card, int owner) -> const std::string& {
+        return owner == 1 ? card.blueWalkAnimPath : card.redWalkAnimPath;
+    };
+
+    auto drawCardPiecePreview = [&](const game_data::GameCard& card,
+                                    int owner,
+                                    sf::Vector2f anchor,
+                                    float scale,
+                                    bool valid) {
+        const sf::Color tint = valid ? sf::Color(255, 255, 255, 220) : sf::Color(220, 120, 110, 190);
+        const std::string& tokenPath = cardTokenPath(card, owner);
+        const std::string& walkPath = cardWalkAnimPath(card, owner);
+
+        bool drewPiece = false;
+        if (sf::Texture* token = loadTexture(tokenPath))
+        {
+            drawContainSprite(*token, pieceTargetRect(anchor, scale, true), tint);
+            drewPiece = true;
+        }
+        else if (sf::Texture* walkSheet = walkAnimTexture(walkPath))
+        {
+            const int frameCount = std::max(1, card.walkAnimFrames);
+            const sf::Vector2u sheetSize = walkSheet->getSize();
+            const int frameWidth = static_cast<int>(sheetSize.x / static_cast<unsigned int>(frameCount));
+            const int frameHeight = static_cast<int>(sheetSize.y);
+            if (frameWidth > 0 && frameHeight > 0)
+            {
+                drawTextureRectContain(
+                    *walkSheet,
+                    sf::IntRect({0, 0}, {frameWidth, frameHeight}),
+                    pieceTargetRect(anchor, scale, true),
+                    tint);
+                drewPiece = true;
+            }
+        }
+        else if (sf::Texture* art = cardArtTexture(card.imagePath))
+        {
+            drawContainSprite(*art, pieceTargetRect(anchor, scale, false), tint);
+            drewPiece = true;
+        }
+
+        if (!drewPiece)
+        {
+            const float radius = PieceBaseWidth * 0.28f * scale;
+            sf::CircleShape body(radius);
+            body.setPosition({anchor.x - radius, anchor.y - radius * 2.0f});
+            body.setFillColor(valid ? ownerColor(owner) : sf::Color(180, 75, 65, 210));
+            window.draw(body);
+        }
+
+        const unsigned int healthSize =
+            static_cast<unsigned int>(std::clamp(12.0f * scale, 10.0f, 17.0f));
+        drawText(
+            window,
+            font,
+            std::to_string(card.health),
+            healthSize,
+            {anchor.x - 5.0f * scale, anchor.y - 21.0f * scale},
+            sf::Color(248, 239, 216, 220));
+    };
+
     auto cardInAllLibraryByTitle = [&](const std::string& title) -> const card_data::Card* {
         const auto found = std::find_if(allCardLibrary.begin(), allCardLibrary.end(), [&](const card_data::Card& card) {
             return card.title == title;
@@ -4413,6 +4478,18 @@ int main(int argc, char** argv)
 
         const int me = gameSnapshot.yourPlayer;
         const game_data::Phase phase = static_cast<game_data::Phase>(gameSnapshot.phase);
+        if (phase == game_data::Phase::HeroPlacement)
+        {
+            if (const std::optional<std::size_t> handIndex = handCardAtPixel(clickPos))
+            {
+                gameDragKind = GameDragKind::HandCard;
+                draggingHandIndex = *handIndex;
+                gameDragStartPos = clickPos;
+                gameDragCurrentPos = clickPos;
+            }
+            return;
+        }
+
         if (phase != game_data::Phase::Playing || gameSnapshot.activePlayer != me)
         {
             return;
@@ -4455,7 +4532,15 @@ int main(int argc, char** argv)
         if (gameDragKind == GameDragKind::HandCard && draggingHandIndex &&
             *draggingHandIndex < gameSnapshot.hand.size())
         {
-            sendPlayCard(static_cast<int>(*draggingHandIndex), row, column);
+            const game_data::Phase phase = static_cast<game_data::Phase>(gameSnapshot.phase);
+            if (phase == game_data::Phase::HeroPlacement)
+            {
+                sendPlaceHero(static_cast<int>(*draggingHandIndex), row, column);
+            }
+            else if (phase == game_data::Phase::Playing)
+            {
+                sendPlayCard(static_cast<int>(*draggingHandIndex), row, column);
+            }
             selectedHandIndex.reset();
             selectedPieceId.reset();
             pendingHandClickIndex.reset();
@@ -4553,9 +4638,15 @@ int main(int argc, char** argv)
 
         if (phase == game_data::Phase::HeroPlacement)
         {
-            if (square && gameSnapshot.players[static_cast<std::size_t>(me - 1)].heroesToPlace > 0)
+            if (const std::optional<std::size_t> handIndex = handCardAtPixel(clickPos))
             {
-                sendPlaceHero(0, square->first, square->second);
+                handleHandCardClick(*handIndex);
+            }
+            else if (square && selectedHandIndex &&
+                     *selectedHandIndex < gameSnapshot.hand.size())
+            {
+                sendPlaceHero(static_cast<int>(*selectedHandIndex), square->first, square->second);
+                selectedHandIndex.reset();
             }
             return;
         }
@@ -4662,11 +4753,12 @@ int main(int argc, char** argv)
         costBadge.setOutlineThickness(1.0f);
         costBadge.setOutlineColor(sf::Color(224, 174, 83));
         window.draw(costBadge);
-        drawText(window, font, std::to_string(card.cost), 13, {position.x + HandCardWidth - 21.0f, position.y + 4.0f}, sf::Color(248, 239, 216));
+        const int displayedCost = card.type == "Hero" ? card.heroCost : card.cost;
+        drawText(window, font, std::to_string(displayedCost), 13, {position.x + HandCardWidth - 21.0f, position.y + 4.0f}, sf::Color(248, 239, 216));
 
         std::string line2;
         std::string line3;
-        if (card.type == "Unit")
+        if (card.type == "Unit" || card.type == "Hero")
         {
             line2 = "ATK " + std::to_string(card.attack) + "  HP " + std::to_string(card.health);
             line3 = "RNG " + std::to_string(card.attackRange) + "  MV " + std::to_string(card.moveRange);
@@ -4978,9 +5070,16 @@ int main(int argc, char** argv)
         {
             drawText(window, font, card->type + " - Hand card", 15, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
             y += 24.0f;
-            drawText(window, font, "Cost: " + std::to_string(card->cost) + " steam", 14, {statX, y}, sf::Color(150, 210, 235));
+            if (card->type == "Hero")
+            {
+                drawText(window, font, "Hero cost: " + std::to_string(card->heroCost), 14, {statX, y}, sf::Color(248, 214, 112));
+            }
+            else
+            {
+                drawText(window, font, "Cost: " + std::to_string(card->cost) + " steam", 14, {statX, y}, sf::Color(150, 210, 235));
+            }
             y += 24.0f;
-            if (card->type == "Unit")
+            if (card->type == "Unit" || card->type == "Hero")
             {
                 drawText(window, font, "Health: " + std::to_string(card->health), 14, {statX, y}, sf::Color(224, 210, 176));
                 y += 22.0f;
@@ -5073,6 +5172,34 @@ int main(int argc, char** argv)
         const game_data::Piece* actingPiece = draggedPiece ? draggedPiece : selectedPiece;
         const std::optional<std::size_t> actingHandIndex =
             gameDragKind == GameDragKind::HandCard && draggingHandIndex ? draggingHandIndex : selectedHandIndex;
+        const game_data::GameCard* draggedHandCard =
+            gameDragActive && gameDragKind == GameDragKind::HandCard && draggingHandIndex &&
+                *draggingHandIndex < gameSnapshot.hand.size()
+            ? &gameSnapshot.hand[*draggingHandIndex]
+            : nullptr;
+        const bool draggingPieceCard = draggedHandCard &&
+            (draggedHandCard->type == "Unit" || draggedHandCard->type == "Hero");
+        const std::optional<std::pair<int, int>> draggedHandSquare =
+            draggingPieceCard ? squareAtPixel(gameDragCurrentPos) : std::nullopt;
+        bool draggedHandDropValid = false;
+        if (draggedHandCard && draggedHandSquare)
+        {
+            const auto [row, column] = *draggedHandSquare;
+            const std::size_t idx = static_cast<std::size_t>(game_data::squareIndex(row, column));
+            if (phase == game_data::Phase::HeroPlacement && draggedHandCard->type == "Hero")
+            {
+                const auto home = game_data::homeSquares(me);
+                draggedHandDropValid = !gamePieceAt(row, column) &&
+                    std::find(home.begin(), home.end(), std::pair<int, int>{row, column}) != home.end();
+            }
+            else if (phase == game_data::Phase::Playing && draggedHandCard->type == "Unit")
+            {
+                draggedHandDropValid = gameSnapshot.activePlayer == me &&
+                    draggedHandCard->cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].steam &&
+                    !gamePieceAt(row, column) &&
+                    gameSnapshot.control[idx] == me;
+            }
+        }
 
         // Precompute highlight masks for the current selection.
         std::array<int, game_data::BoardSquares> highlight{};  // 0 none,1 move,2 attack,3 place,4 spell
@@ -5202,6 +5329,21 @@ int main(int argc, char** argv)
                         sf::Color(90, 200, 210, 90),
                         sf::Color(110, 200, 150, 90)};
                     drawQuad(metrics.corners, colors[highlight[idx]]);
+                }
+
+                if (draggedHandSquare &&
+                    draggedHandSquare->first == row &&
+                    draggedHandSquare->second == column)
+                {
+                    drawQuad(
+                        metrics.corners,
+                        draggedHandDropValid
+                            ? sf::Color(90, 225, 170, 125)
+                            : sf::Color(225, 75, 65, 125),
+                        2.5f,
+                        draggedHandDropValid
+                            ? sf::Color(145, 255, 215, 235)
+                            : sf::Color(255, 135, 120, 235));
                 }
             }
         }
@@ -5362,10 +5504,13 @@ int main(int argc, char** argv)
         }
         else if (phase == game_data::Phase::HeroPlacement)
         {
-            const int placed = static_cast<int>(matchHeroes.size()) - mine.heroesToPlace;
-            if (mine.heroesToPlace > 0 && placed >= 0 && placed < static_cast<int>(matchHeroes.size()))
+            if (mine.heroesToPlace > 0)
             {
-                drawText(window, font, "Place: " + matchHeroes[static_cast<std::size_t>(placed)].title, 15,
+                const std::string placementText = selectedHandIndex &&
+                        *selectedHandIndex < gameSnapshot.hand.size()
+                    ? "Place: " + gameSnapshot.hand[*selectedHandIndex].title
+                    : "Drag a hero to a starting square";
+                drawText(window, font, placementText, 15,
                          {InfoPanelX + 14.0f, y}, sf::Color(120, 220, 205), InfoPanelWidth - 28.0f);
             }
             else
@@ -5436,8 +5581,9 @@ int main(int argc, char** argv)
         {
             const float x = HandStartX + static_cast<float>(i) * (HandCardWidth + HandGap);
             const game_data::GameCard& card = gameSnapshot.hand[i];
-            const bool affordable = card.cost <= mine.steam && gameSnapshot.activePlayer == me &&
-                                    phase == game_data::Phase::Playing;
+            const bool affordable = phase == game_data::Phase::HeroPlacement ||
+                (card.cost <= mine.steam && gameSnapshot.activePlayer == me &&
+                 phase == game_data::Phase::Playing);
             drawGameCardFace({x, HandY}, card, selectedHandIndex && *selectedHandIndex == i, affordable);
         }
 
@@ -5447,13 +5593,30 @@ int main(int argc, char** argv)
                 *draggingHandIndex < gameSnapshot.hand.size())
             {
                 const game_data::GameCard& draggedCard = gameSnapshot.hand[*draggingHandIndex];
-                const bool affordable = draggedCard.cost <= mine.steam && gameSnapshot.activePlayer == me &&
-                                        phase == game_data::Phase::Playing;
-                drawGameCardFace(
-                    {gameDragCurrentPos.x - HandCardWidth / 2.0f, gameDragCurrentPos.y - HandCardHeight / 2.0f},
-                    draggedCard,
-                    true,
-                    affordable);
+                if (draggedCard.type == "Unit" || draggedCard.type == "Hero")
+                {
+                    sf::Vector2f anchor = gameDragCurrentPos;
+                    float scale = 1.0f;
+                    if (draggedHandSquare)
+                    {
+                        const BoardCellMetrics metrics =
+                            boardCellMetrics(draggedHandSquare->first, draggedHandSquare->second);
+                        anchor = boardCellAnchor(metrics);
+                        scale = metrics.depthScale;
+                    }
+                    drawCardPiecePreview(draggedCard, me, anchor, scale, draggedHandDropValid);
+                }
+                else
+                {
+                    const bool affordable = draggedCard.cost <= mine.steam &&
+                        gameSnapshot.activePlayer == me && phase == game_data::Phase::Playing;
+                    drawGameCardFace(
+                        {gameDragCurrentPos.x - HandCardWidth / 2.0f,
+                         gameDragCurrentPos.y - HandCardHeight / 2.0f},
+                        draggedCard,
+                        true,
+                        affordable);
+                }
             }
             else if (gameDragKind == GameDragKind::Piece && draggedPiece)
             {

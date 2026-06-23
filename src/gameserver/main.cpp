@@ -158,9 +158,7 @@ public:
         }
     }
 
-    // Heroes are placed in deck order (the client always offers the next one),
-    // so the heroIndex hint is ignored and the front hero is consumed.
-    void placeHero(int playerNumber, int /*heroIndex*/, int row, int column)
+    void placeHero(int playerNumber, int heroIndex, int row, int column)
     {
         if (phaseValue != Phase::HeroPlacement)
         {
@@ -168,7 +166,7 @@ public:
         }
 
         EnginePlayer& player = playerRef(playerNumber);
-        if (player.heroesToPlace.empty())
+        if (heroIndex < 0 || heroIndex >= static_cast<int>(player.heroesToPlace.size()))
         {
             return;
         }
@@ -179,8 +177,13 @@ public:
             return;
         }
 
-        spawnPiece(playerNumber, player.heroesToPlace.front(), row, column, true);
-        player.heroesToPlace.erase(player.heroesToPlace.begin());
+        spawnPiece(
+            playerNumber,
+            player.heroesToPlace[static_cast<std::size_t>(heroIndex)],
+            row,
+            column,
+            true);
+        player.heroesToPlace.erase(player.heroesToPlace.begin() + heroIndex);
 
         if (players[0].heroesToPlace.empty() && players[1].heroesToPlace.empty())
         {
@@ -341,7 +344,10 @@ public:
                 snapshot.pieces.push_back(piece);
             }
         }
-        snapshot.hand = playerRef(playerNumber).hand;
+        const EnginePlayer& viewingPlayer = playerRef(playerNumber);
+        snapshot.hand = phaseValue == Phase::HeroPlacement
+            ? viewingPlayer.heroesToPlace
+            : viewingPlayer.hand;
         snapshot.status = status;
 
         for (int p = 0; p < 2; ++p)
@@ -350,7 +356,9 @@ public:
             PlayerSnapshot& view = snapshot.players[static_cast<std::size_t>(p)];
             view.steam = player.steam;
             view.controlledSquares = controlledCount(p + 1);
-            view.handCount = static_cast<int>(player.hand.size());
+            view.handCount = phaseValue == Phase::HeroPlacement
+                ? static_cast<int>(player.heroesToPlace.size())
+                : static_cast<int>(player.hand.size());
             view.heroesToPlace = static_cast<int>(player.heroesToPlace.size());
             view.heroesAlive = heroesAlive(p + 1);
             view.drawPileCount = static_cast<int>(player.drawPile.size());
