@@ -4403,7 +4403,9 @@ int main(int argc, char** argv)
 
         const game_data::GameCard& card = gameSnapshot.hand[handIndex];
         selectedPieceId.reset();
-        if (card.type != "Unit" && card.effect == "steam")
+        if (card.type != "Unit" && card.effect == "steam" &&
+            game_data::heroKeywordsAllowCard(
+                gameSnapshot.pieces, gameSnapshot.yourPlayer, card))
         {
             sendPlayCard(static_cast<int>(handIndex), -1, -1);
             selectedHandIndex.reset();
@@ -4866,6 +4868,13 @@ int main(int argc, char** argv)
             descriptions.push_back({
                 "Hero: if a player loses all heroes, they lose the match.",
                 sf::Color(225, 170, 150)});
+            if (!piece.keywords.empty())
+            {
+                descriptions.push_back({
+                    "Hero keywords: " + joinStrings(piece.keywords, ", ") +
+                        ". These allow matching Unit and Spell cards to be played while this hero survives.",
+                    sf::Color(198, 180, 142)});
+            }
         }
         return descriptions;
     };
@@ -4900,6 +4909,8 @@ int main(int argc, char** argv)
         const game_data::Phase phase = static_cast<game_data::Phase>(gameSnapshot.phase);
         const bool yourTurn = phase == game_data::Phase::Playing && gameSnapshot.activePlayer == me;
         const bool affordable = card.cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].steam;
+        const std::vector<std::string> missingKeywords =
+            game_data::missingHeroKeywords(gameSnapshot.pieces, me, card);
 
         if (phase == game_data::Phase::GameOver)
         {
@@ -4913,12 +4924,24 @@ int main(int argc, char** argv)
         {
             descriptions.push_back({"Turn status: not enough steam to play this card.", sf::Color(225, 170, 150)});
         }
+        else if (!missingKeywords.empty())
+        {
+            descriptions.push_back({
+                "Turn status: requires a living hero with " + joinStrings(missingKeywords, ", ") + ".",
+                sf::Color(225, 170, 150)});
+        }
         else
         {
             descriptions.push_back({"Turn status: playable now. Playing a card ends your turn.", sf::Color(120, 220, 150)});
         }
 
         descriptions.push_back({cardPlayDescription(card), sf::Color(210, 216, 228)});
+        if (!card.keywords.empty())
+        {
+            descriptions.push_back({
+                "Required hero keywords: " + joinStrings(card.keywords, ", ") + ".",
+                sf::Color(198, 180, 142)});
+        }
         if (card.type == "Unit")
         {
             game_data::Piece preview;
@@ -5213,6 +5236,7 @@ int main(int argc, char** argv)
             {
                 draggedHandDropValid = gameSnapshot.activePlayer == me &&
                     draggedHandCard->cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].steam &&
+                    game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, *draggedHandCard) &&
                     !gamePieceAt(row, column) &&
                     gameSnapshot.control[idx] == me;
             }
@@ -5252,26 +5276,29 @@ int main(int argc, char** argv)
             else if (actingHandIndex && *actingHandIndex < gameSnapshot.hand.size())
             {
                 const game_data::GameCard& card = gameSnapshot.hand[*actingHandIndex];
-                for (int r = 0; r < game_data::BoardSize; ++r)
+                if (game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, card))
                 {
-                    for (int c = 0; c < game_data::BoardSize; ++c)
+                    for (int r = 0; r < game_data::BoardSize; ++r)
                     {
-                        const std::size_t idx = static_cast<std::size_t>(game_data::squareIndex(r, c));
-                        const game_data::Piece* occupant = gamePieceAt(r, c);
-                        if (card.type == "Unit")
+                        for (int c = 0; c < game_data::BoardSize; ++c)
                         {
-                            if (!occupant && gameSnapshot.control[idx] == me)
+                            const std::size_t idx = static_cast<std::size_t>(game_data::squareIndex(r, c));
+                            const game_data::Piece* occupant = gamePieceAt(r, c);
+                            if (card.type == "Unit")
                             {
-                                highlight[idx] = 3;
+                                if (!occupant && gameSnapshot.control[idx] == me)
+                                {
+                                    highlight[idx] = 3;
+                                }
                             }
-                        }
-                        else if (card.effect == "damage" && occupant && occupant->owner != me)
-                        {
-                            highlight[idx] = 2;
-                        }
-                        else if (card.effect == "heal" && occupant && occupant->owner == me)
-                        {
-                            highlight[idx] = 4;
+                            else if (card.effect == "damage" && occupant && occupant->owner != me)
+                            {
+                                highlight[idx] = 2;
+                            }
+                            else if (card.effect == "heal" && occupant && occupant->owner == me)
+                            {
+                                highlight[idx] = 4;
+                            }
                         }
                     }
                 }
@@ -5619,7 +5646,8 @@ int main(int argc, char** argv)
             const game_data::GameCard& card = gameSnapshot.hand[i];
             const bool affordable = phase == game_data::Phase::HeroPlacement ||
                 (card.cost <= mine.steam && gameSnapshot.activePlayer == me &&
-                 phase == game_data::Phase::Playing);
+                 phase == game_data::Phase::Playing &&
+                 game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, card));
             drawGameCardFace({x, HandY}, card, selectedHandIndex && *selectedHandIndex == i, affordable);
         }
 
@@ -5645,7 +5673,8 @@ int main(int argc, char** argv)
                 else
                 {
                     const bool affordable = draggedCard.cost <= mine.steam &&
-                        gameSnapshot.activePlayer == me && phase == game_data::Phase::Playing;
+                        gameSnapshot.activePlayer == me && phase == game_data::Phase::Playing &&
+                        game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, draggedCard);
                     drawGameCardFace(
                         {gameDragCurrentPos.x - HandCardWidth / 2.0f,
                          gameDragCurrentPos.y - HandCardHeight / 2.0f},

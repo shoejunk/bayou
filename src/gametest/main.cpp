@@ -263,13 +263,60 @@ int main(int argc, char** argv)
     check(resolvePieceAction({profilePiece}, holes, profilePiece, 3, 4).legal,
           "active transform state actions are available");
 
+    Piece gunner;
+    gunner.id = 20;
+    gunner.owner = 1;
+    gunner.row = 3;
+    gunner.column = 3;
+    ActionProfile loweredGun;
+    loweredGun.state = 0;
+    loweredGun.pattern = static_cast<std::uint8_t>(MovePattern::Ortho);
+    loweredGun.maxRange = 2;
+    loweredGun.canMove = true;
+    ActionProfile raisedGun;
+    raisedGun.state = 1;
+    raisedGun.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+    raisedGun.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
+    raisedGun.damage = 3;
+    raisedGun.canMove = false;
+    raisedGun.canAttack = true;
+    gunner.actions = {loweredGun, raisedGun};
+    Piece gunTarget;
+    gunTarget.id = 21;
+    gunTarget.owner = 2;
+    gunTarget.row = 3;
+    gunTarget.column = 4;
+    const std::vector<Piece> gunPieces = {gunner, gunTarget};
+    const ActionResolution loweredMove =
+        resolvePieceAction(gunPieces, holes, gunPieces[0], 2, 3);
+    const ActionResolution loweredAttack =
+        resolvePieceAction(gunPieces, holes, gunPieces[0], 3, 4);
+    check(loweredMove.legal && loweredMove.moves && !loweredMove.attacks,
+          "lowered gun can move without dealing damage");
+    check(!loweredAttack.legal,
+          "lowered gun cannot attack");
+
+    std::vector<Piece> raisedGunPieces = gunPieces;
+    raisedGunPieces[0].actionState = 1;
+    const ActionResolution raisedMove =
+        resolvePieceAction(raisedGunPieces, holes, raisedGunPieces[0], 2, 3);
+    const ActionResolution raisedAttack =
+        resolvePieceAction(raisedGunPieces, holes, raisedGunPieces[0], 3, 4);
+    check(!raisedMove.legal,
+          "raised gun cannot move");
+    check(raisedAttack.legal && !raisedAttack.moves && raisedAttack.attacks &&
+              raisedAttack.damage == 3,
+          "raised gun can deal damage without moving");
+
     card_data::Card encodedCard;
     encodedCard.title = "Encoded";
     encodedCard.type = "Unit";
+    encodedCard.keywords = {"mechanical", "occult"};
     encodedCard.stringLists.push_back(
         {"actions", {"0|slide|diag|1|7|2|move,attack|0|0"}});
     const GameCard decodedCard = toGameCard(encodedCard);
     check(decodedCard.actions.size() == 1 &&
+              decodedCard.keywords == encodedCard.keywords &&
               decodedCard.actions[0].damage == 2 &&
               decodedCard.actions[0].canMove &&
               decodedCard.actions[0].canAttack,
@@ -289,6 +336,7 @@ int main(int argc, char** argv)
     GameCard roundTrippedCard;
     check(readGameCard(cardPacket, roundTrippedCard) &&
               roundTrippedCard.actions.size() == 1 &&
+              roundTrippedCard.keywords == encodedCard.keywords &&
               roundTrippedCard.blueTokenPath == "characters/blue/test.png" &&
               roundTrippedCard.redWalkAnimPath == "animations/red/test.png" &&
               roundTrippedCard.walkAnimFrames == 7 &&
@@ -298,6 +346,7 @@ int main(int argc, char** argv)
 
     Piece serializedPiece = profilePiece;
     serializedPiece.ability = "dig";
+    serializedPiece.keywords = {"mechanical"};
     serializedPiece.blueTokenPath = "characters/blue/test.png";
     serializedPiece.redTokenPath = "characters/red/test.png";
     serializedPiece.blueWalkAnimPath = "animations/blue/test.png";
@@ -312,6 +361,7 @@ int main(int argc, char** argv)
     Piece roundTrippedPiece;
     check(readPiece(piecePacket, roundTrippedPiece) &&
               roundTrippedPiece.actions.size() == 1 &&
+              roundTrippedPiece.keywords == serializedPiece.keywords &&
               roundTrippedPiece.blueTokenPath == "characters/blue/test.png" &&
               roundTrippedPiece.redWalkAnimPath == "animations/red/test.png" &&
               roundTrippedPiece.walkAnimFrames == 6 &&
@@ -319,6 +369,30 @@ int main(int argc, char** argv)
               roundTrippedPiece.growTurnsRemaining == 2 &&
               roundTrippedPiece.disabledTurns == 1,
           "extended piece fields survive network serialization");
+
+    Piece mechanicalHero;
+    mechanicalHero.owner = 1;
+    mechanicalHero.isHero = true;
+    mechanicalHero.keywords = {"mechanical"};
+    Piece occultHero;
+    occultHero.owner = 1;
+    occultHero.isHero = true;
+    occultHero.keywords = {"occult"};
+    Piece enemyHero;
+    enemyHero.owner = 2;
+    enemyHero.isHero = true;
+    enemyHero.keywords = {"bio"};
+    GameCard unrestrictedCard;
+    GameCard mechanicalOccultCard;
+    mechanicalOccultCard.keywords = {"mechanical", "occult"};
+    check(heroKeywordsAllowCard({mechanicalHero}, 1, unrestrictedCard),
+          "cards without keywords need no hero keyword");
+    check(!heroKeywordsAllowCard({mechanicalHero, enemyHero}, 1, mechanicalOccultCard),
+          "enemy heroes cannot supply a card keyword");
+    check(heroKeywordsAllowCard({mechanicalHero, occultHero}, 1, mechanicalOccultCard),
+          "multiple friendly heroes can collectively supply all card keywords");
+    check(!heroKeywordsAllowCard({mechanicalHero}, 1, mechanicalOccultCard),
+          "a card becomes unavailable when a required hero is no longer on the board");
 
     if (argc == 2 && std::string(argv[1]) == "--movement-only")
     {

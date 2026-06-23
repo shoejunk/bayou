@@ -259,15 +259,14 @@ INSERT INTO cards (title, type, image_path) VALUES ('Elias Tiberion', 'Hero', 'c
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Elias Tiberion', 'heroCost', 4), ('Elias Tiberion', 'health', 2),
   ('Elias Tiberion', 'attack', 3), ('Elias Tiberion', 'range', 1),
-  ('Elias Tiberion', 'move', 2), ('Elias Tiberion', 'attackingMove', 1),
-  ('Elias Tiberion', 'canControl', 1);
+  ('Elias Tiberion', 'move', 2), ('Elias Tiberion', 'canControl', 1);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Elias Tiberion', 'movement', 'ortho'),
   ('Elias Tiberion', 'ability', 'transform'),
-  ('Elias Tiberion', 'detail', 'Toggle between a two-square charge and a stationary short-range gun attack.');
+  ('Elias Tiberion', 'detail', 'Move up to two squares with the gun lowered, or raise it to make a stationary short-range attack.');
 INSERT INTO card_keywords (title, keyword) VALUES ('Elias Tiberion', 'riffraff');
 INSERT INTO card_string_lists (title, key, item_index, value) VALUES
-  ('Elias Tiberion', 'actions', 0, '0|slide|ortho|1|2|2|move,attack|0|0'),
+  ('Elias Tiberion', 'actions', 0, '0|slide|ortho|1|2|0|move|0|0'),
   ('Elias Tiberion', 'actions', 1, '1|ranged|omni|1|1|3|attack,los|0|0'),
   ('Elias Tiberion', 'abilityLabels', 0, 'Ready Gun'),
   ('Elias Tiberion', 'abilityLabels', 1, 'Lower Gun');
@@ -300,15 +299,14 @@ INSERT INTO cards (title, type, image_path) VALUES ('Hired Gun', 'Unit', 'cards/
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Hired Gun', 'cost', 12), ('Hired Gun', 'health', 2),
   ('Hired Gun', 'attack', 3), ('Hired Gun', 'range', 1),
-  ('Hired Gun', 'move', 4), ('Hired Gun', 'attackingMove', 1),
-  ('Hired Gun', 'canControl', 1);
+  ('Hired Gun', 'move', 4), ('Hired Gun', 'canControl', 1);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Hired Gun', 'movement', 'ortho'),
   ('Hired Gun', 'ability', 'transform'),
-  ('Hired Gun', 'detail', 'Toggle between a two-to-four-square charge and a stationary short-range gun attack.');
+  ('Hired Gun', 'detail', 'Move two to four squares with the gun lowered, or raise it to make a stationary short-range attack.');
 INSERT INTO card_keywords (title, keyword) VALUES ('Hired Gun', 'riffraff');
 INSERT INTO card_string_lists (title, key, item_index, value) VALUES
-  ('Hired Gun', 'actions', 0, '0|slide|ortho|2|4|2|move,attack|0|0'),
+  ('Hired Gun', 'actions', 0, '0|slide|ortho|2|4|0|move|0|0'),
   ('Hired Gun', 'actions', 1, '1|ranged|omni|1|1|3|attack,los|0|0'),
   ('Hired Gun', 'abilityLabels', 0, 'Ready Gun'),
   ('Hired Gun', 'abilityLabels', 1, 'Lower Gun');

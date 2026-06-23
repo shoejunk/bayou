@@ -321,6 +321,7 @@ struct GameCard
 {
     std::string title;
     std::string type;      // "Unit", "Spell", or "Hero"
+    std::vector<std::string> keywords;
     std::string imagePath;
     std::string walkAnimPath;
     std::string blueTokenPath;
@@ -352,6 +353,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     GameCard g;
     g.title = card.title;
     g.type = card.type;
+    g.keywords = card.keywords;
     g.imagePath = card.imagePath;
     g.walkAnimPath = cardStr(card, "WalkAnim");
     g.blueTokenPath = cardStr(card, "TokenBlue");
@@ -426,6 +428,7 @@ struct Piece
     int row = 0;
     int column = 0;
     std::string name;
+    std::vector<std::string> keywords;
     std::string imagePath;
     std::string walkAnimPath;
     std::string blueTokenPath;
@@ -452,6 +455,42 @@ struct Piece
     bool isHero = false;
     bool hasActed = false;
 };
+
+// Returns the card keywords not supplied by any surviving friendly hero.
+// Keywords are requirements only when initially playing a Unit or Spell.
+inline std::vector<std::string> missingHeroKeywords(
+    const std::vector<Piece>& pieces,
+    int playerNumber,
+    const GameCard& card)
+{
+    std::vector<std::string> missing;
+    for (const std::string& required : card.keywords)
+    {
+        bool supplied = false;
+        for (const Piece& piece : pieces)
+        {
+            if (piece.owner == playerNumber && piece.isHero &&
+                std::find(piece.keywords.begin(), piece.keywords.end(), required) != piece.keywords.end())
+            {
+                supplied = true;
+                break;
+            }
+        }
+        if (!supplied && std::find(missing.begin(), missing.end(), required) == missing.end())
+        {
+            missing.push_back(required);
+        }
+    }
+    return missing;
+}
+
+inline bool heroKeywordsAllowCard(
+    const std::vector<Piece>& pieces,
+    int playerNumber,
+    const GameCard& card)
+{
+    return missingHeroKeywords(pieces, playerNumber, card).empty();
+}
 
 // Per-player summary visible to both players.
 struct PlayerSnapshot
@@ -484,7 +523,9 @@ struct Snapshot
 
 inline void writeGameCard(sf::Packet& packet, const GameCard& card)
 {
-    packet << card.title << card.type << card.imagePath << card.walkAnimPath
+    packet << card.title << card.type;
+    card_data::writeStringVector(packet, card.keywords);
+    packet << card.imagePath << card.walkAnimPath
            << card.blueTokenPath << card.redTokenPath
            << card.blueWalkAnimPath << card.redWalkAnimPath << card.walkAnimFrames
            << card.cost << card.heroCost
@@ -506,7 +547,12 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
 
 inline bool readGameCard(sf::Packet& packet, GameCard& card)
 {
-    packet >> card.title >> card.type >> card.imagePath >> card.walkAnimPath
+    packet >> card.title >> card.type;
+    if (!packet || !card_data::readStringVector(packet, card.keywords))
+    {
+        return false;
+    }
+    packet >> card.imagePath >> card.walkAnimPath
            >> card.blueTokenPath >> card.redTokenPath
            >> card.blueWalkAnimPath >> card.redWalkAnimPath >> card.walkAnimFrames
            >> card.cost >> card.heroCost
@@ -541,7 +587,9 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
 
 inline void writePiece(sf::Packet& packet, const Piece& piece)
 {
-    packet << piece.id << piece.owner << piece.row << piece.column << piece.name << piece.imagePath << piece.walkAnimPath
+    packet << piece.id << piece.owner << piece.row << piece.column << piece.name;
+    card_data::writeStringVector(packet, piece.keywords);
+    packet << piece.imagePath << piece.walkAnimPath
            << piece.blueTokenPath << piece.redTokenPath
            << piece.blueWalkAnimPath << piece.redWalkAnimPath << piece.walkAnimFrames
            << piece.maxHealth << piece.health << piece.attack << piece.attackRange
@@ -561,7 +609,12 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
 
 inline bool readPiece(sf::Packet& packet, Piece& piece)
 {
-    packet >> piece.id >> piece.owner >> piece.row >> piece.column >> piece.name >> piece.imagePath >> piece.walkAnimPath
+    packet >> piece.id >> piece.owner >> piece.row >> piece.column >> piece.name;
+    if (!packet || !card_data::readStringVector(packet, piece.keywords))
+    {
+        return false;
+    }
+    packet >> piece.imagePath >> piece.walkAnimPath
            >> piece.blueTokenPath >> piece.redTokenPath
            >> piece.blueWalkAnimPath >> piece.redWalkAnimPath >> piece.walkAnimFrames
            >> piece.maxHealth >> piece.health >> piece.attack >> piece.attackRange

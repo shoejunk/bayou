@@ -211,6 +211,21 @@ public:
             return;
         }
 
+        const std::vector<std::string> missingKeywords =
+            missingHeroKeywords(pieces, playerNumber, card);
+        if (!missingKeywords.empty())
+        {
+            std::string message = "Your living heroes must supply:";
+            for (std::size_t i = 0; i < missingKeywords.size(); ++i)
+            {
+                message += i == 0 ? " " : ", ";
+                message += missingKeywords[i];
+            }
+            message += " to play that card.";
+            setStatusFor(playerNumber, message);
+            return;
+        }
+
         if (card.type == "Unit")
         {
             if (!inBounds(targetRow, targetColumn) ||
@@ -578,6 +593,7 @@ private:
         piece.row = row;
         piece.column = column;
         piece.name = card.title;
+        piece.keywords = card.keywords;
         piece.imagePath = card.imagePath;
         piece.walkAnimPath = card.walkAnimPath;
         piece.blueTokenPath = card.blueTokenPath;
