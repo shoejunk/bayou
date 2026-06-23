@@ -231,6 +231,7 @@ struct AccountStateResult
     bool success = false;
     std::string message;
     int coins = 0;
+    int rating = 0;
     bool isAdmin = false;
     std::vector<account_data::CollectionCard> collection;
 };
@@ -1529,7 +1530,13 @@ AccountStateResult fetchAccountState(const std::string& accessToken)
     }
 
     sendDisconnect(socket);
-    return {success, message, accountState.coins, accountState.isAdmin, std::move(accountState.collection)};
+    return {
+        success,
+        message,
+        accountState.coins,
+        accountState.rating,
+        accountState.isAdmin,
+        std::move(accountState.collection)};
 }
 
 DeckCommandResult readDeckCommandResponse(
@@ -1658,14 +1665,6 @@ AccountCommandResult sendCoinCommand(
 
     sendDisconnect(socket);
     return {success, message, coins};
-}
-
-AccountCommandResult claimWinReward(const std::string& accessToken)
-{
-    return sendCoinCommand(
-        network::MessageType::WinRewardRequest,
-        network::MessageType::WinRewardResponse,
-        accessToken);
 }
 
 AccountCommandResult purchaseRandomCard(const std::string& accessToken)
@@ -2015,7 +2014,11 @@ ShopLoadResult loadShopData(const std::string& accessToken)
         std::move(accountResult.collection)};
 }
 
-ServerResult joinGameServer(int matchId, int playerNumber, unsigned short gamePort)
+ServerResult joinGameServer(
+    int matchId,
+    int playerNumber,
+    unsigned short gamePort,
+    const std::string& accessToken)
 {
     if (gamePort == 0)
     {
@@ -2045,6 +2048,7 @@ ServerResult joinGameServer(int matchId, int playerNumber, unsigned short gamePo
     joinRequest << static_cast<uint8_t>(network::MessageType::JoinGame);
     joinRequest << matchId;
     joinRequest << playerNumber;
+    joinRequest << accessToken;
 
     if (socket->send(joinRequest) != sf::Socket::Status::Done)
     {
@@ -2075,7 +2079,7 @@ ServerResult joinGameServer(int matchId, int playerNumber, unsigned short gamePo
     return {true, message, socket};
 }
 
-ServerResult joinMatchmaking()
+ServerResult joinMatchmaking(const std::string& accessToken)
 {
     sf::TcpSocket socket;
     if (!connectToEndpoint(socket, clientConfig().matchmaking))
@@ -2085,6 +2089,7 @@ ServerResult joinMatchmaking()
 
     sf::Packet packet;
     packet << static_cast<uint8_t>(network::MessageType::JoinMatchmaking);
+    packet << accessToken;
 
     if (socket.send(packet) != sf::Socket::Status::Done)
     {
@@ -2111,7 +2116,7 @@ ServerResult joinMatchmaking()
         return {false, "Unexpected matchmaking response"};
     }
 
-    return joinGameServer(matchId, playerNumber, gamePort);
+    return joinGameServer(matchId, playerNumber, gamePort, accessToken);
 }
 
 void resetForm(InputBox& usernameInput, InputBox& passwordInput, InputBox& confirmInput, sf::Text& messageText)
@@ -2425,7 +2430,6 @@ int main(int argc, char** argv)
     std::optional<std::future<AccountStateResult>> pendingAccountState;
     std::optional<std::future<ShopLoadResult>> pendingShopLoad;
     std::optional<std::future<AccountCommandResult>> pendingShopPurchase;
-    std::optional<std::future<AccountCommandResult>> pendingWinReward;
     std::optional<std::future<AdminUsersLoadResult>> pendingAdminUsersLoad;
     std::optional<std::future<AdminUserPrivilegeResult>> pendingAdminPrivilege;
     std::optional<std::future<AdminUserGoldResult>> pendingAdminGold;
@@ -2453,6 +2457,7 @@ int main(int argc, char** argv)
     deck_data::Deck editingDeck;
     std::string activeDeckOriginalName;
     int playerCoins = 0;
+    int playerRating = 0;
     bool loggedInIsAdmin = false;
     std::string adminSearchQuery;
     std::uint32_t adminUsersPage = 0;
@@ -2471,7 +2476,9 @@ int main(int argc, char** argv)
     float inspectedDeckEditorCardScroll = 0.0f;
     std::optional<std::string> revealedCardTitle;
     float revealStartedAt = 0.0f;
-    bool winRewardRequested = false;
+    bool gameResultReceived = false;
+    bool gameResultSuccess = false;
+    int gameRatingChange = 0;
     std::string gameRewardText;
     std::optional<std::size_t> draggingLibraryCard;
     sf::Vector2f dragStartPos;
@@ -2638,6 +2645,7 @@ int main(int argc, char** argv)
 
     auto applyAccountState = [&](const AccountStateResult& result) {
         playerCoins = result.coins;
+        playerRating = result.rating;
         loggedInIsAdmin = result.isAdmin;
         playerCollection = result.collection;
     };
@@ -2698,6 +2706,7 @@ int main(int argc, char** argv)
         editingDeck = {};
         activeDeckOriginalName.clear();
         playerCoins = 0;
+        playerRating = 0;
         loggedInIsAdmin = false;
         adminUsers.clear();
         adminSearchQuery.clear();
@@ -2717,7 +2726,9 @@ int main(int argc, char** argv)
         inspectedDeckEditorCardScroll = 0.0f;
         revealedCardTitle.reset();
         revealStartedAt = 0.0f;
-        winRewardRequested = false;
+        gameResultReceived = false;
+        gameResultSuccess = false;
+        gameRatingChange = 0;
         gameRewardText.clear();
         draggingLibraryCard.reset();
         dragActive = false;
@@ -2977,7 +2988,9 @@ int main(int argc, char** argv)
         draggingHandIndex.reset();
         draggingPieceId.reset();
         gameDragActive = false;
-        winRewardRequested = false;
+        gameResultReceived = false;
+        gameResultSuccess = false;
+        gameRatingChange = 0;
         gameRewardText.clear();
         pieceMoveAnimations.clear();
 
@@ -2995,7 +3008,8 @@ int main(int argc, char** argv)
         centerText(title, 400.0f);
         setMessageY(messageText, 450.0f);
         setMessage(messageText, "Finding match...", sf::Color::Yellow);
-        pendingMatchmaking = std::async(std::launch::async, joinMatchmaking);
+        pendingMatchmaking =
+            std::async(std::launch::async, joinMatchmaking, activeAccessToken);
     };
 
     auto loadDeckEditor = [&]() {
@@ -4584,13 +4598,48 @@ int main(int argc, char** argv)
                     updatePieceMoveAnimations(snapshot);
                     gameSnapshot = snapshot;
                     haveSnapshot = true;
-                    if (!winRewardRequested &&
-                        static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::GameOver &&
-                        gameSnapshot.winner == gameSnapshot.yourPlayer)
+                    if (static_cast<game_data::Phase>(gameSnapshot.phase) ==
+                            game_data::Phase::GameOver &&
+                        !gameResultReceived)
                     {
-                        winRewardRequested = true;
-                        gameRewardText = "Awarding +10 coins...";
-                        pendingWinReward = std::async(std::launch::async, claimWinReward, activeAccessToken);
+                        gameRewardText = "Finalizing match rewards...";
+                    }
+                }
+            }
+            else if (static_cast<network::MessageType>(type) == network::MessageType::GameOver)
+            {
+                bool success = false;
+                std::string message;
+                int newRating = playerRating;
+                int coinsAwarded = 0;
+                bool selfMatch = false;
+                packet >> success >> message >> gameRatingChange >> newRating
+                       >> coinsAwarded >> selfMatch;
+                if (packet)
+                {
+                    gameResultReceived = true;
+                    gameResultSuccess = success;
+                    if (success)
+                    {
+                        playerRating = newRating;
+                        playerCoins += coinsAwarded;
+                        if (selfMatch)
+                        {
+                            gameRewardText = "Self-match: no gold awarded.";
+                        }
+                        else if (coinsAwarded > 0)
+                        {
+                            gameRewardText =
+                                "+" + std::to_string(coinsAwarded) + " coins";
+                        }
+                        else
+                        {
+                            gameRewardText.clear();
+                        }
+                    }
+                    else
+                    {
+                        gameRewardText = "Match rewards unavailable: " + message;
                     }
                 }
             }
@@ -4617,7 +4666,9 @@ int main(int argc, char** argv)
         draggingHandIndex.reset();
         draggingPieceId.reset();
         gameDragActive = false;
-        winRewardRequested = false;
+        gameResultReceived = false;
+        gameResultSuccess = false;
+        gameRatingChange = 0;
         gameRewardText.clear();
         pieceMoveAnimations.clear();
         showAuthenticatedScreen();
@@ -5754,7 +5805,7 @@ int main(int argc, char** argv)
         // Game-over banner.
         if (phase == game_data::Phase::GameOver)
         {
-            sf::RectangleShape banner({420.0f, 90.0f});
+            sf::RectangleShape banner({420.0f, 126.0f});
             banner.setPosition({40.0f, 210.0f});
             banner.setFillColor(sf::Color(20, 24, 32, 235));
             banner.setOutlineThickness(2.0f);
@@ -5762,15 +5813,26 @@ int main(int argc, char** argv)
             window.draw(banner);
             const std::string result = gameSnapshot.winner == me ? "Victory!" : "Defeat";
             drawText(window, font, result, 34, {60.0f, 224.0f}, gameSnapshot.winner == me ? sf::Color(140, 230, 160) : sf::Color(230, 130, 110));
-            if (gameSnapshot.winner == me && !gameRewardText.empty())
+            const std::string ratingText = gameResultReceived && gameResultSuccess
+                ? "Rating " +
+                    std::string(gameRatingChange >= 0 ? "+" : "") +
+                    std::to_string(gameRatingChange)
+                : (gameResultReceived
+                    ? "Rating update unavailable"
+                    : "Rating update pending...");
+            drawText(
+                window,
+                font,
+                ratingText,
+                18,
+                {60.0f, 264.0f},
+                sf::Color(151, 192, 255),
+                360.0f);
+            if (!gameRewardText.empty())
             {
-                drawText(window, font, gameRewardText, 16, {60.0f, 264.0f}, sf::Color(248, 214, 112), 360.0f);
-                drawText(window, font, "Press Leave to return.", 14, {60.0f, 286.0f}, sf::Color(200, 206, 220));
+                drawText(window, font, gameRewardText, 16, {60.0f, 288.0f}, sf::Color(248, 214, 112), 360.0f);
             }
-            else
-            {
-                drawText(window, font, "Press Leave to return.", 16, {60.0f, 268.0f}, sf::Color(200, 206, 220));
-            }
+            drawText(window, font, "Press Leave to return.", 14, {60.0f, 314.0f}, sf::Color(200, 206, 220));
         }
 
         drawPiecePopup();
@@ -5953,22 +6015,6 @@ int main(int argc, char** argv)
             else if (!loggedInUsername.empty())
             {
                 setMessage(messageText, result.message, sf::Color::Red);
-            }
-        }
-
-        if (pendingWinReward &&
-            pendingWinReward->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-        {
-            AccountCommandResult result = pendingWinReward->get();
-            pendingWinReward.reset();
-            if (!loggedInUsername.empty() && result.success)
-            {
-                playerCoins = result.coins;
-                gameRewardText = result.message;
-            }
-            else if (!loggedInUsername.empty())
-            {
-                gameRewardText = "Coins not awarded: " + result.message;
             }
         }
 
@@ -7447,7 +7493,8 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Authenticated)
         {
             drawText(window, font, "Signed in as " + signedInLabel(), 18, {300.0f, 160.0f}, sf::Color(190, 198, 214), 260.0f);
-            drawText(window, font, "Coins " + std::to_string(playerCoins), 18, {340.0f, 190.0f}, sf::Color(248, 214, 112), 140.0f);
+            drawText(window, font, "Coins " + std::to_string(playerCoins), 18, {270.0f, 190.0f}, sf::Color(248, 214, 112), 120.0f);
+            drawText(window, font, "Rating " + std::to_string(playerRating), 18, {420.0f, 190.0f}, sf::Color(151, 192, 255), 140.0f);
             playButton.draw(window);
             deckEditorButton.draw(window);
             shopButton.draw(window);

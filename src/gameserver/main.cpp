@@ -33,11 +33,22 @@ namespace
 {
 constexpr unsigned short GameServerPort = 55002;
 constexpr unsigned short FirstGamePort = 56000;
+constexpr unsigned short AccountServerPort = 55000;
 
 struct JoinedPlayer
 {
     std::unique_ptr<sf::TcpSocket> socket;
     int playerNumber = 0;
+};
+
+struct MatchResult
+{
+    bool success = false;
+    std::string message;
+    std::array<int, 2> ratings{};
+    std::array<int, 2> ratingChanges{};
+    int winnerCoins = 0;
+    bool selfMatch = false;
 };
 
 std::string executablePath()
@@ -57,10 +68,104 @@ std::string executablePath()
 #endif
 }
 
-bool spawnGameProcess(int matchId, unsigned short port)
+bool loadRankedPlayer(const std::string& accessToken, std::string& username)
+{
+    sf::TcpSocket socket;
+    if (socket.connect(sf::IpAddress::LocalHost, AccountServerPort) != sf::Socket::Status::Done)
+    {
+        return false;
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(MessageType::RankedPlayerRequest) << accessToken;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        return false;
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        return false;
+    }
+
+    std::uint8_t type = 0;
+    bool success = false;
+    int rating = 0;
+    std::string message;
+    response >> type >> success >> message >> username >> rating;
+    return response &&
+        static_cast<MessageType>(type) == MessageType::RankedPlayerResponse &&
+        success;
+}
+
+MatchResult submitRankedResult(int matchId, const std::string& resultToken, int winner)
+{
+    sf::TcpSocket socket;
+    if (socket.connect(sf::IpAddress::LocalHost, AccountServerPort) != sf::Socket::Status::Done)
+    {
+        return {};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(MessageType::SubmitRankedResult)
+            << matchId << resultToken << winner;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        return {};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        return {};
+    }
+
+    std::uint8_t type = 0;
+    MatchResult result;
+    response >> type >> result.success >> result.message
+             >> result.ratings[0] >> result.ratings[1]
+             >> result.ratingChanges[0] >> result.ratingChanges[1]
+             >> result.winnerCoins >> result.selfMatch;
+    if (!response ||
+        static_cast<MessageType>(type) != MessageType::SubmitRankedResultResponse)
+    {
+        return {};
+    }
+
+    if (result.success)
+    {
+        fmt::println(
+            "Match {} ratings updated to {} ({:+}) and {} ({:+})",
+            matchId,
+            result.ratings[0],
+            result.ratingChanges[0],
+            result.ratings[1],
+            result.ratingChanges[1]);
+    }
+    else
+    {
+        fmt::println("Match {} reward update failed: {}", matchId, result.message);
+    }
+    return result;
+}
+
+bool spawnGameProcess(
+    int matchId,
+    unsigned short port,
+    const std::string& playerOne,
+    const std::string& playerTwo,
+    const std::string& resultToken)
 {
 #ifdef _WIN32
-    std::string command = fmt::format("\"{}\" --game {} {}", executablePath(), matchId, port);
+    std::string command = fmt::format(
+        "\"{}\" --game {} {} {} {} {}",
+        executablePath(),
+        matchId,
+        port,
+        playerOne,
+        playerTwo,
+        resultToken);
     STARTUPINFOA startupInfo{};
     startupInfo.cb = sizeof(startupInfo);
     PROCESS_INFORMATION processInfo{};
@@ -88,7 +193,14 @@ bool spawnGameProcess(int matchId, unsigned short port)
     CloseHandle(processInfo.hProcess);
     return true;
 #else
-    const std::string command = fmt::format("{} --game {} {} &", executablePath(), matchId, port);
+    const std::string command = fmt::format(
+        "{} --game {} {} {} {} {} &",
+        executablePath(),
+        matchId,
+        port,
+        playerOne,
+        playerTwo,
+        resultToken);
     return std::system(command.c_str()) == 0;
 #endif
 }
@@ -893,15 +1005,23 @@ private:
 
         uint8_t msgType = 0;
         int matchId = 0;
-        packet >> msgType >> matchId;
+        std::string playerOne;
+        std::string playerTwo;
+        std::string resultToken;
+        packet >> msgType >> matchId >> playerOne >> playerTwo >> resultToken;
 
-        if (static_cast<MessageType>(msgType) != MessageType::CreateGameSession)
+        if (!packet ||
+            static_cast<MessageType>(msgType) != MessageType::CreateGameSession ||
+            playerOne.empty() ||
+            playerTwo.empty() ||
+            resultToken.empty())
         {
             return;
         }
 
         const unsigned short port = nextGamePort++;
-        const bool started = spawnGameProcess(matchId, port);
+        const bool started =
+            spawnGameProcess(matchId, port, playerOne, playerTwo, resultToken);
 
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::GameSessionCreated);
@@ -921,8 +1041,17 @@ private:
 class GameProcess
 {
 public:
-    GameProcess(int matchId, unsigned short port)
-        : matchId(matchId), port(port), listener(std::make_unique<sf::TcpListener>())
+    GameProcess(
+        int matchId,
+        unsigned short port,
+        std::string playerOne,
+        std::string playerTwo,
+        std::string resultToken)
+        : matchId(matchId),
+          port(port),
+          playerUsernames{std::move(playerOne), std::move(playerTwo)},
+          resultToken(std::move(resultToken)),
+          listener(std::make_unique<sf::TcpListener>())
     {
         if (listener->listen(port) != sf::Socket::Status::Done)
         {
@@ -948,6 +1077,11 @@ public:
             fmt::println("Game {} did not receive both players", matchId);
             return;
         }
+        if (playerOne->playerNumber == playerTwo->playerNumber)
+        {
+            fmt::println("Game {} received the same player slot twice", matchId);
+            return;
+        }
 
         sendGameReady(*playerOne->socket, playerOne->playerNumber);
         sendGameReady(*playerTwo->socket, playerTwo->playerNumber);
@@ -957,10 +1091,20 @@ public:
             static_cast<unsigned int>(std::chrono::steady_clock::now().time_since_epoch().count());
         GameEngine engine(seed);
 
-        if (!receiveDeck(*playerOne->socket, engine, playerOne->playerNumber) ||
-            !receiveDeck(*playerTwo->socket, engine, playerTwo->playerNumber))
+        if (!receiveDeck(*playerOne->socket, engine, playerOne->playerNumber))
         {
-            fmt::println("Game {} did not receive both decks", matchId);
+            fmt::println("Game {} did not receive player {}'s deck", matchId, playerOne->playerNumber);
+            engine.resign(playerOne->playerNumber);
+            broadcast(engine, *playerOne, *playerTwo);
+            finishRankedMatch(engine, *playerOne, *playerTwo);
+            return;
+        }
+        if (!receiveDeck(*playerTwo->socket, engine, playerTwo->playerNumber))
+        {
+            fmt::println("Game {} did not receive player {}'s deck", matchId, playerTwo->playerNumber);
+            engine.resign(playerTwo->playerNumber);
+            broadcast(engine, *playerOne, *playerTwo);
+            finishRankedMatch(engine, *playerOne, *playerTwo);
             return;
         }
 
@@ -977,6 +1121,8 @@ public:
 private:
     int matchId = 0;
     unsigned short port = 0;
+    std::array<std::string, 2> playerUsernames;
+    std::string resultToken;
     std::unique_ptr<sf::TcpListener> listener;
     bool listening = false;
 
@@ -997,14 +1143,26 @@ private:
         uint8_t msgType = 0;
         int joinedMatchId = 0;
         int playerNumber = 0;
-        packet >> msgType >> joinedMatchId >> playerNumber;
+        std::string accessToken;
+        packet >> msgType >> joinedMatchId >> playerNumber >> accessToken;
 
-        if (static_cast<MessageType>(msgType) != MessageType::JoinGame || joinedMatchId != matchId)
+        if (!packet ||
+            static_cast<MessageType>(msgType) != MessageType::JoinGame ||
+            joinedMatchId != matchId ||
+            (playerNumber != 1 && playerNumber != 2))
         {
             return std::nullopt;
         }
 
-        fmt::println("Player {} joined game {}", playerNumber, matchId);
+        std::string username;
+        if (!loadRankedPlayer(accessToken, username) ||
+            username != playerUsernames[static_cast<std::size_t>(playerNumber - 1)])
+        {
+            fmt::println("Rejected unauthenticated player {} for game {}", playerNumber, matchId);
+            return std::nullopt;
+        }
+
+        fmt::println("{} joined game {} as player {}", username, matchId, playerNumber);
         return JoinedPlayer{std::move(client), playerNumber};
     }
 
@@ -1089,6 +1247,7 @@ private:
                 {
                     engine.resign(player->playerNumber);
                     broadcast(engine, one, two);
+                    finishRankedMatch(engine, one, two);
                     return;
                 }
                 if (status == sf::Socket::Status::Done)
@@ -1103,10 +1262,53 @@ private:
             if (changed)
             {
                 broadcast(engine, one, two);
+                if (engine.phase() == Phase::GameOver)
+                {
+                    finishRankedMatch(engine, one, two);
+                    return;
+                }
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
+    }
+
+    static void sendMatchResult(
+        JoinedPlayer& player,
+        const MatchResult& result,
+        int winner)
+    {
+        const std::size_t index = static_cast<std::size_t>(player.playerNumber - 1);
+        const int coinsAwarded =
+            result.success && player.playerNumber == winner ? result.winnerCoins : 0;
+        sf::Packet packet;
+        packet << static_cast<std::uint8_t>(MessageType::GameOver)
+               << result.success
+               << result.message
+               << result.ratingChanges[index]
+               << result.ratings[index]
+               << coinsAwarded
+               << result.selfMatch;
+        [[maybe_unused]] auto sent = player.socket->send(packet);
+    }
+
+    void finishRankedMatch(
+        const GameEngine& engine,
+        JoinedPlayer& one,
+        JoinedPlayer& two)
+    {
+        if (engine.winner() != 1 && engine.winner() != 2)
+        {
+            return;
+        }
+        const MatchResult result =
+            submitRankedResult(matchId, resultToken, engine.winner());
+        if (!result.success)
+        {
+            fmt::println("Game {} could not persist its match rewards", matchId);
+        }
+        sendMatchResult(one, result, engine.winner());
+        sendMatchResult(two, result, engine.winner());
     }
 
     bool handleAction(GameEngine& engine, int playerNumber, sf::Packet& packet)
@@ -1184,11 +1386,11 @@ private:
 
 int main(int argc, char* argv[])
 {
-    if (argc == 4 && std::string(argv[1]) == "--game")
+    if (argc == 7 && std::string(argv[1]) == "--game")
     {
         const int matchId = std::stoi(argv[2]);
         const unsigned short port = static_cast<unsigned short>(std::stoi(argv[3]));
-        GameProcess game(matchId, port);
+        GameProcess game(matchId, port, argv[4], argv[5], argv[6]);
         game.run();
         return 0;
     }

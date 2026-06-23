@@ -17,6 +17,7 @@ struct CollectionCard
 struct AccountState
 {
     int coins = 0;
+    int rating = 0;
     bool isAdmin = false;
     std::vector<CollectionCard> collection;
 };
@@ -57,13 +58,13 @@ inline bool readCollection(sf::Packet& packet, std::vector<CollectionCard>& coll
 
 inline void writeAccountState(sf::Packet& packet, const AccountState& state)
 {
-    packet << state.coins << state.isAdmin;
+    packet << state.coins << state.rating << state.isAdmin;
     writeCollection(packet, state.collection);
 }
 
 inline bool readAccountState(sf::Packet& packet, AccountState& state)
 {
-    packet >> state.coins >> state.isAdmin;
+    packet >> state.coins >> state.rating >> state.isAdmin;
     if (!packet)
     {
         return false;

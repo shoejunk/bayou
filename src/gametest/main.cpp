@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <thread>
@@ -14,6 +15,7 @@
 
 #include "../shared/card_data.hpp"
 #include "../shared/game_data.hpp"
+#include "../shared/ranking.hpp"
 
 #include "../shared/network.hpp"
 
@@ -23,6 +25,7 @@ using namespace game_data;
 namespace
 {
 constexpr unsigned short MatchmakingPort = 55001;
+constexpr unsigned short AccountPort = 55000;
 const char* Host = "127.0.0.1";
 
 int failures = 0;
@@ -86,6 +89,43 @@ bool connectWithRetry(sf::TcpSocket& socket, unsigned short port, int attempts)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     return false;
+}
+
+std::string loginForTest(const std::string& username, const std::string& password)
+{
+    sf::TcpSocket socket;
+    if (!connectWithRetry(socket, AccountPort, 20))
+    {
+        return {};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(MessageType::Login)
+            << username << password << false;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        return {};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        return {};
+    }
+
+    std::uint8_t type = 0;
+    bool success = false;
+    std::string message;
+    std::string authenticatedUsername;
+    std::string accessToken;
+    std::string rememberToken;
+    response >> type >> success >> message
+             >> authenticatedUsername >> accessToken >> rememberToken;
+    return response &&
+        static_cast<MessageType>(type) == MessageType::LoginResponse &&
+        success
+        ? accessToken
+        : std::string();
 }
 
 void send(sf::TcpSocket& socket, sf::Packet& packet)
@@ -394,12 +434,49 @@ int main(int argc, char** argv)
     check(!heroKeywordsAllowCard({mechanicalHero}, 1, mechanicalOccultCard),
           "a card becomes unavailable when a required hero is no longer on the board");
 
+    const auto [equalWinnerRating, equalLoserRating] =
+        ranking::ratingsAfterMatch(0, 0, 1);
+    check(equalWinnerRating == 16 && equalLoserRating == 0,
+          "equal zero-rated players update to 16 and 0");
+    const ranking::MatchRewards selfMatchRewards =
+        ranking::rewardsAfterMatch(250, 250, 1, true, 10);
+    check(
+        selfMatchRewards.ratings[0] == 250 &&
+            selfMatchRewards.ratings[1] == 250 &&
+            selfMatchRewards.ratingChanges[0] == 0 &&
+            selfMatchRewards.ratingChanges[1] == 0,
+        "self-match produces zero rating change");
+    check(selfMatchRewards.winnerCoins == 0,
+          "self-match produces zero gold");
+    check(ranking::matchmakingRange(std::chrono::seconds(0)) == 10,
+          "matchmaking starts at +/- 10");
+    check(ranking::matchmakingRange(std::chrono::seconds(30)) == 640,
+          "matchmaking reaches +/- 640 after 30 seconds");
+
     if (argc == 2 && std::string(argv[1]) == "--movement-only")
     {
         return failures == 0 ? 0 : 1;
     }
 
     // --- matchmaking -------------------------------------------------------
+    const char* testPassword = std::getenv("BAYOU_TEST_PASSWORD");
+    if (testPassword == nullptr)
+    {
+        testPassword = std::getenv("BAYOU_SEED_PASSWORD");
+    }
+    if (testPassword == nullptr)
+    {
+        fmt::println("Set BAYOU_TEST_PASSWORD or BAYOU_SEED_PASSWORD for the end-to-end test.");
+        return 1;
+    }
+    const std::string tokenA = loginForTest("alpha", testPassword);
+    const std::string tokenB = loginForTest("bravo", testPassword);
+    check(!tokenA.empty() && !tokenB.empty(), "test players authenticated");
+    if (tokenA.empty() || tokenB.empty())
+    {
+        return 1;
+    }
+
     sf::TcpSocket mmA;
     sf::TcpSocket mmB;
     if (!connectWithRetry(mmA, MatchmakingPort, 20))
@@ -408,7 +485,7 @@ int main(int argc, char** argv)
         return 1;
     }
     sf::Packet joinA;
-    joinA << static_cast<std::uint8_t>(MessageType::JoinMatchmaking);
+    joinA << static_cast<std::uint8_t>(MessageType::JoinMatchmaking) << tokenA;
     send(mmA, joinA);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(150));
@@ -419,7 +496,7 @@ int main(int argc, char** argv)
         return 1;
     }
     sf::Packet joinB;
-    joinB << static_cast<std::uint8_t>(MessageType::JoinMatchmaking);
+    joinB << static_cast<std::uint8_t>(MessageType::JoinMatchmaking) << tokenB;
     send(mmB, joinB);
 
     auto readMatch = [](sf::TcpSocket& socket, int& matchId, int& playerNumber, unsigned short& gamePort) -> bool {
@@ -462,9 +539,10 @@ int main(int argc, char** argv)
 
     // The game process only sends GameReady once both players have joined, so
     // send both JoinGame messages before blocking on either response.
-    auto sendJoin = [](sf::TcpSocket& socket, int matchId, int playerNumber) {
+    auto sendJoin = [](sf::TcpSocket& socket, int matchId, int playerNumber, const std::string& token) {
         sf::Packet join;
-        join << static_cast<std::uint8_t>(MessageType::JoinGame) << matchId << playerNumber;
+        join << static_cast<std::uint8_t>(MessageType::JoinGame)
+             << matchId << playerNumber << token;
         send(socket, join);
     };
     auto readReady = [](sf::TcpSocket& socket) -> bool {
@@ -481,8 +559,8 @@ int main(int argc, char** argv)
         return static_cast<MessageType>(type) == MessageType::GameReady;
     };
 
-    sendJoin(gameA, matchA, pnumA);
-    sendJoin(gameB, matchB, pnumB);
+    sendJoin(gameA, matchA, pnumA, tokenA);
+    sendJoin(gameB, matchB, pnumB, tokenB);
     check(readReady(gameA), "player A game ready");
     check(readReady(gameB), "player B game ready");
 

@@ -6,6 +6,7 @@
 #include "../shared/account_data.hpp"
 #include "../shared/deck_data.hpp"
 #include "../shared/game_data.hpp"
+#include "../shared/ranking.hpp"
 
 #include <atomic>
 #include <algorithm>
@@ -201,6 +202,10 @@ private:
         {
             database->exec("ALTER TABLE accounts ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0");
         }
+        if (!columnExists("accounts", "rating"))
+        {
+            database->exec("ALTER TABLE accounts ADD COLUMN rating INTEGER NOT NULL DEFAULT 0");
+        }
         database->exec(
             "CREATE TABLE IF NOT EXISTS decks ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -251,6 +256,24 @@ private:
         database->exec(
             "CREATE INDEX IF NOT EXISTS access_tokens_username_idx "
             "ON access_tokens(username)");
+        database->exec(
+            "CREATE TABLE IF NOT EXISTS ranked_matches ("
+            "match_id INTEGER PRIMARY KEY NOT NULL,"
+            "player_one TEXT NOT NULL,"
+            "player_two TEXT NOT NULL,"
+            "result_token TEXT NOT NULL,"
+            "winner INTEGER NOT NULL DEFAULT 0,"
+            "completed_at TEXT,"
+            "FOREIGN KEY(player_one) REFERENCES accounts(username),"
+            "FOREIGN KEY(player_two) REFERENCES accounts(username)"
+            ")");
+        database->exec(
+            "CREATE TRIGGER IF NOT EXISTS ranked_matches_account_cleanup "
+            "BEFORE DELETE ON accounts "
+            "BEGIN "
+            "DELETE FROM ranked_matches "
+            "WHERE player_one = OLD.username OR player_two = OLD.username; "
+            "END");
     }
 
     void handleClient(std::unique_ptr<sf::TcpSocket> client)
@@ -410,6 +433,31 @@ private:
                         currentPassword,
                         newPassword,
                         remoteAddress);
+                    break;
+                }
+                case MessageType::RankedPlayerRequest:
+                {
+                    std::string accessToken;
+                    packet >> accessToken;
+                    handleRankedPlayerRequest(*client, accessToken);
+                    break;
+                }
+                case MessageType::RegisterRankedMatch:
+                {
+                    int matchId = 0;
+                    std::string playerOneToken, playerTwoToken;
+                    packet >> matchId >> playerOneToken >> playerTwoToken;
+                    handleRegisterRankedMatch(
+                        *client, matchId, playerOneToken, playerTwoToken);
+                    break;
+                }
+                case MessageType::SubmitRankedResult:
+                {
+                    int matchId = 0;
+                    int winner = 0;
+                    std::string resultToken;
+                    packet >> matchId >> resultToken >> winner;
+                    handleSubmitRankedResult(*client, matchId, resultToken, winner);
                     break;
                 }
                 case MessageType::Disconnect:
@@ -614,7 +662,7 @@ private:
             const std::optional<std::string> username = authenticateAccessToken(accessToken);
             if (!username)
             {
-                sendAccountStateResponse(client, false, "Authentication required", 0, false, {});
+                sendAccountStateResponse(client, false, "Authentication required", 0, 0, false, {});
                 return;
             }
 
@@ -624,45 +672,211 @@ private:
                 true,
                 "Account loaded",
                 loadCoins(*username),
+                loadRating(*username),
                 isAdmin(*username),
                 loadCollection(*username));
         }
         catch (const std::exception& error)
         {
             fmt::println("Database error while loading account state: {}", error.what());
-            sendAccountStateResponse(client, false, "Database error while loading account state", 0, false, {});
+            sendAccountStateResponse(
+                client, false, "Database error while loading account state", 0, 0, false, {});
         }
     }
 
-    void handleWinReward(sf::TcpSocket& client, const std::string& accessToken)
+    void handleRankedPlayerRequest(sf::TcpSocket& client, const std::string& accessToken)
     {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::RankedPlayerResponse);
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
             const std::optional<std::string> username = authenticateAccessToken(accessToken);
             if (!username)
             {
-                sendCoinResponse(client, MessageType::WinRewardResponse, false, "Authentication required", 0);
-                return;
+                response << false << std::string("Authentication required")
+                         << std::string() << 0;
             }
-
-            SQLite::Statement update(*database, "UPDATE accounts SET coins = coins + ? WHERE username = ?");
-            update.bind(1, WinRewardCoins);
-            update.bind(2, *username);
-            update.exec();
-
-            sendCoinResponse(
-                client,
-                MessageType::WinRewardResponse,
-                true,
-                "+" + std::to_string(WinRewardCoins) + " coins",
-                loadCoins(*username));
+            else
+            {
+                response << true << std::string("Player authenticated")
+                         << *username << loadRating(*username);
+            }
         }
         catch (const std::exception& error)
         {
-            fmt::println("Database error while rewarding win: {}", error.what());
-            sendCoinResponse(client, MessageType::WinRewardResponse, false, "Database error while rewarding win", 0);
+            fmt::println("Database error while authenticating ranked player: {}", error.what());
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::RankedPlayerResponse)
+                     << false << std::string("Database error")
+                     << std::string() << 0;
         }
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleRegisterRankedMatch(
+        sf::TcpSocket& client,
+        int matchId,
+        const std::string& playerOneToken,
+        const std::string& playerTwoToken)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::RegisterRankedMatchResponse);
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> playerOne =
+                authenticateAccessToken(playerOneToken);
+            const std::optional<std::string> playerTwo =
+                authenticateAccessToken(playerTwoToken);
+            if (!playerOne || !playerTwo)
+            {
+                response << false << std::string("Invalid ranked match players")
+                         << std::string() << std::string() << std::string();
+            }
+            else
+            {
+                const std::string resultToken = generateRememberToken();
+                SQLite::Statement insert(
+                    *database,
+                    "INSERT INTO ranked_matches "
+                    "(match_id, player_one, player_two, result_token) VALUES (?, ?, ?, ?)");
+                insert.bind(1, matchId);
+                insert.bind(2, *playerOne);
+                insert.bind(3, *playerTwo);
+                insert.bind(4, hashToken(resultToken));
+                insert.exec();
+                response << true << std::string("Ranked match registered")
+                         << *playerOne << *playerTwo << resultToken;
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while registering ranked match: {}", error.what());
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::RegisterRankedMatchResponse)
+                     << false << std::string("Could not register ranked match")
+                     << std::string() << std::string() << std::string();
+        }
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleSubmitRankedResult(
+        sf::TcpSocket& client,
+        int matchId,
+        const std::string& resultToken,
+        int winner)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::SubmitRankedResultResponse);
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            if (winner != 1 && winner != 2)
+            {
+                response << false << std::string("Invalid winner")
+                         << 0 << 0 << 0 << 0 << 0 << false;
+                [[maybe_unused]] auto result = client.send(response);
+                return;
+            }
+
+            std::string playerOne;
+            std::string playerTwo;
+            {
+                SQLite::Statement matchQuery(
+                    *database,
+                    "SELECT player_one, player_two, result_token, winner "
+                    "FROM ranked_matches WHERE match_id = ?");
+                matchQuery.bind(1, matchId);
+                if (!matchQuery.executeStep() ||
+                    matchQuery.getColumn(2).getString() != hashToken(resultToken) ||
+                    matchQuery.getColumn(3).getInt() != 0)
+                {
+                    response << false << std::string("Ranked match is invalid or already completed")
+                             << 0 << 0 << 0 << 0 << 0 << false;
+                    [[maybe_unused]] auto result = client.send(response);
+                    return;
+                }
+                playerOne = matchQuery.getColumn(0).getString();
+                playerTwo = matchQuery.getColumn(1).getString();
+            }
+
+            const int oldRatingOne = loadRating(playerOne);
+            const int oldRatingTwo = loadRating(playerTwo);
+            const bool selfMatch = playerOne == playerTwo;
+            const ranking::MatchRewards rewards = ranking::rewardsAfterMatch(
+                oldRatingOne,
+                oldRatingTwo,
+                winner,
+                selfMatch,
+                WinRewardCoins);
+
+            SQLite::Transaction transaction(*database);
+            if (!selfMatch)
+            {
+                SQLite::Statement updateRating(
+                    *database, "UPDATE accounts SET rating = ? WHERE username = ?");
+                updateRating.bind(1, rewards.ratings[0]);
+                updateRating.bind(2, playerOne);
+                updateRating.exec();
+                updateRating.reset();
+                updateRating.bind(1, rewards.ratings[1]);
+                updateRating.bind(2, playerTwo);
+                updateRating.exec();
+
+                SQLite::Statement awardWinner(
+                    *database, "UPDATE accounts SET coins = coins + ? WHERE username = ?");
+                awardWinner.bind(1, rewards.winnerCoins);
+                awardWinner.bind(2, winner == 1 ? playerOne : playerTwo);
+                awardWinner.exec();
+            }
+
+            SQLite::Statement complete(
+                *database,
+                "UPDATE ranked_matches "
+                "SET winner = ?, completed_at = CURRENT_TIMESTAMP WHERE match_id = ?");
+            complete.bind(1, winner);
+            complete.bind(2, matchId);
+            complete.exec();
+            transaction.commit();
+
+            response << true
+                     << std::string(selfMatch ? "Self-match completed" : "Match rewards updated")
+                     << rewards.ratings[0] << rewards.ratings[1]
+                     << rewards.ratingChanges[0] << rewards.ratingChanges[1]
+                     << rewards.winnerCoins << selfMatch;
+            fmt::println(
+                "Ranked match {} complete: {}={} ({:+}) {}={} ({:+}), winner coins {}{}",
+                matchId,
+                playerOne,
+                rewards.ratings[0],
+                rewards.ratingChanges[0],
+                playerTwo,
+                rewards.ratings[1],
+                rewards.ratingChanges[1],
+                rewards.winnerCoins,
+                selfMatch ? " (self-match)" : "");
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while submitting ranked result: {}", error.what());
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::SubmitRankedResultResponse)
+                     << false << std::string("Could not update match rewards")
+                     << 0 << 0 << 0 << 0 << 0 << false;
+        }
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleWinReward(sf::TcpSocket& client, const std::string& accessToken)
+    {
+        (void)accessToken;
+        sendCoinResponse(
+            client,
+            MessageType::WinRewardResponse,
+            false,
+            "Win rewards are awarded by the game server",
+            0);
     }
 
     void handleShopPurchase(sf::TcpSocket& client, const std::string& accessToken)
@@ -1288,13 +1502,15 @@ private:
         bool success,
         const std::string& message,
         int coins,
+        int rating,
         bool isAdmin,
         const std::vector<account_data::CollectionCard>& collection)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::AccountStateResponse);
         response << success << message;
-        account_data::writeAccountState(response, account_data::AccountState{coins, isAdmin, collection});
+        account_data::writeAccountState(
+            response, account_data::AccountState{coins, rating, isAdmin, collection});
         [[maybe_unused]] auto result = client.send(response);
     }
 
@@ -1383,6 +1599,18 @@ private:
         }
 
         return query.getColumn(0).getInt();
+    }
+
+    int loadRating(const std::string& username)
+    {
+        SQLite::Statement query(*database, "SELECT rating FROM accounts WHERE username = ? LIMIT 1");
+        query.bind(1, username);
+        if (!query.executeStep())
+        {
+            return 0;
+        }
+
+        return std::max(0, query.getColumn(0).getInt());
     }
 
     std::vector<account_data::CollectionCard> loadCollection(const std::string& username)

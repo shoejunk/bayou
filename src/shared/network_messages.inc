@@ -65,7 +65,13 @@ enum class MessageType : std::uint8_t
     AdminUserGoldResponse,
     DiscardCard,
     AdminUserDeleteRequest,
-    AdminUserDeleteResponse
+    AdminUserDeleteResponse,
+    RankedPlayerRequest,
+    RankedPlayerResponse,
+    RegisterRankedMatch,
+    RegisterRankedMatchResponse,
+    SubmitRankedResult,
+    SubmitRankedResultResponse
 };
 
 struct CreateAccountRequest

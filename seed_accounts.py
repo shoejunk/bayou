@@ -35,6 +35,8 @@ if "coins" not in columns:
     cur.execute("ALTER TABLE accounts ADD COLUMN coins INTEGER NOT NULL DEFAULT 0")
 if "is_admin" not in columns:
     cur.execute("ALTER TABLE accounts ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+if "rating" not in columns:
+    cur.execute("ALTER TABLE accounts ADD COLUMN rating INTEGER NOT NULL DEFAULT 0")
 cur.execute("""
 CREATE TABLE IF NOT EXISTS decks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
