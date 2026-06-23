@@ -215,49 +215,6 @@ inline std::vector<std::string> cardList(const card_data::Card& card, const std:
     return {};
 }
 
-inline std::vector<std::string> splitValue(const std::string& value, char delimiter)
-{
-    std::vector<std::string> parts;
-    std::size_t start = 0;
-    while (start <= value.size())
-    {
-        const std::size_t end = value.find(delimiter, start);
-        parts.push_back(value.substr(start, end == std::string::npos ? std::string::npos : end - start));
-        if (end == std::string::npos)
-        {
-            break;
-        }
-        start = end + 1;
-    }
-    return parts;
-}
-
-inline int parseInt(const std::string& value, int fallback)
-{
-    try
-    {
-        std::size_t parsed = 0;
-        const int result = std::stoi(value, &parsed);
-        return parsed == value.size() ? result : fallback;
-    }
-    catch (...)
-    {
-        return fallback;
-    }
-}
-
-inline bool flagPresent(const std::string& flags, const std::string& wanted)
-{
-    for (const std::string& flag : splitValue(flags, ','))
-    {
-        if (flag == wanted)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
 inline std::uint8_t parseActionKind(const std::string& value)
 {
     if (value == "ranged")
@@ -277,33 +234,6 @@ inline std::uint8_t parseActionKind(const std::string& value)
         return static_cast<std::uint8_t>(ActionKind::Tunnel);
     }
     return static_cast<std::uint8_t>(ActionKind::Slide);
-}
-
-// Database format:
-// state|kind|pattern|minRange|maxRange|damage|flags|statusTurns|cooldownTurns
-// Flags are comma-separated: move, attack, pass, los.
-inline std::optional<ActionProfile> parseActionProfile(const std::string& value)
-{
-    const std::vector<std::string> fields = splitValue(value, '|');
-    if (fields.size() != 9)
-    {
-        return std::nullopt;
-    }
-
-    ActionProfile action;
-    action.state = parseInt(fields[0], 0);
-    action.kind = parseActionKind(fields[1]);
-    action.pattern = parseMovePattern(fields[2]);
-    action.minRange = parseInt(fields[3], 1);
-    action.maxRange = parseInt(fields[4], 1);
-    action.damage = parseInt(fields[5], 0);
-    action.canMove = flagPresent(fields[6], "move");
-    action.canAttack = flagPresent(fields[6], "attack");
-    action.passThrough = flagPresent(fields[6], "pass");
-    action.lineOfSight = flagPresent(fields[6], "los");
-    action.statusTurns = parseInt(fields[7], 0);
-    action.cooldownTurns = parseInt(fields[8], 0);
-    return action;
 }
 
 inline bool isHeroCard(const card_data::Card& card)
@@ -383,12 +313,22 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.abilityLabels = cardList(card, "abilityLabels");
     g.abilityUses = cardInt(card, "abilityUses", 0);
 
-    for (const std::string& encoded : cardList(card, "actions"))
+    for (const card_data::Action& definition : card.actions)
     {
-        if (const std::optional<ActionProfile> action = parseActionProfile(encoded))
-        {
-            g.actions.push_back(*action);
-        }
+        ActionProfile action;
+        action.state = definition.state;
+        action.kind = parseActionKind(definition.kind);
+        action.pattern = parseMovePattern(definition.pattern);
+        action.minRange = definition.minRange;
+        action.maxRange = definition.maxRange;
+        action.damage = definition.damage;
+        action.canMove = definition.canMove;
+        action.canAttack = definition.canAttack;
+        action.passThrough = definition.passThrough;
+        action.lineOfSight = definition.lineOfSight;
+        action.statusTurns = definition.statusTurns;
+        action.cooldownTurns = definition.cooldownTurns;
+        g.actions.push_back(action);
     }
 
     if (g.actions.empty() && g.movePattern != static_cast<std::uint8_t>(MovePattern::None) && g.moveRange > 0)
@@ -1127,7 +1067,7 @@ inline ActionResolution resolvePieceAction(
                 candidate.attacks = true;
                 candidate.moves = action.canMove;
                 candidate.targetId = destination->id;
-                if (!jumping)
+                if (!jumping && !action.passThrough)
                 {
                     const int stepRow = (deltaRow > 0) - (deltaRow < 0);
                     const int stepColumn = (deltaColumn > 0) - (deltaColumn < 0);

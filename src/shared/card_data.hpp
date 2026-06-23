@@ -26,6 +26,23 @@ struct KeyStringList
     std::vector<std::string> values;
 };
 
+struct Action
+{
+    std::string name;
+    int state = 0;
+    std::string kind = "slide";
+    std::string pattern = "omni";
+    int minRange = 1;
+    int maxRange = 1;
+    int damage = 0;
+    bool canMove = true;
+    bool canAttack = false;
+    bool passThrough = false;
+    bool lineOfSight = false;
+    int statusTurns = 0;
+    int cooldownTurns = 0;
+};
+
 struct Card
 {
     std::string title;
@@ -35,6 +52,8 @@ struct Card
     std::vector<KeyIntPair> integerValues;
     std::vector<KeyStringPair> stringValues;
     std::vector<KeyStringList> stringLists;
+    std::vector<std::string> actionNames;
+    std::vector<Action> actions;
 };
 
 inline void writeStringVector(sf::Packet& packet, const std::vector<std::string>& values)
@@ -71,6 +90,23 @@ inline bool readStringVector(sf::Packet& packet, std::vector<std::string>& value
     return true;
 }
 
+inline void writeAction(sf::Packet& packet, const Action& action)
+{
+    packet << action.name << action.state << action.kind << action.pattern
+           << action.minRange << action.maxRange << action.damage
+           << action.canMove << action.canAttack << action.passThrough << action.lineOfSight
+           << action.statusTurns << action.cooldownTurns;
+}
+
+inline bool readAction(sf::Packet& packet, Action& action)
+{
+    packet >> action.name >> action.state >> action.kind >> action.pattern
+           >> action.minRange >> action.maxRange >> action.damage
+           >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight
+           >> action.statusTurns >> action.cooldownTurns;
+    return static_cast<bool>(packet);
+}
+
 inline void writeCard(sf::Packet& packet, const Card& card)
 {
     packet << card.title;
@@ -96,6 +132,13 @@ inline void writeCard(sf::Packet& packet, const Card& card)
     {
         packet << item.key;
         writeStringVector(packet, item.values);
+    }
+
+    writeStringVector(packet, card.actionNames);
+    packet << static_cast<std::uint32_t>(card.actions.size());
+    for (const Action& action : card.actions)
+    {
+        writeAction(packet, action);
     }
 }
 
@@ -155,6 +198,25 @@ inline bool readCard(sf::Packet& packet, Card& card)
             return false;
         }
         card.stringLists.push_back(item);
+    }
+
+    if (!readStringVector(packet, card.actionNames))
+    {
+        return false;
+    }
+
+    std::uint32_t actionCount = 0;
+    packet >> actionCount;
+    card.actions.clear();
+    card.actions.reserve(actionCount);
+    for (std::uint32_t i = 0; i < actionCount; ++i)
+    {
+        Action action;
+        if (!readAction(packet, action))
+        {
+            return false;
+        }
+        card.actions.push_back(action);
     }
 
     return true;

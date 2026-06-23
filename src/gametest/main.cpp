@@ -293,6 +293,34 @@ int main(int argc, char** argv)
     check(paralyzeResult.legal && paralyzeResult.attacks && paralyzeResult.statusTurns == 2,
           "status-only attacking movement is legal");
 
+    ActionProfile passThroughAttack;
+    passThroughAttack.pattern = static_cast<std::uint8_t>(MovePattern::Ortho);
+    passThroughAttack.minRange = 3;
+    passThroughAttack.maxRange = 3;
+    passThroughAttack.damage = 1;
+    passThroughAttack.canMove = true;
+    passThroughAttack.canAttack = true;
+    passThroughAttack.passThrough = true;
+    profilePiece.actions = {passThroughAttack};
+    Piece passThroughBlocker = hopTarget;
+    passThroughBlocker.owner = 1;
+    passThroughBlocker.row = 3;
+    passThroughBlocker.column = 4;
+    Piece passThroughTarget = hopTarget;
+    passThroughTarget.row = 3;
+    passThroughTarget.column = 6;
+    const std::vector<Piece> passThroughPieces = {
+        profilePiece,
+        passThroughBlocker,
+        passThroughTarget,
+    };
+    const ActionResolution passThroughResult =
+        resolvePieceAction(passThroughPieces, holes, passThroughPieces[0], 3, 6);
+    check(passThroughResult.legal && passThroughResult.moves && passThroughResult.attacks &&
+              passThroughResult.stagingRow == profilePiece.row &&
+              passThroughResult.stagingColumn == profilePiece.column,
+          "failed pass-through attack returns the attacker to its original square");
+
     ActionProfile stateOne = horizontal;
     stateOne.state = 1;
     profilePiece.actions = {stateOne};
@@ -352,15 +380,29 @@ int main(int argc, char** argv)
     encodedCard.title = "Encoded";
     encodedCard.type = "Unit";
     encodedCard.keywords = {"mechanical", "occult"};
-    encodedCard.stringLists.push_back(
-        {"actions", {"0|slide|diag|1|7|2|move,attack|0|0"}});
+    encodedCard.actionNames = {"Diagonal Charge"};
+    encodedCard.actions.push_back({
+        "Diagonal Charge",
+        0,
+        "slide",
+        "diag",
+        1,
+        7,
+        2,
+        true,
+        true,
+        false,
+        false,
+        0,
+        0,
+    });
     const GameCard decodedCard = toGameCard(encodedCard);
     check(decodedCard.actions.size() == 1 &&
               decodedCard.keywords == encodedCard.keywords &&
               decodedCard.actions[0].damage == 2 &&
               decodedCard.actions[0].canMove &&
               decodedCard.actions[0].canAttack,
-          "database action profile encoding decodes into gameplay data");
+          "referenced action object resolves into gameplay data");
 
     GameCard serializedCard = decodedCard;
     serializedCard.blueTokenPath = "characters/blue/test.png";

@@ -41,6 +41,7 @@ constexpr float PreviewPanelWidth = 400.0f;
 constexpr float ListRowStartY = 176.0f;
 constexpr float ListRowHeight = 56.0f;
 constexpr std::size_t VisibleCardRows = 8;
+constexpr std::size_t VisibleActionRows = 8;
 
 const sf::Color Ink(244, 234, 208);
 const sf::Color Muted(181, 166, 137);
@@ -444,6 +445,7 @@ public:
     void open()
     {
         loadCards();
+        loadActions();
     }
 
     bool handleEvent(const sf::Event& event, sf::RenderWindow& window)
@@ -519,7 +521,14 @@ public:
             }
             else if (keyEvent->code == sf::Keyboard::Key::Enter)
             {
-                saveCurrentCard();
+                if (editorMode == EditorMode::Cards)
+                {
+                    saveCurrentCard();
+                }
+                else
+                {
+                    saveCurrentAction();
+                }
             }
         }
 
@@ -537,9 +546,16 @@ public:
             const sf::Vector2f mouse = window.mapPixelToCoords(wheel->position);
             if (isInListPanel(mouse))
             {
-                scrollCardList(wheel->delta < 0.0f ? 1 : -1);
+                if (editorMode == EditorMode::Cards)
+                {
+                    scrollCardList(wheel->delta < 0.0f ? 1 : -1);
+                }
+                else
+                {
+                    scrollActionList(wheel->delta < 0.0f ? 1 : -1);
+                }
             }
-            else if (isInArrayViewport(mouse))
+            else if (editorMode == EditorMode::Cards && isInArrayViewport(mouse))
             {
                 scrollEditorForm(wheel->delta < 0.0f ? 1 : -1);
             }
@@ -567,11 +583,24 @@ public:
         newButton.update(mouse);
         refreshButton.update(mouse);
         saveButton.update(mouse);
+        saveActionButton.update(mouse);
         deleteButton.update(mouse);
+        cardTabButton.update(mouse);
+        actionTabButton.update(mouse);
+        if (editorMode == EditorMode::Actions)
+        {
+            layoutActionFields();
+            if (!focusOrder.empty() && focusIndex < focusOrder.size())
+            {
+                focusOrder[focusIndex]->updateCursor(deltaTime);
+            }
+            return;
+        }
         addKeywordButton.update(mouse);
         addIntegerButton.update(mouse);
         addStringButton.update(mouse);
         addListButton.update(mouse);
+        addActionRefButton.update(mouse);
         for (EditorButton& button : removeKeywordButtons)
         {
             button.update(mouse);
@@ -599,6 +628,10 @@ public:
                 button.update(mouse);
             }
         }
+        for (EditorButton& button : removeActionRefButtons)
+        {
+            button.update(mouse);
+        }
         if (!focusOrder.empty() && focusIndex < focusOrder.size())
         {
             focusOrder[focusIndex]->updateCursor(deltaTime);
@@ -620,13 +653,27 @@ public:
         else
         {
             drawListPanel(window);
-            drawEditorPanel(window);
-            drawPreviewPanel(window);
+            if (editorMode == EditorMode::Cards)
+            {
+                drawEditorPanel(window);
+                drawPreviewPanel(window);
+            }
+            else
+            {
+                drawActionEditorPanel(window);
+                drawActionPreviewPanel(window);
+            }
         }
         window.setView(previousView);
     }
 
 private:
+    enum class EditorMode
+    {
+        Cards,
+        Actions
+    };
+
     struct CardListResult
     {
         bool success = false;
@@ -638,6 +685,13 @@ private:
     {
         bool success = false;
         std::string message;
+    };
+
+    struct ActionListResult
+    {
+        bool success = false;
+        std::string message;
+        std::vector<card_data::Action> actions;
     };
 
     struct StringListEditor
@@ -652,9 +706,13 @@ private:
 
     sf::Font& font;
     CardEditorEndpoint endpoint;
+    EditorMode editorMode = EditorMode::Cards;
     std::vector<card_data::Card> cards;
     std::optional<std::size_t> selectedCard;
     std::size_t listOffset = 0;
+    std::vector<card_data::Action> actions;
+    std::optional<std::size_t> selectedAction;
+    std::size_t actionListOffset = 0;
     std::string status = "Ready";
     sf::Color statusColor = Muted;
     std::vector<InputBox*> focusOrder;
@@ -677,23 +735,42 @@ private:
     std::vector<InputBox> stringKeyFields;
     std::vector<InputBox> stringValueFields;
     std::vector<StringListEditor> listEditors;
+    std::vector<InputBox> actionRefFields;
+    InputBox actionNameField;
+    InputBox actionStateField;
+    InputBox actionKindField;
+    InputBox actionPatternField;
+    InputBox actionMinRangeField;
+    InputBox actionMaxRangeField;
+    InputBox actionDamageField;
+    InputBox actionCanMoveField;
+    InputBox actionCanAttackField;
+    InputBox actionPassThroughField;
+    InputBox actionLineOfSightField;
+    InputBox actionStatusTurnsField;
+    InputBox actionCooldownTurnsField;
     EditorButton backButton;
     EditorButton instructionsButton;
     EditorButton instructionsBackButton;
     EditorButton newButton;
     EditorButton refreshButton;
     EditorButton saveButton;
+    EditorButton saveActionButton;
     EditorButton deleteButton;
     EditorButton addKeywordButton;
     EditorButton addIntegerButton;
     EditorButton addStringButton;
     EditorButton addListButton;
+    EditorButton addActionRefButton;
+    EditorButton cardTabButton;
+    EditorButton actionTabButton;
     std::vector<EditorButton> removeKeywordButtons;
     std::vector<EditorButton> removeIntegerButtons;
     std::vector<EditorButton> removeStringButtons;
     std::vector<EditorButton> removeListButtons;
     std::vector<EditorButton> addListValueButtons;
     std::vector<std::vector<EditorButton>> removeListValueButtons;
+    std::vector<EditorButton> removeActionRefButtons;
 
     sf::View makeEditorView(const sf::RenderWindow& window) const
     {
@@ -785,6 +862,56 @@ private:
 
         socket.disconnect();
         return {success, message, std::move(loadedCards)};
+    }
+
+    ActionListResult fetchActionsFromServer() const
+    {
+        sf::TcpSocket socket;
+        if (!connectToServer(socket))
+        {
+            return {false, "Failed to connect to card server " + endpointText()};
+        }
+
+        sf::Packet request;
+        request << static_cast<std::uint8_t>(network::MessageType::ActionListRequest);
+        if (socket.send(request) != sf::Socket::Status::Done)
+        {
+            socket.disconnect();
+            return {false, "Failed to send action list request"};
+        }
+
+        sf::Packet response;
+        if (socket.receive(response) != sf::Socket::Status::Done)
+        {
+            socket.disconnect();
+            return {false, "No response from card server"};
+        }
+
+        std::uint8_t responseType = 0;
+        bool success = false;
+        std::string message;
+        std::uint32_t count = 0;
+        response >> responseType >> success >> message >> count;
+        if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::ActionListResponse)
+        {
+            socket.disconnect();
+            return {false, "Unexpected action list response"};
+        }
+
+        std::vector<card_data::Action> loadedActions;
+        loadedActions.reserve(count);
+        for (std::uint32_t i = 0; i < count; ++i)
+        {
+            card_data::Action action;
+            if (!card_data::readAction(response, action))
+            {
+                socket.disconnect();
+                return {false, "Invalid action list payload"};
+            }
+            loadedActions.push_back(action);
+        }
+        socket.disconnect();
+        return {success, message, std::move(loadedActions)};
     }
 
     CommandResult readCommandResponse(sf::TcpSocket& socket, network::MessageType expectedResponseType, const std::string& action) const
@@ -879,22 +1006,98 @@ private:
         return result;
     }
 
+    CommandResult saveActionToServer(const card_data::Action& action) const
+    {
+        sf::TcpSocket socket;
+        if (!connectToServer(socket))
+        {
+            return {false, "Failed to connect to card server " + endpointText()};
+        }
+        sf::Packet request;
+        request << static_cast<std::uint8_t>(network::MessageType::ActionUpsertRequest);
+        card_data::writeAction(request, action);
+        if (socket.send(request) != sf::Socket::Status::Done)
+        {
+            socket.disconnect();
+            return {false, "Failed to send action save request"};
+        }
+        CommandResult result = readCommandResponse(socket, network::MessageType::ActionUpsertResponse, "saving action");
+        socket.disconnect();
+        return result;
+    }
+
+    CommandResult updateActionOnServer(const std::string& originalName, const card_data::Action& action) const
+    {
+        sf::TcpSocket socket;
+        if (!connectToServer(socket))
+        {
+            return {false, "Failed to connect to card server " + endpointText()};
+        }
+        sf::Packet request;
+        request << static_cast<std::uint8_t>(network::MessageType::ActionUpdateRequest) << originalName;
+        card_data::writeAction(request, action);
+        if (socket.send(request) != sf::Socket::Status::Done)
+        {
+            socket.disconnect();
+            return {false, "Failed to send action update request"};
+        }
+        CommandResult result = readCommandResponse(socket, network::MessageType::ActionUpdateResponse, "updating action");
+        socket.disconnect();
+        return result;
+    }
+
+    CommandResult deleteActionFromServer(const std::string& name) const
+    {
+        sf::TcpSocket socket;
+        if (!connectToServer(socket))
+        {
+            return {false, "Failed to connect to card server " + endpointText()};
+        }
+        sf::Packet request;
+        request << static_cast<std::uint8_t>(network::MessageType::ActionDeleteRequest) << name;
+        if (socket.send(request) != sf::Socket::Status::Done)
+        {
+            socket.disconnect();
+            return {false, "Failed to send action delete request"};
+        }
+        CommandResult result = readCommandResponse(socket, network::MessageType::ActionDeleteResponse, "deleting action");
+        socket.disconnect();
+        return result;
+    }
+
     void buildControls()
     {
         backButton = EditorButton(font, "Back", {1124.0f, 22.0f}, {112.0f, 38.0f}, sf::Color(67, 48, 33));
         instructionsButton = EditorButton(font, "Instructions", {970.0f, 22.0f}, {142.0f, 38.0f}, AccentDark);
         instructionsBackButton = EditorButton(font, "Back to Editor", {1060.0f, 22.0f}, {176.0f, 38.0f}, AccentDark);
+        cardTabButton = EditorButton(font, "Cards", {340.0f, 22.0f}, {110.0f, 38.0f}, AccentDark);
+        actionTabButton = EditorButton(font, "Actions", {462.0f, 22.0f}, {120.0f, 38.0f}, sf::Color(67, 48, 33));
         newButton = EditorButton(font, "New", {42.0f, 690.0f}, {96.0f, 42.0f}, sf::Color(67, 48, 33));
         refreshButton = EditorButton(font, "Refresh", {150.0f, 690.0f}, {120.0f, 42.0f}, sf::Color(67, 48, 33));
         saveButton = EditorButton(font, "Save Card", {660.0f, 690.0f}, {156.0f, 42.0f}, AccentDark);
+        saveActionButton = EditorButton(font, "Save Action", {660.0f, 690.0f}, {156.0f, 42.0f}, AccentDark);
         deleteButton = EditorButton(font, "Delete", {528.0f, 690.0f}, {120.0f, 42.0f}, Warn);
         addKeywordButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addIntegerButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addStringButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addListButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
+        addActionRefButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         titleField = InputBox(font, "Title", {340.0f, 168.0f}, {470.0f, 42.0f});
         imageField = InputBox(font, "Image Path", {340.0f, 238.0f}, {470.0f, 42.0f});
         typeField = InputBox(font, "Type", {340.0f, 308.0f}, {470.0f, 42.0f});
+        actionNameField = InputBox(font, "Name", {340.0f, 168.0f}, {470.0f, 42.0f});
+        actionStateField = makeCompactField("0", {210.0f, 32.0f});
+        actionKindField = makeCompactField("slide", {210.0f, 32.0f});
+        actionPatternField = makeCompactField("omni", {210.0f, 32.0f});
+        actionMinRangeField = makeCompactField("1", {210.0f, 32.0f});
+        actionMaxRangeField = makeCompactField("1", {210.0f, 32.0f});
+        actionDamageField = makeCompactField("0", {210.0f, 32.0f});
+        actionCanMoveField = makeCompactField("1", {210.0f, 32.0f});
+        actionCanAttackField = makeCompactField("0", {210.0f, 32.0f});
+        actionPassThroughField = makeCompactField("0", {210.0f, 32.0f});
+        actionLineOfSightField = makeCompactField("0", {210.0f, 32.0f});
+        actionStatusTurnsField = makeCompactField("0", {210.0f, 32.0f});
+        actionCooldownTurnsField = makeCompactField("0", {210.0f, 32.0f});
         rebuildFocusOrder();
         activateField(&titleField);
     }
@@ -919,6 +1122,7 @@ private:
         stringKeyFields.clear();
         stringValueFields.clear();
         listEditors.clear();
+        actionRefFields.clear();
 
         for (const std::string& keyword : card.keywords)
         {
@@ -936,6 +1140,10 @@ private:
         }
         for (const card_data::KeyStringList& item : card.stringLists)
         {
+            if (lowerKey(item.key) == "actions")
+            {
+                continue;
+            }
             StringListEditor editor;
             editor.keyField = makeCompactField(item.key, {210.0f, 32.0f});
             for (const std::string& value : item.values)
@@ -944,11 +1152,35 @@ private:
             }
             listEditors.push_back(std::move(editor));
         }
+        for (const std::string& actionName : card.actionNames)
+        {
+            actionRefFields.push_back(makeCompactField(actionName, {392.0f, 32.0f}));
+        }
     }
 
     void rebuildFocusOrder()
     {
         focusOrder.clear();
+        if (editorMode == EditorMode::Actions)
+        {
+            focusOrder = {
+                &actionNameField,
+                &actionStateField,
+                &actionKindField,
+                &actionPatternField,
+                &actionMinRangeField,
+                &actionMaxRangeField,
+                &actionDamageField,
+                &actionCanMoveField,
+                &actionCanAttackField,
+                &actionPassThroughField,
+                &actionLineOfSightField,
+                &actionStatusTurnsField,
+                &actionCooldownTurnsField,
+            };
+            focusIndex = std::min(focusIndex, focusOrder.size() - 1);
+            return;
+        }
         focusOrder.push_back(&titleField);
         focusOrder.push_back(&imageField);
         focusOrder.push_back(&typeField);
@@ -973,6 +1205,10 @@ private:
             {
                 focusOrder.push_back(&field);
             }
+        }
+        for (InputBox& field : actionRefFields)
+        {
+            focusOrder.push_back(&field);
         }
         focusIndex = std::min(focusIndex, focusOrder.empty() ? 0 : focusOrder.size() - 1);
     }
@@ -1020,6 +1256,192 @@ private:
         setStatus(fmt::format("Loaded {} card{}", cards.size(), cards.size() == 1 ? "" : "s"), Muted);
     }
 
+    void loadActions()
+    {
+        const ActionListResult result = fetchActionsFromServer();
+        if (!result.success)
+        {
+            actions.clear();
+            selectedAction.reset();
+            actionListOffset = 0;
+            setStatus(result.message, Warn);
+            return;
+        }
+        actions = result.actions;
+        actionListOffset = 0;
+        if (!actions.empty())
+        {
+            selectAction(0);
+        }
+        else
+        {
+            createNewAction();
+        }
+        if (editorMode == EditorMode::Actions)
+        {
+            setStatus(fmt::format("Loaded {} action{}", actions.size(), actions.size() == 1 ? "" : "s"), Muted);
+        }
+    }
+
+    static int formInt(const InputBox& field, int fallback)
+    {
+        try
+        {
+            return std::stoi(trim(field.getValue()));
+        }
+        catch (...)
+        {
+            return fallback;
+        }
+    }
+
+    static bool formBool(const InputBox& field)
+    {
+        const std::string value = lowerKey(trim(field.getValue()));
+        return value == "1" || value == "true" || value == "yes";
+    }
+
+    card_data::Action actionFromForm() const
+    {
+        card_data::Action action;
+        action.name = trim(actionNameField.getValue());
+        action.state = formInt(actionStateField, 0);
+        action.kind = lowerKey(trim(actionKindField.getValue()));
+        action.pattern = lowerKey(trim(actionPatternField.getValue()));
+        action.minRange = formInt(actionMinRangeField, 1);
+        action.maxRange = formInt(actionMaxRangeField, 1);
+        action.damage = formInt(actionDamageField, 0);
+        action.canMove = formBool(actionCanMoveField);
+        action.canAttack = formBool(actionCanAttackField);
+        action.passThrough = formBool(actionPassThroughField);
+        action.lineOfSight = formBool(actionLineOfSightField);
+        action.statusTurns = formInt(actionStatusTurnsField, 0);
+        action.cooldownTurns = formInt(actionCooldownTurnsField, 0);
+        return action;
+    }
+
+    void createNewAction()
+    {
+        selectedAction.reset();
+        actionNameField.setValue("");
+        actionStateField.setValue("0");
+        actionKindField.setValue("slide");
+        actionPatternField.setValue("omni");
+        actionMinRangeField.setValue("1");
+        actionMaxRangeField.setValue("1");
+        actionDamageField.setValue("0");
+        actionCanMoveField.setValue("1");
+        actionCanAttackField.setValue("0");
+        actionPassThroughField.setValue("0");
+        actionLineOfSightField.setValue("0");
+        actionStatusTurnsField.setValue("0");
+        actionCooldownTurnsField.setValue("0");
+        rebuildFocusOrder();
+        activateField(&actionNameField);
+        setStatus("Draft action", Muted);
+    }
+
+    void selectAction(std::size_t index)
+    {
+        if (index >= actions.size())
+        {
+            return;
+        }
+        selectedAction = index;
+        ensureActionVisible(index);
+        const card_data::Action& action = actions[index];
+        actionNameField.setValue(action.name);
+        actionStateField.setValue(std::to_string(action.state));
+        actionKindField.setValue(action.kind);
+        actionPatternField.setValue(action.pattern);
+        actionMinRangeField.setValue(std::to_string(action.minRange));
+        actionMaxRangeField.setValue(std::to_string(action.maxRange));
+        actionDamageField.setValue(std::to_string(action.damage));
+        actionCanMoveField.setValue(action.canMove ? "1" : "0");
+        actionCanAttackField.setValue(action.canAttack ? "1" : "0");
+        actionPassThroughField.setValue(action.passThrough ? "1" : "0");
+        actionLineOfSightField.setValue(action.lineOfSight ? "1" : "0");
+        actionStatusTurnsField.setValue(std::to_string(action.statusTurns));
+        actionCooldownTurnsField.setValue(std::to_string(action.cooldownTurns));
+        rebuildFocusOrder();
+        activateField(&actionNameField);
+    }
+
+    std::optional<std::string> selectedActionName() const
+    {
+        if (!selectedAction || *selectedAction >= actions.size())
+        {
+            return std::nullopt;
+        }
+        return actions[*selectedAction].name;
+    }
+
+    void saveCurrentAction()
+    {
+        const card_data::Action action = actionFromForm();
+        if (action.name.empty())
+        {
+            setStatus("Action name is required before saving", Warn);
+            return;
+        }
+        const std::optional<std::string> originalName = selectedActionName();
+        const CommandResult result = originalName
+            ? updateActionOnServer(*originalName, action)
+            : saveActionToServer(action);
+        if (!result.success)
+        {
+            setStatus(result.message, Warn);
+            return;
+        }
+        const ActionListResult listResult = fetchActionsFromServer();
+        if (listResult.success)
+        {
+            actions = listResult.actions;
+            const auto found = std::find_if(actions.begin(), actions.end(), [&](const card_data::Action& item) {
+                return item.name == action.name;
+            });
+            if (found != actions.end())
+            {
+                selectAction(static_cast<std::size_t>(found - actions.begin()));
+            }
+        }
+        loadCards();
+        setStatus("Saved action", Accent);
+    }
+
+    void deleteCurrentAction()
+    {
+        const std::optional<std::string> name = selectedActionName();
+        if (!name)
+        {
+            setStatus("Select a saved action before deleting", Warn);
+            return;
+        }
+        const CommandResult result = deleteActionFromServer(*name);
+        if (!result.success)
+        {
+            setStatus(result.message, Warn);
+            return;
+        }
+        const std::size_t deletedIndex = *selectedAction;
+        const ActionListResult listResult = fetchActionsFromServer();
+        if (!listResult.success)
+        {
+            setStatus(listResult.message, Warn);
+            return;
+        }
+        actions = listResult.actions;
+        if (actions.empty())
+        {
+            createNewAction();
+        }
+        else
+        {
+            selectAction(std::min(deletedIndex, actions.size() - 1));
+        }
+        setStatus("Deleted action", Accent);
+    }
+
     void createNewCard()
     {
         selectedCard.reset();
@@ -1032,6 +1454,7 @@ private:
         stringKeyFields.clear();
         stringValueFields.clear();
         listEditors.clear();
+        actionRefFields.clear();
         editorScroll = 0.0f;
         rebuildFocusOrder();
         activateField(&titleField);
@@ -1099,7 +1522,7 @@ private:
         {
             card_data::KeyStringList item;
             item.key = trim(editor.keyField.getValue());
-            if (item.key.empty())
+            if (item.key.empty() || lowerKey(item.key) == "actions")
             {
                 continue;
             }
@@ -1112,6 +1535,14 @@ private:
                 }
             }
             card.stringLists.push_back(item);
+        }
+        for (const InputBox& field : actionRefFields)
+        {
+            const std::string actionName = trim(field.getValue());
+            if (!actionName.empty())
+            {
+                card.actionNames.push_back(actionName);
+            }
         }
         return card;
     }
@@ -1229,6 +1660,30 @@ private:
         listOffset = static_cast<std::size_t>(next);
     }
 
+    void ensureActionVisible(std::size_t index)
+    {
+        if (index < actionListOffset)
+        {
+            actionListOffset = index;
+        }
+        else if (index >= actionListOffset + VisibleActionRows)
+        {
+            actionListOffset = index - VisibleActionRows + 1;
+        }
+    }
+
+    void scrollActionList(int rows)
+    {
+        if (actions.size() <= VisibleActionRows)
+        {
+            actionListOffset = 0;
+            return;
+        }
+        const int maxOffset = static_cast<int>(actions.size() - VisibleActionRows);
+        actionListOffset = static_cast<std::size_t>(
+            std::clamp(static_cast<int>(actionListOffset) + rows, 0, maxOffset));
+    }
+
     bool isInArrayViewport(sf::Vector2f point) const
     {
         return point.x >= 330.0f && point.x <= 824.0f && point.y >= ArrayViewportTop && point.y <= ArrayViewportBottom;
@@ -1262,6 +1717,7 @@ private:
         removeListButtons.clear();
         addListValueButtons.clear();
         removeListValueButtons.clear();
+        removeActionRefButtons.clear();
 
         float y = ArrayViewportTop - editorScroll;
         auto addSection = [&](const std::string& heading, EditorButton& addButton) {
@@ -1354,6 +1810,22 @@ private:
             removeListValueButtons.push_back(std::move(valueButtons));
             y += 8.0f;
         }
+        y += 12.0f;
+
+        addSection("Actions", addActionRefButton);
+        if (actionRefFields.empty())
+        {
+            arraySectionLabels.push_back({"No action references", {354.0f, y + 6.0f}});
+            y += 34.0f;
+        }
+        for (InputBox& field : actionRefFields)
+        {
+            field.setPosition({340.0f, y});
+            EditorButton button = makeMiniButton("X", Warn);
+            button.setPosition({778.0f, y + 2.0f});
+            removeActionRefButtons.push_back(std::move(button));
+            y += 40.0f;
+        }
 
         editorContentHeight = y - (ArrayViewportTop - editorScroll);
         const float maxScroll = std::max(0.0f, editorContentHeight - ArrayViewportHeight);
@@ -1426,6 +1898,14 @@ private:
         ensureActiveFieldVisible();
     }
 
+    void addActionReference()
+    {
+        actionRefFields.push_back(makeCompactField("", {392.0f, 32.0f}));
+        rebuildFocusOrder();
+        activateField(&actionRefFields.back());
+        ensureActiveFieldVisible();
+    }
+
     void removeKeyword(std::size_t index)
     {
         if (index < keywordFields.size())
@@ -1473,6 +1953,16 @@ private:
         if (listIndex < listEditors.size() && valueIndex < listEditors[listIndex].valueFields.size())
         {
             listEditors[listIndex].valueFields.erase(listEditors[listIndex].valueFields.begin() + static_cast<std::ptrdiff_t>(valueIndex));
+            rebuildFocusOrder();
+            activateField(&titleField);
+        }
+    }
+
+    void removeActionReference(std::size_t index)
+    {
+        if (index < actionRefFields.size())
+        {
+            actionRefFields.erase(actionRefFields.begin() + static_cast<std::ptrdiff_t>(index));
             rebuildFocusOrder();
             activateField(&titleField);
         }
@@ -1552,6 +2042,13 @@ private:
                 }
             }
         }
+        for (InputBox& field : actionRefFields)
+        {
+            if (isVisibleInArrayViewport(field.bounds()) && field.contains(mouse))
+            {
+                return &field;
+            }
+        }
         return nullptr;
     }
 
@@ -1564,7 +2061,10 @@ private:
 
     bool handleClick(sf::Vector2f mouse)
     {
-        layoutArrayControls();
+        if (editorMode == EditorMode::Cards)
+        {
+            layoutArrayControls();
+        }
 
         if (instructionsButton.contains(mouse))
         {
@@ -1580,24 +2080,90 @@ private:
         {
             return true;
         }
+        if (cardTabButton.contains(mouse))
+        {
+            editorMode = EditorMode::Cards;
+            rebuildFocusOrder();
+            activateField(&titleField);
+            setStatus(fmt::format("{} cards", cards.size()), Muted);
+            return false;
+        }
+        if (actionTabButton.contains(mouse))
+        {
+            editorMode = EditorMode::Actions;
+            rebuildFocusOrder();
+            activateField(&actionNameField);
+            setStatus(fmt::format("{} actions", actions.size()), Muted);
+            return false;
+        }
         if (newButton.contains(mouse))
         {
-            createNewCard();
+            if (editorMode == EditorMode::Cards)
+            {
+                createNewCard();
+            }
+            else
+            {
+                createNewAction();
+            }
             return false;
         }
         if (refreshButton.contains(mouse))
         {
-            loadCards();
+            if (editorMode == EditorMode::Cards)
+            {
+                loadCards();
+            }
+            else
+            {
+                loadActions();
+            }
             return false;
         }
-        if (saveButton.contains(mouse))
+        if ((editorMode == EditorMode::Cards && saveButton.contains(mouse)) ||
+            (editorMode == EditorMode::Actions && saveActionButton.contains(mouse)))
         {
-            saveCurrentCard();
+            if (editorMode == EditorMode::Cards)
+            {
+                saveCurrentCard();
+            }
+            else
+            {
+                saveCurrentAction();
+            }
             return false;
         }
         if (deleteButton.contains(mouse))
         {
-            deleteCurrentCard();
+            if (editorMode == EditorMode::Cards)
+            {
+                deleteCurrentCard();
+            }
+            else
+            {
+                deleteCurrentAction();
+            }
+            return false;
+        }
+        if (editorMode == EditorMode::Actions)
+        {
+            layoutActionFields();
+            const std::optional<std::size_t> actionIndex = actionIndexAt(mouse);
+            if (actionIndex)
+            {
+                selectAction(*actionIndex);
+                return false;
+            }
+            for (InputBox* field : focusOrder)
+            {
+                if (field->contains(mouse))
+                {
+                    activateField(field);
+                    field->beginMouseSelection(mouse, sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
+                                                       sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift));
+                    return false;
+                }
+            }
             return false;
         }
         if (isInArrayViewport(mouse))
@@ -1620,6 +2186,11 @@ private:
             if (isVisibleInArrayViewport(addListButton.bounds()) && addListButton.contains(mouse))
             {
                 addStringList();
+                return false;
+            }
+            if (isVisibleInArrayViewport(addActionRefButton.bounds()) && addActionRefButton.contains(mouse))
+            {
+                addActionReference();
                 return false;
             }
             for (std::size_t i = 0; i < removeKeywordButtons.size(); ++i)
@@ -1674,6 +2245,14 @@ private:
                     }
                 }
             }
+            for (std::size_t i = 0; i < removeActionRefButtons.size(); ++i)
+            {
+                if (isVisibleInArrayViewport(removeActionRefButtons[i].bounds()) && removeActionRefButtons[i].contains(mouse))
+                {
+                    removeActionReference(i);
+                    return false;
+                }
+            }
             if (InputBox* field = dynamicFieldAt(mouse))
             {
                 activateField(field);
@@ -1717,6 +2296,21 @@ private:
         return false;
     }
 
+    std::optional<std::size_t> actionIndexAt(sf::Vector2f mouse) const
+    {
+        if (mouse.x < 42.0f || mouse.x > 272.0f || mouse.y < ListRowStartY)
+        {
+            return std::nullopt;
+        }
+        const std::size_t visibleIndex = static_cast<std::size_t>((mouse.y - ListRowStartY) / ListRowHeight);
+        const std::size_t index = actionListOffset + visibleIndex;
+        if (visibleIndex < VisibleActionRows && index < actions.size())
+        {
+            return index;
+        }
+        return std::nullopt;
+    }
+
     std::optional<std::size_t> cardIndexAt(sf::Vector2f mouse) const
     {
         if (mouse.x < 42.0f || mouse.x > 272.0f || mouse.y < ListRowStartY)
@@ -1752,6 +2346,8 @@ private:
         else
         {
             drawText(window, font, fmt::format("Card server {}", endpointText()), 15, {744.0f, 31.0f}, Muted, 214.0f);
+            cardTabButton.draw(window);
+            actionTabButton.draw(window);
             instructionsButton.draw(window);
             backButton.draw(window);
         }
@@ -1860,7 +2456,7 @@ private:
         y = drawInstructionBullet(window, "none: the piece cannot move.", y);
         y = drawInstructionParagraph(window, "For ortho, diag, and omni, every square along the path must be empty. The destination must also be empty unless attackingMove=1 and it contains an enemy. A move uses the piece's action for that turn.", y + 5.0f, sf::Color(198, 210, 224));
         y += 10.0f;
-        y = drawInstructionParagraph(window, "Attacking movement: if the attack destroys the enemy, the mover occupies the enemy's square. If the enemy survives, a sliding mover stops on the last empty square before the enemy; a jumping mover returns to its starting square. Clicking an enemy uses attacking movement when the movement pattern can legally reach it, otherwise it uses the piece's normal attack.", y, sf::Color(225, 170, 150));
+        y = drawInstructionParagraph(window, "Attacking movement: if the attack destroys the enemy, the mover occupies the enemy's square. If the enemy survives, a normal sliding mover stops on the last empty square before the enemy. Jump-pattern and pass-through movers return to their starting square because intervening squares are not valid stopping points. Clicking an enemy uses attacking movement when the movement pattern can legally reach it, otherwise it uses the piece's normal attack.", y, sf::Color(225, 170, 150));
         y += 17.0f;
 
         y = drawInstructionSection(window, "5. Spell String Fields", y);
@@ -1874,7 +2470,7 @@ private:
         y = drawInstructionBullet(window, "Rarity: add a String Field named rarity with value common, rare, or legendary. Missing or unknown values count as common. Shop selection odds are 70% common, 25% rare, and 5% legendary; cards within a rarity are equally likely.", y);
         y = drawInstructionBullet(window, "Keywords: free-form labels shown in card details. The current game engine does not attach rules to them.", y);
         y = drawInstructionBullet(window, "ability: transform, dematerialize, or dig. Transform-style abilities switch action states; dig creates a tunnel hole on the piece's square.", y);
-        y = drawInstructionBullet(window, "actions list values use state|kind|pattern|min|max|damage|flags|status|cooldown. Kinds: slide, ranged, hop, teleport, tunnel. Flags: move, attack, pass, los.", y);
+        y = drawInstructionBullet(window, "Create reusable actions in the Actions tab, then add their exact names to the card's Actions section. Cards store ordered references to those action objects.", y);
         y = drawInstructionBullet(window, "abilityLabels is an ordered String List containing the button label for each action state.", y);
         y = drawInstructionBullet(window, "Other String Lists are free-form named lists shown in card details.", y);
         y = drawInstructionBullet(window, "Unknown Integer or String Fields are stored and displayed, but they do not change gameplay unless code is added to read them.", y);
@@ -1926,6 +2522,31 @@ private:
     {
         drawRoundedPanel(window, {ListPanelX, ListPanelY}, {ListPanelWidth, PanelHeight}, Panel);
         drawText(window, font, "Library", 22, {42.0f, 124.0f}, Ink);
+        if (editorMode == EditorMode::Actions)
+        {
+            drawText(window, font, fmt::format("{} actions", actions.size()), 14, {200.0f, 131.0f}, Muted);
+            const std::size_t lastVisible = std::min(actions.size(), actionListOffset + VisibleActionRows);
+            for (std::size_t i = actionListOffset; i < lastVisible; ++i)
+            {
+                const float y = ListRowStartY + static_cast<float>(i - actionListOffset) * ListRowHeight;
+                sf::RectangleShape row({230.0f, 48.0f});
+                row.setPosition({42.0f, y});
+                row.setFillColor(selectedAction && *selectedAction == i ? sf::Color(38, 91, 84) : PanelAlt);
+                row.setOutlineThickness(1.0f);
+                row.setOutlineColor(selectedAction && *selectedAction == i ? Accent : sf::Color(91, 64, 37));
+                window.draw(row);
+                drawText(window, font, actions[i].name, 16, {54.0f, y + 7.0f}, Ink, 206.0f);
+                drawText(window, font, actions[i].kind + " / " + actions[i].pattern, 13, {54.0f, y + 29.0f}, Muted, 206.0f);
+            }
+            if (actions.size() > VisibleActionRows)
+            {
+                drawText(window, font, fmt::format("{}-{} of {}  mouse wheel", actionListOffset + 1, lastVisible, actions.size()), 12, {46.0f, 660.0f}, Muted, 220.0f);
+            }
+            newButton.draw(window);
+            refreshButton.draw(window);
+            return;
+        }
+
         drawText(window, font, fmt::format("{} cards", cards.size()), 14, {218.0f, 131.0f}, Muted);
 
         const std::size_t lastVisible = std::min(cards.size(), listOffset + VisibleCardRows);
@@ -1985,6 +2606,7 @@ private:
         drawVisibleButton(window, addIntegerButton);
         drawVisibleButton(window, addStringButton);
         drawVisibleButton(window, addListButton);
+        drawVisibleButton(window, addActionRefButton);
         for (InputBox& field : keywordFields)
         {
             drawVisibleField(window, field);
@@ -2006,6 +2628,10 @@ private:
             {
                 drawVisibleField(window, field);
             }
+        }
+        for (InputBox& field : actionRefFields)
+        {
+            drawVisibleField(window, field);
         }
         for (EditorButton& button : removeKeywordButtons)
         {
@@ -2034,6 +2660,86 @@ private:
                 drawVisibleButton(window, button);
             }
         }
+        for (EditorButton& button : removeActionRefButtons)
+        {
+            drawVisibleButton(window, button);
+        }
+    }
+
+    void layoutActionFields()
+    {
+        actionStateField.setPosition({340.0f, 246.0f});
+        actionKindField.setPosition({600.0f, 246.0f});
+        actionPatternField.setPosition({340.0f, 316.0f});
+        actionMinRangeField.setPosition({600.0f, 316.0f});
+        actionMaxRangeField.setPosition({340.0f, 386.0f});
+        actionDamageField.setPosition({600.0f, 386.0f});
+        actionCanMoveField.setPosition({340.0f, 456.0f});
+        actionCanAttackField.setPosition({600.0f, 456.0f});
+        actionPassThroughField.setPosition({340.0f, 526.0f});
+        actionLineOfSightField.setPosition({600.0f, 526.0f});
+        actionStatusTurnsField.setPosition({340.0f, 596.0f});
+        actionCooldownTurnsField.setPosition({600.0f, 596.0f});
+    }
+
+    void drawActionEditorPanel(sf::RenderWindow& window)
+    {
+        drawRoundedPanel(window, {EditorPanelX, EditorPanelY}, {EditorPanelWidth, PanelHeight}, Panel);
+        drawText(window, font, "Edit Action", 22, {340.0f, 124.0f}, Ink);
+        drawText(window, font, "Boolean fields use 1 or 0.", 14, {610.0f, 131.0f}, Muted, 206.0f);
+        actionNameField.draw(window);
+        layoutActionFields();
+        const std::vector<std::pair<std::string, sf::Vector2f>> labels = {
+            {"State", {340.0f, 222.0f}},
+            {"Kind", {600.0f, 222.0f}},
+            {"Pattern", {340.0f, 292.0f}},
+            {"Minimum range", {600.0f, 292.0f}},
+            {"Maximum range", {340.0f, 362.0f}},
+            {"Damage", {600.0f, 362.0f}},
+            {"Can move", {340.0f, 432.0f}},
+            {"Can attack", {600.0f, 432.0f}},
+            {"Pass through", {340.0f, 502.0f}},
+            {"Line of sight", {600.0f, 502.0f}},
+            {"Status turns", {340.0f, 572.0f}},
+            {"Cooldown turns", {600.0f, 572.0f}},
+        };
+        for (const auto& [label, position] : labels)
+        {
+            drawText(window, font, label, 14, position, Muted);
+        }
+        for (InputBox* field : focusOrder)
+        {
+            if (field != &actionNameField)
+            {
+                field->draw(window);
+            }
+        }
+        deleteButton.draw(window);
+        saveActionButton.draw(window);
+        drawText(window, font, status, 16, {340.0f, 702.0f}, statusColor, 174.0f);
+    }
+
+    void drawActionPreviewPanel(sf::RenderWindow& window)
+    {
+        drawRoundedPanel(window, {PreviewPanelX, PreviewPanelY}, {PreviewPanelWidth, PanelHeight}, Panel);
+        const card_data::Action action = actionFromForm();
+        drawText(window, font, "Action Reference", 22, {882.0f, 124.0f}, Ink);
+        drawText(window, font, action.name.empty() ? "Untitled Action" : action.name, 21, {882.0f, 168.0f}, Accent, 336.0f);
+        drawText(window, font, fmt::format("state {}  |  {} / {}", action.state, action.kind, action.pattern), 17, {882.0f, 212.0f}, Ink, 336.0f);
+        drawText(window, font, fmt::format("range {}-{}  |  damage {}", action.minRange, action.maxRange, action.damage), 17, {882.0f, 252.0f}, Ink, 336.0f);
+        std::vector<std::string> flags;
+        if (action.canMove) flags.push_back("move");
+        if (action.canAttack) flags.push_back("attack");
+        if (action.passThrough) flags.push_back("pass");
+        if (action.lineOfSight) flags.push_back("los");
+        drawText(window, font, "Flags", 15, {882.0f, 306.0f}, Muted);
+        drawText(window, font, flags.empty() ? "none" : joinStrings(flags, ", "), 17, {882.0f, 330.0f}, Ink, 336.0f);
+        drawText(window, font, fmt::format("Status: {} turns", action.statusTurns), 17, {882.0f, 382.0f}, Ink);
+        drawText(window, font, fmt::format("Cooldown: {} turns", action.cooldownTurns), 17, {882.0f, 420.0f}, Ink);
+        drawText(window, font, "Cards reference this object by its unique name.", 15, {882.0f, 486.0f}, Muted, 336.0f);
+        drawText(window, font, "Kinds: slide, ranged, hop, teleport, tunnel", 14, {882.0f, 540.0f}, Muted, 336.0f);
+        drawText(window, font, "Patterns: none, ortho, diag, omni, jump,", 14, {882.0f, 576.0f}, Muted, 336.0f);
+        drawText(window, font, "horizontal, vertical", 14, {882.0f, 598.0f}, Muted, 336.0f);
     }
 
     void drawVisibleField(sf::RenderWindow& window, InputBox& field)
@@ -2099,6 +2805,9 @@ private:
         y += 54.0f;
         drawText(window, font, "String Lists", 15, {882.0f, y}, Muted);
         drawText(window, font, stringListsToText(card.stringLists), 16, {882.0f, y + 22.0f}, Ink, 336.0f);
+        y += 54.0f;
+        drawText(window, font, "Actions", 15, {882.0f, y}, Muted);
+        drawText(window, font, joinStrings(card.actionNames, ", "), 16, {882.0f, y + 22.0f}, Ink, 336.0f);
     }
 
     void setStatus(const std::string& message, sf::Color color)

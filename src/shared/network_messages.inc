@@ -71,7 +71,15 @@ enum class MessageType : std::uint8_t
     RegisterRankedMatch,
     RegisterRankedMatchResponse,
     SubmitRankedResult,
-    SubmitRankedResultResponse
+    SubmitRankedResultResponse,
+    ActionListRequest,
+    ActionListResponse,
+    ActionUpsertRequest,
+    ActionUpsertResponse,
+    ActionUpdateRequest,
+    ActionUpdateResponse,
+    ActionDeleteRequest,
+    ActionDeleteResponse
 };
 
 struct CreateAccountRequest
