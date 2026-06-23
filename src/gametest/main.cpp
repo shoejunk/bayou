@@ -460,11 +460,20 @@ int main(int argc, char** argv)
     const Piece* firstPlacedHero = findPieceAt(s1.pieces, 2, 0);
     check(firstPlacedHero && firstPlacedHero->name == "Cog Tinker",
           "placing a hero uses the selected hand index");
+    check(findPieceAt(s2.pieces, 2, 0) == nullptr,
+          "opponent cannot see a hero placed during setup");
     check(s1.hand.size() == 1 && s1.hand[0].title == "Gear Knight",
           "placed hero is removed from the placement hand");
     sendPlaceHero(p1, 3, 0);
     sendPlaceHero(p2, 2, 7);
     settle(p1, p2, s1, s2, 400);
+    check(findPieceAt(s1.pieces, 2, 7) == nullptr,
+          "player 1 cannot see player 2's placement before setup finishes");
+    check(findPieceAt(s2.pieces, 2, 0) == nullptr &&
+          findPieceAt(s2.pieces, 3, 0) == nullptr,
+          "player 2 cannot see player 1's completed placement while still placing");
+    check(findPieceAt(s2.pieces, 2, 7) != nullptr,
+          "players can see their own placed heroes during setup");
     sendPlaceHero(p2, 3, 7);
     settle(p1, p2, s1, s2, 1000);
 
@@ -479,6 +488,15 @@ int main(int argc, char** argv)
         if (piece.isHero && piece.owner == 2) ++p2Heroes;
     }
     check(p1Heroes == 2 && p2Heroes == 2, "four heroes on the board");
+    int visibleToPlayer2 = 0;
+    for (const Piece& piece : s2.pieces)
+    {
+        if (piece.isHero)
+        {
+            ++visibleToPlayer2;
+        }
+    }
+    check(visibleToPlayer2 == 4, "both placements are revealed when setup finishes");
     check(s1.players[0].steam == s1.players[0].controlledSquares, "player 1 steam equals controlled squares");
     check(s1.players[0].handCount >= StartingHandSize, "player 1 drew an opening hand");
 

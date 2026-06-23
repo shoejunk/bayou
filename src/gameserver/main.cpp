@@ -339,7 +339,11 @@ public:
         snapshot.pieces.clear();
         for (const Piece& piece : pieces)
         {
-            if (!piece.hidden || piece.owner == playerNumber)
+            const bool concealedOpponentPlacement =
+                phaseValue == Phase::HeroPlacement &&
+                piece.isHero &&
+                piece.owner != playerNumber;
+            if (!concealedOpponentPlacement && (!piece.hidden || piece.owner == playerNumber))
             {
                 snapshot.pieces.push_back(piece);
             }

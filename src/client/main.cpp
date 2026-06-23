@@ -5170,6 +5170,23 @@ int main(int argc, char** argv)
         const game_data::Piece* draggedPiece =
             gameDragKind == GameDragKind::Piece && draggingPieceId ? gamePieceById(*draggingPieceId) : nullptr;
         const game_data::Piece* actingPiece = draggedPiece ? draggedPiece : selectedPiece;
+        const std::optional<std::pair<int, int>> draggedPieceSquare =
+            gameDragActive && draggedPiece ? squareAtPixel(gameDragCurrentPos) : std::nullopt;
+        bool draggedPieceDropValid = false;
+        if (draggedPiece && draggedPieceSquare)
+        {
+            const game_data::ActionResolution action = game_data::resolvePieceAction(
+                gameSnapshot.pieces,
+                gameSnapshot.holes,
+                *draggedPiece,
+                draggedPieceSquare->first,
+                draggedPieceSquare->second);
+            draggedPieceDropValid = phase == game_data::Phase::Playing &&
+                gameSnapshot.activePlayer == me &&
+                draggedPiece->owner == me &&
+                !draggedPiece->hasActed &&
+                action.legal;
+        }
         const std::optional<std::size_t> actingHandIndex =
             gameDragKind == GameDragKind::HandCard && draggingHandIndex ? draggingHandIndex : selectedHandIndex;
         const game_data::GameCard* draggedHandCard =
@@ -5345,6 +5362,21 @@ int main(int argc, char** argv)
                             ? sf::Color(145, 255, 215, 235)
                             : sf::Color(255, 135, 120, 235));
                 }
+
+                if (draggedPieceSquare &&
+                    draggedPieceSquare->first == row &&
+                    draggedPieceSquare->second == column)
+                {
+                    drawQuad(
+                        metrics.corners,
+                        draggedPieceDropValid
+                            ? sf::Color(90, 225, 170, 125)
+                            : sf::Color(225, 75, 65, 125),
+                        2.5f,
+                        draggedPieceDropValid
+                            ? sf::Color(145, 255, 215, 235)
+                            : sf::Color(255, 135, 120, 235));
+                }
             }
         }
 
@@ -5353,6 +5385,10 @@ int main(int argc, char** argv)
         pieceDrawOrder.reserve(gameSnapshot.pieces.size());
         for (const game_data::Piece& piece : gameSnapshot.pieces)
         {
+            if (gameDragActive && draggedPiece && piece.id == draggedPiece->id)
+            {
+                continue;
+            }
             pieceDrawOrder.push_back(&piece);
         }
         std::sort(pieceDrawOrder.begin(), pieceDrawOrder.end(), [&](const game_data::Piece* a, const game_data::Piece* b) {
@@ -5620,20 +5656,24 @@ int main(int argc, char** argv)
             }
             else if (gameDragKind == GameDragKind::Piece && draggedPiece)
             {
-                sf::RectangleShape ghost({CellSize - 8.0f, CellSize - 8.0f});
-                ghost.setPosition({gameDragCurrentPos.x - CellSize / 2.0f + 4.0f, gameDragCurrentPos.y - CellSize / 2.0f + 4.0f});
-                ghost.setFillColor(sf::Color(20, 28, 30, 190));
-                ghost.setOutlineThickness(2.0f);
-                ghost.setOutlineColor(ownerColor(draggedPiece->owner));
-                window.draw(ghost);
+                sf::Vector2f anchor = gameDragCurrentPos;
+                float scale = 1.0f;
+                if (draggedPieceSquare)
+                {
+                    const BoardCellMetrics metrics =
+                        boardCellMetrics(draggedPieceSquare->first, draggedPieceSquare->second);
+                    anchor = boardCellAnchor(metrics);
+                    scale = metrics.depthScale;
+                }
+                const sf::Color tint = draggedPieceDropValid
+                    ? sf::Color(255, 255, 255, 220)
+                    : sf::Color(220, 120, 110, 190);
+                bool drewPiece = false;
 
                 if (sf::Texture* token = loadTexture(pieceTokenPath(*draggedPiece)))
                 {
-                    drawContainSprite(
-                        *token,
-                        {{gameDragCurrentPos.x - CellSize / 2.0f + 7.0f, gameDragCurrentPos.y - CellSize / 2.0f},
-                         {CellSize - 14.0f, CellSize - 8.0f}},
-                        sf::Color(255, 255, 255, 210));
+                    drawContainSprite(*token, pieceTargetRect(anchor, scale, true), tint);
+                    drewPiece = true;
                 }
                 else if (sf::Texture* walkSheet = walkAnimTexture(pieceWalkAnimPath(*draggedPiece)))
                 {
@@ -5647,19 +5687,38 @@ int main(int argc, char** argv)
                         drawTextureRectContain(
                             *walkSheet,
                             sf::IntRect({0, 0}, {frameWidth, frameHeight}),
-                            {{gameDragCurrentPos.x - CellSize / 2.0f + 7.0f, gameDragCurrentPos.y - CellSize / 2.0f},
-                             {CellSize - 14.0f, CellSize - 8.0f}},
-                            sf::Color(255, 255, 255, 210));
+                            pieceTargetRect(anchor, scale, true),
+                            tint);
+                        drewPiece = true;
                     }
                 }
                 else if (sf::Texture* art = cardArtTexture(draggedPiece->imagePath))
                 {
-                    drawContainSprite(
-                        *art,
-                        {{gameDragCurrentPos.x - CellSize / 2.0f + 10.0f, gameDragCurrentPos.y - CellSize / 2.0f + 10.0f},
-                         {CellSize - 20.0f, CellSize - 20.0f}},
-                        sf::Color(255, 255, 255, 210));
+                    drawContainSprite(*art, pieceTargetRect(anchor, scale, false), tint);
+                    drewPiece = true;
                 }
+
+                if (!drewPiece)
+                {
+                    const float radius = PieceBaseWidth * 0.28f * scale;
+                    sf::CircleShape body(radius);
+                    body.setPosition({anchor.x - radius, anchor.y - radius * 2.0f});
+                    body.setFillColor(
+                        draggedPieceDropValid
+                            ? ownerColor(draggedPiece->owner)
+                            : sf::Color(180, 75, 65, 210));
+                    window.draw(body);
+                }
+
+                const unsigned int healthSize =
+                    static_cast<unsigned int>(std::clamp(12.0f * scale, 10.0f, 17.0f));
+                drawText(
+                    window,
+                    font,
+                    std::to_string(draggedPiece->health),
+                    healthSize,
+                    {anchor.x - 5.0f * scale, anchor.y - 21.0f * scale},
+                    sf::Color(248, 239, 216, 220));
             }
         }
 
