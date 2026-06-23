@@ -1079,19 +1079,42 @@ float drawWrappedText(
 
 void drawPanel(sf::RenderWindow& window, sf::Vector2f position, sf::Vector2f size)
 {
+    sf::RectangleShape shadow(size);
+    shadow.setPosition(position + sf::Vector2f(5.0f, 6.0f));
+    shadow.setFillColor(sf::Color(0, 0, 0, 110));
+    window.draw(shadow);
+
     sf::RectangleShape panel(size);
     panel.setPosition(position);
-    panel.setFillColor(sf::Color(15, 23, 26, 222));
+    panel.setFillColor(sf::Color(10, 21, 23, 238));
     panel.setOutlineThickness(2.0f);
-    panel.setOutlineColor(sf::Color(142, 101, 53));
+    panel.setOutlineColor(sf::Color(158, 111, 56));
     window.draw(panel);
 
     sf::RectangleShape inner({size.x - 8.0f, size.y - 8.0f});
     inner.setPosition({position.x + 4.0f, position.y + 4.0f});
     inner.setFillColor(sf::Color::Transparent);
     inner.setOutlineThickness(1.0f);
-    inner.setOutlineColor(sf::Color(44, 108, 101, 150));
+    inner.setOutlineColor(sf::Color(50, 126, 116, 165));
     window.draw(inner);
+
+    sf::RectangleShape topRule({size.x - 12.0f, 2.0f});
+    topRule.setPosition({position.x + 6.0f, position.y + 6.0f});
+    topRule.setFillColor(sf::Color(213, 157, 76, 85));
+    window.draw(topRule);
+
+    for (const sf::Vector2f offset : std::array<sf::Vector2f, 4>{
+             sf::Vector2f{8.0f, 8.0f},
+             sf::Vector2f{size.x - 8.0f, 8.0f},
+             sf::Vector2f{8.0f, size.y - 8.0f},
+             sf::Vector2f{size.x - 8.0f, size.y - 8.0f}})
+    {
+        sf::CircleShape rivet(2.0f);
+        rivet.setOrigin({2.0f, 2.0f});
+        rivet.setPosition(position + offset);
+        rivet.setFillColor(sf::Color(186, 131, 61, 180));
+        window.draw(rivet);
+    }
 }
 
 void drawRow(
@@ -2136,8 +2159,8 @@ int main(int argc, char** argv)
     const std::vector<sf::VideoMode>& fullscreenModes = sf::VideoMode::getFullscreenModes();
     std::vector<sf::Vector2u> displayResolutions;
     auto addResolution = [&](sf::Vector2u size) {
-        if (size.x < static_cast<unsigned int>(LogicalWidth) ||
-            size.y < static_cast<unsigned int>(LogicalHeight) ||
+        if (size.x < 1024u ||
+            size.y < 720u ||
             size.x > desktopMode.size.x ||
             size.y > desktopMode.size.y)
         {
@@ -2149,7 +2172,6 @@ int main(int argc, char** argv)
         }
     };
 
-    addResolution({800, 600});
     addResolution({1024, 768});
     addResolution({1280, 720});
     addResolution({1280, 800});
@@ -2232,7 +2254,8 @@ int main(int argc, char** argv)
     createDisplayWindow(displaySettings);
 
     sf::Font font;
-    if (!font.openFromFile("assets/Roboto.ttf"))
+    const std::optional<std::filesystem::path> fontPath = resolveAssetPath("Roboto.ttf");
+    if (!fontPath || !font.openFromFile(*fontPath))
     {
         return 1;
     }
@@ -2349,7 +2372,7 @@ int main(int argc, char** argv)
     InputBox newPasswordInput({300.0f, 230.0f}, {200.0f, 40.0f}, "New Password", font, true);
     InputBox confirmNewPasswordInput({300.0f, 310.0f}, {200.0f, 40.0f}, "Confirm New Password", font, true);
     InputBox deckNameInput({304.0f, 154.0f}, {222.0f, 40.0f}, "Deck Name", font);
-    InputBox adminSearchInput({120.0f, 94.0f}, {520.0f, 36.0f}, "Search users", font);
+    InputBox adminSearchInput({120.0f, 94.0f}, {520.0f, 36.0f}, "", font);
     InputBox adminGoldInput({234.0f, 460.0f}, {130.0f, 36.0f}, "Gold amount", font);
 
     Button rememberMeButton({300.0f, 280.0f}, {200.0f, 42.0f}, "Remember Me: Off", font);
@@ -2361,8 +2384,8 @@ int main(int argc, char** argv)
     Button playButton({300.0f, 220.0f}, {200.0f, 60.0f}, "Play", font);
     Button deckEditorButton({300.0f, 300.0f}, {200.0f, 60.0f}, "Deck Editor", font);
     Button shopButton({300.0f, 380.0f}, {200.0f, 60.0f}, "Shop", font);
-    Button adminCardEditorButton({80.0f, 460.0f}, {200.0f, 60.0f}, "Card Editor", font);
-    Button adminUsersButton({520.0f, 460.0f}, {200.0f, 60.0f}, "Admin Users", font);
+    Button adminCardEditorButton({80.0f, 450.0f}, {200.0f, 52.0f}, "Card Editor", font);
+    Button adminUsersButton({520.0f, 450.0f}, {200.0f, 52.0f}, "Admin Users", font);
     Button authenticatedOptionsButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Options", font);
     Button logoutButton({664.0f, 520.0f}, {112.0f, 45.0f}, "Log Out", font);
 
@@ -2410,7 +2433,10 @@ int main(int argc, char** argv)
     sf::Text messageText(font, "", 20);
     messageText.setFillColor(sf::Color::Red);
     messageText.setPosition({400.0f, 450.0f});
-    CardEditorScreen cardEditorScreen(font, {clientConfig().card.host, clientConfig().card.port});
+    CardEditorScreen cardEditorScreen(
+        font,
+        {clientConfig().card.host, clientConfig().card.port},
+        fontPath->parent_path());
 
     sf::Clock clock;
     float animationTime = 0.0f;
@@ -2777,7 +2803,7 @@ int main(int argc, char** argv)
             return;
         }
         currentState = GameState::AdminUsers;
-        title.setString("Admin Users");
+        title.setString("");
         centerText(title, 400.0f);
         clearFocus();
         adminSearchInput.setContent(adminSearchQuery);
@@ -7403,7 +7429,14 @@ int main(int argc, char** argv)
 
         window.clear(sf::Color(9, 17, 19));
         drawBackdrop();
-        window.draw(title);
+        if (currentState != GameState::DeckEditor &&
+            currentState != GameState::Shop &&
+            currentState != GameState::AdminUsers &&
+            currentState != GameState::CardEditor &&
+            currentState != GameState::Game)
+        {
+            window.draw(title);
+        }
 
         if (currentState == GameState::Menu)
         {

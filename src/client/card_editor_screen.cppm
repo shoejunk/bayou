@@ -42,14 +42,15 @@ constexpr float ListRowStartY = 176.0f;
 constexpr float ListRowHeight = 56.0f;
 constexpr std::size_t VisibleCardRows = 8;
 
-const sf::Color Ink(236, 239, 244);
-const sf::Color Muted(152, 164, 181);
-const sf::Color Panel(31, 36, 46);
-const sf::Color PanelAlt(39, 46, 59);
-const sf::Color Accent(89, 183, 169);
-const sf::Color AccentDark(31, 106, 104);
-const sf::Color Warn(221, 112, 92);
-const sf::Color Line(75, 85, 102);
+const sf::Color Ink(244, 234, 208);
+const sf::Color Muted(181, 166, 137);
+const sf::Color Panel(10, 22, 24, 244);
+const sf::Color PanelAlt(20, 34, 35, 246);
+const sf::Color Accent(91, 202, 181);
+const sf::Color AccentDark(35, 112, 102);
+const sf::Color Warn(213, 102, 79);
+const sf::Color Line(132, 91, 47);
+std::filesystem::path AssetRoot = "assets";
 
 std::string trim(const std::string& value)
 {
@@ -139,7 +140,7 @@ std::filesystem::path normalizedAbsolutePath(const std::filesystem::path& path)
 
 bool isInsideAssetsRoot(const std::filesystem::path& path)
 {
-    const std::filesystem::path assetsRoot = normalizedAbsolutePath("assets");
+    const std::filesystem::path assetsRoot = normalizedAbsolutePath(AssetRoot);
     const std::filesystem::path normalizedPath = normalizedAbsolutePath(path);
     const std::filesystem::path relativePath = normalizedPath.lexically_relative(assetsRoot);
     if (relativePath.empty())
@@ -169,7 +170,7 @@ std::optional<std::filesystem::path> resolveAssetImagePath(const std::string& va
         return std::nullopt;
     }
 
-    const std::filesystem::path resolvedPath = (std::filesystem::path("assets") / relativePath).lexically_normal();
+    const std::filesystem::path resolvedPath = (AssetRoot / relativePath).lexically_normal();
     if (!isInsideAssetsRoot(resolvedPath))
     {
         return std::nullopt;
@@ -286,12 +287,24 @@ void drawText(
 
 void drawRoundedPanel(sf::RenderWindow& window, const sf::Vector2f& position, const sf::Vector2f& size, sf::Color fill, sf::Color outline = Line)
 {
+    sf::RectangleShape shadow(size);
+    shadow.setPosition(position + sf::Vector2f(4.0f, 5.0f));
+    shadow.setFillColor(sf::Color(0, 0, 0, 100));
+    window.draw(shadow);
+
     sf::RectangleShape shape(size);
     shape.setPosition(position);
     shape.setFillColor(fill);
-    shape.setOutlineThickness(1.0f);
+    shape.setOutlineThickness(2.0f);
     shape.setOutlineColor(outline);
     window.draw(shape);
+
+    sf::RectangleShape inner({size.x - 8.0f, size.y - 8.0f});
+    inner.setPosition(position + sf::Vector2f(4.0f, 4.0f));
+    inner.setFillColor(sf::Color::Transparent);
+    inner.setOutlineThickness(1.0f);
+    inner.setOutlineColor(sf::Color(48, 119, 109, 135));
+    window.draw(inner);
 }
 
 class EditorButton
@@ -305,8 +318,8 @@ public:
         text.emplace(font, label, 18);
         shape.setPosition(position);
         shape.setFillColor(base);
-        shape.setOutlineThickness(1.0f);
-        shape.setOutlineColor(sf::Color(base.r + 20, base.g + 20, base.b + 20));
+        shape.setOutlineThickness(2.0f);
+        shape.setOutlineColor(sf::Color(181, 126, 60));
         text->setFillColor(Ink);
         centerText(*text, {position.x + size.x / 2.0f, position.y + size.y / 2.0f - 1.0f});
     }
@@ -338,7 +351,18 @@ public:
 
     void draw(sf::RenderWindow& window) const
     {
+        sf::RectangleShape shadow(shape.getSize());
+        shadow.setPosition(shape.getPosition() + sf::Vector2f(3.0f, 3.0f));
+        shadow.setFillColor(sf::Color(0, 0, 0, 90));
+        window.draw(shadow);
         window.draw(shape);
+
+        sf::RectangleShape inner(shape.getSize() - sf::Vector2f(8.0f, 8.0f));
+        inner.setPosition(shape.getPosition() + sf::Vector2f(4.0f, 4.0f));
+        inner.setFillColor(sf::Color::Transparent);
+        inner.setOutlineThickness(1.0f);
+        inner.setOutlineColor(sf::Color(224, 171, 86, 85));
+        window.draw(inner);
         window.draw(*text);
     }
 
@@ -402,9 +426,13 @@ export struct CardEditorEndpoint
 export class CardEditorScreen
 {
 public:
-    explicit CardEditorScreen(sf::Font& screenFont, CardEditorEndpoint screenEndpoint = {})
+    explicit CardEditorScreen(
+        sf::Font& screenFont,
+        CardEditorEndpoint screenEndpoint = {},
+        std::filesystem::path assetRoot = "assets")
         : font(screenFont), endpoint(std::move(screenEndpoint))
     {
+        AssetRoot = normalizedAbsolutePath(std::move(assetRoot));
         buildControls();
     }
 
@@ -582,7 +610,7 @@ public:
         const sf::View previousView = window.getView();
         window.setView(makeEditorView(window));
         sf::RectangleShape background({EditorWidth, EditorHeight});
-        background.setFillColor(sf::Color(18, 22, 30));
+        background.setFillColor(sf::Color(5, 13, 15, 232));
         window.draw(background);
         drawHeader(window);
         if (instructionsVisible)
@@ -853,11 +881,11 @@ private:
 
     void buildControls()
     {
-        backButton = EditorButton(font, "Back", {1124.0f, 22.0f}, {112.0f, 38.0f}, sf::Color(45, 70, 83));
+        backButton = EditorButton(font, "Back", {1124.0f, 22.0f}, {112.0f, 38.0f}, sf::Color(67, 48, 33));
         instructionsButton = EditorButton(font, "Instructions", {970.0f, 22.0f}, {142.0f, 38.0f}, AccentDark);
         instructionsBackButton = EditorButton(font, "Back to Editor", {1060.0f, 22.0f}, {176.0f, 38.0f}, AccentDark);
-        newButton = EditorButton(font, "New", {42.0f, 690.0f}, {96.0f, 42.0f}, sf::Color(45, 70, 83));
-        refreshButton = EditorButton(font, "Refresh", {150.0f, 690.0f}, {120.0f, 42.0f}, sf::Color(45, 70, 83));
+        newButton = EditorButton(font, "New", {42.0f, 690.0f}, {96.0f, 42.0f}, sf::Color(67, 48, 33));
+        refreshButton = EditorButton(font, "Refresh", {150.0f, 690.0f}, {120.0f, 42.0f}, sf::Color(67, 48, 33));
         saveButton = EditorButton(font, "Save Card", {660.0f, 690.0f}, {156.0f, 42.0f}, AccentDark);
         deleteButton = EditorButton(font, "Delete", {528.0f, 690.0f}, {120.0f, 42.0f}, Warn);
         addKeywordButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
@@ -1713,7 +1741,7 @@ private:
     void drawHeader(sf::RenderWindow& window)
     {
         sf::RectangleShape bar({EditorWidth, 80.0f});
-        bar.setFillColor(sf::Color(24, 29, 38));
+        bar.setFillColor(sf::Color(11, 24, 26, 248));
         window.draw(bar);
         drawText(window, font, "Bayou Card Editor", 30, {30.0f, 22.0f}, Ink);
         if (instructionsVisible)
@@ -1906,9 +1934,9 @@ private:
             const float y = ListRowStartY + static_cast<float>(i - listOffset) * ListRowHeight;
             sf::RectangleShape row({230.0f, 48.0f});
             row.setPosition({42.0f, y});
-            row.setFillColor(selectedCard && *selectedCard == i ? sf::Color(49, 68, 78) : PanelAlt);
+            row.setFillColor(selectedCard && *selectedCard == i ? sf::Color(38, 91, 84) : PanelAlt);
             row.setOutlineThickness(1.0f);
-            row.setOutlineColor(selectedCard && *selectedCard == i ? Accent : sf::Color(48, 56, 70));
+            row.setOutlineColor(selectedCard && *selectedCard == i ? Accent : sf::Color(91, 64, 37));
             window.draw(row);
             drawText(window, font, cards[i].title, 17, {54.0f, y + 8.0f}, Ink, 206.0f);
             drawText(window, font, cards[i].type, 13, {54.0f, y + 29.0f}, Muted);
@@ -1940,7 +1968,7 @@ private:
         layoutArrayControls();
         sf::RectangleShape viewport({482.0f, ArrayViewportHeight});
         viewport.setPosition({334.0f, ArrayViewportTop});
-        viewport.setFillColor(sf::Color(26, 31, 40));
+        viewport.setFillColor(sf::Color(8, 18, 20, 246));
         viewport.setOutlineThickness(1.0f);
         viewport.setOutlineColor(Line);
         window.draw(viewport);
@@ -2006,10 +2034,6 @@ private:
                 drawVisibleButton(window, button);
             }
         }
-        if (editorContentHeight > ArrayViewportHeight)
-        {
-            drawText(window, font, "mouse wheel", 12, {730.0f, 656.0f}, Muted);
-        }
     }
 
     void drawVisibleField(sf::RenderWindow& window, InputBox& field)
@@ -2032,7 +2056,7 @@ private:
     {
         drawRoundedPanel(window, {PreviewPanelX, PreviewPanelY}, {PreviewPanelWidth, PanelHeight}, Panel);
         drawText(window, font, "Preview", 22, {882.0f, 124.0f}, Ink);
-        drawRoundedPanel(window, {938.0f, 160.0f}, {230.0f, 322.0f}, sf::Color(46, 52, 64), AccentDark);
+        drawRoundedPanel(window, {938.0f, 160.0f}, {230.0f, 322.0f}, sf::Color(27, 39, 38), AccentDark);
         if (hasPreviewImage)
         {
             sf::Sprite sprite(previewTexture);
@@ -2046,7 +2070,7 @@ private:
         {
             sf::RectangleShape imageSlot({190.0f, 188.0f});
             imageSlot.setPosition({958.0f, 184.0f});
-            imageSlot.setFillColor(sf::Color(28, 34, 44));
+            imageSlot.setFillColor(sf::Color(7, 16, 18));
             imageSlot.setOutlineThickness(1.0f);
             imageSlot.setOutlineColor(Line);
             window.draw(imageSlot);

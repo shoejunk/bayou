@@ -57,13 +57,13 @@ export struct InputBox
     static InputBoxStyle editorStyle()
     {
         InputBoxStyle style;
-        style.fieldFill = sf::Color(22, 27, 36);
-        style.inactiveOutline = sf::Color(75, 85, 102);
-        style.activeOutline = sf::Color(89, 183, 169);
-        style.labelColor = sf::Color(152, 164, 181);
-        style.textColor = sf::Color(236, 239, 244);
-        style.selectionColor = sf::Color(58, 126, 148, 155);
-        style.cursorColor = sf::Color(89, 183, 169);
+        style.fieldFill = sf::Color(13, 24, 25, 242);
+        style.inactiveOutline = sf::Color(116, 82, 44);
+        style.activeOutline = sf::Color(92, 202, 181);
+        style.labelColor = sf::Color(198, 174, 130);
+        style.textColor = sf::Color(244, 234, 208);
+        style.selectionColor = sf::Color(48, 126, 124, 165);
+        style.cursorColor = sf::Color(92, 202, 181);
         style.outlineThickness = 1.0f;
         style.labelSize = 15;
         style.textSize = 18;
