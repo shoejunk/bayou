@@ -197,6 +197,7 @@ public:
         while (running)
         {
             acceptWaitingPlayers();
+            processCancellations();
             makeMatches();
             std::this_thread::sleep_for(std::chrono::milliseconds(25));
         }
@@ -254,12 +255,47 @@ private:
             }
 
             fmt::println("Player {} waiting for match at rating {}", username, rating);
+            client->setBlocking(false);
             waitingPlayers.push_back({
                 std::move(client),
                 std::move(accessToken),
                 std::move(username),
                 rating,
                 std::chrono::steady_clock::now()});
+        }
+    }
+
+    void processCancellations()
+    {
+        for (std::size_t index = 0; index < waitingPlayers.size();)
+        {
+            sf::Packet packet;
+            const sf::Socket::Status status = waitingPlayers[index].socket->receive(packet);
+            if (status == sf::Socket::Status::NotReady)
+            {
+                ++index;
+                continue;
+            }
+
+            if (status != sf::Socket::Status::Done)
+            {
+                fmt::println("Player {} disconnected while waiting", waitingPlayers[index].username);
+                waitingPlayers.erase(waitingPlayers.begin() + static_cast<std::ptrdiff_t>(index));
+                continue;
+            }
+
+            std::uint8_t type = 0;
+            packet >> type;
+            if (packet && static_cast<MessageType>(type) == MessageType::CancelMatchmaking)
+            {
+                fmt::println("Player {} cancelled matchmaking", waitingPlayers[index].username);
+                sendCancelConfirmed(*waitingPlayers[index].socket);
+                waitingPlayers[index].socket->disconnect();
+                waitingPlayers.erase(waitingPlayers.begin() + static_cast<std::ptrdiff_t>(index));
+                continue;
+            }
+
+            ++index;
         }
     }
 
@@ -353,9 +389,20 @@ private:
         int playerNumber,
         unsigned short gamePort)
     {
+        client.setBlocking(true);
         sf::Packet response;
         response << static_cast<std::uint8_t>(MessageType::MatchFound)
                  << matchId << playerNumber << gamePort;
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    static void sendCancelConfirmed(sf::TcpSocket& client)
+    {
+        client.setBlocking(true);
+        sf::Packet response;
+        response << static_cast<std::uint8_t>(MessageType::CancelMatchmakingResponse)
+                 << true
+                 << std::string("Matchmaking cancelled.");
         [[maybe_unused]] auto result = client.send(response);
     }
 };

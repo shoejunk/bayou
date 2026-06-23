@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cctype>
 #include <cmath>
@@ -85,6 +86,7 @@ constexpr std::size_t VisibleLibraryRows = 8;
 enum class GameState
 {
     Menu,
+    SandboxLoading,
     Options,
     Login,
     CreateAccount,
@@ -124,6 +126,7 @@ constexpr float HandCardWidth = 88.0f;
 constexpr float HandCardHeight = 78.0f;
 constexpr float HandGap = 6.0f;
 constexpr float HandStartX = 28.0f;
+constexpr std::size_t VisibleGameHandCards = 8;
 constexpr float PiecePopupX = 150.0f;
 constexpr float PiecePopupY = 92.0f;
 constexpr float PiecePopupWidth = 500.0f;
@@ -210,6 +213,13 @@ struct ServerResult
     std::string accessToken;
     std::string rememberToken;
     bool rejectStoredCredential = false;
+    bool cancelled = false;
+};
+
+struct MatchmakingCancelState
+{
+    std::atomic<bool> requested{false};
+    std::atomic<bool> sent{false};
 };
 
 struct CardListResult
@@ -2102,7 +2112,9 @@ ServerResult joinGameServer(
     return {true, message, socket};
 }
 
-ServerResult joinMatchmaking(const std::string& accessToken)
+ServerResult joinMatchmaking(
+    const std::string& accessToken,
+    std::shared_ptr<MatchmakingCancelState> cancelState)
 {
     sf::TcpSocket socket;
     if (!connectToEndpoint(socket, clientConfig().matchmaking))
@@ -2120,26 +2132,76 @@ ServerResult joinMatchmaking(const std::string& accessToken)
         return {false, "Failed to join matchmaking"};
     }
 
-    sf::Packet response;
-    if (socket.receive(response) != sf::Socket::Status::Done)
+    socket.setBlocking(false);
+    sf::Packet cancelPacket;
+    cancelPacket << static_cast<uint8_t>(network::MessageType::CancelMatchmaking);
+
+    while (true)
     {
+        if (cancelState &&
+            cancelState->requested.load() &&
+            !cancelState->sent.load())
+        {
+            const sf::Socket::Status cancelStatus = socket.send(cancelPacket);
+            if (cancelStatus == sf::Socket::Status::Done)
+            {
+                cancelState->sent.store(true);
+            }
+            else if (cancelStatus != sf::Socket::Status::NotReady &&
+                     cancelStatus != sf::Socket::Status::Partial)
+            {
+                socket.disconnect();
+                return {false, "Failed to cancel matchmaking"};
+            }
+        }
+
+        sf::Packet response;
+        const sf::Socket::Status receiveStatus = socket.receive(response);
+        if (receiveStatus == sf::Socket::Status::NotReady)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+            continue;
+        }
+
+        if (receiveStatus != sf::Socket::Status::Done)
+        {
+            socket.disconnect();
+            return {false, "Disconnected from matchmaking"};
+        }
+
+        uint8_t responseType = 0;
+        response >> responseType;
+        const auto messageType = static_cast<network::MessageType>(responseType);
+        if (messageType == network::MessageType::CancelMatchmakingResponse)
+        {
+            bool cancelled = false;
+            std::string message;
+            response >> cancelled >> message;
+            socket.disconnect();
+            if (!response || !cancelled)
+            {
+                return {false, message.empty() ? "Matchmaking cancel was rejected" : message};
+            }
+
+            ServerResult result;
+            result.message = message.empty() ? "Matchmaking cancelled." : message;
+            result.cancelled = true;
+            return result;
+        }
+
+        if (messageType != network::MessageType::MatchFound)
+        {
+            socket.disconnect();
+            return {false, "Unexpected matchmaking response"};
+        }
+
+        int matchId = 0;
+        int playerNumber = 0;
+        unsigned short gamePort = 0;
+        response >> matchId >> playerNumber >> gamePort;
         socket.disconnect();
-        return {false, "Disconnected from matchmaking"};
+        return joinGameServer(matchId, playerNumber, gamePort, accessToken);
     }
-
-    uint8_t responseType = 0;
-    int matchId = 0;
-    int playerNumber = 0;
-    unsigned short gamePort = 0;
-    response >> responseType >> matchId >> playerNumber >> gamePort;
-    socket.disconnect();
-
-    if (static_cast<network::MessageType>(responseType) != network::MessageType::MatchFound)
-    {
-        return {false, "Unexpected matchmaking response"};
-    }
-
-    return joinGameServer(matchId, playerNumber, gamePort, accessToken);
 }
 
 void resetForm(InputBox& usernameInput, InputBox& passwordInput, InputBox& confirmInput, sf::Text& messageText)
@@ -2381,9 +2443,11 @@ int main(int argc, char** argv)
     Button createSubmitButton({300.0f, 380.0f}, {200.0f, 50.0f}, "Create Account", font);
     Button backButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Back", font);
     Button exitDesktopButton({20.0f, 520.0f}, {200.0f, 45.0f}, "Exit to Desktop", font);
-    Button playButton({300.0f, 220.0f}, {200.0f, 60.0f}, "Play", font);
-    Button deckEditorButton({300.0f, 300.0f}, {200.0f, 60.0f}, "Deck Editor", font);
-    Button shopButton({300.0f, 380.0f}, {200.0f, 60.0f}, "Shop", font);
+    Button cancelMatchmakingButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Cancel", font);
+    Button playButton({300.0f, 200.0f}, {200.0f, 52.0f}, "Play", font);
+    Button sandboxButton({300.0f, 268.0f}, {200.0f, 52.0f}, "Sandbox", font);
+    Button deckEditorButton({300.0f, 336.0f}, {200.0f, 52.0f}, "Deck Editor", font);
+    Button shopButton({300.0f, 404.0f}, {200.0f, 52.0f}, "Shop", font);
     Button adminCardEditorButton({80.0f, 450.0f}, {200.0f, 52.0f}, "Card Editor", font);
     Button adminUsersButton({520.0f, 450.0f}, {200.0f, 52.0f}, "Admin Users", font);
     Button authenticatedOptionsButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Options", font);
@@ -2449,6 +2513,9 @@ int main(int argc, char** argv)
         std::find(displayResolutions.begin(), displayResolutions.end(), configuredSize)));
     std::optional<std::future<ServerResult>> pendingRequest;
     std::optional<std::future<ServerResult>> pendingMatchmaking;
+    std::optional<std::future<CardListResult>> pendingSandboxLoad;
+    std::shared_ptr<MatchmakingCancelState> activeMatchmakingCancel;
+    bool matchmakingCancelRequested = false;
     std::optional<std::future<void>> pendingLogout;
     std::optional<std::future<DeckEditorLoadResult>> pendingDeckEditorLoad;
     std::optional<std::future<DeckCommandResult>> pendingDeckSave;
@@ -2521,6 +2588,10 @@ int main(int argc, char** argv)
     std::vector<card_data::Card> matchHeroes;   // hero cards in placement order
     game_data::Snapshot gameSnapshot;
     bool haveSnapshot = false;
+    bool sandboxMode = false;
+    int sandboxPlacementPlayer = 1;
+    int nextSandboxPieceId = 1;
+    std::size_t gameHandOffset = 0;
     std::optional<int> selectedPieceId;
     std::optional<std::size_t> selectedHandIndex;
     std::optional<int> inspectedPieceId;
@@ -2558,6 +2629,7 @@ int main(int argc, char** argv)
     Button findMatchButton({300.0f, 458.0f}, {200.0f, 52.0f}, "Find Match", font);
     Button abilityButton({InfoPanelX + 64.0f, 398.0f}, {176.0f, 40.0f}, "Use Ability", font);
     Button endTurnButton({InfoPanelX + 64.0f, 446.0f}, {176.0f, 44.0f}, "Pass Turn", font);
+    Button sandboxPlayerButton({InfoPanelX + 64.0f, 446.0f}, {176.0f, 44.0f}, "Place P1", font);
     Button leaveGameButton({684.0f, 14.0f}, {100.0f, 36.0f}, "Leave", font);
     Button closePiecePopupButton({PiecePopupX + 358.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
     Button discardCardButton({PiecePopupX + 22.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {220.0f, 38.0f},
@@ -2763,6 +2835,10 @@ int main(int argc, char** argv)
         lastClickedPieceId.reset();
         pendingHandClickIndex.reset();
         inspectedPieceScroll = 0.0f;
+        sandboxMode = false;
+        sandboxPlacementPlayer = 1;
+        nextSandboxPieceId = 1;
+        gameHandOffset = 0;
         gameDragKind = GameDragKind::None;
         draggingHandIndex.reset();
         draggingPieceId.reset();
@@ -3002,6 +3078,10 @@ int main(int argc, char** argv)
         clearFocus();
 
         haveSnapshot = false;
+        sandboxMode = false;
+        sandboxPlacementPlayer = 1;
+        gameHandOffset = 0;
+        nextSandboxPieceId = 1;
         gameSnapshot = {};
         selectedPieceId.reset();
         selectedHandIndex.reset();
@@ -3034,8 +3114,26 @@ int main(int argc, char** argv)
         centerText(title, 400.0f);
         setMessageY(messageText, 450.0f);
         setMessage(messageText, "Finding match...", sf::Color::Yellow);
+        matchmakingCancelRequested = false;
+        cancelMatchmakingButton.setLabel("Cancel");
+        activeMatchmakingCancel = std::make_shared<MatchmakingCancelState>();
         pendingMatchmaking =
-            std::async(std::launch::async, joinMatchmaking, activeAccessToken);
+            std::async(std::launch::async, joinMatchmaking, activeAccessToken, activeMatchmakingCancel);
+    };
+
+    auto requestMatchmakingCancel = [&]() {
+        if (currentState != GameState::Matchmaking ||
+            !pendingMatchmaking ||
+            !activeMatchmakingCancel ||
+            matchmakingCancelRequested)
+        {
+            return;
+        }
+
+        matchmakingCancelRequested = true;
+        activeMatchmakingCancel->requested.store(true);
+        cancelMatchmakingButton.setLabel("Cancelling");
+        setMessage(messageText, "Cancelling matchmaking...", sf::Color::Yellow);
     };
 
     auto loadDeckEditor = [&]() {
@@ -3717,6 +3815,268 @@ int main(int argc, char** argv)
         return nullptr;
     };
 
+    auto pieceAtInSnapshot = [](const game_data::Snapshot& snapshot, int row, int column) -> const game_data::Piece* {
+        return game_data::findPieceAt(snapshot.pieces, row, column);
+    };
+
+    auto pieceByIdInSnapshotMutable = [](game_data::Snapshot& snapshot, int id) -> game_data::Piece* {
+        for (game_data::Piece& piece : snapshot.pieces)
+        {
+            if (piece.id == id)
+            {
+                return &piece;
+            }
+        }
+        return nullptr;
+    };
+
+    auto removePieceFromSnapshot = [](game_data::Snapshot& snapshot, int id) {
+        snapshot.pieces.erase(
+            std::remove_if(snapshot.pieces.begin(), snapshot.pieces.end(), [id](const game_data::Piece& piece) {
+                return piece.id == id;
+            }),
+            snapshot.pieces.end());
+    };
+
+    auto controlledCountInSnapshot = [](const game_data::Snapshot& snapshot, int playerNumber) {
+        return static_cast<int>(std::count(
+            snapshot.control.begin(),
+            snapshot.control.end(),
+            static_cast<std::uint8_t>(playerNumber)));
+    };
+
+    auto heroesAliveInSnapshot = [](const game_data::Snapshot& snapshot, int playerNumber) {
+        return static_cast<int>(std::count_if(snapshot.pieces.begin(), snapshot.pieces.end(), [playerNumber](const game_data::Piece& piece) {
+            return piece.owner == playerNumber && piece.isHero;
+        }));
+    };
+
+    auto refreshSandboxPlayerSnapshots = [&](game_data::Snapshot& snapshot) {
+        snapshot.players[0].steam = 999;
+        snapshot.players[0].controlledSquares = controlledCountInSnapshot(snapshot, 1);
+        snapshot.players[0].handCount = static_cast<int>(snapshot.hand.size());
+        snapshot.players[0].heroesToPlace = 0;
+        snapshot.players[0].heroesAlive = heroesAliveInSnapshot(snapshot, 1);
+        snapshot.players[0].drawPileCount = 0;
+
+        snapshot.players[1].steam = 0;
+        snapshot.players[1].controlledSquares = controlledCountInSnapshot(snapshot, 2);
+        snapshot.players[1].handCount = 0;
+        snapshot.players[1].heroesToPlace = 0;
+        snapshot.players[1].heroesAlive = heroesAliveInSnapshot(snapshot, 2);
+        snapshot.players[1].drawPileCount = 0;
+    };
+
+    auto recomputeSandboxControl = [&](game_data::Snapshot& snapshot) {
+        std::array<std::uint8_t, game_data::BoardSquares> next = snapshot.control;
+        for (int row = 0; row < game_data::BoardSize; ++row)
+        {
+            for (int column = 0; column < game_data::BoardSize; ++column)
+            {
+                const std::size_t index = static_cast<std::size_t>(game_data::squareIndex(row, column));
+                if (const game_data::Piece* occupant = pieceAtInSnapshot(snapshot, row, column))
+                {
+                    if (occupant->canControl)
+                    {
+                        next[index] = static_cast<std::uint8_t>(occupant->owner);
+                    }
+                    continue;
+                }
+
+                int influence1 = 0;
+                int influence2 = 0;
+                for (int dr = -1; dr <= 1; ++dr)
+                {
+                    for (int dc = -1; dc <= 1; ++dc)
+                    {
+                        if (dr == 0 && dc == 0)
+                        {
+                            continue;
+                        }
+                        const game_data::Piece* neighbor = game_data::inBounds(row + dr, column + dc)
+                            ? pieceAtInSnapshot(snapshot, row + dr, column + dc)
+                            : nullptr;
+                        if (!neighbor || !neighbor->canControl)
+                        {
+                            continue;
+                        }
+                        if (neighbor->owner == 1)
+                        {
+                            ++influence1;
+                        }
+                        else if (neighbor->owner == 2)
+                        {
+                            ++influence2;
+                        }
+                    }
+                }
+
+                if (influence1 > influence2)
+                {
+                    next[index] = 1;
+                }
+                else if (influence2 > influence1)
+                {
+                    next[index] = 2;
+                }
+            }
+        }
+        snapshot.control = next;
+    };
+
+    auto commitSandboxSnapshot = [&](game_data::Snapshot nextSnapshot) {
+        recomputeSandboxControl(nextSnapshot);
+        refreshSandboxPlayerSnapshots(nextSnapshot);
+        updatePieceMoveAnimations(nextSnapshot);
+        gameSnapshot = std::move(nextSnapshot);
+        haveSnapshot = true;
+        clampListOffset(gameHandOffset, gameSnapshot.hand.size(), VisibleGameHandCards);
+        if (selectedHandIndex && *selectedHandIndex >= gameSnapshot.hand.size())
+        {
+            selectedHandIndex.reset();
+        }
+        if (inspectedHandIndex && *inspectedHandIndex >= gameSnapshot.hand.size())
+        {
+            inspectedHandIndex.reset();
+            inspectedPieceScroll = 0.0f;
+        }
+    };
+
+    auto spawnSandboxPiece = [&](game_data::Snapshot& snapshot, int owner, const game_data::GameCard& card, int row, int column, bool isHero) {
+        game_data::Piece piece;
+        piece.id = nextSandboxPieceId++;
+        piece.owner = owner;
+        piece.row = row;
+        piece.column = column;
+        piece.name = card.title;
+        piece.keywords = card.keywords;
+        piece.imagePath = card.imagePath;
+        piece.walkAnimPath = card.walkAnimPath;
+        piece.blueTokenPath = card.blueTokenPath;
+        piece.redTokenPath = card.redTokenPath;
+        piece.blueWalkAnimPath = card.blueWalkAnimPath;
+        piece.redWalkAnimPath = card.redWalkAnimPath;
+        piece.walkAnimFrames = card.walkAnimFrames;
+        piece.maxHealth = card.health;
+        piece.health = card.health;
+        piece.attack = card.attack;
+        piece.attackRange = card.attackRange;
+        piece.movePattern = card.movePattern;
+        piece.moveRange = card.moveRange;
+        piece.attackingMove = card.attackingMove;
+        piece.canControl = card.canControl;
+        piece.growTurnsRemaining = card.growTurns;
+        piece.actions = card.actions;
+        piece.ability = card.ability;
+        piece.abilityLabels = card.abilityLabels;
+        piece.abilityUses = card.abilityUses;
+        piece.isHero = isHero;
+        piece.hasActed = false;
+        snapshot.pieces.push_back(std::move(piece));
+    };
+
+    auto beginSandbox = [&](std::vector<card_data::Card> cards) {
+        sandboxMode = true;
+        sandboxPlacementPlayer = 1;
+        sandboxPlayerButton.setLabel("Place P1");
+        activeGameSocket.reset();
+        currentState = GameState::Game;
+        title.setString("");
+        centerText(title, 400.0f);
+        setMessage(messageText, "", sf::Color::Red);
+        clearFocus();
+
+        nextSandboxPieceId = 1;
+        gameHandOffset = 0;
+        selectedPieceId.reset();
+        selectedHandIndex.reset();
+        inspectedPieceId.reset();
+        inspectedHandIndex.reset();
+        lastClickedPieceId.reset();
+        pendingHandClickIndex.reset();
+        inspectedPieceScroll = 0.0f;
+        gameDragKind = GameDragKind::None;
+        draggingHandIndex.reset();
+        draggingPieceId.reset();
+        gameDragActive = false;
+        gameResultReceived = false;
+        gameResultSuccess = false;
+        gameRatingChange = 0;
+        gameRewardText.clear();
+        pieceMoveAnimations.clear();
+
+        game_data::Snapshot snapshot;
+        snapshot.phase = static_cast<std::uint8_t>(game_data::Phase::Playing);
+        snapshot.activePlayer = 1;
+        snapshot.yourPlayer = 1;
+        snapshot.winner = 0;
+        snapshot.control.fill(0);
+        snapshot.holes.fill(0);
+        for (int playerNumber = 1; playerNumber <= 2; ++playerNumber)
+        {
+            for (const auto& [row, column] : game_data::homeSquares(playerNumber))
+            {
+                snapshot.control[static_cast<std::size_t>(game_data::squareIndex(row, column))] =
+                    static_cast<std::uint8_t>(playerNumber);
+            }
+        }
+
+        std::sort(cards.begin(), cards.end(), [](const card_data::Card& left, const card_data::Card& right) {
+            const bool leftHero = game_data::isHeroCard(left);
+            const bool rightHero = game_data::isHeroCard(right);
+            if (leftHero != rightHero)
+            {
+                return leftHero;
+            }
+            if (left.type != right.type)
+            {
+                return left.type < right.type;
+            }
+            return lowerKey(left.title) < lowerKey(right.title);
+        });
+
+        snapshot.hand.reserve(cards.size());
+        for (const card_data::Card& card : cards)
+        {
+            game_data::GameCard playable = game_data::toGameCard(card);
+            playable.cost = 0;
+            playable.heroCost = 0;
+            snapshot.hand.push_back(std::move(playable));
+        }
+        snapshot.status = snapshot.hand.empty()
+            ? "Sandbox loaded, but the card database is empty."
+            : "Sandbox: all database cards are available and free. Placing for Player 1.";
+
+        haveSnapshot = false;
+        commitSandboxSnapshot(std::move(snapshot));
+    };
+
+    auto loadSandbox = [&]() {
+        currentState = GameState::SandboxLoading;
+        title.setString("Sandbox");
+        centerText(title, 400.0f);
+        setMessageY(messageText, 450.0f);
+        setMessage(messageText, "Loading card database...", sf::Color::Yellow);
+        pendingSandboxLoad = std::async(std::launch::async, fetchCards);
+    };
+
+    auto updateSandboxPlayerButton = [&]() {
+        sandboxPlayerButton.setLabel("Place P" + std::to_string(sandboxPlacementPlayer));
+    };
+
+    auto toggleSandboxPlacementPlayer = [&]() {
+        if (!sandboxMode || !haveSnapshot)
+        {
+            return;
+        }
+        sandboxPlacementPlayer = sandboxPlacementPlayer == 1 ? 2 : 1;
+        updateSandboxPlayerButton();
+        game_data::Snapshot next = gameSnapshot;
+        next.activePlayer = sandboxPlacementPlayer;
+        next.status = "Sandbox: placing for Player " + std::to_string(sandboxPlacementPlayer) + ".";
+        commitSandboxSnapshot(std::move(next));
+    };
+
     auto cardArtTexture = [&](const std::string& imagePath) -> sf::Texture* {
         return loadTexture(imagePath);
     };
@@ -4324,9 +4684,10 @@ int main(int argc, char** argv)
     };
 
     auto handCardAtPixel = [&](sf::Vector2f point) -> std::optional<std::size_t> {
-        for (std::size_t i = 0; i < gameSnapshot.hand.size(); ++i)
+        const std::size_t last = std::min(gameSnapshot.hand.size(), gameHandOffset + VisibleGameHandCards);
+        for (std::size_t i = gameHandOffset; i < last; ++i)
         {
-            const float x = HandStartX + static_cast<float>(i) * (HandCardWidth + HandGap);
+            const float x = HandStartX + static_cast<float>(i - gameHandOffset) * (HandCardWidth + HandGap);
             if (isInsideRect(point, x, HandY, HandCardWidth, HandCardHeight))
             {
                 return i;
@@ -4379,6 +4740,227 @@ int main(int argc, char** argv)
         return true;
     };
 
+    auto sandboxPlayCard = [&](int handIndex, int row, int column) {
+        if (!sandboxMode || !haveSnapshot ||
+            static_cast<game_data::Phase>(gameSnapshot.phase) != game_data::Phase::Playing ||
+            handIndex < 0 || handIndex >= static_cast<int>(gameSnapshot.hand.size()))
+        {
+            return;
+        }
+
+        game_data::Snapshot next = gameSnapshot;
+        const game_data::GameCard card = next.hand[static_cast<std::size_t>(handIndex)];
+        const int actingPlayer = sandboxPlacementPlayer;
+        if (card.type == "Unit" || card.type == "Hero")
+        {
+            if (!game_data::inBounds(row, column) ||
+                next.control[static_cast<std::size_t>(game_data::squareIndex(row, column))] != actingPlayer ||
+                pieceAtInSnapshot(next, row, column) != nullptr)
+            {
+                next.status = "Sandbox pieces deploy onto an empty square controlled by the selected player.";
+                commitSandboxSnapshot(std::move(next));
+                return;
+            }
+
+            spawnSandboxPiece(next, actingPlayer, card, row, column, card.type == "Hero");
+            next.status = "Sandbox played " + card.title + " for Player " + std::to_string(actingPlayer) + ".";
+            commitSandboxSnapshot(std::move(next));
+            return;
+        }
+
+        if (card.effect == "steam")
+        {
+            next.status = "Sandbox played " + card.title + ".";
+            commitSandboxSnapshot(std::move(next));
+            return;
+        }
+
+        game_data::Piece* target = game_data::inBounds(row, column)
+            ? pieceByIdInSnapshotMutable(next, pieceAtInSnapshot(next, row, column) ? pieceAtInSnapshot(next, row, column)->id : 0)
+            : nullptr;
+        if (card.effect == "damage")
+        {
+            if (!target || target->owner == actingPlayer)
+            {
+                next.status = "That spell needs an enemy target.";
+                commitSandboxSnapshot(std::move(next));
+                return;
+            }
+            target->health -= card.power;
+            if (target->health <= 0)
+            {
+                removePieceFromSnapshot(next, target->id);
+            }
+        }
+        else if (card.effect == "heal")
+        {
+            if (!target || target->owner != actingPlayer)
+            {
+                next.status = "That spell needs a friendly target.";
+                commitSandboxSnapshot(std::move(next));
+                return;
+            }
+            target->health = std::min(target->maxHealth, target->health + card.power);
+        }
+
+        next.status = "Sandbox played " + card.title + ".";
+        commitSandboxSnapshot(std::move(next));
+    };
+
+    auto sandboxPlaceHero = [&](int heroIndex, int row, int column) {
+        sandboxPlayCard(heroIndex, row, column);
+    };
+
+    auto sandboxActWithPiece = [&](int pieceId, int row, int column) {
+        if (!sandboxMode || !haveSnapshot ||
+            static_cast<game_data::Phase>(gameSnapshot.phase) != game_data::Phase::Playing)
+        {
+            return;
+        }
+
+        game_data::Snapshot next = gameSnapshot;
+        game_data::Piece* piece = pieceByIdInSnapshotMutable(next, pieceId);
+        if (!piece)
+        {
+            return;
+        }
+
+        const game_data::ActionResolution action =
+            game_data::resolvePieceAction(next.pieces, next.holes, *piece, row, column);
+        if (!action.legal)
+        {
+            next.status = "That piece cannot act there.";
+            commitSandboxSnapshot(std::move(next));
+            return;
+        }
+
+        const int attackerId = piece->id;
+        const std::string attackerName = piece->name;
+        std::string targetName;
+        bool targetDestroyed = false;
+        bool targetAtDestination = false;
+
+        if (action.attacks)
+        {
+            game_data::Piece* target = pieceByIdInSnapshotMutable(next, action.targetId);
+            if (!target)
+            {
+                return;
+            }
+            targetName = target->name;
+            targetAtDestination = target->row == row && target->column == column;
+            target->health -= action.damage;
+            target->disabledTurns = std::max(target->disabledTurns, action.statusTurns);
+            if (target->health <= 0)
+            {
+                targetDestroyed = true;
+                removePieceFromSnapshot(next, target->id);
+            }
+        }
+
+        game_data::Piece* acting = pieceByIdInSnapshotMutable(next, attackerId);
+        if (!acting)
+        {
+            return;
+        }
+
+        if (action.moves)
+        {
+            if (!action.attacks || !targetAtDestination || targetDestroyed)
+            {
+                acting->row = row;
+                acting->column = column;
+            }
+            else
+            {
+                acting->row = action.stagingRow;
+                acting->column = action.stagingColumn;
+            }
+        }
+        acting->disabledTurns = std::max(acting->disabledTurns, action.cooldownTurns);
+        acting->hasActed = false;
+
+        next.status = action.attacks
+            ? attackerName + " hit " + targetName + " for " + std::to_string(action.damage) +
+                (targetDestroyed ? " and destroyed it." : ".")
+            : attackerName + " moved.";
+        commitSandboxSnapshot(std::move(next));
+    };
+
+    auto sandboxUseAbility = [&](int pieceId) {
+        if (!sandboxMode || !haveSnapshot ||
+            static_cast<game_data::Phase>(gameSnapshot.phase) != game_data::Phase::Playing)
+        {
+            return;
+        }
+
+        game_data::Snapshot next = gameSnapshot;
+        game_data::Piece* piece = pieceByIdInSnapshotMutable(next, pieceId);
+        if (!piece ||
+            piece->ability.empty() || piece->growTurnsRemaining > 0 || piece->disabledTurns > 0)
+        {
+            return;
+        }
+
+        const std::string abilityLabel = game_data::pieceAbilityLabel(*piece);
+        if (piece->ability == "dig")
+        {
+            if (piece->abilityUses <= 0)
+            {
+                next.status = "That piece has already dug its hole.";
+                commitSandboxSnapshot(std::move(next));
+                return;
+            }
+            next.holes[static_cast<std::size_t>(game_data::squareIndex(piece->row, piece->column))] = 1;
+            --piece->abilityUses;
+        }
+        else if (piece->ability == "transform" || piece->ability == "dematerialize")
+        {
+            int stateCount = 1;
+            for (const game_data::ActionProfile& action : piece->actions)
+            {
+                stateCount = std::max(stateCount, action.state + 1);
+            }
+            piece->actionState = (piece->actionState + 1) % stateCount;
+            piece->hidden = piece->ability == "dematerialize" && piece->actionState != 0;
+        }
+        else
+        {
+            return;
+        }
+
+        piece->hasActed = false;
+        next.status = piece->name + " used " + abilityLabel + ".";
+        commitSandboxSnapshot(std::move(next));
+    };
+
+    auto sandboxEndTurn = [&]() {
+        if (!sandboxMode || !haveSnapshot)
+        {
+            return;
+        }
+        game_data::Snapshot next = gameSnapshot;
+        for (game_data::Piece& piece : next.pieces)
+        {
+            if (piece.owner == 1)
+            {
+                piece.hasActed = false;
+                if (piece.growTurnsRemaining > 0)
+                {
+                    --piece.growTurnsRemaining;
+                    piece.hasActed = piece.growTurnsRemaining > 0;
+                }
+                if (piece.disabledTurns > 0)
+                {
+                    --piece.disabledTurns;
+                    piece.hasActed = true;
+                }
+            }
+        }
+        next.status = "Sandbox turn reset.";
+        commitSandboxSnapshot(std::move(next));
+    };
+
     auto sendGamePacket = [&](sf::Packet& packet) {
         if (activeGameSocket)
         {
@@ -4387,49 +4969,83 @@ int main(int argc, char** argv)
     };
 
     auto sendPlaceHero = [&](int heroIndex, int row, int column) {
+        if (sandboxMode)
+        {
+            sandboxPlaceHero(heroIndex, row, column);
+            return;
+        }
         sf::Packet packet;
         packet << static_cast<std::uint8_t>(network::MessageType::PlaceHero) << heroIndex << row << column;
         sendGamePacket(packet);
     };
 
     auto sendPlayCard = [&](int handIndex, int row, int column) {
+        if (sandboxMode)
+        {
+            sandboxPlayCard(handIndex, row, column);
+            return;
+        }
         sf::Packet packet;
         packet << static_cast<std::uint8_t>(network::MessageType::PlayCard) << handIndex << row << column;
         sendGamePacket(packet);
     };
 
     auto sendMovePiece = [&](int pieceId, int row, int column) {
+        if (sandboxMode)
+        {
+            sandboxActWithPiece(pieceId, row, column);
+            return;
+        }
         sf::Packet packet;
         packet << static_cast<std::uint8_t>(network::MessageType::MovePiece) << pieceId << row << column;
         sendGamePacket(packet);
     };
 
     auto sendAttackPiece = [&](int attackerId, int row, int column) {
+        if (sandboxMode)
+        {
+            sandboxActWithPiece(attackerId, row, column);
+            return;
+        }
         sf::Packet packet;
         packet << static_cast<std::uint8_t>(network::MessageType::AttackPiece) << attackerId << row << column;
         sendGamePacket(packet);
     };
 
     auto sendUseAbility = [&](int pieceId) {
+        if (sandboxMode)
+        {
+            sandboxUseAbility(pieceId);
+            return;
+        }
         sf::Packet packet;
         packet << static_cast<std::uint8_t>(network::MessageType::UseAbility) << pieceId;
         sendGamePacket(packet);
     };
 
     auto sendEndTurn = [&]() {
+        if (sandboxMode)
+        {
+            sandboxEndTurn();
+            return;
+        }
         sf::Packet packet;
         packet << static_cast<std::uint8_t>(network::MessageType::EndTurn);
         sendGamePacket(packet);
     };
 
     auto sendDiscardCard = [&](int handIndex) {
+        if (sandboxMode)
+        {
+            return;
+        }
         sf::Packet packet;
         packet << static_cast<std::uint8_t>(network::MessageType::DiscardCard) << handIndex;
         sendGamePacket(packet);
     };
 
     auto canDiscardInspectedHandCard = [&]() {
-        return haveSnapshot && inspectedHandIndex &&
+        return !sandboxMode && haveSnapshot && inspectedHandIndex &&
             *inspectedHandIndex < gameSnapshot.hand.size() &&
             static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::Playing &&
             gameSnapshot.activePlayer == gameSnapshot.yourPlayer;
@@ -4444,8 +5060,9 @@ int main(int argc, char** argv)
         const game_data::GameCard& card = gameSnapshot.hand[handIndex];
         selectedPieceId.reset();
         if (card.type != "Unit" && card.effect == "steam" &&
-            game_data::heroKeywordsAllowCard(
-                gameSnapshot.pieces, gameSnapshot.yourPlayer, card))
+            (sandboxMode ||
+             game_data::heroKeywordsAllowCard(
+                 gameSnapshot.pieces, gameSnapshot.yourPlayer, card)))
         {
             sendPlayCard(static_cast<int>(handIndex), -1, -1);
             selectedHandIndex.reset();
@@ -4532,7 +5149,7 @@ int main(int argc, char** argv)
             return;
         }
 
-        if (phase != game_data::Phase::Playing || gameSnapshot.activePlayer != me)
+        if (phase != game_data::Phase::Playing || (!sandboxMode && gameSnapshot.activePlayer != me))
         {
             return;
         }
@@ -4547,7 +5164,7 @@ int main(int argc, char** argv)
         }
 
         if (const game_data::Piece* piece = gamePieceAtPixel(clickPos);
-            piece && piece->owner == me && !piece->hasActed)
+            piece && (sandboxMode || (piece->owner == me && !piece->hasActed)))
         {
             gameDragKind = GameDragKind::Piece;
             draggingPieceId = piece->id;
@@ -4624,6 +5241,7 @@ int main(int argc, char** argv)
                     updatePieceMoveAnimations(snapshot);
                     gameSnapshot = snapshot;
                     haveSnapshot = true;
+                    clampListOffset(gameHandOffset, gameSnapshot.hand.size(), VisibleGameHandCards);
                     if (static_cast<game_data::Phase>(gameSnapshot.phase) ==
                             game_data::Phase::GameOver &&
                         !gameResultReceived)
@@ -4674,6 +5292,7 @@ int main(int argc, char** argv)
     };
 
     auto leaveGame = [&]() {
+        const bool wasSandbox = sandboxMode;
         if (activeGameSocket)
         {
             sendDisconnect(*activeGameSocket);
@@ -4697,7 +5316,18 @@ int main(int argc, char** argv)
         gameRatingChange = 0;
         gameRewardText.clear();
         pieceMoveAnimations.clear();
-        showAuthenticatedScreen();
+        sandboxMode = false;
+        sandboxPlacementPlayer = 1;
+        nextSandboxPieceId = 1;
+        gameHandOffset = 0;
+        if (wasSandbox)
+        {
+            showAuthenticatedScreen();
+        }
+        else
+        {
+            showAuthenticatedScreen();
+        }
     };
 
     auto handleGameClick = [&](sf::Vector2f clickPos) {
@@ -4731,7 +5361,7 @@ int main(int argc, char** argv)
         }
 
         // Playing phase — only the active player may act.
-        if (gameSnapshot.activePlayer != me)
+        if (!sandboxMode && gameSnapshot.activePlayer != me)
         {
             return;
         }
@@ -4764,7 +5394,7 @@ int main(int argc, char** argv)
             const game_data::Piece* selected = gamePieceById(*selectedPieceId);
             if (selected)
             {
-                if (clicked && clicked->owner != me)
+                if (clicked && clicked->owner != (sandboxMode ? selected->owner : me))
                 {
                     const game_data::ActionResolution action = game_data::resolvePieceAction(
                         gameSnapshot.pieces, gameSnapshot.holes, *selected, row, column);
@@ -4775,9 +5405,9 @@ int main(int argc, char** argv)
                     selectedPieceId.reset();
                     return;
                 }
-                if (clicked && clicked->owner == me)
+                if (clicked && (sandboxMode || clicked->owner == me))
                 {
-                    selectedPieceId = clicked->hasActed ? std::nullopt : std::optional<int>(clicked->id);
+                    selectedPieceId = (!sandboxMode && clicked->hasActed) ? std::nullopt : std::optional<int>(clicked->id);
                     return;
                 }
                 const game_data::ActionResolution action = game_data::resolvePieceAction(
@@ -4793,7 +5423,7 @@ int main(int argc, char** argv)
             return;
         }
 
-        if (clicked && clicked->owner == me && !clicked->hasActed)
+        if (clicked && (sandboxMode || (clicked->owner == me && !clicked->hasActed)))
         {
             selectedPieceId = clicked->id;
         }
@@ -4823,9 +5453,6 @@ int main(int argc, char** argv)
                               affordable ? sf::Color::White : sf::Color(120, 112, 104));
         }
 
-        const sf::Color titleColor = affordable ? sf::Color(248, 239, 216) : sf::Color(158, 128, 118);
-        drawText(window, font, card.title, 12, {position.x + 43.0f, position.y + 7.0f}, titleColor, HandCardWidth - 66.0f);
-
         sf::CircleShape costBadge(11.0f);
         costBadge.setPosition({position.x + HandCardWidth - 24.0f, position.y + 3.0f});
         costBadge.setFillColor(affordable ? sf::Color(39, 126, 139) : sf::Color(91, 66, 58));
@@ -4834,6 +5461,9 @@ int main(int argc, char** argv)
         window.draw(costBadge);
         const int displayedCost = card.type == "Hero" ? card.heroCost : card.cost;
         drawText(window, font, std::to_string(displayedCost), 13, {position.x + HandCardWidth - 21.0f, position.y + 4.0f}, sf::Color(248, 239, 216));
+
+        const sf::Color titleColor = affordable ? sf::Color(248, 239, 216) : sf::Color(158, 128, 118);
+        drawText(window, font, card.title, 12, {position.x + 6.0f, position.y + 37.0f}, titleColor, HandCardWidth - 12.0f);
 
         std::string line2;
         std::string line3;
@@ -4849,8 +5479,8 @@ int main(int argc, char** argv)
             else if (card.effect == "heal") line3 = "Heal " + std::to_string(card.power);
             else if (card.effect == "steam") line3 = "+" + std::to_string(card.power) + " steam";
         }
-        drawText(window, font, line2, 12, {position.x + 6.0f, position.y + 42.0f}, sf::Color(224, 210, 176), HandCardWidth - 12.0f);
-        drawText(window, font, line3, 12, {position.x + 6.0f, position.y + 58.0f}, sf::Color(143, 220, 205), HandCardWidth - 12.0f);
+        drawText(window, font, line2, 11, {position.x + 6.0f, position.y + 53.0f}, sf::Color(224, 210, 176), HandCardWidth - 12.0f);
+        drawText(window, font, line3, 11, {position.x + 6.0f, position.y + 65.0f}, sf::Color(143, 220, 205), HandCardWidth - 12.0f);
     };
 
     auto squareText = [](int count) {
@@ -4913,6 +5543,10 @@ int main(int argc, char** argv)
 
     auto readinessDescription = [&](const game_data::Piece& piece) {
         const game_data::Phase phase = static_cast<game_data::Phase>(gameSnapshot.phase);
+        if (sandboxMode)
+        {
+            return std::string("Turn status: sandbox pieces can be moved at any time.");
+        }
         if (phase == game_data::Phase::HeroPlacement)
         {
             return std::string("Turn status: hero placement is still in progress, so pieces cannot act yet.");
@@ -4943,7 +5577,9 @@ int main(int argc, char** argv)
         if (piece.isHero)
         {
             descriptions.push_back({
-                "Hero: if a player loses all heroes, they lose the match.",
+                sandboxMode
+                    ? "Hero: sandbox has no win or loss state."
+                    : "Hero: if a player loses all heroes, they lose the match.",
                 sf::Color(225, 170, 150)});
             if (!piece.keywords.empty())
             {
@@ -4984,10 +5620,11 @@ int main(int argc, char** argv)
         std::vector<std::pair<std::string, sf::Color>> descriptions;
         const int me = gameSnapshot.yourPlayer;
         const game_data::Phase phase = static_cast<game_data::Phase>(gameSnapshot.phase);
-        const bool yourTurn = phase == game_data::Phase::Playing && gameSnapshot.activePlayer == me;
-        const bool affordable = card.cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].steam;
+        const bool yourTurn = sandboxMode ||
+            (phase == game_data::Phase::Playing && gameSnapshot.activePlayer == me);
+        const bool affordable = sandboxMode || card.cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].steam;
         const std::vector<std::string> missingKeywords =
-            game_data::missingHeroKeywords(gameSnapshot.pieces, me, card);
+            sandboxMode ? std::vector<std::string>{} : game_data::missingHeroKeywords(gameSnapshot.pieces, me, card);
 
         if (phase == game_data::Phase::GameOver)
         {
@@ -5009,7 +5646,11 @@ int main(int argc, char** argv)
         }
         else
         {
-            descriptions.push_back({"Turn status: playable now. Playing a card ends your turn.", sf::Color(120, 220, 150)});
+            descriptions.push_back({
+                sandboxMode
+                    ? "Turn status: playable now. Sandbox cards are free and stay available."
+                    : "Turn status: playable now. Playing a card ends your turn.",
+                sf::Color(120, 220, 150)});
         }
 
         descriptions.push_back({cardPlayDescription(card), sf::Color(210, 216, 228)});
@@ -5259,12 +5900,19 @@ int main(int argc, char** argv)
     auto drawGame = [&]() {
         if (!haveSnapshot)
         {
-            drawText(window, font, "Connecting to match...", 24, {260.0f, 280.0f}, sf::Color(200, 208, 222));
+            drawText(
+                window,
+                font,
+                sandboxMode ? "Loading sandbox..." : "Connecting to match...",
+                24,
+                {260.0f, 280.0f},
+                sf::Color(200, 208, 222));
             leaveGameButton.draw(window);
             return;
         }
 
         const int me = gameSnapshot.yourPlayer;
+        const int sandboxPlayer = sandboxMode ? sandboxPlacementPlayer : me;
         const game_data::Phase phase = static_cast<game_data::Phase>(gameSnapshot.phase);
         const game_data::Piece* selectedPiece = selectedPieceId ? gamePieceById(*selectedPieceId) : nullptr;
         const game_data::Piece* draggedPiece =
@@ -5282,9 +5930,10 @@ int main(int argc, char** argv)
                 draggedPieceSquare->first,
                 draggedPieceSquare->second);
             draggedPieceDropValid = phase == game_data::Phase::Playing &&
-                gameSnapshot.activePlayer == me &&
-                draggedPiece->owner == me &&
-                !draggedPiece->hasActed &&
+                (sandboxMode ||
+                 (gameSnapshot.activePlayer == me &&
+                  draggedPiece->owner == me &&
+                  !draggedPiece->hasActed)) &&
                 action.legal;
         }
         const std::optional<std::size_t> actingHandIndex =
@@ -5309,13 +5958,14 @@ int main(int argc, char** argv)
                 draggedHandDropValid = !gamePieceAt(row, column) &&
                     std::find(home.begin(), home.end(), std::pair<int, int>{row, column}) != home.end();
             }
-            else if (phase == game_data::Phase::Playing && draggedHandCard->type == "Unit")
+            else if (phase == game_data::Phase::Playing &&
+                     (draggedHandCard->type == "Unit" || (sandboxMode && draggedHandCard->type == "Hero")))
             {
-                draggedHandDropValid = gameSnapshot.activePlayer == me &&
-                    draggedHandCard->cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].steam &&
-                    game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, *draggedHandCard) &&
+                draggedHandDropValid = (sandboxMode || gameSnapshot.activePlayer == me) &&
+                    (sandboxMode || draggedHandCard->cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].steam) &&
+                    (sandboxMode || game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, *draggedHandCard)) &&
                     !gamePieceAt(row, column) &&
-                    gameSnapshot.control[idx] == me;
+                    gameSnapshot.control[idx] == sandboxPlayer;
             }
         }
 
@@ -5332,9 +5982,9 @@ int main(int argc, char** argv)
                 }
             }
         }
-        else if (phase == game_data::Phase::Playing && gameSnapshot.activePlayer == me)
+        else if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
         {
-            if (actingPiece && !actingPiece->hasActed)
+            if (actingPiece && (sandboxMode || !actingPiece->hasActed))
             {
                 for (int r = 0; r < game_data::BoardSize; ++r)
                 {
@@ -5353,7 +6003,7 @@ int main(int argc, char** argv)
             else if (actingHandIndex && *actingHandIndex < gameSnapshot.hand.size())
             {
                 const game_data::GameCard& card = gameSnapshot.hand[*actingHandIndex];
-                if (game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, card))
+                if (sandboxMode || game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, card))
                 {
                     for (int r = 0; r < game_data::BoardSize; ++r)
                     {
@@ -5361,18 +6011,18 @@ int main(int argc, char** argv)
                         {
                             const std::size_t idx = static_cast<std::size_t>(game_data::squareIndex(r, c));
                             const game_data::Piece* occupant = gamePieceAt(r, c);
-                            if (card.type == "Unit")
+                            if (card.type == "Unit" || (sandboxMode && card.type == "Hero"))
                             {
-                                if (!occupant && gameSnapshot.control[idx] == me)
+                                if (!occupant && gameSnapshot.control[idx] == sandboxPlayer)
                                 {
                                     highlight[idx] = 3;
                                 }
                             }
-                            else if (card.effect == "damage" && occupant && occupant->owner != me)
+                            else if (card.effect == "damage" && occupant && occupant->owner != sandboxPlayer)
                             {
                                 highlight[idx] = 2;
                             }
-                            else if (card.effect == "heal" && occupant && occupant->owner == me)
+                            else if (card.effect == "heal" && occupant && occupant->owner == sandboxPlayer)
                             {
                                 highlight[idx] = 4;
                             }
@@ -5627,7 +6277,13 @@ int main(int argc, char** argv)
         const game_data::PlayerSnapshot& mine = gameSnapshot.players[static_cast<std::size_t>(me - 1)];
         const game_data::PlayerSnapshot& foe = gameSnapshot.players[static_cast<std::size_t>(me == 1 ? 1 : 0)];
 
-        drawText(window, font, "You are Player " + std::to_string(me), 18, {InfoPanelX + 14.0f, y}, ownerColor(me));
+        drawText(
+            window,
+            font,
+            sandboxMode ? "Sandbox" : "You are Player " + std::to_string(me),
+            18,
+            {InfoPanelX + 14.0f, y},
+            ownerColor(me));
         y += 30.0f;
 
         std::string phaseLabel = phase == game_data::Phase::HeroPlacement ? "Hero Placement"
@@ -5638,8 +6294,14 @@ int main(int argc, char** argv)
         if (phase == game_data::Phase::Playing)
         {
             const bool myTurn = gameSnapshot.activePlayer == me;
-            drawText(window, font, myTurn ? "Your turn" : "Opponent's turn", 17, {InfoPanelX + 14.0f, y},
-                     myTurn ? sf::Color(120, 220, 150) : sf::Color(220, 180, 120));
+            drawText(
+                window,
+                font,
+                sandboxMode ? "Placing for Player " + std::to_string(sandboxPlacementPlayer)
+                            : (myTurn ? "Your turn" : "Opponent's turn"),
+                17,
+                {InfoPanelX + 14.0f, y},
+                sandboxMode || myTurn ? sf::Color(120, 220, 150) : sf::Color(220, 180, 120));
             y += 30.0f;
         }
         else if (phase == game_data::Phase::HeroPlacement)
@@ -5660,12 +6322,24 @@ int main(int argc, char** argv)
             y += 30.0f;
         }
 
-        drawText(window, font, "Your steam: " + std::to_string(mine.steam), 17, {InfoPanelX + 14.0f, y}, sf::Color(150, 210, 235));
+        drawText(
+            window,
+            font,
+            sandboxMode ? "Player 1 steam: free" : "Your steam: " + std::to_string(mine.steam),
+            17,
+            {InfoPanelX + 14.0f, y},
+            sf::Color(150, 210, 235));
         y += 24.0f;
         drawText(window, font, "Squares " + std::to_string(mine.controlledSquares) +
                      "   Heroes " + std::to_string(mine.heroesAlive), 14, {InfoPanelX + 14.0f, y}, sf::Color(190, 198, 214));
         y += 28.0f;
-        drawText(window, font, "Enemy steam: " + std::to_string(foe.steam), 15, {InfoPanelX + 14.0f, y}, sf::Color(225, 170, 150));
+        drawText(
+            window,
+            font,
+            sandboxMode ? "Player 2 steam: free" : "Enemy steam: " + std::to_string(foe.steam),
+            15,
+            {InfoPanelX + 14.0f, y},
+            sf::Color(225, 170, 150));
         y += 22.0f;
         drawText(window, font, "Squares " + std::to_string(foe.controlledSquares) +
                      "   Heroes " + std::to_string(foe.heroesAlive) +
@@ -5702,9 +6376,9 @@ int main(int argc, char** argv)
         drawText(window, font, gameSnapshot.status, 13, {InfoPanelX + 14.0f, InfoPanelY + InfoPanelHeight - 96.0f},
                  sf::Color(210, 216, 228), InfoPanelWidth - 28.0f);
 
-        if (phase == game_data::Phase::Playing && gameSnapshot.activePlayer == me)
+        if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
         {
-            if (selectedPiece && selectedPiece->owner == me && !selectedPiece->hasActed &&
+            if (selectedPiece && (sandboxMode || (selectedPiece->owner == me && !selectedPiece->hasActed)) &&
                 !selectedPiece->ability.empty() && selectedPiece->growTurnsRemaining == 0 &&
                 selectedPiece->disabledTurns == 0 &&
                 (selectedPiece->ability != "dig" || selectedPiece->abilityUses > 0))
@@ -5712,19 +6386,40 @@ int main(int argc, char** argv)
                 abilityButton.setLabel(game_data::pieceAbilityLabel(*selectedPiece));
                 abilityButton.draw(window);
             }
-            endTurnButton.draw(window);
+            if (sandboxMode)
+            {
+                sandboxPlayerButton.draw(window);
+            }
+            else
+            {
+                endTurnButton.draw(window);
+            }
         }
         leaveGameButton.draw(window);
 
         // Hand.
-        for (std::size_t i = 0; i < gameSnapshot.hand.size(); ++i)
+        clampListOffset(gameHandOffset, gameSnapshot.hand.size(), VisibleGameHandCards);
+        const std::size_t lastHandCard = std::min(gameSnapshot.hand.size(), gameHandOffset + VisibleGameHandCards);
+        if (gameSnapshot.hand.size() > VisibleGameHandCards)
         {
-            const float x = HandStartX + static_cast<float>(i) * (HandCardWidth + HandGap);
+            drawText(
+                window,
+                font,
+                "Cards " + std::to_string(gameHandOffset + 1) + "-" +
+                    std::to_string(lastHandCard) + "/" + std::to_string(gameSnapshot.hand.size()),
+                12,
+                {HandStartX, HandY - 18.0f},
+                sf::Color(190, 198, 214),
+                240.0f);
+        }
+        for (std::size_t i = gameHandOffset; i < lastHandCard; ++i)
+        {
+            const float x = HandStartX + static_cast<float>(i - gameHandOffset) * (HandCardWidth + HandGap);
             const game_data::GameCard& card = gameSnapshot.hand[i];
             const bool affordable = phase == game_data::Phase::HeroPlacement ||
-                (card.cost <= mine.steam && gameSnapshot.activePlayer == me &&
+                ((sandboxMode || card.cost <= mine.steam) && (sandboxMode || gameSnapshot.activePlayer == me) &&
                  phase == game_data::Phase::Playing &&
-                 game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, card));
+                 (sandboxMode || game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, card)));
             drawGameCardFace({x, HandY}, card, selectedHandIndex && *selectedHandIndex == i, affordable);
         }
 
@@ -5745,13 +6440,13 @@ int main(int argc, char** argv)
                         anchor = boardCellAnchor(metrics);
                         scale = metrics.depthScale;
                     }
-                    drawCardPiecePreview(draggedCard, me, anchor, scale, draggedHandDropValid);
+                    drawCardPiecePreview(draggedCard, sandboxPlayer, anchor, scale, draggedHandDropValid);
                 }
                 else
                 {
-                    const bool affordable = draggedCard.cost <= mine.steam &&
-                        gameSnapshot.activePlayer == me && phase == game_data::Phase::Playing &&
-                        game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, draggedCard);
+                    const bool affordable = (sandboxMode || draggedCard.cost <= mine.steam) &&
+                        (sandboxMode || gameSnapshot.activePlayer == me) && phase == game_data::Phase::Playing &&
+                        (sandboxMode || game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, draggedCard));
                     drawGameCardFace(
                         {gameDragCurrentPos.x - HandCardWidth / 2.0f,
                          gameDragCurrentPos.y - HandCardHeight / 2.0f},
@@ -6190,6 +6885,9 @@ int main(int argc, char** argv)
         {
             ServerResult result = pendingMatchmaking->get();
             pendingMatchmaking.reset();
+            activeMatchmakingCancel.reset();
+            matchmakingCancelRequested = false;
+            cancelMatchmakingButton.setLabel("Cancel");
             if (result.success)
             {
                 showGameScreen(result.gameSocket);
@@ -6200,7 +6898,32 @@ int main(int argc, char** argv)
                 title.setString("Select Deck");
                 centerText(title, 400.0f);
                 setMessageY(messageText, 524.0f);
-                setMessage(messageText, result.message, sf::Color::Red);
+                setMessage(
+                    messageText,
+                    result.message,
+                    result.cancelled ? sf::Color(120, 220, 150) : sf::Color::Red);
+            }
+        }
+
+        if (pendingSandboxLoad &&
+            pendingSandboxLoad->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            CardListResult result = pendingSandboxLoad->get();
+            pendingSandboxLoad.reset();
+            if (currentState == GameState::SandboxLoading)
+            {
+                if (result.success)
+                {
+                    beginSandbox(std::move(result.cards));
+                }
+                else
+                {
+                    currentState = GameState::Menu;
+                    title.setString("Steam Tactics");
+                    centerText(title, 400.0f);
+                    setMessageY(messageText, 450.0f);
+                    setMessage(messageText, result.message, sf::Color::Red);
+                }
             }
         }
 
@@ -6337,17 +7060,24 @@ int main(int argc, char** argv)
                 const sf::Vector2f clickPos = window.mapPixelToCoords(mousePressed->position);
                 const bool screenHasExitButton =
                     currentState == GameState::Menu ||
-                    currentState == GameState::Authenticated ||
-                    currentState == GameState::Matchmaking;
+                    currentState == GameState::SandboxLoading ||
+                    currentState == GameState::Authenticated;
                 if (screenHasExitButton && exitDesktopButton.isClicked(clickPos))
                 {
                     window.close();
                     break;
                 }
+
+                if (currentState == GameState::Matchmaking &&
+                    cancelMatchmakingButton.isClicked(clickPos))
+                {
+                    requestMatchmakingCancel();
+                }
             }
 
             if (const auto* mousePressed = event->getIf<sf::Event::MouseButtonPressed>();
-                mousePressed && mousePressed->button == sf::Mouse::Button::Left && !pendingRequest && !pendingMatchmaking)
+                mousePressed && mousePressed->button == sf::Mouse::Button::Left &&
+                !pendingRequest && !pendingMatchmaking && !pendingSandboxLoad)
             {
                 sf::Vector2f clickPos = window.mapPixelToCoords(mousePressed->position);
                 if (currentState == GameState::Menu)
@@ -6539,6 +7269,10 @@ int main(int argc, char** argv)
                     if (playButton.isClicked(clickPos))
                     {
                         showDeckSelect();
+                    }
+                    else if (sandboxButton.isClicked(clickPos))
+                    {
+                        loadSandbox();
                     }
                     else if (deckEditorButton.isClicked(clickPos))
                     {
@@ -6736,11 +7470,11 @@ int main(int argc, char** argv)
                     }
                     else if (haveSnapshot && selectedPieceId &&
                              static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::Playing &&
-                             gameSnapshot.activePlayer == gameSnapshot.yourPlayer &&
+                             (sandboxMode || gameSnapshot.activePlayer == gameSnapshot.yourPlayer) &&
                              abilityButton.isClicked(clickPos))
                     {
                         if (const game_data::Piece* piece = gamePieceById(*selectedPieceId);
-                            piece && piece->owner == gameSnapshot.yourPlayer && !piece->hasActed &&
+                            piece && (sandboxMode || (piece->owner == gameSnapshot.yourPlayer && !piece->hasActed)) &&
                             !piece->ability.empty() && piece->growTurnsRemaining == 0 &&
                             piece->disabledTurns == 0 &&
                             (piece->ability != "dig" || piece->abilityUses > 0))
@@ -6751,8 +7485,14 @@ int main(int argc, char** argv)
                             selectedHandIndex.reset();
                         }
                     }
+                    else if (sandboxMode && sandboxPlayerButton.isClicked(clickPos))
+                    {
+                        pendingHandClickIndex.reset();
+                        toggleSandboxPlacementPlayer();
+                    }
                     else if (haveSnapshot &&
                              static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::Playing &&
+                             !sandboxMode &&
                              gameSnapshot.activePlayer == gameSnapshot.yourPlayer &&
                              endTurnButton.isClicked(clickPos))
                     {
@@ -7054,6 +7794,18 @@ int main(int argc, char** argv)
                     }
                 }
             }
+            else if (const auto* wheel = event->getIf<sf::Event::MouseWheelScrolled>();
+                     wheel && currentState == GameState::Game && haveSnapshot &&
+                     gameSnapshot.hand.size() > VisibleGameHandCards)
+            {
+                const sf::Vector2f wheelPos = window.mapPixelToCoords(wheel->position);
+                const float handWidth = static_cast<float>(VisibleGameHandCards) * HandCardWidth +
+                    static_cast<float>(VisibleGameHandCards - 1) * HandGap;
+                if (isInsideRect(wheelPos, HandStartX, HandY - 22.0f, handWidth, HandCardHeight + 22.0f))
+                {
+                    scrollList(gameHandOffset, gameSnapshot.hand.size(), VisibleGameHandCards, wheel->delta);
+                }
+            }
 
             if (currentState == GameState::Login || currentState == GameState::CreateAccount)
             {
@@ -7149,6 +7901,10 @@ int main(int argc, char** argv)
                     {
                         showAuthenticatedScreen();
                     }
+                    else if (currentState == GameState::Matchmaking)
+                    {
+                        requestMatchmakingCancel();
+                    }
                     else if (currentState == GameState::DeckEditor || currentState == GameState::Shop)
                     {
                         // Busy editor/shop requests keep their screen until they finish.
@@ -7157,12 +7913,12 @@ int main(int argc, char** argv)
                     {
                         // Keep the password form open until the request finishes.
                     }
-                    else if (!pendingRequest && !pendingMatchmaking)
+                    else if (!pendingRequest && !pendingMatchmaking && !pendingSandboxLoad)
                     {
                         returnToMenu();
                     }
                 }
-                else if (!pendingRequest && !pendingMatchmaking && currentState == GameState::Login)
+                else if (!pendingRequest && !pendingMatchmaking && !pendingSandboxLoad && currentState == GameState::Login)
                 {
                     if (keyPressed->code == sf::Keyboard::Key::Tab)
                     {
@@ -7173,7 +7929,7 @@ int main(int argc, char** argv)
                         submitLogin();
                     }
                 }
-                else if (!pendingRequest && !pendingMatchmaking && currentState == GameState::CreateAccount)
+                else if (!pendingRequest && !pendingMatchmaking && !pendingSandboxLoad && currentState == GameState::CreateAccount)
                 {
                     if (keyPressed->code == sf::Keyboard::Key::Tab)
                     {
@@ -7254,6 +8010,10 @@ int main(int argc, char** argv)
             menuOptionsButton.update(mousePos);
             exitDesktopButton.update(mousePos);
         }
+        else if (currentState == GameState::SandboxLoading)
+        {
+            exitDesktopButton.update(mousePos);
+        }
         else if (currentState == GameState::Options)
         {
             displayModeButton.update(mousePos);
@@ -7304,6 +8064,7 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Authenticated)
         {
             playButton.update(mousePos);
+            sandboxButton.update(mousePos);
             deckEditorButton.update(mousePos);
             shopButton.update(mousePos);
             if (loggedInIsAdmin)
@@ -7359,7 +8120,7 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Matchmaking)
         {
-            exitDesktopButton.update(mousePos);
+            cancelMatchmakingButton.update(mousePos);
         }
         else if (currentState == GameState::DeckEditor)
         {
@@ -7411,10 +8172,10 @@ int main(int argc, char** argv)
             {
                 if (haveSnapshot && selectedPieceId &&
                     static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::Playing &&
-                    gameSnapshot.activePlayer == gameSnapshot.yourPlayer)
+                    (sandboxMode || gameSnapshot.activePlayer == gameSnapshot.yourPlayer))
                 {
                     if (const game_data::Piece* piece = gamePieceById(*selectedPieceId);
-                        piece && piece->owner == gameSnapshot.yourPlayer && !piece->hasActed &&
+                        piece && (sandboxMode || (piece->owner == gameSnapshot.yourPlayer && !piece->hasActed)) &&
                         !piece->ability.empty() && piece->growTurnsRemaining == 0 &&
                         piece->disabledTurns == 0 &&
                         (piece->ability != "dig" || piece->abilityUses > 0))
@@ -7422,7 +8183,14 @@ int main(int argc, char** argv)
                         abilityButton.update(mousePos);
                     }
                 }
-                endTurnButton.update(mousePos);
+                if (sandboxMode)
+                {
+                    sandboxPlayerButton.update(mousePos);
+                }
+                else
+                {
+                    endTurnButton.update(mousePos);
+                }
                 leaveGameButton.update(mousePos);
             }
         }
@@ -7443,6 +8211,11 @@ int main(int argc, char** argv)
             loginButton.draw(window);
             createButton.draw(window);
             menuOptionsButton.draw(window);
+            exitDesktopButton.draw(window);
+        }
+        else if (currentState == GameState::SandboxLoading)
+        {
+            window.draw(messageText);
             exitDesktopButton.draw(window);
         }
         else if (currentState == GameState::Options)
@@ -7529,6 +8302,7 @@ int main(int argc, char** argv)
             drawText(window, font, "Coins " + std::to_string(playerCoins), 18, {270.0f, 190.0f}, sf::Color(248, 214, 112), 120.0f);
             drawText(window, font, "Rating " + std::to_string(playerRating), 18, {420.0f, 190.0f}, sf::Color(151, 192, 255), 140.0f);
             playButton.draw(window);
+            sandboxButton.draw(window);
             deckEditorButton.draw(window);
             shopButton.draw(window);
             if (loggedInIsAdmin)
@@ -7552,7 +8326,7 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Matchmaking)
         {
             window.draw(messageText);
-            exitDesktopButton.draw(window);
+            cancelMatchmakingButton.draw(window);
         }
         else if (currentState == GameState::DeckEditor)
         {
