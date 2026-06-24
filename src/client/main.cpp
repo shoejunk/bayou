@@ -2444,14 +2444,14 @@ int main(int argc, char** argv)
     Button backButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Back", font);
     Button exitDesktopButton({20.0f, 520.0f}, {200.0f, 45.0f}, "Exit to Desktop", font);
     Button cancelMatchmakingButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Cancel", font);
-    Button playButton({300.0f, 200.0f}, {200.0f, 52.0f}, "Play", font);
-    Button sandboxButton({300.0f, 268.0f}, {200.0f, 52.0f}, "Sandbox", font);
-    Button deckEditorButton({300.0f, 336.0f}, {200.0f, 52.0f}, "Deck Editor", font);
-    Button shopButton({300.0f, 404.0f}, {200.0f, 52.0f}, "Shop", font);
-    Button adminCardEditorButton({80.0f, 450.0f}, {200.0f, 52.0f}, "Card Editor", font);
-    Button adminUsersButton({520.0f, 450.0f}, {200.0f, 52.0f}, "Admin Users", font);
-    Button authenticatedOptionsButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Options", font);
-    Button logoutButton({664.0f, 520.0f}, {112.0f, 45.0f}, "Log Out", font);
+    Button playButton({300.0f, 136.0f}, {200.0f, 40.0f}, "Play", font);
+    Button sandboxButton({300.0f, 184.0f}, {200.0f, 40.0f}, "Sandbox", font);
+    Button deckEditorButton({300.0f, 232.0f}, {200.0f, 40.0f}, "Deck Editor", font);
+    Button shopButton({300.0f, 280.0f}, {200.0f, 40.0f}, "Shop", font);
+    Button adminCardEditorButton({300.0f, 328.0f}, {200.0f, 40.0f}, "Card Editor", font);
+    Button adminUsersButton({300.0f, 376.0f}, {200.0f, 40.0f}, "Admin", font);
+    Button authenticatedOptionsButton({300.0f, 424.0f}, {200.0f, 40.0f}, "Options", font);
+    Button logoutButton({300.0f, 472.0f}, {200.0f, 40.0f}, "Log Out", font);
 
     Button displayModeButton({270.0f, 178.0f}, {260.0f, 54.0f}, "", font);
     Button previousResolutionButton({210.0f, 276.0f}, {64.0f, 54.0f}, "<", font);
@@ -2492,6 +2492,8 @@ int main(int argc, char** argv)
     Button adminDeleteButton({600.0f, 514.0f}, {176.0f, 40.0f}, "Delete User", font);
     Button cancelDeleteUserButton({250.0f, 366.0f}, {130.0f, 42.0f}, "Cancel", font);
     Button confirmDeleteUserButton({420.0f, 366.0f}, {130.0f, 42.0f}, "Delete", font);
+    Button cancelExitDesktopButton({250.0f, 356.0f}, {130.0f, 42.0f}, "Cancel", font);
+    Button confirmExitDesktopButton({420.0f, 356.0f}, {130.0f, 42.0f}, "Exit", font);
     Button closeDeckCardPopupButton({PiecePopupX + 190.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
 
     sf::Text messageText(font, "", 20);
@@ -2540,6 +2542,8 @@ int main(int argc, char** argv)
     bool passwordVisible = false;
     bool changePasswordsVisible = false;
     bool passwordChangedPopupVisible = false;
+    bool exitDesktopPopupVisible = false;
+    bool exitDesktopCloseHovered = false;
     bool pendingAutoLogin = false;
     bool pendingRememberRequested = false;
     std::vector<card_data::Card> cardLibrary;
@@ -2686,6 +2690,103 @@ int main(int argc, char** argv)
         return loggedInUsername + (loggedInIsAdmin ? " [Admin]" : "");
     };
 
+    auto layoutAuthenticatedButtons = [&]() {
+        float y = 140.0f;
+        constexpr float x = 300.0f;
+        constexpr float gap = 10.0f;
+        constexpr float height = 40.0f;
+
+        auto place = [&](Button& button) {
+            button.setPosition({x, y});
+            y += height + gap;
+        };
+
+        place(playButton);
+        place(sandboxButton);
+        place(deckEditorButton);
+        place(shopButton);
+        if (loggedInIsAdmin)
+        {
+            place(adminCardEditorButton);
+            place(adminUsersButton);
+        }
+        place(authenticatedOptionsButton);
+        place(logoutButton);
+    };
+
+    auto drawCoinIcon = [&](sf::Vector2f position, float radius) {
+        sf::CircleShape shadow(radius);
+        shadow.setPosition(position + sf::Vector2f(2.0f, 3.0f));
+        shadow.setFillColor(sf::Color(0, 0, 0, 90));
+        window.draw(shadow);
+
+        sf::CircleShape coin(radius);
+        coin.setPosition(position);
+        coin.setFillColor(sf::Color(214, 158, 48));
+        coin.setOutlineThickness(2.0f);
+        coin.setOutlineColor(sf::Color(255, 225, 132));
+        window.draw(coin);
+
+        sf::CircleShape shine(radius * 0.48f);
+        shine.setPosition(position + sf::Vector2f(radius * 0.34f, radius * 0.28f));
+        shine.setFillColor(sf::Color(255, 225, 132, 105));
+        window.draw(shine);
+
+        sf::CircleShape center(radius * 0.55f);
+        center.setPosition(position + sf::Vector2f(radius * 0.45f, radius * 0.45f));
+        center.setFillColor(sf::Color::Transparent);
+        center.setOutlineThickness(1.5f);
+        center.setOutlineColor(sf::Color(142, 92, 28, 150));
+        window.draw(center);
+    };
+
+    auto drawExitDesktopCloseButton = [&]() {
+        const sf::Vector2f position{724.0f, 18.0f};
+        const sf::Vector2f size{52.0f, 52.0f};
+
+        sf::RectangleShape shadow(size);
+        shadow.setPosition(position + sf::Vector2f(3.0f, 4.0f));
+        shadow.setFillColor(sf::Color(0, 0, 0, 110));
+        window.draw(shadow);
+
+        sf::RectangleShape button(size);
+        button.setPosition(position);
+        button.setFillColor(exitDesktopCloseHovered ? sf::Color(205, 35, 35, 248) : sf::Color(152, 22, 28, 244));
+        button.setOutlineThickness(2.0f);
+        button.setOutlineColor(exitDesktopCloseHovered ? sf::Color(255, 178, 178) : sf::Color(255, 92, 92));
+        window.draw(button);
+
+        sf::RectangleShape slashA({32.0f, 6.0f});
+        slashA.setOrigin({16.0f, 3.0f});
+        slashA.setPosition(position + sf::Vector2f(26.0f, 26.0f));
+        slashA.setRotation(sf::degrees(45.0f));
+        slashA.setFillColor(sf::Color(255, 238, 238));
+        window.draw(slashA);
+
+        sf::RectangleShape slashB({32.0f, 6.0f});
+        slashB.setOrigin({16.0f, 3.0f});
+        slashB.setPosition(position + sf::Vector2f(26.0f, 26.0f));
+        slashB.setRotation(sf::degrees(-45.0f));
+        slashB.setFillColor(sf::Color(255, 238, 238));
+        window.draw(slashB);
+    };
+
+    auto exitDesktopCloseButtonClicked = [&](sf::Vector2f point) {
+        return isInsideRect(point, 724.0f, 18.0f, 52.0f, 52.0f);
+    };
+
+    auto drawExitDesktopPopup = [&]() {
+        sf::RectangleShape overlay({800.0f, 600.0f});
+        overlay.setFillColor(sf::Color(0, 0, 0, 170));
+        window.draw(overlay);
+        drawPanel(window, {220.0f, 188.0f}, {360.0f, 220.0f});
+        drawText(window, font, "Exit to Desktop?", 28, {266.0f, 218.0f}, sf::Color(248, 224, 172), 270.0f);
+        drawText(window, font, "Are you sure you want to exit", 16, {260.0f, 276.0f}, sf::Color(220, 224, 230), 280.0f);
+        drawText(window, font, "to desktop?", 16, {350.0f, 302.0f}, sf::Color(220, 224, 230), 120.0f);
+        cancelExitDesktopButton.draw(window);
+        confirmExitDesktopButton.draw(window);
+    };
+
     auto makeNewDeckName = [&]() {
         std::string name = "New Deck";
         int suffix = 2;
@@ -2812,6 +2913,7 @@ int main(int argc, char** argv)
         adminUsersTotalCount = 0;
         selectedAdminUser.reset();
         deleteUserPopupVisible = false;
+        exitDesktopPopupVisible = false;
         adminUserDeleteTarget.clear();
         adminSearchInput.clear();
         adminGoldInput.clear();
@@ -2855,15 +2957,16 @@ int main(int argc, char** argv)
 
     auto showAuthenticatedScreen = [&]() {
         currentState = GameState::Authenticated;
-        title.setString("Logged In");
+        title.setString("");
         centerText(title, 400.0f);
-        setMessageY(messageText, 500.0f);
+        setMessageY(messageText, 560.0f);
         resetForm(usernameInput, passwordInput, confirmInput, messageText);
         deckNameInput.clear();
         inspectedDeckEditorCardTitle.reset();
         lastDeckEditorClickedCardTitle.reset();
         inspectedDeckEditorCardScroll = 0.0f;
         revealedCardTitle.reset();
+        exitDesktopPopupVisible = false;
         coinPurchasePolling = false;
         clearFocus();
         if (!loggedInUsername.empty())
@@ -3022,7 +3125,7 @@ int main(int argc, char** argv)
 
     auto leaveOptionsScreen = [&]() {
         currentState = optionsReturnState;
-        title.setString(optionsReturnState == GameState::Authenticated ? "Logged In" : "Steam Tactics");
+        title.setString(optionsReturnState == GameState::Authenticated ? "" : "Steam Tactics");
         centerText(title, 400.0f);
         setMessageY(messageText, optionsReturnState == GameState::Authenticated ? 500.0f : 450.0f);
         setMessage(messageText, "", sf::Color::White);
@@ -7058,10 +7161,30 @@ int main(int argc, char** argv)
                 mousePressed && mousePressed->button == sf::Mouse::Button::Left)
             {
                 const sf::Vector2f clickPos = window.mapPixelToCoords(mousePressed->position);
+                if (exitDesktopPopupVisible)
+                {
+                    if (confirmExitDesktopButton.isClicked(clickPos))
+                    {
+                        window.close();
+                        break;
+                    }
+                    if (cancelExitDesktopButton.isClicked(clickPos) ||
+                        !isInsideRect(clickPos, 220.0f, 188.0f, 360.0f, 220.0f))
+                    {
+                        exitDesktopPopupVisible = false;
+                    }
+                    continue;
+                }
+
+                if ((currentState == GameState::Menu || currentState == GameState::Authenticated) &&
+                    exitDesktopCloseButtonClicked(clickPos))
+                {
+                    exitDesktopPopupVisible = true;
+                    continue;
+                }
+
                 const bool screenHasExitButton =
-                    currentState == GameState::Menu ||
-                    currentState == GameState::SandboxLoading ||
-                    currentState == GameState::Authenticated;
+                    currentState == GameState::SandboxLoading;
                 if (screenHasExitButton && exitDesktopButton.isClicked(clickPos))
                 {
                     window.close();
@@ -7845,6 +7968,19 @@ int main(int argc, char** argv)
 
             if (const auto* keyPressed = event->getIf<sf::Event::KeyPressed>())
             {
+                if (exitDesktopPopupVisible)
+                {
+                    if (keyPressed->code == sf::Keyboard::Key::Escape)
+                    {
+                        exitDesktopPopupVisible = false;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter)
+                    {
+                        window.close();
+                    }
+                    continue;
+                }
+
                 if (keyPressed->code == sf::Keyboard::Key::Escape)
                 {
                     if (currentState == GameState::ChangePassword && passwordChangedPopupVisible)
@@ -8005,10 +8141,18 @@ int main(int argc, char** argv)
 
         if (currentState == GameState::Menu)
         {
-            loginButton.update(mousePos);
-            createButton.update(mousePos);
-            menuOptionsButton.update(mousePos);
-            exitDesktopButton.update(mousePos);
+            exitDesktopCloseHovered = exitDesktopCloseButtonClicked(mousePos);
+            if (exitDesktopPopupVisible)
+            {
+                cancelExitDesktopButton.update(mousePos);
+                confirmExitDesktopButton.update(mousePos);
+            }
+            else
+            {
+                loginButton.update(mousePos);
+                createButton.update(mousePos);
+                menuOptionsButton.update(mousePos);
+            }
         }
         else if (currentState == GameState::SandboxLoading)
         {
@@ -8063,18 +8207,27 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Authenticated)
         {
-            playButton.update(mousePos);
-            sandboxButton.update(mousePos);
-            deckEditorButton.update(mousePos);
-            shopButton.update(mousePos);
-            if (loggedInIsAdmin)
+            layoutAuthenticatedButtons();
+            exitDesktopCloseHovered = exitDesktopCloseButtonClicked(mousePos);
+            if (exitDesktopPopupVisible)
             {
-                adminCardEditorButton.update(mousePos);
-                adminUsersButton.update(mousePos);
+                cancelExitDesktopButton.update(mousePos);
+                confirmExitDesktopButton.update(mousePos);
             }
-            authenticatedOptionsButton.update(mousePos);
-            logoutButton.update(mousePos);
-            exitDesktopButton.update(mousePos);
+            else
+            {
+                playButton.update(mousePos);
+                sandboxButton.update(mousePos);
+                deckEditorButton.update(mousePos);
+                shopButton.update(mousePos);
+                if (loggedInIsAdmin)
+                {
+                    adminCardEditorButton.update(mousePos);
+                    adminUsersButton.update(mousePos);
+                }
+                authenticatedOptionsButton.update(mousePos);
+                logoutButton.update(mousePos);
+            }
         }
         else if (currentState == GameState::AdminUsers)
         {
@@ -8211,7 +8364,11 @@ int main(int argc, char** argv)
             loginButton.draw(window);
             createButton.draw(window);
             menuOptionsButton.draw(window);
-            exitDesktopButton.draw(window);
+            drawExitDesktopCloseButton();
+            if (exitDesktopPopupVisible)
+            {
+                drawExitDesktopPopup();
+            }
         }
         else if (currentState == GameState::SandboxLoading)
         {
@@ -8298,9 +8455,10 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Authenticated)
         {
-            drawText(window, font, "Signed in as " + signedInLabel(), 18, {300.0f, 160.0f}, sf::Color(190, 198, 214), 260.0f);
-            drawText(window, font, "Coins " + std::to_string(playerCoins), 18, {270.0f, 190.0f}, sf::Color(248, 214, 112), 120.0f);
-            drawText(window, font, "Rating " + std::to_string(playerRating), 18, {420.0f, 190.0f}, sf::Color(151, 192, 255), 140.0f);
+            drawText(window, font, signedInLabel(), 18, {24.0f, 20.0f}, sf::Color(246, 238, 218), 240.0f);
+            drawText(window, font, "Rating: " + std::to_string(playerRating), 16, {24.0f, 48.0f}, sf::Color(151, 192, 255), 180.0f);
+            drawCoinIcon({24.0f, 76.0f}, 13.0f);
+            drawText(window, font, std::to_string(playerCoins), 18, {58.0f, 75.0f}, sf::Color(248, 239, 216), 120.0f);
             playButton.draw(window);
             sandboxButton.draw(window);
             deckEditorButton.draw(window);
@@ -8312,8 +8470,12 @@ int main(int argc, char** argv)
             }
             authenticatedOptionsButton.draw(window);
             logoutButton.draw(window);
-            exitDesktopButton.draw(window);
+            drawExitDesktopCloseButton();
             window.draw(messageText);
+            if (exitDesktopPopupVisible)
+            {
+                drawExitDesktopPopup();
+            }
         }
         else if (currentState == GameState::AdminUsers)
         {

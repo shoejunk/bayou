@@ -29,6 +29,12 @@ export struct Button
         fitAndCenterLabel();
     }
 
+    void setPosition(const sf::Vector2f& position)
+    {
+        shape.setPosition(position);
+        fitAndCenterLabel();
+    }
+
     void update(const sf::Vector2f& mousePos)
     {
         hovered = shape.getGlobalBounds().contains(mousePos);
