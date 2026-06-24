@@ -4947,7 +4947,7 @@ int main(int argc, char** argv)
         game_data::Snapshot next = gameSnapshot;
         const game_data::GameCard card = next.hand[static_cast<std::size_t>(handIndex)];
         const int actingPlayer = sandboxPlacementPlayer;
-        if (card.type == "Unit")
+        if (card.type == "Unit" || card.type == "Hero")
         {
             if (!game_data::inBounds(row, column) ||
                 next.control[static_cast<std::size_t>(game_data::squareIndex(row, column))] != actingPlayer ||
