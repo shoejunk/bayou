@@ -6342,8 +6342,10 @@ int main(int argc, char** argv)
                 }
             }
 
+            const bool pieceUnavailable =
+                (piece.hasActed && piece.owner == gameSnapshot.activePlayer) || piece.disabledTurns > 0;
             sf::Color color = ownerColor(piece.owner);
-            if (piece.hasActed && piece.owner == gameSnapshot.activePlayer)
+            if (pieceUnavailable)
             {
                 color = sf::Color(static_cast<std::uint8_t>(color.r * 0.55f),
                                   static_cast<std::uint8_t>(color.g * 0.55f),
@@ -6373,7 +6375,7 @@ int main(int argc, char** argv)
                             *walkSheet,
                             sf::IntRect({frame * frameWidth, 0}, {frameWidth, frameHeight}),
                             pieceTargetRect(anchor, pieceScale, true),
-                            piece.hasActed && piece.owner == gameSnapshot.activePlayer
+                            pieceUnavailable
                                 ? sf::Color(150, 150, 150, 215)
                                 : sf::Color::White);
                     }
@@ -6401,7 +6403,7 @@ int main(int argc, char** argv)
                         *walkSheet,
                         sf::IntRect({0, 0}, {frameWidth, frameHeight}),
                         pieceTargetRect(anchor, pieceScale, true),
-                        piece.hasActed && piece.owner == gameSnapshot.activePlayer
+                        pieceUnavailable
                             ? sf::Color(150, 150, 150, 215)
                             : sf::Color::White);
                 }
@@ -6409,7 +6411,7 @@ int main(int argc, char** argv)
             else if (sf::Texture* art = cardArtTexture(piece.imagePath))
             {
                 drawContainSprite(*art, pieceTargetRect(anchor, pieceScale, false),
-                                  piece.hasActed && piece.owner == gameSnapshot.activePlayer
+                                  pieceUnavailable
                                       ? sf::Color(130, 130, 130)
                                       : sf::Color::White);
             }
