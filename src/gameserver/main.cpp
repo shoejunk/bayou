@@ -637,6 +637,10 @@ private:
             targetAtDestination = target->row == toRow && target->column == toColumn;
             victimOwner = target->owner;
             target->health -= action.damage;
+            if (action.damage > 0)
+            {
+                target->sleepTurnsRemaining = std::max(target->sleepTurnsRemaining, 1);
+            }
             target->disabledTurns = std::max(target->disabledTurns, action.statusTurns);
             if (target->health <= 0)
             {
@@ -813,6 +817,7 @@ private:
 
     void advanceTurn(const std::string& actionStatus)
     {
+        endTurnFor(activePlayer);
         recomputeControl();
         if (phaseValue == Phase::GameOver)
         {
@@ -824,6 +829,17 @@ private:
         if (!actionStatus.empty())
         {
             status = actionStatus + " " + status;
+        }
+    }
+
+    void endTurnFor(int playerNumber)
+    {
+        for (Piece& piece : pieces)
+        {
+            if (piece.owner == playerNumber && piece.sleepTurnsRemaining > 0)
+            {
+                --piece.sleepTurnsRemaining;
+            }
         }
     }
 
@@ -850,6 +866,10 @@ private:
                 return false;
             }
             target->health -= card.power;
+            if (card.power > 0)
+            {
+                target->sleepTurnsRemaining = std::max(target->sleepTurnsRemaining, 1);
+            }
             if (target->health <= 0)
             {
                 const int victimOwner = target->owner;

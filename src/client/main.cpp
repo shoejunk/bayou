@@ -104,9 +104,9 @@ enum class GameState
 // In-game board layout.
 constexpr float BoardOriginX = 24.0f;
 constexpr float BoardOriginY = 70.0f;
-constexpr float CellSize = 54.0f;
+constexpr float CellSize = 94.0f;
 constexpr float BoardBottomWidth = CellSize * static_cast<float>(game_data::BoardSize);
-constexpr float BoardTopWidth = 312.0f;
+constexpr float BoardTopWidth = 544.0f;
 constexpr float BoardHeight = 418.0f;
 constexpr float BoardCenterX = BoardOriginX + BoardBottomWidth * 0.5f;
 constexpr float BoardPerspectiveExponent = 1.18f;
@@ -117,10 +117,8 @@ constexpr float PieceBaseWidth = 48.0f;
 constexpr float PieceBaseHeight = 50.0f;
 constexpr float PieceWalkBaseHeight = 54.0f;
 constexpr float WalkAnimationLoopSeconds = 1.0f;
-constexpr float InfoPanelX = 472.0f;
-constexpr float InfoPanelY = 70.0f;
-constexpr float InfoPanelWidth = 304.0f;
-constexpr float InfoPanelHeight = 432.0f;
+constexpr float GameLabelY = 44.0f;
+constexpr float GameActionButtonY = 14.0f;
 constexpr float HandY = 512.0f;
 constexpr float HandCardWidth = 88.0f;
 constexpr float HandCardHeight = 78.0f;
@@ -2631,9 +2629,9 @@ int main(int argc, char** argv)
     std::unordered_map<int, PieceMoveAnimation> pieceMoveAnimations;
 
     Button findMatchButton({300.0f, 458.0f}, {200.0f, 52.0f}, "Find Match", font);
-    Button abilityButton({InfoPanelX + 64.0f, 398.0f}, {176.0f, 40.0f}, "Use Ability", font);
-    Button endTurnButton({InfoPanelX + 64.0f, 446.0f}, {176.0f, 44.0f}, "Pass Turn", font);
-    Button sandboxPlayerButton({InfoPanelX + 64.0f, 446.0f}, {176.0f, 44.0f}, "Place P1", font);
+    Button abilityButton({392.0f, GameActionButtonY}, {138.0f, 36.0f}, "Use Ability", font);
+    Button endTurnButton({540.0f, GameActionButtonY}, {132.0f, 36.0f}, "Pass Turn", font);
+    Button sandboxPlayerButton({540.0f, GameActionButtonY}, {132.0f, 36.0f}, "Place P1", font);
     Button leaveGameButton({684.0f, 14.0f}, {100.0f, 36.0f}, "Leave", font);
     Button closePiecePopupButton({PiecePopupX + 358.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
     Button discardCardButton({PiecePopupX + 22.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {220.0f, 38.0f},
@@ -4341,45 +4339,37 @@ int main(int argc, char** argv)
 
         if (hero)
         {
-            details.push_back({"Rarity: " + cardRarityLabel(card) + ".", cardRarityColor(card)});
-            details.push_back({
-                "Hero: costs " + std::to_string(game_data::cardInt(card, "heroCost", 0)) +
-                    " hero budget. A player loses when all of their heroes are defeated.",
-                sf::Color(248, 214, 112)});
+            details.push_back({"Rarity: " + cardRarityLabel(card), cardRarityColor(card)});
+            details.push_back({"Hero cost: " + std::to_string(game_data::cardInt(card, "heroCost", 0)),
+                               sf::Color(248, 214, 112)});
         }
         else
         {
-            details.push_back({"Rarity: " + cardRarityLabel(card) + ".", cardRarityColor(card)});
-            details.push_back({
-                "Cost: " + std::to_string(game_data::cardInt(card, "cost", 0)) + " steam.",
-                sf::Color(150, 210, 235)});
+            details.push_back({"Rarity: " + cardRarityLabel(card), cardRarityColor(card)});
+            details.push_back({"Cost: " + std::to_string(game_data::cardInt(card, "cost", 0)) + " steam",
+                               sf::Color(150, 210, 235)});
         }
 
         if (unit)
         {
-            details.push_back({
-                "Stats: " + std::to_string(gameCard.attack) + " attack, " +
-                    std::to_string(gameCard.attackRange) + " attack range, " +
-                    std::to_string(gameCard.health) + " health.",
-                sf::Color(224, 210, 176)});
-            details.push_back({
-                "Movement: " + game_data::movePatternName(gameCard.movePattern) + " " +
-                    std::to_string(gameCard.moveRange) +
-                    (gameCard.attackingMove
-                        ? ". May move into an enemy to deal attack damage."
-                        : "."),
-                sf::Color(143, 220, 205)});
-            details.push_back({
-                "Board role: controls its occupied square and influences adjacent empty squares after deployment.",
-                sf::Color(198, 180, 142)});
+            details.push_back({"Health: " + std::to_string(gameCard.health), sf::Color(224, 210, 176)});
+            details.push_back({"Attack: " + std::to_string(gameCard.attack) +
+                                   "  Range: " + std::to_string(gameCard.attackRange),
+                               sf::Color(224, 210, 176)});
+            details.push_back({"Move: " + game_data::movePatternName(gameCard.movePattern) + " " +
+                                   std::to_string(gameCard.moveRange) +
+                                   (gameCard.attackingMove ? " (attack move)" : ""),
+                               sf::Color(143, 220, 205)});
+            details.push_back({"Territory: occupied square + adjacent influence", sf::Color(198, 180, 142)});
         }
         else
         {
-            details.push_back({
-                "Spell: " + game_data::cardStr(card, "effect", "none") + " " +
-                    std::to_string(game_data::cardInt(card, "power", 0)) +
-                    ". Target: " + game_data::cardStr(card, "target", "none") + ".",
-                sf::Color(224, 210, 176)});
+            details.push_back({"Effect: " + game_data::cardStr(card, "effect", "none"),
+                               sf::Color(224, 210, 176)});
+            details.push_back({"Power: " + std::to_string(game_data::cardInt(card, "power", 0)),
+                               sf::Color(224, 210, 176)});
+            details.push_back({"Target: " + game_data::cardStr(card, "target", "none"),
+                               sf::Color(143, 220, 205)});
         }
 
         if (!card.keywords.empty())
@@ -4387,13 +4377,26 @@ int main(int argc, char** argv)
             details.push_back({"Keywords: " + joinStrings(card.keywords, ", "), sf::Color(210, 216, 228)});
         }
 
+        auto isHiddenCardDetailKey = [](const std::string& key) {
+            return key == "cost" || key == "heroCost" || key == "health" || key == "attack" ||
+                key == "range" || key == "move" || key == "attackingMove" || key == "power" ||
+                key == "canControl" || key == "growTurns" || key == "abilityUses" ||
+                key == "WalkAnimFrames" || key == "rarity" || key == "effect" || key == "target" ||
+                key == "movement" || key == "WalkAnim" || key == "WalkAnimBlue" ||
+                key == "WalkAnimRed" || key == "TokenBlue" || key == "TokenRed";
+        };
+
         for (const card_data::KeyIntPair& item : card.integerValues)
         {
+            if (isHiddenCardDetailKey(item.key))
+            {
+                continue;
+            }
             details.push_back({item.key + ": " + std::to_string(item.value), sf::Color(190, 198, 214)});
         }
         for (const card_data::KeyStringPair& item : card.stringValues)
         {
-            if (item.key == "rarity")
+            if (isHiddenCardDetailKey(item.key))
             {
                 continue;
             }
@@ -4464,7 +4467,7 @@ int main(int argc, char** argv)
         float y = PiecePopupY + 66.0f;
         const float statX = PiecePopupX + 146.0f;
         const bool hero = game_data::isHeroCard(*card);
-        drawText(window, font, card->type + " - Collection card", 15, {statX, y},
+        drawText(window, font, "Type: " + card->type + "   Location: Collection", 15, {statX, y},
                  hero ? sf::Color(248, 214, 112) : sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
         y += 24.0f;
         drawText(window, font, "Owned: " + std::to_string(ownedCopies(card->title)), 14, {statX, y},
@@ -4477,7 +4480,7 @@ int main(int argc, char** argv)
         }
         else
         {
-            drawText(window, font, "Steam cost: " + std::to_string(game_data::cardInt(*card, "cost", 0)),
+            drawText(window, font, "Cost: " + std::to_string(game_data::cardInt(*card, "cost", 0)) + " steam",
                      14, {statX, y}, sf::Color(150, 210, 235));
         }
         y += 22.0f;
@@ -4488,9 +4491,9 @@ int main(int argc, char** argv)
                      14, {statX, y}, sf::Color(224, 210, 176));
             y += 22.0f;
             const game_data::GameCard gameCard = game_data::toGameCard(*card);
-            drawText(window, font, "Movement: " + game_data::movePatternName(gameCard.movePattern) +
+            drawText(window, font, "Move: " + game_data::movePatternName(gameCard.movePattern) +
                          " " + std::to_string(gameCard.moveRange) +
-                         (gameCard.attackingMove ? " (attacking)" : ""),
+                         (gameCard.attackingMove ? " (attack move)" : ""),
                      14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
         }
         else
@@ -4891,6 +4894,10 @@ int main(int argc, char** argv)
                 return;
             }
             target->health -= card.power;
+            if (card.power > 0)
+            {
+                target->sleepTurnsRemaining = std::max(target->sleepTurnsRemaining, 1);
+            }
             if (target->health <= 0)
             {
                 removePieceFromSnapshot(next, target->id);
@@ -4954,6 +4961,10 @@ int main(int argc, char** argv)
             targetName = target->name;
             targetAtDestination = target->row == row && target->column == column;
             target->health -= action.damage;
+            if (action.damage > 0)
+            {
+                target->sleepTurnsRemaining = std::max(target->sleepTurnsRemaining, 1);
+            }
             target->disabledTurns = std::max(target->disabledTurns, action.statusTurns);
             if (target->health <= 0)
             {
@@ -5058,6 +5069,10 @@ int main(int argc, char** argv)
                 {
                     --piece.disabledTurns;
                     piece.hasActed = true;
+                }
+                if (piece.sleepTurnsRemaining > 0)
+                {
+                    --piece.sleepTurnsRemaining;
                 }
             }
         }
@@ -5595,129 +5610,156 @@ int main(int argc, char** argv)
         const game_data::MovePattern pattern = static_cast<game_data::MovePattern>(piece.movePattern);
         if (pattern == game_data::MovePattern::None || piece.moveRange <= 0)
         {
-            return std::string("Move: this piece cannot move.");
+            return std::string("Move: none");
         }
         if (pattern == game_data::MovePattern::Jump)
         {
-            std::string description =
-                "Move: jumps in an L shape, one square on one axis and two on the other. Path blockers do not stop a jump.";
+            std::string description = "Move: L-jump, ignores blockers";
             if (piece.attackingMove)
             {
-                description += " It may jump onto an enemy and deal attack damage; if the enemy survives, this piece stays where it started.";
+                description += ", attack move";
             }
             return description;
         }
 
-        std::string direction;
+        std::string patternLabel;
         if (pattern == game_data::MovePattern::Ortho)
         {
-            direction = "orthogonally";
+            patternLabel = "orthogonal";
         }
         else if (pattern == game_data::MovePattern::Diag)
         {
-            direction = "diagonally";
+            patternLabel = "diagonal";
         }
         else
         {
-            direction = "in any straight or diagonal direction";
+            patternLabel = "any direction";
         }
 
-        std::string description = "Move: travels up to " + squareText(piece.moveRange) + " " + direction +
-            ". The path must be clear";
+        std::string description = "Move: " + patternLabel + " " + squareText(piece.moveRange);
         if (piece.attackingMove)
         {
-            description +=
-                ". It may move onto an enemy and deal attack damage. If the enemy survives, this piece stops on the last empty square before it";
+            description += ", attack move";
         }
         else
         {
-            description += " and the destination must be empty";
+            description += ", empty destination";
         }
-        return description + ".";
+        return description;
     };
 
     auto attackDescription = [&](const game_data::Piece& piece) {
         if (piece.attack <= 0)
         {
-            return std::string("Attack: this piece cannot attack.");
+            return std::string("Attack: none");
         }
-        return "Attack: deals " + std::to_string(piece.attack) + " damage to one enemy within " +
-            squareText(piece.attackRange) + ". Range counts distance in any direction.";
+        return "Attack: " + std::to_string(piece.attack) + " damage, range " +
+            std::to_string(piece.attackRange);
     };
 
     auto readinessDescription = [&](const game_data::Piece& piece) {
         const game_data::Phase phase = static_cast<game_data::Phase>(gameSnapshot.phase);
         if (sandboxMode)
         {
-            return std::string("Turn status: sandbox pieces can be moved at any time.");
+            return std::string("Status: sandbox ready");
         }
         if (phase == game_data::Phase::HeroPlacement)
         {
-            return std::string("Turn status: hero placement is still in progress, so pieces cannot act yet.");
+            return std::string("Status: waiting for hero placement");
         }
         if (phase == game_data::Phase::GameOver)
         {
-            return std::string("Turn status: the game is over.");
+            return std::string("Status: game over");
         }
         if (gameSnapshot.activePlayer != piece.owner)
         {
-            return "Turn status: waits for Player " + std::to_string(piece.owner) + "'s turn.";
+            return "Status: waiting for Player " + std::to_string(piece.owner);
         }
         if (piece.hasActed)
         {
-            return std::string("Turn status: already acted this turn.");
+            return std::string("Status: acted this turn");
         }
-        return std::string("Turn status: ready. It may either move or attack once this turn.");
+        if (piece.sleepTurnsRemaining > 0)
+        {
+            return std::string("Status: sleeping, cannot move");
+        }
+        return std::string("Status: ready");
     };
 
     auto piecePopupActionDescriptions = [&](const game_data::Piece& piece) {
         std::vector<std::pair<std::string, sf::Color>> descriptions;
-        descriptions.push_back({readinessDescription(piece), sf::Color(210, 216, 228)});
-        descriptions.push_back({moveDescription(piece), sf::Color(210, 216, 228)});
-        descriptions.push_back({attackDescription(piece), sf::Color(210, 216, 228)});
+        descriptions.push_back({"Position: row " + std::to_string(piece.row + 1) +
+                                    ", column " + std::to_string(piece.column + 1),
+                                sf::Color(190, 198, 214)});
         descriptions.push_back({
-            "Territory: controls the square it occupies and influences adjacent empty squares when territory is recalculated.",
+            std::string("Territory: ") +
+                (piece.canControl ? "controls occupied square + adjacent influence" : "no control"),
             sf::Color(198, 180, 142)});
+        if (piece.growTurnsRemaining > 0)
+        {
+            descriptions.push_back({"Growing: " + std::to_string(piece.growTurnsRemaining) + " turns",
+                                    sf::Color(210, 180, 105)});
+        }
+        if (piece.disabledTurns > 0)
+        {
+            descriptions.push_back({"Disabled: " + std::to_string(piece.disabledTurns) + " turns",
+                                    sf::Color(225, 130, 110)});
+        }
+        if (piece.sleepTurnsRemaining > 0)
+        {
+            descriptions.push_back({"Sleeping: " + std::to_string(piece.sleepTurnsRemaining) + " turns",
+                                    sf::Color(120, 190, 230)});
+        }
+        if (!piece.ability.empty())
+        {
+            descriptions.push_back({"Ability: " + game_data::pieceAbilityLabel(piece), sf::Color(210, 216, 228)});
+            if (piece.abilityUses > 0)
+            {
+                descriptions.push_back({"Ability uses: " + std::to_string(piece.abilityUses),
+                                        sf::Color(190, 198, 214)});
+            }
+        }
         if (piece.isHero)
         {
-            descriptions.push_back({
-                sandboxMode
-                    ? "Hero: sandbox has no win or loss state."
-                    : "Hero: if a player loses all heroes, they lose the match.",
-                sf::Color(225, 170, 150)});
+            descriptions.push_back({sandboxMode ? "Hero: sandbox rules" : "Hero: defeat all enemy heroes to win",
+                                    sf::Color(225, 170, 150)});
             if (!piece.keywords.empty())
             {
-                descriptions.push_back({
-                    "Hero keywords: " + joinStrings(piece.keywords, ", ") +
-                        ". These allow matching Unit and Spell cards to be played while this hero survives.",
-                    sf::Color(198, 180, 142)});
+                descriptions.push_back({"Keywords: " + joinStrings(piece.keywords, ", "), sf::Color(198, 180, 142)});
             }
+        }
+        else if (!piece.keywords.empty())
+        {
+            descriptions.push_back({"Keywords: " + joinStrings(piece.keywords, ", "), sf::Color(198, 180, 142)});
         }
         return descriptions;
     };
 
     auto cardPlayDescription = [&](const game_data::GameCard& card) {
+        if (card.type == "Hero")
+        {
+            return std::string("Play: hero placement");
+        }
         if (card.type == "Unit")
         {
-            return "Play: costs " + std::to_string(card.cost) +
-                " steam. Deploy onto an empty square you control. Summoned units cannot act on the turn they arrive.";
+            return "Play: " + std::to_string(card.cost) + " steam, controlled empty square";
         }
         if (card.effect == "damage")
         {
-            return "Play: costs " + std::to_string(card.cost) + " steam. Target an enemy piece to deal " +
-                std::to_string(card.power) + " damage.";
+            return "Play: " + std::to_string(card.cost) + " steam, deal " +
+                std::to_string(card.power) + " damage";
         }
         if (card.effect == "heal")
         {
-            return "Play: costs " + std::to_string(card.cost) + " steam. Target a friendly piece to restore up to " +
-                std::to_string(card.power) + " health.";
+            return "Play: " + std::to_string(card.cost) + " steam, restore " +
+                std::to_string(card.power) + " health";
         }
         if (card.effect == "steam")
         {
-            return "Play: costs " + std::to_string(card.cost) + " steam and grants " +
-                std::to_string(card.power) + " steam immediately.";
+            return "Play: " + std::to_string(card.cost) + " steam, gain " +
+                std::to_string(card.power) + " steam";
         }
-        return "Play: costs " + std::to_string(card.cost) + " steam.";
+        return std::string("Play: ") + std::to_string(card.cost) + " steam";
     };
 
     auto cardPopupActionDescriptions = [&](const game_data::GameCard& card) {
@@ -5732,28 +5774,28 @@ int main(int argc, char** argv)
 
         if (phase == game_data::Phase::GameOver)
         {
-            descriptions.push_back({"Turn status: the game is over.", sf::Color(210, 216, 228)});
+            descriptions.push_back({"Status: game over", sf::Color(210, 216, 228)});
         }
         else if (!yourTurn)
         {
-            descriptions.push_back({"Turn status: this card can be played on your battle turn.", sf::Color(210, 216, 228)});
+            descriptions.push_back({"Status: playable on your battle turn", sf::Color(210, 216, 228)});
         }
         else if (!affordable)
         {
-            descriptions.push_back({"Turn status: not enough steam to play this card.", sf::Color(225, 170, 150)});
+            descriptions.push_back({"Status: not enough steam", sf::Color(225, 170, 150)});
         }
         else if (!missingKeywords.empty())
         {
             descriptions.push_back({
-                "Turn status: requires a living hero with " + joinStrings(missingKeywords, ", ") + ".",
+                "Status: requires " + joinStrings(missingKeywords, ", "),
                 sf::Color(225, 170, 150)});
         }
         else
         {
             descriptions.push_back({
                 sandboxMode
-                    ? "Turn status: playable now. Sandbox cards are free and stay available."
-                    : "Turn status: playable now. Playing a card ends your turn.",
+                    ? "Status: playable now, free in sandbox"
+                    : "Status: playable now, ends turn",
                 sf::Color(120, 220, 150)});
         }
 
@@ -5761,7 +5803,7 @@ int main(int argc, char** argv)
         if (!card.keywords.empty())
         {
             descriptions.push_back({
-                "Required hero keywords: " + joinStrings(card.keywords, ", ") + ".",
+                "Required keywords: " + joinStrings(card.keywords, ", "),
                 sf::Color(198, 180, 142)});
         }
         if (card.type == "Unit")
@@ -5775,7 +5817,7 @@ int main(int argc, char** argv)
             descriptions.push_back({moveDescription(preview), sf::Color(210, 216, 228)});
             descriptions.push_back({attackDescription(preview), sf::Color(210, 216, 228)});
             descriptions.push_back({
-                "Territory: once deployed, the unit controls its occupied square and influences adjacent empty squares.",
+                "Territory: occupied square + adjacent influence",
                 sf::Color(198, 180, 142)});
         }
         return descriptions;
@@ -5892,28 +5934,28 @@ int main(int argc, char** argv)
         {
             const std::string ownerLabel = piece->owner == gameSnapshot.yourPlayer ? "Yours" : "Opponent";
             const std::string typeLabel = piece->isHero ? "Hero" : "Unit";
-            drawText(window, font, typeLabel + " - " + ownerLabel + " (Player " + std::to_string(piece->owner) + ")",
+            drawText(window, font, "Type: " + typeLabel + "   Owner: " + ownerLabel +
+                         " (P" + std::to_string(piece->owner) + ")",
                      15, {statX, y}, ownerColor(piece->owner), PiecePopupWidth - 174.0f);
-            y += 24.0f;
-            drawText(window, font, "Position: row " + std::to_string(piece->row + 1) +
-                         ", column " + std::to_string(piece->column + 1),
-                     14, {statX, y}, sf::Color(190, 198, 214));
-            y += 24.0f;
+            y += 22.0f;
+            drawText(window, font, readinessDescription(*piece), 14, {statX, y}, sf::Color(210, 216, 228),
+                     PiecePopupWidth - 174.0f);
+            y += 22.0f;
             drawText(window, font, "Health: " + std::to_string(piece->health) + "/" + std::to_string(piece->maxHealth),
                      14, {statX, y}, sf::Color(224, 210, 176));
             y += 22.0f;
             drawText(window, font, "Attack: " + std::to_string(piece->attack) +
-                         "   Attack range: " + std::to_string(piece->attackRange),
+                         "   Range: " + std::to_string(piece->attackRange),
                      14, {statX, y}, sf::Color(224, 210, 176));
             y += 22.0f;
-            drawText(window, font, "Movement: " + game_data::movePatternName(piece->movePattern) +
+            drawText(window, font, "Move: " + game_data::movePatternName(piece->movePattern) +
                          " " + std::to_string(piece->moveRange) +
-                         (piece->attackingMove ? " (attacking)" : ""),
+                         (piece->attackingMove ? " (attack move)" : ""),
                      14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
         }
         else
         {
-            drawText(window, font, card->type + " - Hand card", 15, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+            drawText(window, font, "Type: " + card->type + "   Location: Hand", 15, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
             y += 24.0f;
             if (card->type == "Hero")
             {
@@ -5929,12 +5971,12 @@ int main(int argc, char** argv)
                 drawText(window, font, "Health: " + std::to_string(card->health), 14, {statX, y}, sf::Color(224, 210, 176));
                 y += 22.0f;
                 drawText(window, font, "Attack: " + std::to_string(card->attack) +
-                             "   Attack range: " + std::to_string(card->attackRange),
+                             "   Range: " + std::to_string(card->attackRange),
                          14, {statX, y}, sf::Color(224, 210, 176));
                 y += 22.0f;
-                drawText(window, font, "Movement: " + game_data::movePatternName(card->movePattern) +
+                drawText(window, font, "Move: " + game_data::movePatternName(card->movePattern) +
                              " " + std::to_string(card->moveRange) +
-                             (card->attackingMove ? " (attacking)" : ""),
+                             (card->attackingMove ? " (attack move)" : ""),
                          14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
             }
             else
@@ -5949,7 +5991,7 @@ int main(int argc, char** argv)
 
         inspectedPieceScroll = std::clamp(inspectedPieceScroll, 0.0f, popupMaxScroll(actionDescriptions));
 
-        drawText(window, font, "Actions", 17, {PiecePopupTextX, PiecePopupActionHeadingY}, sf::Color::White);
+        drawText(window, font, piece ? "Details" : "Actions", 17, {PiecePopupTextX, PiecePopupActionHeadingY}, sf::Color::White);
 
         sf::RectangleShape scrollBack({PiecePopupTextWidth, PiecePopupScrollHeight});
         scrollBack.setPosition({PiecePopupTextX, PiecePopupScrollY});
@@ -6375,110 +6417,19 @@ int main(int argc, char** argv)
                      {anchor.x - 5.0f * pieceScale, anchor.y - 21.0f * pieceScale}, sf::Color(248, 239, 216));
         }
 
-        // Info panel.
-        drawPanel(window, {InfoPanelX, InfoPanelY}, {InfoPanelWidth, InfoPanelHeight});
-        float y = InfoPanelY + 12.0f;
+        // Compact game readout.
         const game_data::PlayerSnapshot& mine = gameSnapshot.players[static_cast<std::size_t>(me - 1)];
-        const game_data::PlayerSnapshot& foe = gameSnapshot.players[static_cast<std::size_t>(me == 1 ? 1 : 0)];
-
-        drawText(
-            window,
-            font,
-            sandboxMode ? "Sandbox" : "You are Player " + std::to_string(me),
-            18,
-            {InfoPanelX + 14.0f, y},
-            ownerColor(me));
-        y += 30.0f;
-
-        std::string phaseLabel = phase == game_data::Phase::HeroPlacement ? "Hero Placement"
-            : phase == game_data::Phase::Playing ? "Battle" : "Game Over";
-        drawText(window, font, phaseLabel, 16, {InfoPanelX + 14.0f, y}, sf::Color(200, 208, 222));
-        y += 26.0f;
-
-        if (phase == game_data::Phase::Playing)
-        {
-            const bool myTurn = gameSnapshot.activePlayer == me;
-            drawText(
-                window,
-                font,
-                sandboxMode ? "Placing for Player " + std::to_string(sandboxPlacementPlayer)
-                            : (myTurn ? "Your turn" : "Opponent's turn"),
-                17,
-                {InfoPanelX + 14.0f, y},
-                sandboxMode || myTurn ? sf::Color(120, 220, 150) : sf::Color(220, 180, 120));
-            y += 30.0f;
-        }
-        else if (phase == game_data::Phase::HeroPlacement)
-        {
-            if (mine.heroesToPlace > 0)
-            {
-                const std::string placementText = selectedHandIndex &&
-                        *selectedHandIndex < gameSnapshot.hand.size()
-                    ? "Place: " + gameSnapshot.hand[*selectedHandIndex].title
-                    : "Drag a hero to a starting square";
-                drawText(window, font, placementText, 15,
-                         {InfoPanelX + 14.0f, y}, sf::Color(120, 220, 205), InfoPanelWidth - 28.0f);
-            }
-            else
-            {
-                drawText(window, font, "Waiting for opponent...", 15, {InfoPanelX + 14.0f, y}, sf::Color(200, 200, 160));
-            }
-            y += 30.0f;
-        }
-
-        drawText(
-            window,
-            font,
-            sandboxMode ? "Player 1 steam: free" : "Your steam: " + std::to_string(mine.steam),
-            17,
-            {InfoPanelX + 14.0f, y},
-            sf::Color(150, 210, 235));
-        y += 24.0f;
-        drawText(window, font, "Squares " + std::to_string(mine.controlledSquares) +
-                     "   Heroes " + std::to_string(mine.heroesAlive), 14, {InfoPanelX + 14.0f, y}, sf::Color(190, 198, 214));
-        y += 28.0f;
-        drawText(
-            window,
-            font,
-            sandboxMode ? "Player 2 steam: free" : "Enemy steam: " + std::to_string(foe.steam),
-            15,
-            {InfoPanelX + 14.0f, y},
-            sf::Color(225, 170, 150));
-        y += 22.0f;
-        drawText(window, font, "Squares " + std::to_string(foe.controlledSquares) +
-                     "   Heroes " + std::to_string(foe.heroesAlive) +
-                     "   Hand " + std::to_string(foe.handCount), 14, {InfoPanelX + 14.0f, y}, sf::Color(190, 198, 214));
-        y += 30.0f;
-
-        if (selectedPiece)
-        {
-            drawText(window, font, selectedPiece->name, 15, {InfoPanelX + 14.0f, y}, sf::Color::White, InfoPanelWidth - 28.0f);
-            y += 20.0f;
-            drawText(window, font, "ATK " + std::to_string(selectedPiece->attack) +
-                         "  HP " + std::to_string(selectedPiece->health) + "/" + std::to_string(selectedPiece->maxHealth), 13,
-                     {InfoPanelX + 14.0f, y}, sf::Color(190, 198, 214));
-            y += 18.0f;
-            drawText(window, font, "Range " + std::to_string(selectedPiece->attackRange) + "  " +
-                         game_data::movePatternName(selectedPiece->movePattern) + " " + std::to_string(selectedPiece->moveRange), 13,
-                     {InfoPanelX + 14.0f, y}, sf::Color(170, 180, 196), InfoPanelWidth - 28.0f);
-            y += 18.0f;
-            if (selectedPiece->growTurnsRemaining > 0)
-            {
-                drawText(window, font, "Growing: " + std::to_string(selectedPiece->growTurnsRemaining) + " turn(s)", 13,
-                         {InfoPanelX + 14.0f, y}, sf::Color(210, 180, 105), InfoPanelWidth - 28.0f);
-                y += 18.0f;
-            }
-            else if (selectedPiece->disabledTurns > 0)
-            {
-                drawText(window, font, "Disabled: " + std::to_string(selectedPiece->disabledTurns) + " turn(s)", 13,
-                         {InfoPanelX + 14.0f, y}, sf::Color(225, 130, 110), InfoPanelWidth - 28.0f);
-                y += 18.0f;
-            }
-        }
-
-        // Status line near the bottom of the panel.
-        drawText(window, font, gameSnapshot.status, 13, {InfoPanelX + 14.0f, InfoPanelY + InfoPanelHeight - 96.0f},
-                 sf::Color(210, 216, 228), InfoPanelWidth - 28.0f);
+        const int activePlayer = std::clamp(gameSnapshot.activePlayer, 1, 2);
+        const game_data::PlayerSnapshot& activePlayerSnapshot =
+            gameSnapshot.players[static_cast<std::size_t>(activePlayer - 1)];
+        const std::string activePlayerName = sandboxMode
+            ? "Player " + std::to_string(activePlayer)
+            : (activePlayer == me ? loggedInUsername : "Opponent");
+        const std::string steamText = sandboxMode ? "free" : std::to_string(activePlayerSnapshot.steam);
+        drawText(window, font, "Turn: " + activePlayerName, 16, {BoardOriginX, GameLabelY},
+                 ownerColor(activePlayer), 240.0f);
+        drawText(window, font, "Steam: " + steamText, 16, {282.0f, GameLabelY},
+                 sf::Color(150, 210, 235), 100.0f);
 
         if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
         {

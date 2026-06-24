@@ -406,6 +406,7 @@ struct Piece
     bool canControl = true;
     int growTurnsRemaining = 0;
     int disabledTurns = 0;
+    int sleepTurnsRemaining = 0;
     std::vector<ActionProfile> actions;
     int actionState = 0;
     std::string ability;
@@ -554,7 +555,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
            << piece.blueWalkAnimPath << piece.redWalkAnimPath << piece.walkAnimFrames
            << piece.maxHealth << piece.health << piece.attack << piece.attackRange
            << piece.movePattern << piece.moveRange << piece.attackingMove
-           << piece.canControl << piece.growTurnsRemaining << piece.disabledTurns
+           << piece.canControl << piece.growTurnsRemaining << piece.disabledTurns << piece.sleepTurnsRemaining
            << piece.actionState << piece.ability << piece.abilityUses << piece.hidden
            << piece.isHero << piece.hasActed;
     packet << static_cast<std::uint32_t>(piece.actions.size());
@@ -579,7 +580,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
            >> piece.blueWalkAnimPath >> piece.redWalkAnimPath >> piece.walkAnimFrames
            >> piece.maxHealth >> piece.health >> piece.attack >> piece.attackRange
            >> piece.movePattern >> piece.moveRange >> piece.attackingMove
-           >> piece.canControl >> piece.growTurnsRemaining >> piece.disabledTurns
+           >> piece.canControl >> piece.growTurnsRemaining >> piece.disabledTurns >> piece.sleepTurnsRemaining
            >> piece.actionState >> piece.ability >> piece.abilityUses >> piece.hidden
            >> piece.isHero >> piece.hasActed;
     std::uint32_t actionCount = 0;
@@ -1097,7 +1098,7 @@ inline ActionResolution resolvePieceAction(
             }
         }
 
-        if (!candidate.legal)
+        if (!candidate.legal || (candidate.moves && piece.sleepTurnsRemaining > 0))
         {
             continue;
         }

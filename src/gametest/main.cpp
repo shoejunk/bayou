@@ -376,6 +376,18 @@ int main(int argc, char** argv)
               raisedAttack.damage == 3,
           "raised gun can deal damage without moving");
 
+    std::vector<Piece> sleepingGunPieces = gunPieces;
+    sleepingGunPieces[0].sleepTurnsRemaining = 1;
+    const ActionResolution sleepingMove =
+        resolvePieceAction(sleepingGunPieces, holes, sleepingGunPieces[0], 2, 3);
+    sleepingGunPieces[0].actionState = 1;
+    const ActionResolution sleepingAttack =
+        resolvePieceAction(sleepingGunPieces, holes, sleepingGunPieces[0], 3, 4);
+    check(!sleepingMove.legal,
+          "sleeping pieces cannot move");
+    check(sleepingAttack.legal && !sleepingAttack.moves && sleepingAttack.attacks,
+          "sleeping pieces can still make stationary attacks");
+
     card_data::Card encodedCard;
     encodedCard.title = "Encoded";
     encodedCard.type = "Unit";
@@ -440,6 +452,7 @@ int main(int argc, char** argv)
     serializedPiece.abilityUses = 1;
     serializedPiece.growTurnsRemaining = 2;
     serializedPiece.disabledTurns = 1;
+    serializedPiece.sleepTurnsRemaining = 1;
     sf::Packet piecePacket;
     writePiece(piecePacket, serializedPiece);
     Piece roundTrippedPiece;
@@ -451,7 +464,8 @@ int main(int argc, char** argv)
               roundTrippedPiece.walkAnimFrames == 6 &&
               roundTrippedPiece.ability == "dig" &&
               roundTrippedPiece.growTurnsRemaining == 2 &&
-              roundTrippedPiece.disabledTurns == 1,
+              roundTrippedPiece.disabledTurns == 1 &&
+              roundTrippedPiece.sleepTurnsRemaining == 1,
           "extended piece fields survive network serialization");
 
     Piece mechanicalHero;
