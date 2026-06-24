@@ -159,7 +159,10 @@ unsigned short requestGameSession(int matchId, const RegisteredMatch& match)
     return readGameSessionResponse(socket, matchId);
 }
 
-unsigned short requestAiGameSession(int matchId, const std::string& playerOne)
+unsigned short requestAiGameSession(
+    int matchId,
+    const std::string& playerOne,
+    const std::string& playerOneToken)
 {
     sf::TcpSocket socket;
     if (socket.connect(sf::IpAddress::LocalHost, GameServerPort) != sf::Socket::Status::Done)
@@ -170,7 +173,7 @@ unsigned short requestAiGameSession(int matchId, const std::string& playerOne)
 
     sf::Packet request;
     request << static_cast<std::uint8_t>(MessageType::CreateAiGameSession)
-            << matchId << playerOne;
+            << matchId << playerOne << playerOneToken;
 
     if (socket.send(request) != sf::Socket::Status::Done)
     {
@@ -346,7 +349,8 @@ private:
     void createAiMatch(std::size_t index)
     {
         const int matchId = allocateMatchId();
-        const unsigned short gamePort = requestAiGameSession(matchId, waitingPlayers[index].username);
+        const unsigned short gamePort = requestAiGameSession(
+            matchId, waitingPlayers[index].username, waitingPlayers[index].accessToken);
         if (gamePort == 0)
         {
             sendMatchmakingFailed(*waitingPlayers[index].socket, "Could not create AI match.");

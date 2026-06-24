@@ -34,6 +34,7 @@ namespace
 {
 constexpr int StarterNonHeroKinds = game_data::DeckCardCount / game_data::MaxCardCopies;
 constexpr int WinRewardCoins = 10;
+constexpr int AiWinRewardCoins = 1;
 constexpr int ShopCardCost = 5;
 constexpr const char* StarterDeckName = "Starter Deck";
 constexpr const char* PreferredStarterHero = "Steam Baron";
@@ -460,6 +461,14 @@ private:
                     handleSubmitRankedResult(*client, matchId, resultToken, winner);
                     break;
                 }
+                case MessageType::SubmitAiResult:
+                {
+                    std::string accessToken;
+                    bool humanWon = false;
+                    packet >> accessToken >> humanWon;
+                    handleSubmitAiResult(*client, accessToken, humanWon);
+                    break;
+                }
                 case MessageType::Disconnect:
                     fmt::println("Client requested disconnect");
                     return;
@@ -864,6 +873,45 @@ private:
             response << static_cast<uint8_t>(MessageType::SubmitRankedResultResponse)
                      << false << std::string("Could not update match rewards")
                      << 0 << 0 << 0 << 0 << 0 << false;
+        }
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleSubmitAiResult(sf::TcpSocket& client, const std::string& accessToken, bool humanWon)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::SubmitAiResultResponse);
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            if (!username)
+            {
+                response << false << std::string("Authentication required") << 0;
+                [[maybe_unused]] auto result = client.send(response);
+                return;
+            }
+
+            const int coinsAwarded = humanWon ? AiWinRewardCoins : 0;
+            if (coinsAwarded > 0)
+            {
+                SQLite::Statement awardWinner(
+                    *database, "UPDATE accounts SET coins = coins + ? WHERE username = ?");
+                awardWinner.bind(1, coinsAwarded);
+                awardWinner.bind(2, *username);
+                awardWinner.exec();
+            }
+
+            response << true
+                     << std::string(humanWon ? "Victory over the AI!" : "Defeated by the AI.")
+                     << coinsAwarded;
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while submitting AI result: {}", error.what());
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::SubmitAiResultResponse)
+                     << false << std::string("Could not update match rewards") << 0;
         }
         [[maybe_unused]] auto result = client.send(response);
     }

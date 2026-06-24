@@ -160,22 +160,72 @@ MatchResult submitRankedResult(int matchId, const std::string& resultToken, int 
     return result;
 }
 
+struct AiMatchResult
+{
+    bool success = false;
+    std::string message;
+    int coinsAwarded = 0;
+};
+
+AiMatchResult submitAiResult(int matchId, const std::string& accessToken, bool humanWon)
+{
+    if (accessToken.empty())
+    {
+        return {};
+    }
+
+    sf::TcpSocket socket;
+    if (socket.connect(sf::IpAddress::LocalHost, AccountServerPort) != sf::Socket::Status::Done)
+    {
+        return {};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(MessageType::SubmitAiResult) << accessToken << humanWon;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        return {};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        return {};
+    }
+
+    std::uint8_t type = 0;
+    AiMatchResult result;
+    response >> type >> result.success >> result.message >> result.coinsAwarded;
+    if (!response || static_cast<MessageType>(type) != MessageType::SubmitAiResultResponse)
+    {
+        return {};
+    }
+
+    if (!result.success)
+    {
+        fmt::println("AI match {} reward update failed: {}", matchId, result.message);
+    }
+    return result;
+}
+
 bool spawnGameProcess(
     int matchId,
     unsigned short port,
     const std::string& playerOne,
     const std::string& playerTwo,
     const std::string& resultToken,
+    const std::string& aiAccessToken,
     bool aiOpponent)
 {
 #ifdef _WIN32
     std::string command = aiOpponent
         ? fmt::format(
-            "\"{}\" --game-ai {} {} {}",
+            "\"{}\" --game-ai {} {} {} {}",
             executablePath(),
             matchId,
             port,
-            playerOne)
+            playerOne,
+            aiAccessToken)
         : fmt::format(
             "\"{}\" --game {} {} {} {} {}",
             executablePath(),
@@ -213,11 +263,12 @@ bool spawnGameProcess(
 #else
     const std::string command = aiOpponent
         ? fmt::format(
-            "{} --game-ai {} {} {} &",
+            "{} --game-ai {} {} {} {} &",
             executablePath(),
             matchId,
             port,
-            playerOne)
+            playerOne,
+            aiAccessToken)
         : fmt::format(
             "{} --game {} {} {} {} {} &",
             executablePath(),
@@ -1570,6 +1621,7 @@ private:
         std::string playerOne;
         std::string playerTwo;
         std::string resultToken;
+        std::string playerOneToken;
         packet >> msgType >> matchId;
         const MessageType type = static_cast<MessageType>(msgType);
         if (type == MessageType::CreateGameSession)
@@ -1578,7 +1630,7 @@ private:
         }
         else if (type == MessageType::CreateAiGameSession)
         {
-            packet >> playerOne;
+            packet >> playerOne >> playerOneToken;
             playerTwo = AiOpponentName;
         }
         else
@@ -1593,8 +1645,14 @@ private:
         }
 
         const unsigned short port = nextGamePort++;
-        const bool started =
-            spawnGameProcess(matchId, port, playerOne, playerTwo, resultToken, type == MessageType::CreateAiGameSession);
+        const bool started = spawnGameProcess(
+            matchId,
+            port,
+            playerOne,
+            playerTwo,
+            resultToken,
+            playerOneToken,
+            type == MessageType::CreateAiGameSession);
 
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::GameSessionCreated);
@@ -1620,11 +1678,13 @@ public:
         std::string playerOne,
         std::string playerTwo,
         std::string resultToken,
-        bool aiOpponent = false)
+        bool aiOpponent = false,
+        std::string aiAccessToken = {})
         : matchId(matchId),
           port(port),
           playerUsernames{std::move(playerOne), std::move(playerTwo)},
           resultToken(std::move(resultToken)),
+          aiAccessToken(std::move(aiAccessToken)),
           listener(std::make_unique<sf::TcpListener>()),
           aiOpponent(aiOpponent)
     {
@@ -1803,14 +1863,17 @@ public:
     void sendAiMatchResult(JoinedPlayer& human, const GameEngine& engine)
     {
         const bool humanWon = engine.winner() == human.playerNumber;
-        const int coinsAwarded = humanWon ? 10 : 0;
+        const AiMatchResult result = submitAiResult(matchId, aiAccessToken, humanWon);
         sf::Packet packet;
         packet << static_cast<std::uint8_t>(MessageType::GameOver)
-               << false
-               << std::string(humanWon ? "Victory over the AI!" : "Defeated by the AI.")
+               << result.success
+               << std::string(
+                      result.success
+                          ? (humanWon ? "Victory over the AI!" : "Defeated by the AI.")
+                          : result.message)
                << 0
                << human.rating
-               << coinsAwarded
+               << result.coinsAwarded
                << false;
         [[maybe_unused]] auto sent = human.socket->send(packet);
     }
@@ -1820,6 +1883,7 @@ private:
     unsigned short port = 0;
     std::array<std::string, 2> playerUsernames;
     std::string resultToken;
+    std::string aiAccessToken;
     std::unique_ptr<sf::TcpListener> listener;
     bool listening = false;
     bool aiOpponent = false;
@@ -2094,11 +2158,11 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    if (argc == 5 && std::string(argv[1]) == "--game-ai")
+    if (argc == 6 && std::string(argv[1]) == "--game-ai")
     {
         const int matchId = std::stoi(argv[2]);
         const unsigned short port = static_cast<unsigned short>(std::stoi(argv[3]));
-        GameProcess game(matchId, port, argv[4], AiOpponentName, "", true);
+        GameProcess game(matchId, port, argv[4], AiOpponentName, "", true, argv[5]);
         game.run();
         return 0;
     }
