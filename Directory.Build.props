@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup>
+    <VcpkgXUseBuiltInApplocalDeps>true</VcpkgXUseBuiltInApplocalDeps>
+  </PropertyGroup>
+</Project>

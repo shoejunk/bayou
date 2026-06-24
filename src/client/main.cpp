@@ -113,9 +113,9 @@ constexpr float BoardPerspectiveExponent = 1.18f;
 constexpr float BoardThickness = 14.0f;
 constexpr float PieceFarScale = 0.72f;
 constexpr float PieceNearScale = 1.22f;
-constexpr float PieceBaseWidth = 48.0f;
-constexpr float PieceBaseHeight = 50.0f;
-constexpr float PieceWalkBaseHeight = 54.0f;
+constexpr float PieceBaseWidth = 96.0f;
+constexpr float PieceBaseHeight = 100.0f;
+constexpr float PieceWalkBaseHeight = 108.0f;
 constexpr float WalkAnimationLoopSeconds = 1.0f;
 constexpr float GameLabelY = 44.0f;
 constexpr float GameActionButtonY = 14.0f;
@@ -4298,9 +4298,8 @@ int main(int argc, char** argv)
         std::string statLine;
         if (card.type == "Unit" || game_data::isHeroCard(card))
         {
-            statLine = "ATK " + std::to_string(game_data::cardInt(card, "attack", 0)) +
-                "  HP " + std::to_string(game_data::cardInt(card, "health", 0)) +
-                "  MV " + std::to_string(game_data::cardInt(card, "move", 0));
+            statLine = "HP " + std::to_string(game_data::cardInt(card, "health", 0)) +
+                "  Actions " + std::to_string(card.actions.size());
         }
         else
         {
@@ -4331,6 +4330,75 @@ int main(int argc, char** argv)
         return result;
     };
 
+    auto actionKindName = [](std::uint8_t kind) {
+        switch (static_cast<game_data::ActionKind>(kind))
+        {
+            case game_data::ActionKind::Ranged: return std::string("Ranged");
+            case game_data::ActionKind::Hop: return std::string("Hop");
+            case game_data::ActionKind::Teleport: return std::string("Teleport");
+            case game_data::ActionKind::Tunnel: return std::string("Tunnel");
+            default: return std::string("Slide");
+        }
+    };
+
+    auto actionPatternName = [](const game_data::ActionProfile& action) {
+        if (static_cast<game_data::MovePattern>(action.pattern) == game_data::MovePattern::None)
+        {
+            return static_cast<game_data::ActionKind>(action.kind) == game_data::ActionKind::Ranged
+                ? std::string("Any direction")
+                : std::string("No pattern");
+        }
+        return game_data::movePatternName(action.pattern);
+    };
+
+    auto actionRangeText = [](const game_data::ActionProfile& action) {
+        if (action.minRange == action.maxRange)
+        {
+            return "range " + std::to_string(action.maxRange);
+        }
+        return "range " + std::to_string(action.minRange) + "-" + std::to_string(action.maxRange);
+    };
+
+    auto actionDescription = [&](const game_data::ActionProfile& action, std::size_t index) {
+        std::vector<std::string> parts;
+        if (action.state != 0)
+        {
+            parts.push_back("state " + std::to_string(action.state));
+        }
+        parts.push_back(actionKindName(action.kind));
+        parts.push_back(actionPatternName(action));
+        parts.push_back(actionRangeText(action));
+        if (action.canMove)
+        {
+            parts.push_back("moves");
+        }
+        if (action.canAttack)
+        {
+            parts.push_back("attacks for " + std::to_string(action.damage));
+        }
+        if (action.statusTurns > 0)
+        {
+            parts.push_back("disables " + std::to_string(action.statusTurns) + " turn(s)");
+        }
+        if (action.cooldownTurns > 0)
+        {
+            parts.push_back("cooldown " + std::to_string(action.cooldownTurns));
+        }
+        if (action.passThrough)
+        {
+            parts.push_back("passes through blockers");
+        }
+        if (action.lineOfSight)
+        {
+            parts.push_back("line of sight");
+        }
+
+        const std::string label = action.name.empty()
+            ? "Action " + std::to_string(index + 1)
+            : action.name;
+        return label + ": " + joinStrings(parts, ", ");
+    };
+
     auto deckEditorCardDetails = [&](const card_data::Card& card) {
         std::vector<std::pair<std::string, sf::Color>> details;
         const game_data::GameCard gameCard = game_data::toGameCard(card);
@@ -4353,13 +4421,14 @@ int main(int argc, char** argv)
         if (unit)
         {
             details.push_back({"Health: " + std::to_string(gameCard.health), sf::Color(224, 210, 176)});
-            details.push_back({"Attack: " + std::to_string(gameCard.attack) +
-                                   "  Range: " + std::to_string(gameCard.attackRange),
-                               sf::Color(224, 210, 176)});
-            details.push_back({"Move: " + game_data::movePatternName(gameCard.movePattern) + " " +
-                                   std::to_string(gameCard.moveRange) +
-                                   (gameCard.attackingMove ? " (attack move)" : ""),
-                               sf::Color(143, 220, 205)});
+            if (gameCard.actions.empty())
+            {
+                details.push_back({"Actions: none", sf::Color(225, 170, 150)});
+            }
+            for (std::size_t i = 0; i < gameCard.actions.size(); ++i)
+            {
+                details.push_back({actionDescription(gameCard.actions[i], i), sf::Color(143, 220, 205)});
+            }
             details.push_back({"Territory: occupied square + adjacent influence", sf::Color(198, 180, 142)});
         }
         else
@@ -4486,14 +4555,11 @@ int main(int argc, char** argv)
         y += 22.0f;
         if (card->type == "Unit" || hero)
         {
-            drawText(window, font, "Attack: " + std::to_string(game_data::cardInt(*card, "attack", 0)) +
-                         "   Health: " + std::to_string(game_data::cardInt(*card, "health", 1)),
+            const game_data::GameCard gameCard = game_data::toGameCard(*card);
+            drawText(window, font, "Health: " + std::to_string(gameCard.health),
                      14, {statX, y}, sf::Color(224, 210, 176));
             y += 22.0f;
-            const game_data::GameCard gameCard = game_data::toGameCard(*card);
-            drawText(window, font, "Move: " + game_data::movePatternName(gameCard.movePattern) +
-                         " " + std::to_string(gameCard.moveRange) +
-                         (gameCard.attackingMove ? " (attack move)" : ""),
+            drawText(window, font, "Actions: " + std::to_string(gameCard.actions.size()),
                      14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
         }
         else
@@ -4858,7 +4924,7 @@ int main(int argc, char** argv)
         game_data::Snapshot next = gameSnapshot;
         const game_data::GameCard card = next.hand[static_cast<std::size_t>(handIndex)];
         const int actingPlayer = sandboxPlacementPlayer;
-        if (card.type == "Unit" || card.type == "Hero")
+        if (card.type == "Unit")
         {
             if (!game_data::inBounds(row, column) ||
                 next.control[static_cast<std::size_t>(game_data::squareIndex(row, column))] != actingPlayer ||
@@ -5588,8 +5654,8 @@ int main(int argc, char** argv)
         std::string line3;
         if (card.type == "Unit" || card.type == "Hero")
         {
-            line2 = "ATK " + std::to_string(card.attack) + "  HP " + std::to_string(card.health);
-            line3 = "RNG " + std::to_string(card.attackRange) + "  MV " + std::to_string(card.moveRange);
+            line2 = "HP " + std::to_string(card.health);
+            line3 = "Actions " + std::to_string(card.actions.size());
         }
         else
         {
@@ -5600,61 +5666,6 @@ int main(int argc, char** argv)
         }
         drawText(window, font, line2, 11, {position.x + 6.0f, position.y + 53.0f}, sf::Color(224, 210, 176), HandCardWidth - 12.0f);
         drawText(window, font, line3, 11, {position.x + 6.0f, position.y + 65.0f}, sf::Color(143, 220, 205), HandCardWidth - 12.0f);
-    };
-
-    auto squareText = [](int count) {
-        return std::to_string(count) + (count == 1 ? " square" : " squares");
-    };
-
-    auto moveDescription = [&](const game_data::Piece& piece) {
-        const game_data::MovePattern pattern = static_cast<game_data::MovePattern>(piece.movePattern);
-        if (pattern == game_data::MovePattern::None || piece.moveRange <= 0)
-        {
-            return std::string("Move: none");
-        }
-        if (pattern == game_data::MovePattern::Jump)
-        {
-            std::string description = "Move: L-jump, ignores blockers";
-            if (piece.attackingMove)
-            {
-                description += ", attack move";
-            }
-            return description;
-        }
-
-        std::string patternLabel;
-        if (pattern == game_data::MovePattern::Ortho)
-        {
-            patternLabel = "orthogonal";
-        }
-        else if (pattern == game_data::MovePattern::Diag)
-        {
-            patternLabel = "diagonal";
-        }
-        else
-        {
-            patternLabel = "any direction";
-        }
-
-        std::string description = "Move: " + patternLabel + " " + squareText(piece.moveRange);
-        if (piece.attackingMove)
-        {
-            description += ", attack move";
-        }
-        else
-        {
-            description += ", empty destination";
-        }
-        return description;
-    };
-
-    auto attackDescription = [&](const game_data::Piece& piece) {
-        if (piece.attack <= 0)
-        {
-            return std::string("Attack: none");
-        }
-        return "Attack: " + std::to_string(piece.attack) + " damage, range " +
-            std::to_string(piece.attackRange);
     };
 
     auto readinessDescription = [&](const game_data::Piece& piece) {
@@ -5718,6 +5729,16 @@ int main(int argc, char** argv)
                 descriptions.push_back({"Ability uses: " + std::to_string(piece.abilityUses),
                                         sf::Color(190, 198, 214)});
             }
+        }
+        if (piece.actions.empty())
+        {
+            descriptions.push_back({"Actions: none", sf::Color(225, 170, 150)});
+        }
+        for (std::size_t i = 0; i < piece.actions.size(); ++i)
+        {
+            descriptions.push_back({
+                actionDescription(piece.actions[i], i),
+                piece.actions[i].state == piece.actionState ? sf::Color(143, 220, 205) : sf::Color(190, 198, 214)});
         }
         if (piece.isHero)
         {
@@ -5806,16 +5827,16 @@ int main(int argc, char** argv)
                 "Required keywords: " + joinStrings(card.keywords, ", "),
                 sf::Color(198, 180, 142)});
         }
-        if (card.type == "Unit")
+        if (card.type == "Unit" || card.type == "Hero")
         {
-            game_data::Piece preview;
-            preview.movePattern = card.movePattern;
-            preview.moveRange = card.moveRange;
-            preview.attackingMove = card.attackingMove;
-            preview.attack = card.attack;
-            preview.attackRange = card.attackRange;
-            descriptions.push_back({moveDescription(preview), sf::Color(210, 216, 228)});
-            descriptions.push_back({attackDescription(preview), sf::Color(210, 216, 228)});
+            if (card.actions.empty())
+            {
+                descriptions.push_back({"Actions: none", sf::Color(225, 170, 150)});
+            }
+            for (std::size_t i = 0; i < card.actions.size(); ++i)
+            {
+                descriptions.push_back({actionDescription(card.actions[i], i), sf::Color(143, 220, 205)});
+            }
             descriptions.push_back({
                 "Territory: occupied square + adjacent influence",
                 sf::Color(198, 180, 142)});
@@ -5944,13 +5965,7 @@ int main(int argc, char** argv)
             drawText(window, font, "Health: " + std::to_string(piece->health) + "/" + std::to_string(piece->maxHealth),
                      14, {statX, y}, sf::Color(224, 210, 176));
             y += 22.0f;
-            drawText(window, font, "Attack: " + std::to_string(piece->attack) +
-                         "   Range: " + std::to_string(piece->attackRange),
-                     14, {statX, y}, sf::Color(224, 210, 176));
-            y += 22.0f;
-            drawText(window, font, "Move: " + game_data::movePatternName(piece->movePattern) +
-                         " " + std::to_string(piece->moveRange) +
-                         (piece->attackingMove ? " (attack move)" : ""),
+            drawText(window, font, "Actions: " + std::to_string(piece->actions.size()),
                      14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
         }
         else
@@ -5970,13 +5985,7 @@ int main(int argc, char** argv)
             {
                 drawText(window, font, "Health: " + std::to_string(card->health), 14, {statX, y}, sf::Color(224, 210, 176));
                 y += 22.0f;
-                drawText(window, font, "Attack: " + std::to_string(card->attack) +
-                             "   Range: " + std::to_string(card->attackRange),
-                         14, {statX, y}, sf::Color(224, 210, 176));
-                y += 22.0f;
-                drawText(window, font, "Move: " + game_data::movePatternName(card->movePattern) +
-                             " " + std::to_string(card->moveRange) +
-                             (card->attackingMove ? " (attack move)" : ""),
+                drawText(window, font, "Actions: " + std::to_string(card->actions.size()),
                          14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
             }
             else

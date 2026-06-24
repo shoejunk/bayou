@@ -14,6 +14,7 @@ module;
 #include <filesystem>
 #include <limits>
 #include <optional>
+#include <set>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -387,6 +388,18 @@ std::string joinStrings(const std::vector<std::string>& values, const std::strin
     return result;
 }
 
+std::string uniqueCopyName(const std::string& sourceName, const std::set<std::string>& existingNames)
+{
+    for (int suffix = 1;; ++suffix)
+    {
+        const std::string candidate = fmt::format("{} ({})", sourceName, suffix);
+        if (!existingNames.contains(candidate))
+        {
+            return candidate;
+        }
+    }
+}
+
 std::string integerPairsToText(const std::vector<card_data::KeyIntPair>& values)
 {
     std::vector<std::string> parts;
@@ -582,6 +595,8 @@ public:
         }
         newButton.update(mouse);
         refreshButton.update(mouse);
+        copyButton.update(mouse);
+        copyActionButton.update(mouse);
         saveButton.update(mouse);
         saveActionButton.update(mouse);
         deleteButton.update(mouse);
@@ -754,6 +769,8 @@ private:
     EditorButton instructionsBackButton;
     EditorButton newButton;
     EditorButton refreshButton;
+    EditorButton copyButton;
+    EditorButton copyActionButton;
     EditorButton saveButton;
     EditorButton saveActionButton;
     EditorButton deleteButton;
@@ -1074,6 +1091,8 @@ private:
         actionTabButton = EditorButton(font, "Actions", {462.0f, 22.0f}, {120.0f, 38.0f}, sf::Color(67, 48, 33));
         newButton = EditorButton(font, "New", {42.0f, 690.0f}, {96.0f, 42.0f}, sf::Color(67, 48, 33));
         refreshButton = EditorButton(font, "Refresh", {150.0f, 690.0f}, {120.0f, 42.0f}, sf::Color(67, 48, 33));
+        copyButton = EditorButton(font, "Copy Card", {42.0f, 642.0f}, {228.0f, 38.0f}, AccentDark);
+        copyActionButton = EditorButton(font, "Copy Action", {42.0f, 642.0f}, {228.0f, 38.0f}, AccentDark);
         saveButton = EditorButton(font, "Save Card", {660.0f, 690.0f}, {156.0f, 42.0f}, AccentDark);
         saveActionButton = EditorButton(font, "Save Action", {660.0f, 690.0f}, {156.0f, 42.0f}, AccentDark);
         deleteButton = EditorButton(font, "Delete", {528.0f, 690.0f}, {120.0f, 42.0f}, Warn);
@@ -1409,6 +1428,54 @@ private:
         setStatus("Saved action", Accent);
     }
 
+    void copyCurrentAction()
+    {
+        card_data::Action action = actionFromForm();
+        if (action.name.empty())
+        {
+            setStatus("Action name is required before copying", Warn);
+            return;
+        }
+
+        const ActionListResult currentActions = fetchActionsFromServer();
+        if (!currentActions.success)
+        {
+            setStatus(currentActions.message, Warn);
+            return;
+        }
+
+        std::set<std::string> existingNames;
+        for (const card_data::Action& existingAction : currentActions.actions)
+        {
+            existingNames.insert(existingAction.name);
+        }
+        action.name = uniqueCopyName(action.name, existingNames);
+
+        const CommandResult result = saveActionToServer(action);
+        if (!result.success)
+        {
+            setStatus(result.message, Warn);
+            return;
+        }
+
+        const ActionListResult listResult = fetchActionsFromServer();
+        if (!listResult.success)
+        {
+            setStatus(listResult.message, Warn);
+            return;
+        }
+
+        actions = listResult.actions;
+        const auto found = std::find_if(actions.begin(), actions.end(), [&](const card_data::Action& item) {
+            return item.name == action.name;
+        });
+        if (found != actions.end())
+        {
+            selectAction(static_cast<std::size_t>(found - actions.begin()));
+        }
+        setStatus(fmt::format("Copied action as {}", action.name), Accent);
+    }
+
     void deleteCurrentAction()
     {
         const std::optional<std::string> name = selectedActionName();
@@ -1585,6 +1652,60 @@ private:
                 ensureCardVisible(*selectedCard);
             }
         }
+    }
+
+    void copyCurrentCard()
+    {
+        card_data::Card card = cardFromForm();
+        if (card.title.empty())
+        {
+            setStatus("Title is required before copying", Warn);
+            return;
+        }
+        if (!card.imagePath.empty() && !resolveAssetImagePath(card.imagePath))
+        {
+            setStatus("Image path must stay inside assets", Warn);
+            return;
+        }
+
+        const CardListResult currentCards = fetchCardsFromServer();
+        if (!currentCards.success)
+        {
+            setStatus(currentCards.message, Warn);
+            return;
+        }
+
+        std::set<std::string> existingTitles;
+        for (const card_data::Card& existingCard : currentCards.cards)
+        {
+            existingTitles.insert(existingCard.title);
+        }
+        card.title = uniqueCopyName(card.title, existingTitles);
+        imageField.setValue(card.imagePath);
+
+        const CommandResult result = saveCardToServer(card);
+        if (!result.success)
+        {
+            setStatus(result.message, Warn);
+            return;
+        }
+
+        const CardListResult listResult = fetchCardsFromServer();
+        if (!listResult.success)
+        {
+            setStatus(listResult.message, Warn);
+            return;
+        }
+
+        cards = listResult.cards;
+        const auto found = std::find_if(cards.begin(), cards.end(), [&](const card_data::Card& item) {
+            return item.title == card.title;
+        });
+        if (found != cards.end())
+        {
+            selectCard(static_cast<std::size_t>(found - cards.begin()));
+        }
+        setStatus(fmt::format("Copied card as {}", card.title), Accent);
     }
 
     void deleteCurrentCard()
@@ -2120,6 +2241,19 @@ private:
             }
             return false;
         }
+        if ((editorMode == EditorMode::Cards && copyButton.contains(mouse)) ||
+            (editorMode == EditorMode::Actions && copyActionButton.contains(mouse)))
+        {
+            if (editorMode == EditorMode::Cards)
+            {
+                copyCurrentCard();
+            }
+            else
+            {
+                copyCurrentAction();
+            }
+            return false;
+        }
         if ((editorMode == EditorMode::Cards && saveButton.contains(mouse)) ||
             (editorMode == EditorMode::Actions && saveActionButton.contains(mouse)))
         {
@@ -2428,35 +2562,29 @@ private:
         y = drawInstructionSection(window, "2. Card types", y);
         y = drawInstructionBullet(window, "Hero: selected during deck building and placed on one of the player's four starting squares before play. Use heroCost instead of cost. A deck has 1-4 Heroes and a total Hero cost limit of 100. Losing every Hero loses the game.", y, sf::Color(248, 214, 112));
         y = drawInstructionBullet(window, "Unit: goes into the 20-card main deck. It costs steam to play and deploys to an empty square the player controls. A newly deployed Unit cannot move or attack until its owner's next turn.", y, sf::Color(150, 210, 235));
-        y = drawInstructionBullet(window, "Spell: goes into the main deck, costs steam, resolves immediately, and leaves the hand. Spells do not use health, attack, range, move, movement, or WalkAnim.", y, sf::Color(205, 175, 235));
+        y = drawInstructionBullet(window, "Spell: goes into the main deck, costs steam, resolves immediately, and leaves the hand. Spells do not use health, actions, or WalkAnim.", y, sf::Color(205, 175, 235));
         y += 12.0f;
 
         y = drawInstructionSection(window, "3. Integer Fields (key = whole number)", y);
         y = drawInstructionBullet(window, "cost: steam paid to play a Unit or Spell. Default: 1.", y);
         y = drawInstructionBullet(window, "heroCost: deck-building Hero budget. Use only on Heroes. Default: 0.", y);
         y = drawInstructionBullet(window, "health: starting and maximum hit points for a Hero or Unit. Default: 1.", y);
-        y = drawInstructionBullet(window, "attack: damage dealt by a normal attack. A value of 0 cannot attack. Default: 0.", y);
-        y = drawInstructionBullet(window, "range: maximum attack distance. Distance counts the larger of the row or column difference, so diagonals count the same as straight lines. Attacks do not check intervening pieces. Default: 1.", y);
-        y = drawInstructionBullet(window, "move: maximum squares moved in one action for ortho, diag, and omni movement. Jump always uses a fixed knight jump and ignores this distance. Default: 1.", y);
-        y = drawInstructionBullet(window, "attackingMove: set to 1 to let this Hero or Unit use a legal move onto an enemy and deal its attack damage. Use 0 or omit the field for normal non-attacking movement. Default: 0.", y);
         y = drawInstructionBullet(window, "canControl: set to 0 for pieces that do not claim their occupied square or influence adjacent territory. Default: 1.", y);
         y = drawInstructionBullet(window, "growTurns: owner turns a newly summoned piece must wait before it can act. Default: 0.", y);
         y = drawInstructionBullet(window, "abilityUses: number of uses for a limited ability such as dig.", y);
         y = drawInstructionBullet(window, "power: spell amount. It is damage dealt, health restored, or steam gained depending on effect. Default: 0.", y);
         y += 12.0f;
 
-        y = drawInstructionSection(window, "4. Movement String Field", y);
-        y = drawInstructionParagraph(window, "Add a String Field with key movement. Its value must be one of the following lowercase values:", y, Muted);
+        y = drawInstructionSection(window, "4. Actions", y);
+        y = drawInstructionParagraph(window, "Create reusable actions in the Actions tab, then add their exact names to the card's Actions section. Damage, movement pattern, and range live on each action, not on the card.", y, Muted);
         y += 5.0f;
-        y = drawInstructionBullet(window, "ortho: move horizontally or vertically, like a chess rook, up to the move value.", y);
-        y = drawInstructionBullet(window, "diag: move diagonally, like a chess bishop, up to the move value.", y);
-        y = drawInstructionBullet(window, "omni: move horizontally, vertically, or diagonally, up to the move value. This is the default if the field is missing or unrecognized.", y);
-        y = drawInstructionBullet(window, "jump: move in a fixed L shape: two squares on one axis and one on the other, like a chess knight. It may jump over pieces.", y);
-        y = drawInstructionBullet(window, "horizontal or vertical: move only along that single board axis.", y);
-        y = drawInstructionBullet(window, "none: the piece cannot move.", y);
-        y = drawInstructionParagraph(window, "For ortho, diag, and omni, every square along the path must be empty. The destination must also be empty unless attackingMove=1 and it contains an enemy. A move uses the piece's action for that turn.", y + 5.0f, sf::Color(198, 210, 224));
+        y = drawInstructionBullet(window, "Pattern ortho, diag, omni, horizontal, or vertical moves along that board geometry up to the action's maximum range.", y);
+        y = drawInstructionBullet(window, "Pattern jump uses the fixed knight-style L shape. Pattern none is used for ranged, teleport, and tunnel actions that do not need slide geometry.", y);
+        y = drawInstructionBullet(window, "Can move lets the action target an empty destination. Can attack lets it target an enemy and apply the action's damage and status turns.", y);
+        y = drawInstructionBullet(window, "Minimum and maximum range are per action, so a card can mix short moves, long moves, ranged attacks, and state-specific actions.", y);
+        y = drawInstructionParagraph(window, "For blocking slide actions, every square along the path must be empty. Pass-through ignores blockers. Line of sight applies blocker checks to ranged attacks.", y + 5.0f, sf::Color(198, 210, 224));
         y += 10.0f;
-        y = drawInstructionParagraph(window, "Attacking movement: if the attack destroys the enemy, the mover occupies the enemy's square. If the enemy survives, a normal sliding mover stops on the last empty square before the enemy. Jump-pattern and pass-through movers return to their starting square because intervening squares are not valid stopping points. Clicking an enemy uses attacking movement when the movement pattern can legally reach it, otherwise it uses the piece's normal attack.", y, sf::Color(225, 170, 150));
+        y = drawInstructionParagraph(window, "An action with both Can move and Can attack is an attacking move. If it destroys the enemy, the mover occupies the enemy's square; otherwise it falls back according to that action's movement geometry.", y, sf::Color(225, 170, 150));
         y += 17.0f;
 
         y = drawInstructionSection(window, "5. Spell String Fields", y);
@@ -2470,7 +2598,7 @@ private:
         y = drawInstructionBullet(window, "Rarity: add a String Field named rarity with value common, rare, or legendary. Missing or unknown values count as common. Shop selection odds are 70% common, 25% rare, and 5% legendary; cards within a rarity are equally likely.", y);
         y = drawInstructionBullet(window, "Keywords: free-form labels shown in card details. The current game engine does not attach rules to them.", y);
         y = drawInstructionBullet(window, "ability: transform, dematerialize, or dig. Transform-style abilities switch action states; dig creates a tunnel hole on the piece's square.", y);
-        y = drawInstructionBullet(window, "Create reusable actions in the Actions tab, then add their exact names to the card's Actions section. Cards store ordered references to those action objects.", y);
+        y = drawInstructionBullet(window, "Cards store ordered references to reusable action objects. Use the Actions section on the card form to choose them.", y);
         y = drawInstructionBullet(window, "abilityLabels is an ordered String List containing the button label for each action state.", y);
         y = drawInstructionBullet(window, "Other String Lists are free-form named lists shown in card details.", y);
         y = drawInstructionBullet(window, "Unknown Integer or String Fields are stored and displayed, but they do not change gameplay unless code is added to read them.", y);
@@ -2480,13 +2608,13 @@ private:
         y = drawInstructionBullet(window, "On a turn, playing a card, moving, or attacking ends the turn. A piece can therefore move or attack, not both, before the opponent acts.", y);
         y = drawInstructionBullet(window, "A piece with canControl=1 controls its occupied square and influences adjacent territory. Pieces with canControl=0 do neither. Ties keep the current controller.", y);
         y = drawInstructionBullet(window, "At the start of a turn, the player gains 1 steam per controlled square, draws one card if below the 8-card hand limit, and refreshes their pieces.", y);
-        y = drawInstructionBullet(window, "Normal attacks may target an enemy within range in any direction. Attack range uses square/diagonal distance and ignores blockers.", y);
+        y = drawInstructionBullet(window, "Attacks use the range, pattern, line-of-sight, and blocker settings of the selected action.", y);
         y += 12.0f;
 
         y = drawInstructionSection(window, "8. Complete examples", y);
-        y = drawInstructionParagraph(window, "Unit example - Type: Unit | Integer Fields: cost=40; health=12; attack=5; range=1; move=7; attackingMove=1 | String Fields: movement=ortho; rarity=rare; WalkAnim=animations/clockwork-rook-walk.png", y, sf::Color(150, 210, 235));
+        y = drawInstructionParagraph(window, "Unit example - Type: Unit | Integer Fields: cost=40; health=12 | String Fields: rarity=rare; WalkAnim=animations/clockwork-rook-walk.png | Actions: RookMove1", y, sf::Color(150, 210, 235));
         y += 10.0f;
-        y = drawInstructionParagraph(window, "Hero example - Type: Hero | Integer Fields: heroCost=50; health=16; attack=6; range=3; move=2 | String Fields: movement=diag; rarity=rare; WalkAnim=animations/marsh-witch-walk.png", y, sf::Color(248, 214, 112));
+        y = drawInstructionParagraph(window, "Hero example - Type: Hero | Integer Fields: heroCost=50; health=16 | String Fields: rarity=rare; WalkAnim=animations/marsh-witch-walk.png | Actions: BishopMove2; KingAttack3", y, sf::Color(248, 214, 112));
         y += 10.0f;
         y = drawInstructionParagraph(window, "Spell example - Type: Spell | Integer Fields: cost=20; power=6 | String Fields: effect=heal; target=ally; rarity=common", y, sf::Color(205, 175, 235));
         y += 22.0f;
@@ -2540,8 +2668,9 @@ private:
             }
             if (actions.size() > VisibleActionRows)
             {
-                drawText(window, font, fmt::format("{}-{} of {}  mouse wheel", actionListOffset + 1, lastVisible, actions.size()), 12, {46.0f, 660.0f}, Muted, 220.0f);
+                drawText(window, font, fmt::format("{}-{} of {}  mouse wheel", actionListOffset + 1, lastVisible, actions.size()), 12, {46.0f, 624.0f}, Muted, 220.0f);
             }
+            copyActionButton.draw(window);
             newButton.draw(window);
             refreshButton.draw(window);
             return;
@@ -2564,8 +2693,9 @@ private:
         }
         if (cards.size() > VisibleCardRows)
         {
-            drawText(window, font, fmt::format("{}-{} of {}  mouse wheel", listOffset + 1, lastVisible, cards.size()), 12, {46.0f, 660.0f}, Muted, 220.0f);
+            drawText(window, font, fmt::format("{}-{} of {}  mouse wheel", listOffset + 1, lastVisible, cards.size()), 12, {46.0f, 624.0f}, Muted, 220.0f);
         }
+        copyButton.draw(window);
         newButton.draw(window);
         refreshButton.draw(window);
     }

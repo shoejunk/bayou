@@ -121,6 +121,7 @@ enum class ActionKind : std::uint8_t
 
 struct ActionProfile
 {
+    std::string name;
     std::uint8_t kind = static_cast<std::uint8_t>(ActionKind::Slide);
     std::uint8_t pattern = static_cast<std::uint8_t>(MovePattern::Omni);
     int state = 0;
@@ -189,18 +190,6 @@ inline int cardInt(const card_data::Card& card, const std::string& key, int fall
         }
     }
     return fallback;
-}
-
-inline std::optional<int> cardIntValue(const card_data::Card& card, const std::string& key)
-{
-    for (const card_data::KeyIntPair& item : card.integerValues)
-    {
-        if (item.key == key)
-        {
-            return item.value;
-        }
-    }
-    return std::nullopt;
 }
 
 inline std::string cardStr(const card_data::Card& card, const std::string& key, const std::string& fallback = "")
@@ -280,9 +269,9 @@ struct GameCard
     int heroCost = 0;      // hero-cost budget contribution (heroes)
     int health = 1;
     int attack = 0;
-    int attackRange = 1;
-    std::uint8_t movePattern = static_cast<std::uint8_t>(MovePattern::Omni);
-    int moveRange = 1;
+    int attackRange = 0;
+    std::uint8_t movePattern = static_cast<std::uint8_t>(MovePattern::None);
+    int moveRange = 0;
     bool attackingMove = false;
     std::string effect = "none";  // spells: "damage", "heal", "steam"
     std::string target = "none";  // spells: "enemy", "ally", "none"
@@ -316,12 +305,6 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.cost = cardInt(card, "cost", 1);
     g.heroCost = cardInt(card, "heroCost", 0);
     g.health = cardInt(card, "health", 1);
-    g.attack = cardInt(card, "attack", 0);
-    g.attackRange = cardInt(card, "range", 1);
-    g.movePattern = parseMovePattern(cardStr(card, "movement", "omni"));
-    g.moveRange = cardInt(card, "move", 1);
-    const std::optional<int> explicitAttackingMove = cardIntValue(card, "attackingMove");
-    g.attackingMove = explicitAttackingMove.value_or(0) != 0;
     g.effect = cardStr(card, "effect", "none");
     g.target = cardStr(card, "target", "none");
     g.power = cardInt(card, "power", 0);
@@ -334,6 +317,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     for (const card_data::Action& definition : card.actions)
     {
         ActionProfile action;
+        action.name = definition.name;
         action.state = definition.state;
         action.kind = parseActionKind(definition.kind);
         action.pattern = parseMovePattern(definition.pattern);
@@ -347,35 +331,28 @@ inline GameCard toGameCard(const card_data::Card& card)
         action.statusTurns = definition.statusTurns;
         action.cooldownTurns = definition.cooldownTurns;
         g.actions.push_back(action);
-        if (!explicitAttackingMove && actionLooksLikeAttackingMove(definition))
+        if (actionLooksLikeAttackingMove(definition))
         {
             g.attackingMove = true;
         }
     }
 
-    const bool needsLegacyActions = g.actions.empty();
-    if (needsLegacyActions && g.movePattern != static_cast<std::uint8_t>(MovePattern::None) && g.moveRange > 0)
+    bool foundMoveAction = false;
+    bool foundAttackAction = false;
+    for (const ActionProfile& action : g.actions)
     {
-        ActionProfile move;
-        move.pattern = g.movePattern;
-        move.maxRange = g.moveRange;
-        move.damage = g.attack;
-        move.canMove = true;
-        move.canAttack = g.attackingMove;
-        g.actions.push_back(move);
-    }
-    if (needsLegacyActions && g.attack > 0 && !g.attackingMove)
-    {
-        ActionProfile attack;
-        attack.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
-        // None intentionally means any square within Chebyshev range for
-        // legacy cards. Imported ranged attacks use a line pattern.
-        attack.pattern = static_cast<std::uint8_t>(MovePattern::None);
-        attack.maxRange = g.attackRange;
-        attack.damage = g.attack;
-        attack.canMove = false;
-        attack.canAttack = true;
-        g.actions.push_back(attack);
+        if (!foundMoveAction && action.canMove)
+        {
+            g.movePattern = action.pattern;
+            g.moveRange = action.maxRange;
+            foundMoveAction = true;
+        }
+        if (action.canAttack && (!foundAttackAction || action.damage > g.attack))
+        {
+            g.attack = action.damage;
+            g.attackRange = action.maxRange;
+            foundAttackAction = true;
+        }
     }
     return g;
 }
@@ -497,7 +474,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
     packet << static_cast<std::uint32_t>(card.actions.size());
     for (const ActionProfile& action : card.actions)
     {
-        packet << action.kind << action.pattern << action.state << action.minRange << action.maxRange
+        packet << action.name << action.kind << action.pattern << action.state << action.minRange << action.maxRange
                << action.damage << action.statusTurns << action.cooldownTurns
                << action.canMove << action.canAttack << action.passThrough << action.lineOfSight;
     }
@@ -528,7 +505,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
     for (std::uint32_t i = 0; i < actionCount; ++i)
     {
         ActionProfile action;
-        packet >> action.kind >> action.pattern >> action.state >> action.minRange >> action.maxRange
+        packet >> action.name >> action.kind >> action.pattern >> action.state >> action.minRange >> action.maxRange
                >> action.damage >> action.statusTurns >> action.cooldownTurns
                >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight;
         if (!packet)
@@ -561,7 +538,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
     packet << static_cast<std::uint32_t>(piece.actions.size());
     for (const ActionProfile& action : piece.actions)
     {
-        packet << action.kind << action.pattern << action.state << action.minRange << action.maxRange
+        packet << action.name << action.kind << action.pattern << action.state << action.minRange << action.maxRange
                << action.damage << action.statusTurns << action.cooldownTurns
                << action.canMove << action.canAttack << action.passThrough << action.lineOfSight;
     }
@@ -590,7 +567,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
     for (std::uint32_t i = 0; i < actionCount; ++i)
     {
         ActionProfile action;
-        packet >> action.kind >> action.pattern >> action.state >> action.minRange >> action.maxRange
+        packet >> action.name >> action.kind >> action.pattern >> action.state >> action.minRange >> action.maxRange
                >> action.damage >> action.statusTurns >> action.cooldownTurns
                >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight;
         if (!packet)

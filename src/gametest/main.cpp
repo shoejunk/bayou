@@ -43,14 +43,36 @@ card_data::Card makeCard(
     const std::string& title,
     const std::string& type,
     std::vector<card_data::KeyIntPair> ints,
-    std::vector<card_data::KeyStringPair> strings = {})
+    std::vector<card_data::KeyStringPair> strings = {},
+    std::vector<card_data::Action> actions = {})
 {
     card_data::Card card;
     card.title = title;
     card.type = type;
     card.integerValues = std::move(ints);
     card.stringValues = std::move(strings);
+    for (const card_data::Action& action : actions)
+    {
+        card.actionNames.push_back(action.name);
+    }
+    card.actions = std::move(actions);
     return card;
+}
+
+card_data::Action makeAction(
+    const std::string& name,
+    const std::string& pattern,
+    int maxRange,
+    int damage)
+{
+    card_data::Action action;
+    action.name = name;
+    action.pattern = pattern;
+    action.maxRange = maxRange;
+    action.damage = damage;
+    action.canMove = true;
+    action.canAttack = damage > 0;
+    return action;
 }
 
 std::vector<card_data::Card> makeTestDeck()
@@ -58,17 +80,20 @@ std::vector<card_data::Card> makeTestDeck()
     std::vector<card_data::Card> deck;
     // Two heroes (hero cost 4 + 2 = 6, within the scaled limit of 100).
     deck.push_back(makeCard("Gear Knight", "Hero",
-        {{"heroCost", 4}, {"health", 18}, {"attack", 6}, {"range", 1}, {"move", 1}},
-        {{"movement", "jump"}}));
+        {{"heroCost", 4}, {"health", 18}},
+        {},
+        {makeAction("Gear Knight Jump", "jump", 2, 6)}));
     deck.push_back(makeCard("Cog Tinker", "Hero",
-        {{"heroCost", 2}, {"health", 9}, {"attack", 3}, {"range", 1}, {"move", 1}},
-        {{"movement", "omni"}}));
+        {{"heroCost", 2}, {"health", 9}},
+        {},
+        {makeAction("Cog Tinker Step", "omni", 1, 3)}));
     // Twenty cheap units: two copies each of ten cards.
     for (int i = 0; i < 20; ++i)
     {
         deck.push_back(makeCard("Test Unit " + std::to_string(i / 2), "Unit",
-            {{"cost", 1}, {"health", 4}, {"attack", 2}, {"range", 1}, {"move", 1}},
-            {{"movement", "ortho"}}));
+            {{"cost", 1}, {"health", 4}},
+            {},
+            {makeAction("Test Unit Step", "ortho", 1, 2)}));
     }
     return deck;
 }
@@ -413,6 +438,7 @@ int main(int argc, char** argv)
     check(decodedCard.actions.size() == 1 &&
               decodedCard.keywords == encodedCard.keywords &&
               decodedCard.attackingMove &&
+              decodedCard.actions[0].name == "Diagonal Charge" &&
               decodedCard.actions[0].damage == 2 &&
               decodedCard.actions[0].canMove &&
               decodedCard.actions[0].canAttack,
@@ -432,6 +458,7 @@ int main(int argc, char** argv)
     GameCard roundTrippedCard;
     check(readGameCard(cardPacket, roundTrippedCard) &&
               roundTrippedCard.actions.size() == 1 &&
+              roundTrippedCard.actions[0].name == "Diagonal Charge" &&
               roundTrippedCard.keywords == encodedCard.keywords &&
               roundTrippedCard.blueTokenPath == "characters/blue/test.png" &&
               roundTrippedCard.redWalkAnimPath == "animations/red/test.png" &&
@@ -453,11 +480,16 @@ int main(int argc, char** argv)
     serializedPiece.growTurnsRemaining = 2;
     serializedPiece.disabledTurns = 1;
     serializedPiece.sleepTurnsRemaining = 1;
+    if (!serializedPiece.actions.empty())
+    {
+        serializedPiece.actions[0].name = "Serialized Action";
+    }
     sf::Packet piecePacket;
     writePiece(piecePacket, serializedPiece);
     Piece roundTrippedPiece;
     check(readPiece(piecePacket, roundTrippedPiece) &&
               roundTrippedPiece.actions.size() == 1 &&
+              roundTrippedPiece.actions[0].name == "Serialized Action" &&
               roundTrippedPiece.keywords == serializedPiece.keywords &&
               roundTrippedPiece.blueTokenPath == "characters/blue/test.png" &&
               roundTrippedPiece.redWalkAnimPath == "animations/red/test.png" &&
