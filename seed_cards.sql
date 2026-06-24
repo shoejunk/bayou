@@ -214,7 +214,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Automatick', 'Unit', 'cards
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Automatick', 'cost', 3), ('Automatick', 'health', 1),
   ('Automatick', 'attack', 1), ('Automatick', 'range', 1),
-  ('Automatick', 'move', 2), ('Automatick', 'attackingMove', 1),
+  ('Automatick', 'move', 2),
   ('Automatick', 'canControl', 0);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Automatick', 'movement', 'jump'),
@@ -225,8 +225,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Bramble Drone', 'Unit', 'ca
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Bramble Drone', 'cost', 2), ('Bramble Drone', 'health', 2),
   ('Bramble Drone', 'attack', 2), ('Bramble Drone', 'range', 1),
-  ('Bramble Drone', 'move', 1), ('Bramble Drone', 'attackingMove', 1),
-  ('Bramble Drone', 'canControl', 1), ('Bramble Drone', 'growTurns', 3);
+  ('Bramble Drone', 'move', 1), ('Bramble Drone', 'growTurns', 3);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Bramble Drone', 'movement', 'omni'),
   ('Bramble Drone', 'detail', 'Bramble Drone grows for three turns, then moves or attacks one square in any direction.');
@@ -236,8 +235,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Choking Blossom', 'Unit', '
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Choking Blossom', 'cost', 10), ('Choking Blossom', 'health', 2),
   ('Choking Blossom', 'attack', 1), ('Choking Blossom', 'range', 2),
-  ('Choking Blossom', 'move', 2), ('Choking Blossom', 'attackingMove', 1),
-  ('Choking Blossom', 'canControl', 1);
+  ('Choking Blossom', 'move', 2);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Choking Blossom', 'movement', 'omni'),
   ('Choking Blossom', 'detail', 'Moves or attacks up to two squares in any direction. Its attack deals damage and disables the target.');
@@ -248,7 +246,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Curious Spirit', 'Unit', 'c
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Curious Spirit', 'cost', 8), ('Curious Spirit', 'health', 1),
   ('Curious Spirit', 'attack', 0), ('Curious Spirit', 'range', 1),
-  ('Curious Spirit', 'move', 7), ('Curious Spirit', 'canControl', 1);
+  ('Curious Spirit', 'move', 7);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Curious Spirit', 'movement', 'diag'),
   ('Curious Spirit', 'detail', 'Glides diagonally across the board without attacking.');
@@ -258,8 +256,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Delving Daphodilus', 'Unit'
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Delving Daphodilus', 'cost', 12), ('Delving Daphodilus', 'health', 2),
   ('Delving Daphodilus', 'attack', 2), ('Delving Daphodilus', 'range', 1),
-  ('Delving Daphodilus', 'move', 7), ('Delving Daphodilus', 'attackingMove', 1),
-  ('Delving Daphodilus', 'canControl', 1), ('Delving Daphodilus', 'abilityUses', 1);
+  ('Delving Daphodilus', 'move', 7), ('Delving Daphodilus', 'abilityUses', 1);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Delving Daphodilus', 'movement', 'diag'),
   ('Delving Daphodilus', 'ability', 'dig'),
@@ -271,7 +268,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Elias Tiberion', 'Hero', 'c
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Elias Tiberion', 'heroCost', 4), ('Elias Tiberion', 'health', 2),
   ('Elias Tiberion', 'attack', 3), ('Elias Tiberion', 'range', 1),
-  ('Elias Tiberion', 'move', 2), ('Elias Tiberion', 'canControl', 1);
+  ('Elias Tiberion', 'move', 2);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Elias Tiberion', 'movement', 'ortho'),
   ('Elias Tiberion', 'ability', 'transform'),
@@ -285,8 +282,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Foot Soldier', 'Unit', 'car
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Foot Soldier', 'cost', 1), ('Foot Soldier', 'health', 1),
   ('Foot Soldier', 'attack', 1), ('Foot Soldier', 'range', 1),
-  ('Foot Soldier', 'move', 1), ('Foot Soldier', 'attackingMove', 1),
-  ('Foot Soldier', 'canControl', 1);
+  ('Foot Soldier', 'move', 1);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Foot Soldier', 'movement', 'diag'),
   ('Foot Soldier', 'detail', 'Moves or attacks one square diagonally.');
@@ -305,7 +301,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Hired Gun', 'Unit', 'cards/
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Hired Gun', 'cost', 12), ('Hired Gun', 'health', 2),
   ('Hired Gun', 'attack', 3), ('Hired Gun', 'range', 1),
-  ('Hired Gun', 'move', 4), ('Hired Gun', 'canControl', 1);
+  ('Hired Gun', 'move', 4);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Hired Gun', 'movement', 'ortho'),
   ('Hired Gun', 'ability', 'transform'),
@@ -329,7 +325,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Lady Worthington', 'Unit', 
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Lady Worthington', 'cost', 16), ('Lady Worthington', 'health', 1),
   ('Lady Worthington', 'attack', 0), ('Lady Worthington', 'range', 1),
-  ('Lady Worthington', 'move', 7), ('Lady Worthington', 'canControl', 1);
+  ('Lady Worthington', 'move', 7);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Lady Worthington', 'movement', 'omni'),
   ('Lady Worthington', 'ability', 'dematerialize'),
@@ -343,8 +339,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Lesser Demon', 'Unit', 'car
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Lesser Demon', 'cost', 16), ('Lesser Demon', 'health', 2),
   ('Lesser Demon', 'attack', 2), ('Lesser Demon', 'range', 1),
-  ('Lesser Demon', 'move', 4), ('Lesser Demon', 'attackingMove', 1),
-  ('Lesser Demon', 'canControl', 1);
+  ('Lesser Demon', 'move', 4);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Lesser Demon', 'movement', 'ortho'),
   ('Lesser Demon', 'detail', 'Charges up to four squares orthogonally and deals two damage.');
@@ -364,8 +359,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Professor Glumpkin', 'Hero'
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Professor Glumpkin', 'heroCost', 7), ('Professor Glumpkin', 'health', 1),
   ('Professor Glumpkin', 'attack', 1), ('Professor Glumpkin', 'range', 1),
-  ('Professor Glumpkin', 'move', 1), ('Professor Glumpkin', 'attackingMove', 1),
-  ('Professor Glumpkin', 'canControl', 1);
+  ('Professor Glumpkin', 'move', 1);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Professor Glumpkin', 'movement', 'omni'),
   ('Professor Glumpkin', 'detail', 'Moves or attacks one square in any direction.');
@@ -375,7 +369,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('River Dweller', 'Unit', 'ca
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('River Dweller', 'cost', 8), ('River Dweller', 'health', 1),
   ('River Dweller', 'attack', 0), ('River Dweller', 'range', 1),
-  ('River Dweller', 'move', 7), ('River Dweller', 'canControl', 1);
+  ('River Dweller', 'move', 7);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('River Dweller', 'movement', 'diag'),
   ('River Dweller', 'detail', 'Glides diagonally across the board without attacking.');
@@ -395,8 +389,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Scarlett Glumpkin', 'Hero',
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Scarlett Glumpkin', 'heroCost', 2), ('Scarlett Glumpkin', 'health', 2),
   ('Scarlett Glumpkin', 'attack', 0), ('Scarlett Glumpkin', 'range', 2),
-  ('Scarlett Glumpkin', 'move', 2), ('Scarlett Glumpkin', 'attackingMove', 1),
-  ('Scarlett Glumpkin', 'canControl', 1);
+  ('Scarlett Glumpkin', 'move', 2);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Scarlett Glumpkin', 'movement', 'omni'),
   ('Scarlett Glumpkin', 'detail', 'Moves up to two squares in any direction and can disable an enemy for two turns without dealing damage.');
@@ -416,7 +409,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Sky Pirate', 'Unit', 'cards
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Sky Pirate', 'cost', 2), ('Sky Pirate', 'health', 1),
   ('Sky Pirate', 'attack', 1), ('Sky Pirate', 'range', 1),
-  ('Sky Pirate', 'move', 1), ('Sky Pirate', 'canControl', 1);
+  ('Sky Pirate', 'move', 1);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Sky Pirate', 'movement', 'diag'),
   ('Sky Pirate', 'detail', 'Moves one square diagonally or attacks an adjacent enemy.');
@@ -425,8 +418,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Stingy', 'Unit', 'cards/sti
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Stingy', 'cost', 3), ('Stingy', 'health', 1),
   ('Stingy', 'attack', 1), ('Stingy', 'range', 1),
-  ('Stingy', 'move', 7), ('Stingy', 'attackingMove', 1),
-  ('Stingy', 'canControl', 0);
+  ('Stingy', 'move', 7), ('Stingy', 'canControl', 0);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Stingy', 'movement', 'diag'),
   ('Stingy', 'detail', 'Dashes across the board diagonally and deals one damage.');
@@ -436,8 +428,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Sweetykins', 'Unit', 'cards
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Sweetykins', 'cost', 5), ('Sweetykins', 'health', 1),
   ('Sweetykins', 'attack', 1), ('Sweetykins', 'range', 1),
-  ('Sweetykins', 'move', 7), ('Sweetykins', 'attackingMove', 1),
-  ('Sweetykins', 'canControl', 0);
+  ('Sweetykins', 'move', 7), ('Sweetykins', 'canControl', 0);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Sweetykins', 'movement', 'ortho'),
   ('Sweetykins', 'detail', 'Charges across the board orthogonally and deals one damage.');
@@ -457,8 +448,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Tinkering Tom', 'Hero', 'ca
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Tinkering Tom', 'heroCost', 3), ('Tinkering Tom', 'health', 1),
   ('Tinkering Tom', 'attack', 1), ('Tinkering Tom', 'range', 1),
-  ('Tinkering Tom', 'move', 1), ('Tinkering Tom', 'attackingMove', 1),
-  ('Tinkering Tom', 'canControl', 0);
+  ('Tinkering Tom', 'move', 1), ('Tinkering Tom', 'canControl', 0);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Tinkering Tom', 'movement', 'omni'),
   ('Tinkering Tom', 'detail', 'Moves or attacks one square in any direction.');
@@ -548,21 +538,10 @@ INSERT INTO card_string_values (title, key, value) VALUES
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Automatick', 'WalkAnimFrames', 7),
   ('Bramble Drone', 'WalkAnimFrames', 8),
-  ('Choking Blossom', 'WalkAnimFrames', 4),
-  ('Curious Spirit', 'WalkAnimFrames', 4),
-  ('Delving Daphodilus', 'WalkAnimFrames', 4),
-  ('Elias Tiberion', 'WalkAnimFrames', 4),
-  ('Gentle Bot', 'WalkAnimFrames', 4),
-  ('Hired Gun', 'WalkAnimFrames', 4),
   ('Hop Bot', 'WalkAnimFrames', 6),
-  ('Lady Worthington', 'WalkAnimFrames', 4),
-  ('Lesser Demon', 'WalkAnimFrames', 4),
   ('Patrol Bot', 'WalkAnimFrames', 6),
-  ('Professor Glumpkin', 'WalkAnimFrames', 4),
-  ('River Dweller', 'WalkAnimFrames', 4),
   ('Rustbucket', 'WalkAnimFrames', 5),
   ('Scarlett Glumpkin', 'WalkAnimFrames', 5),
-  ('Sentroid', 'WalkAnimFrames', 4),
   ('Stingy', 'WalkAnimFrames', 6),
   ('Sweetykins', 'WalkAnimFrames', 6),
   ('Telematron', 'WalkAnimFrames', 10),

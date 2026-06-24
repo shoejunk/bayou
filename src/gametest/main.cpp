@@ -380,6 +380,7 @@ int main(int argc, char** argv)
     encodedCard.title = "Encoded";
     encodedCard.type = "Unit";
     encodedCard.keywords = {"mechanical", "occult"};
+    encodedCard.integerValues = {{"attack", 9}, {"range", 5}};
     encodedCard.actionNames = {"Diagonal Charge"};
     encodedCard.actions.push_back({
         "Diagonal Charge",
@@ -399,10 +400,11 @@ int main(int argc, char** argv)
     const GameCard decodedCard = toGameCard(encodedCard);
     check(decodedCard.actions.size() == 1 &&
               decodedCard.keywords == encodedCard.keywords &&
+              decodedCard.attackingMove &&
               decodedCard.actions[0].damage == 2 &&
               decodedCard.actions[0].canMove &&
               decodedCard.actions[0].canAttack,
-          "referenced action object resolves into gameplay data");
+          "referenced action object resolves into gameplay data without a legacy fallback attack");
 
     GameCard serializedCard = decodedCard;
     serializedCard.blueTokenPath = "characters/blue/test.png";

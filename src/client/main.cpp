@@ -4335,6 +4335,7 @@ int main(int argc, char** argv)
 
     auto deckEditorCardDetails = [&](const card_data::Card& card) {
         std::vector<std::pair<std::string, sf::Color>> details;
+        const game_data::GameCard gameCard = game_data::toGameCard(card);
         const bool hero = game_data::isHeroCard(card);
         const bool unit = card.type == "Unit" || hero;
 
@@ -4356,16 +4357,15 @@ int main(int argc, char** argv)
 
         if (unit)
         {
-            const std::uint8_t movement = game_data::parseMovePattern(game_data::cardStr(card, "movement", "omni"));
             details.push_back({
-                "Stats: " + std::to_string(game_data::cardInt(card, "attack", 0)) + " attack, " +
-                    std::to_string(game_data::cardInt(card, "range", 1)) + " attack range, " +
-                    std::to_string(game_data::cardInt(card, "health", 1)) + " health.",
+                "Stats: " + std::to_string(gameCard.attack) + " attack, " +
+                    std::to_string(gameCard.attackRange) + " attack range, " +
+                    std::to_string(gameCard.health) + " health.",
                 sf::Color(224, 210, 176)});
             details.push_back({
-                "Movement: " + game_data::movePatternName(movement) + " " +
-                    std::to_string(game_data::cardInt(card, "move", 1)) +
-                    (game_data::cardInt(card, "attackingMove", 0) != 0
+                "Movement: " + game_data::movePatternName(gameCard.movePattern) + " " +
+                    std::to_string(gameCard.moveRange) +
+                    (gameCard.attackingMove
                         ? ". May move into an enemy to deal attack damage."
                         : "."),
                 sf::Color(143, 220, 205)});
@@ -4487,9 +4487,10 @@ int main(int argc, char** argv)
                          "   Health: " + std::to_string(game_data::cardInt(*card, "health", 1)),
                      14, {statX, y}, sf::Color(224, 210, 176));
             y += 22.0f;
-            const std::uint8_t movement = game_data::parseMovePattern(game_data::cardStr(*card, "movement", "omni"));
-            drawText(window, font, "Movement: " + game_data::movePatternName(movement) +
-                         " " + std::to_string(game_data::cardInt(*card, "move", 1)),
+            const game_data::GameCard gameCard = game_data::toGameCard(*card);
+            drawText(window, font, "Movement: " + game_data::movePatternName(gameCard.movePattern) +
+                         " " + std::to_string(gameCard.moveRange) +
+                         (gameCard.attackingMove ? " (attacking)" : ""),
                      14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
         }
         else

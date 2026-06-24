@@ -191,6 +191,18 @@ inline int cardInt(const card_data::Card& card, const std::string& key, int fall
     return fallback;
 }
 
+inline std::optional<int> cardIntValue(const card_data::Card& card, const std::string& key)
+{
+    for (const card_data::KeyIntPair& item : card.integerValues)
+    {
+        if (item.key == key)
+        {
+            return item.value;
+        }
+    }
+    return std::nullopt;
+}
+
 inline std::string cardStr(const card_data::Card& card, const std::string& key, const std::string& fallback = "")
 {
     for (const card_data::KeyStringPair& item : card.stringValues)
@@ -234,6 +246,11 @@ inline std::uint8_t parseActionKind(const std::string& value)
         return static_cast<std::uint8_t>(ActionKind::Tunnel);
     }
     return static_cast<std::uint8_t>(ActionKind::Slide);
+}
+
+inline bool actionLooksLikeAttackingMove(const card_data::Action& action)
+{
+    return action.state == 0 && action.canMove && action.canAttack;
 }
 
 inline bool isHeroCard(const card_data::Card& card)
@@ -303,7 +320,8 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.attackRange = cardInt(card, "range", 1);
     g.movePattern = parseMovePattern(cardStr(card, "movement", "omni"));
     g.moveRange = cardInt(card, "move", 1);
-    g.attackingMove = cardInt(card, "attackingMove", 0) != 0;
+    const std::optional<int> explicitAttackingMove = cardIntValue(card, "attackingMove");
+    g.attackingMove = explicitAttackingMove.value_or(0) != 0;
     g.effect = cardStr(card, "effect", "none");
     g.target = cardStr(card, "target", "none");
     g.power = cardInt(card, "power", 0);
@@ -329,9 +347,14 @@ inline GameCard toGameCard(const card_data::Card& card)
         action.statusTurns = definition.statusTurns;
         action.cooldownTurns = definition.cooldownTurns;
         g.actions.push_back(action);
+        if (!explicitAttackingMove && actionLooksLikeAttackingMove(definition))
+        {
+            g.attackingMove = true;
+        }
     }
 
-    if (g.actions.empty() && g.movePattern != static_cast<std::uint8_t>(MovePattern::None) && g.moveRange > 0)
+    const bool needsLegacyActions = g.actions.empty();
+    if (needsLegacyActions && g.movePattern != static_cast<std::uint8_t>(MovePattern::None) && g.moveRange > 0)
     {
         ActionProfile move;
         move.pattern = g.movePattern;
@@ -341,21 +364,18 @@ inline GameCard toGameCard(const card_data::Card& card)
         move.canAttack = g.attackingMove;
         g.actions.push_back(move);
     }
-    if (g.actions.empty() || (g.attack > 0 && !g.attackingMove))
+    if (needsLegacyActions && g.attack > 0 && !g.attackingMove)
     {
-        if (g.attack > 0)
-        {
-            ActionProfile attack;
-            attack.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
-            // None intentionally means any square within Chebyshev range for
-            // legacy cards. Imported ranged attacks use a line pattern.
-            attack.pattern = static_cast<std::uint8_t>(MovePattern::None);
-            attack.maxRange = g.attackRange;
-            attack.damage = g.attack;
-            attack.canMove = false;
-            attack.canAttack = true;
-            g.actions.push_back(attack);
-        }
+        ActionProfile attack;
+        attack.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+        // None intentionally means any square within Chebyshev range for
+        // legacy cards. Imported ranged attacks use a line pattern.
+        attack.pattern = static_cast<std::uint8_t>(MovePattern::None);
+        attack.maxRange = g.attackRange;
+        attack.damage = g.attack;
+        attack.canMove = false;
+        attack.canAttack = true;
+        g.actions.push_back(attack);
     }
     return g;
 }
