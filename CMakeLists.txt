@@ -123,7 +123,7 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
             src/gameserver/main.cpp
     )
 
-    target_link_libraries(gameserver PRIVATE fmt::fmt SFML::System SFML::Network)
+    target_link_libraries(gameserver PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network)
     install(TARGETS gameserver RUNTIME DESTINATION bin)
 endif()
 
@@ -136,7 +136,7 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
             src/gametest/main.cpp
     )
 
-    target_link_libraries(gametest PRIVATE fmt::fmt SFML::System SFML::Network)
+    target_link_libraries(gametest PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network)
 endif()
 
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_CARDSERVER)

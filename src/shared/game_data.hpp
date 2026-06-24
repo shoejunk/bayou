@@ -336,6 +336,37 @@ inline GameCard toGameCard(const card_data::Card& card)
             g.attackingMove = true;
         }
     }
+    if (g.actions.empty() && (g.type == "Unit" || g.type == "Hero"))
+    {
+        const std::uint8_t legacyPattern = parseMovePattern(cardStr(card, "movement", "omni"));
+        const int legacyMove = cardInt(card, "move", 1);
+        const int legacyAttack = cardInt(card, "attack", 0);
+        const int legacyRange = cardInt(card, "range", 1);
+        if (legacyMove > 0)
+        {
+            ActionProfile moveAction;
+            moveAction.name = g.title + " Move";
+            moveAction.pattern = legacyPattern;
+            moveAction.maxRange = legacyMove;
+            moveAction.damage = 0;
+            moveAction.canMove = true;
+            moveAction.canAttack = false;
+            g.actions.push_back(moveAction);
+        }
+        if (legacyAttack > 0)
+        {
+            ActionProfile attackAction;
+            attackAction.name = g.title + " Attack";
+            attackAction.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+            attackAction.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
+            attackAction.maxRange = std::max(1, legacyRange);
+            attackAction.damage = legacyAttack;
+            attackAction.canMove = false;
+            attackAction.canAttack = true;
+            attackAction.lineOfSight = true;
+            g.actions.push_back(attackAction);
+        }
+    }
 
     bool foundMoveAction = false;
     bool foundAttackAction = false;

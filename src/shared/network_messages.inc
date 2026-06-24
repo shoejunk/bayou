@@ -81,7 +81,9 @@ enum class MessageType : std::uint8_t
     ActionDeleteRequest,
     ActionDeleteResponse,
     CancelMatchmaking,
-    CancelMatchmakingResponse
+    CancelMatchmakingResponse,
+    PlayAiMatchmaking,
+    CreateAiGameSession
 };
 
 struct CreateAccountRequest

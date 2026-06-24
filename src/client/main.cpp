@@ -218,6 +218,8 @@ struct MatchmakingCancelState
 {
     std::atomic<bool> requested{false};
     std::atomic<bool> sent{false};
+    std::atomic<bool> aiRequested{false};
+    std::atomic<bool> aiSent{false};
 };
 
 struct CardListResult
@@ -2133,9 +2135,28 @@ ServerResult joinMatchmaking(
     socket.setBlocking(false);
     sf::Packet cancelPacket;
     cancelPacket << static_cast<uint8_t>(network::MessageType::CancelMatchmaking);
+    sf::Packet aiPacket;
+    aiPacket << static_cast<uint8_t>(network::MessageType::PlayAiMatchmaking);
 
     while (true)
     {
+        if (cancelState &&
+            cancelState->aiRequested.load() &&
+            !cancelState->aiSent.load())
+        {
+            const sf::Socket::Status aiStatus = socket.send(aiPacket);
+            if (aiStatus == sf::Socket::Status::Done)
+            {
+                cancelState->aiSent.store(true);
+            }
+            else if (aiStatus != sf::Socket::Status::NotReady &&
+                     aiStatus != sf::Socket::Status::Partial)
+            {
+                socket.disconnect();
+                return {false, "Failed to request AI match"};
+            }
+        }
+
         if (cancelState &&
             cancelState->requested.load() &&
             !cancelState->sent.load())
@@ -2442,6 +2463,7 @@ int main(int argc, char** argv)
     Button backButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Back", font);
     Button exitDesktopButton({20.0f, 520.0f}, {200.0f, 45.0f}, "Exit to Desktop", font);
     Button cancelMatchmakingButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Cancel", font);
+    Button playAiButton({150.0f, 520.0f}, {160.0f, 45.0f}, "Play vs AI", font);
     Button playButton({300.0f, 136.0f}, {200.0f, 40.0f}, "Play", font);
     Button sandboxButton({300.0f, 184.0f}, {200.0f, 40.0f}, "Sandbox", font);
     Button deckEditorButton({300.0f, 232.0f}, {200.0f, 40.0f}, "Deck Editor", font);
@@ -3217,6 +3239,7 @@ int main(int argc, char** argv)
         setMessage(messageText, "Finding match...", sf::Color::Yellow);
         matchmakingCancelRequested = false;
         cancelMatchmakingButton.setLabel("Cancel");
+        playAiButton.setLabel("Play vs AI");
         activeMatchmakingCancel = std::make_shared<MatchmakingCancelState>();
         pendingMatchmaking =
             std::async(std::launch::async, joinMatchmaking, activeAccessToken, activeMatchmakingCancel);
@@ -6954,6 +6977,7 @@ int main(int argc, char** argv)
             activeMatchmakingCancel.reset();
             matchmakingCancelRequested = false;
             cancelMatchmakingButton.setLabel("Cancel");
+            playAiButton.setLabel("Play vs AI");
             if (result.success)
             {
                 showGameScreen(result.gameSocket);
@@ -7158,6 +7182,16 @@ int main(int argc, char** argv)
                     cancelMatchmakingButton.isClicked(clickPos))
                 {
                     requestMatchmakingCancel();
+                }
+
+                if (currentState == GameState::Matchmaking &&
+                    playAiButton.isClicked(clickPos) &&
+                    activeMatchmakingCancel &&
+                    !activeMatchmakingCancel->aiRequested.load())
+                {
+                    activeMatchmakingCancel->aiRequested.store(true);
+                    playAiButton.setLabel("Starting...");
+                    setMessage(messageText, "Requesting AI match...", sf::Color::Yellow);
                 }
             }
 
@@ -8237,6 +8271,7 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Matchmaking)
         {
             cancelMatchmakingButton.update(mousePos);
+            playAiButton.update(mousePos);
         }
         else if (currentState == GameState::DeckEditor)
         {
@@ -8452,6 +8487,7 @@ int main(int argc, char** argv)
         {
             window.draw(messageText);
             cancelMatchmakingButton.draw(window);
+            playAiButton.draw(window);
         }
         else if (currentState == GameState::DeckEditor)
         {

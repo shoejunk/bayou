@@ -110,25 +110,8 @@ RegisteredMatch registerMatch(
     return match;
 }
 
-unsigned short requestGameSession(int matchId, const RegisteredMatch& match)
+unsigned short readGameSessionResponse(sf::TcpSocket& socket, int matchId)
 {
-    sf::TcpSocket socket;
-    if (socket.connect(sf::IpAddress::LocalHost, GameServerPort) != sf::Socket::Status::Done)
-    {
-        fmt::println("Failed to connect to game server for match {}", matchId);
-        return 0;
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(MessageType::CreateGameSession)
-            << matchId << match.playerOne << match.playerTwo << match.resultToken;
-
-    if (socket.send(request) != sf::Socket::Status::Done)
-    {
-        fmt::println("Failed to request game session for match {}", matchId);
-        return 0;
-    }
-
     sf::Packet response;
     if (socket.receive(response) != sf::Socket::Status::Done)
     {
@@ -152,6 +135,50 @@ unsigned short requestGameSession(int matchId, const RegisteredMatch& match)
     }
 
     return gamePort;
+}
+
+unsigned short requestGameSession(int matchId, const RegisteredMatch& match)
+{
+    sf::TcpSocket socket;
+    if (socket.connect(sf::IpAddress::LocalHost, GameServerPort) != sf::Socket::Status::Done)
+    {
+        fmt::println("Failed to connect to game server for match {}", matchId);
+        return 0;
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(MessageType::CreateGameSession)
+            << matchId << match.playerOne << match.playerTwo << match.resultToken;
+
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        fmt::println("Failed to request game session for match {}", matchId);
+        return 0;
+    }
+
+    return readGameSessionResponse(socket, matchId);
+}
+
+unsigned short requestAiGameSession(int matchId, const std::string& playerOne)
+{
+    sf::TcpSocket socket;
+    if (socket.connect(sf::IpAddress::LocalHost, GameServerPort) != sf::Socket::Status::Done)
+    {
+        fmt::println("Failed to connect to game server for AI match {}", matchId);
+        return 0;
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(MessageType::CreateAiGameSession)
+            << matchId << playerOne;
+
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        fmt::println("Failed to request AI game session for match {}", matchId);
+        return 0;
+    }
+
+    return readGameSessionResponse(socket, matchId);
 }
 }
 
@@ -295,6 +322,12 @@ private:
                 continue;
             }
 
+            if (packet && static_cast<MessageType>(type) == MessageType::PlayAiMatchmaking)
+            {
+                createAiMatch(index);
+                continue;
+            }
+
             ++index;
         }
     }
@@ -308,6 +341,29 @@ private:
         const int rangeOne = ranking::matchmakingRange(now - one.joinedAt);
         const int rangeTwo = ranking::matchmakingRange(now - two.joinedAt);
         return difference <= std::min(rangeOne, rangeTwo);
+    }
+
+    void createAiMatch(std::size_t index)
+    {
+        const int matchId = allocateMatchId();
+        const unsigned short gamePort = requestAiGameSession(matchId, waitingPlayers[index].username);
+        if (gamePort == 0)
+        {
+            sendMatchmakingFailed(*waitingPlayers[index].socket, "Could not create AI match.");
+            waitingPlayers[index].socket->disconnect();
+            waitingPlayers.erase(waitingPlayers.begin() + static_cast<std::ptrdiff_t>(index));
+            return;
+        }
+
+        fmt::println(
+            "AI match {} found: {} ({}) vs AI on port {}",
+            matchId,
+            waitingPlayers[index].username,
+            waitingPlayers[index].rating,
+            gamePort);
+        sendMatchFound(*waitingPlayers[index].socket, matchId, 1, gamePort);
+        waitingPlayers[index].socket->disconnect();
+        waitingPlayers.erase(waitingPlayers.begin() + static_cast<std::ptrdiff_t>(index));
     }
 
     void makeMatches()
@@ -403,6 +459,16 @@ private:
         response << static_cast<std::uint8_t>(MessageType::CancelMatchmakingResponse)
                  << true
                  << std::string("Matchmaking cancelled.");
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    static void sendMatchmakingFailed(sf::TcpSocket& client, const std::string& message)
+    {
+        client.setBlocking(true);
+        sf::Packet response;
+        response << static_cast<std::uint8_t>(MessageType::CancelMatchmakingResponse)
+                 << false
+                 << message;
         [[maybe_unused]] auto result = client.send(response);
     }
 };
