@@ -728,7 +728,7 @@ public:
 
         Piece* piece = pieceById(pieceId);
         if (piece == nullptr || piece->owner != playerNumber || piece->hasActed ||
-            piece->ability.empty() || piece->growTurnsRemaining > 0 || piece->disabledTurns > 0)
+            !pieceAbilityAvailable(*piece))
         {
             return;
         }
@@ -736,13 +736,16 @@ public:
         const std::string abilityLabel = pieceAbilityLabel(*piece);
         if (piece->ability == "dig")
         {
-            if (piece->abilityUses <= 0)
+            if (piece->abilityUses == 0)
             {
                 setStatusFor(playerNumber, "That piece has already dug its hole.");
                 return;
             }
             holes[static_cast<std::size_t>(squareIndex(piece->row, piece->column))] = 1;
-            --piece->abilityUses;
+            if (piece->abilityUses > 0)
+            {
+                --piece->abilityUses;
+            }
         }
         else if (piece->ability == "transform" || piece->ability == "dematerialize")
         {
@@ -1349,7 +1352,7 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
         {
             continue;
         }
-        if (!piece.ability.empty() && (piece.ability != "dig" || piece.abilityUses > 0))
+        if (pieceAbilityAvailable(piece))
         {
             actions.push_back({AiActionKind::UseAbility, piece.id});
         }

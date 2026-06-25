@@ -2653,7 +2653,8 @@ int main(int argc, char** argv)
     Button findMatchButton({300.0f, 458.0f}, {200.0f, 52.0f}, "Find Match", font);
     Button abilityButton({392.0f, GameActionButtonY}, {138.0f, 36.0f}, "Use Ability", font);
     Button endTurnButton({540.0f, GameActionButtonY}, {132.0f, 36.0f}, "Pass Turn", font);
-    Button sandboxPlayerButton({540.0f, GameActionButtonY}, {132.0f, 36.0f}, "Place P1", font);
+    Button sandboxPlayerButton({532.0f, GameActionButtonY}, {48.0f, 36.0f}, "P1", font);
+    Button sandboxAdvanceTurnButton({588.0f, GameActionButtonY}, {88.0f, 36.0f}, "Advance", font);
     Button leaveGameButton({684.0f, 14.0f}, {100.0f, 36.0f}, "Leave", font);
     Button closePiecePopupButton({PiecePopupX + 358.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
     Button discardCardButton({PiecePopupX + 22.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {220.0f, 38.0f},
@@ -4102,7 +4103,7 @@ int main(int argc, char** argv)
     auto beginSandbox = [&](std::vector<card_data::Card> cards) {
         sandboxMode = true;
         sandboxPlacementPlayer = 1;
-        sandboxPlayerButton.setLabel("Place P1");
+        sandboxPlayerButton.setLabel("P1");
         activeGameSocket.reset();
         currentState = GameState::Game;
         title.setString("");
@@ -4185,7 +4186,7 @@ int main(int argc, char** argv)
     };
 
     auto updateSandboxPlayerButton = [&]() {
-        sandboxPlayerButton.setLabel("Place P" + std::to_string(sandboxPlacementPlayer));
+        sandboxPlayerButton.setLabel("P" + std::to_string(sandboxPlacementPlayer));
     };
 
     auto toggleSandboxPlacementPlayer = [&]() {
@@ -5100,8 +5101,7 @@ int main(int argc, char** argv)
 
         game_data::Snapshot next = gameSnapshot;
         game_data::Piece* piece = pieceByIdInSnapshotMutable(next, pieceId);
-        if (!piece ||
-            piece->ability.empty() || piece->growTurnsRemaining > 0 || piece->disabledTurns > 0)
+        if (!piece || !game_data::pieceAbilityAvailable(*piece))
         {
             return;
         }
@@ -5109,14 +5109,17 @@ int main(int argc, char** argv)
         const std::string abilityLabel = game_data::pieceAbilityLabel(*piece);
         if (piece->ability == "dig")
         {
-            if (piece->abilityUses <= 0)
+            if (piece->abilityUses == 0)
             {
                 next.status = "That piece has already dug its hole.";
                 commitSandboxSnapshot(std::move(next));
                 return;
             }
             next.holes[static_cast<std::size_t>(game_data::squareIndex(piece->row, piece->column))] = 1;
-            --piece->abilityUses;
+            if (piece->abilityUses > 0)
+            {
+                --piece->abilityUses;
+            }
         }
         else if (piece->ability == "transform" || piece->ability == "dematerialize")
         {
@@ -5144,9 +5147,20 @@ int main(int argc, char** argv)
             return;
         }
         game_data::Snapshot next = gameSnapshot;
+        const int endingPlayer = std::clamp(next.activePlayer, 1, 2);
         for (game_data::Piece& piece : next.pieces)
         {
-            if (piece.owner == 1)
+            if (piece.owner == endingPlayer && piece.sleepTurnsRemaining > 0)
+            {
+                --piece.sleepTurnsRemaining;
+            }
+        }
+
+        next.activePlayer = endingPlayer == 1 ? 2 : 1;
+        const int startingPlayer = next.activePlayer;
+        for (game_data::Piece& piece : next.pieces)
+        {
+            if (piece.owner == startingPlayer)
             {
                 piece.hasActed = false;
                 if (piece.growTurnsRemaining > 0)
@@ -5159,13 +5173,9 @@ int main(int argc, char** argv)
                     --piece.disabledTurns;
                     piece.hasActed = true;
                 }
-                if (piece.sleepTurnsRemaining > 0)
-                {
-                    --piece.sleepTurnsRemaining;
-                }
             }
         }
-        next.status = "Sandbox turn reset.";
+        next.status = "Sandbox advanced timing to Player " + std::to_string(startingPlayer) + ".";
         commitSandboxSnapshot(std::move(next));
     };
 
@@ -5751,6 +5761,10 @@ int main(int argc, char** argv)
             {
                 descriptions.push_back({"Ability uses: " + std::to_string(piece.abilityUses),
                                         sf::Color(190, 198, 214)});
+            }
+            else if (piece.abilityUses < 0)
+            {
+                descriptions.push_back({"Ability uses: unlimited", sf::Color(190, 198, 214)});
             }
         }
         if (piece.actions.empty())
@@ -6468,9 +6482,7 @@ int main(int argc, char** argv)
         if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
         {
             if (selectedPiece && (sandboxMode || (selectedPiece->owner == me && !selectedPiece->hasActed)) &&
-                !selectedPiece->ability.empty() && selectedPiece->growTurnsRemaining == 0 &&
-                selectedPiece->disabledTurns == 0 &&
-                (selectedPiece->ability != "dig" || selectedPiece->abilityUses > 0))
+                game_data::pieceAbilityAvailable(*selectedPiece))
             {
                 abilityButton.setLabel(game_data::pieceAbilityLabel(*selectedPiece));
                 abilityButton.draw(window);
@@ -6478,6 +6490,7 @@ int main(int argc, char** argv)
             if (sandboxMode)
             {
                 sandboxPlayerButton.draw(window);
+                sandboxAdvanceTurnButton.draw(window);
             }
             else
             {
@@ -7595,9 +7608,7 @@ int main(int argc, char** argv)
                     {
                         if (const game_data::Piece* piece = gamePieceById(*selectedPieceId);
                             piece && (sandboxMode || (piece->owner == gameSnapshot.yourPlayer && !piece->hasActed)) &&
-                            !piece->ability.empty() && piece->growTurnsRemaining == 0 &&
-                            piece->disabledTurns == 0 &&
-                            (piece->ability != "dig" || piece->abilityUses > 0))
+                            game_data::pieceAbilityAvailable(*piece))
                         {
                             pendingHandClickIndex.reset();
                             sendUseAbility(piece->id);
@@ -7609,6 +7620,13 @@ int main(int argc, char** argv)
                     {
                         pendingHandClickIndex.reset();
                         toggleSandboxPlacementPlayer();
+                    }
+                    else if (sandboxMode && sandboxAdvanceTurnButton.isClicked(clickPos))
+                    {
+                        pendingHandClickIndex.reset();
+                        sendEndTurn();
+                        selectedPieceId.reset();
+                        selectedHandIndex.reset();
                     }
                     else if (haveSnapshot &&
                              static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::Playing &&
@@ -8327,9 +8345,7 @@ int main(int argc, char** argv)
                 {
                     if (const game_data::Piece* piece = gamePieceById(*selectedPieceId);
                         piece && (sandboxMode || (piece->owner == gameSnapshot.yourPlayer && !piece->hasActed)) &&
-                        !piece->ability.empty() && piece->growTurnsRemaining == 0 &&
-                        piece->disabledTurns == 0 &&
-                        (piece->ability != "dig" || piece->abilityUses > 0))
+                        game_data::pieceAbilityAvailable(*piece))
                     {
                         abilityButton.update(mousePos);
                     }
@@ -8337,6 +8353,7 @@ int main(int argc, char** argv)
                 if (sandboxMode)
                 {
                     sandboxPlayerButton.update(mousePos);
+                    sandboxAdvanceTurnButton.update(mousePos);
                 }
                 else
                 {

@@ -301,6 +301,11 @@ int main(int argc, char** argv)
           "tunnel connects decorated hole squares");
     check(!resolvePieceAction({profilePiece}, holes, profilePiece, 6, 5).legal,
           "tunnel rejects a destination without a hole");
+    profilePiece.ability = "dig";
+    profilePiece.abilityUses = -1;
+    check(pieceAbilityAvailable(profilePiece), "negative dig uses mean unlimited ability uses");
+    profilePiece.abilityUses = 0;
+    check(!pieceAbilityAvailable(profilePiece), "zero dig uses means the ability is spent");
 
     ActionProfile paralyze;
     paralyze.pattern = static_cast<std::uint8_t>(MovePattern::Omni);

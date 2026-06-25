@@ -1164,4 +1164,17 @@ inline std::string pieceAbilityLabel(const Piece& piece)
     }
     return "Use Ability";
 }
+
+inline bool pieceAbilityAvailable(const Piece& piece)
+{
+    if (piece.ability.empty() || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
+    {
+        return false;
+    }
+    if (piece.ability == "dig")
+    {
+        return piece.abilityUses != 0;
+    }
+    return true;
+}
 }

@@ -14,7 +14,7 @@
 --   int   canControl 0 prevents a piece from claiming/influencing squares
 --   int   growTurns owner turns before a summoned piece can act
 --   str   ability   transform | dematerialize | dig
---   int   abilityUses limited uses for abilities such as dig
+--   int   abilityUses limited uses for abilities such as dig; negative means unlimited
 --   ref   actions   ordered references in card_actions to reusable action records
 --   list  abilityLabels labels indexed by the active action state
 
@@ -256,7 +256,7 @@ INSERT INTO cards (title, type, image_path) VALUES ('Delving Daphodilus', 'Unit'
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Delving Daphodilus', 'cost', 12), ('Delving Daphodilus', 'health', 2),
   ('Delving Daphodilus', 'attack', 2), ('Delving Daphodilus', 'range', 1),
-  ('Delving Daphodilus', 'move', 7), ('Delving Daphodilus', 'abilityUses', 1);
+  ('Delving Daphodilus', 'move', 7), ('Delving Daphodilus', 'abilityUses', -1);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Delving Daphodilus', 'movement', 'diag'),
   ('Delving Daphodilus', 'ability', 'dig'),
