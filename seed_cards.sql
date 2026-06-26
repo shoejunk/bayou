@@ -278,16 +278,7 @@ INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Elias Tiberion', 'abilityLabels', 0, 'Ready Gun'),
   ('Elias Tiberion', 'abilityLabels', 1, 'Lower Gun');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Foot Soldier', 'Unit', 'cards/clockwork-rook.png');
-INSERT INTO card_integer_values (title, key, value) VALUES
-  ('Foot Soldier', 'cost', 1), ('Foot Soldier', 'health', 1),
-  ('Foot Soldier', 'attack', 1), ('Foot Soldier', 'range', 1),
-  ('Foot Soldier', 'move', 1);
-INSERT INTO card_string_values (title, key, value) VALUES
-  ('Foot Soldier', 'movement', 'diag'),
-  ('Foot Soldier', 'detail', 'Moves or attacks one square diagonally.');
-
-INSERT INTO cards (title, type, image_path) VALUES ('Gentle Bot', 'Unit', 'cards/clockwork-rook.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Gentle Bot', 'Unit', 'cards/gentle-bot.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Gentle Bot', 'cost', 0), ('Gentle Bot', 'health', 1),
   ('Gentle Bot', 'attack', 0), ('Gentle Bot', 'range', 1),
@@ -311,7 +302,7 @@ INSERT INTO card_string_lists (title, key, item_index, value) VALUES
   ('Hired Gun', 'abilityLabels', 0, 'Ready Gun'),
   ('Hired Gun', 'abilityLabels', 1, 'Lower Gun');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Hop Bot', 'Unit', 'cards/clockwork-rook.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Hop Bot', 'Unit', 'cards/hop-bot.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Hop Bot', 'cost', 1), ('Hop Bot', 'health', 1),
   ('Hop Bot', 'attack', 1), ('Hop Bot', 'range', 1),
@@ -345,7 +336,7 @@ INSERT INTO card_string_values (title, key, value) VALUES
   ('Lesser Demon', 'detail', 'Charges up to four squares orthogonally and deals two damage.');
 INSERT INTO card_keywords (title, keyword) VALUES ('Lesser Demon', 'occult');
 
-INSERT INTO cards (title, type, image_path) VALUES ('Patrol Bot', 'Unit', 'cards/clockwork-rook.png');
+INSERT INTO cards (title, type, image_path) VALUES ('Patrol Bot', 'Unit', 'cards/patrol-bot.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Patrol Bot', 'cost', 1), ('Patrol Bot', 'health', 1),
   ('Patrol Bot', 'attack', 2), ('Patrol Bot', 'range', 1),
@@ -404,15 +395,6 @@ INSERT INTO card_string_values (title, key, value) VALUES
   ('Sentroid', 'movement', 'vertical'),
   ('Sentroid', 'detail', 'Moves one square vertically and attacks one square diagonally.');
 INSERT INTO card_keywords (title, keyword) VALUES ('Sentroid', 'mechanical');
-
-INSERT INTO cards (title, type, image_path) VALUES ('Sky Pirate', 'Unit', 'cards/marsh-witch.png');
-INSERT INTO card_integer_values (title, key, value) VALUES
-  ('Sky Pirate', 'cost', 2), ('Sky Pirate', 'health', 1),
-  ('Sky Pirate', 'attack', 1), ('Sky Pirate', 'range', 1),
-  ('Sky Pirate', 'move', 1);
-INSERT INTO card_string_values (title, key, value) VALUES
-  ('Sky Pirate', 'movement', 'diag'),
-  ('Sky Pirate', 'detail', 'Moves one square diagonally or attacks an adjacent enemy.');
 
 INSERT INTO cards (title, type, image_path) VALUES ('Stingy', 'Unit', 'cards/stingy.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
@@ -480,6 +462,7 @@ INSERT INTO card_string_values (title, key, value) VALUES
   ('Elias Tiberion', 'TokenRed', 'characters/red/eliasTiberion.png'),
   ('Elias Tiberion', 'WalkAnimBlue', 'animations/blue/eliasTiberion-walk.png'),
   ('Elias Tiberion', 'WalkAnimRed', 'animations/red/eliasTiberion-walk.png'),
+  ('Gentle Bot', 'WalkAnimBlue', 'animations/blue/gentleBot-walk.png'),
   ('Gentle Bot', 'WalkAnimRed', 'animations/red/gentleBot-walk.png'),
   ('Hired Gun', 'TokenBlue', 'characters/blue/hiredGun.png'),
   ('Hired Gun', 'TokenRed', 'characters/red/hiredGun.png'),
@@ -538,6 +521,7 @@ INSERT INTO card_string_values (title, key, value) VALUES
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Automatick', 'WalkAnimFrames', 7),
   ('Bramble Drone', 'WalkAnimFrames', 8),
+  ('Gentle Bot', 'WalkAnimFrames', 4),
   ('Hop Bot', 'WalkAnimFrames', 6),
   ('Patrol Bot', 'WalkAnimFrames', 6),
   ('Rustbucket', 'WalkAnimFrames', 5),
@@ -606,13 +590,11 @@ INSERT INTO card_string_values (title, key, value) VALUES
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Automatick', 'rarity', 'common'),
   ('Bramble Drone', 'rarity', 'common'),
-  ('Foot Soldier', 'rarity', 'common'),
   ('Gentle Bot', 'rarity', 'common'),
   ('Hop Bot', 'rarity', 'common'),
   ('Patrol Bot', 'rarity', 'common'),
   ('Scarlett Glumpkin', 'rarity', 'common'),
   ('Sentroid', 'rarity', 'common'),
-  ('Sky Pirate', 'rarity', 'common'),
   ('Stingy', 'rarity', 'common'),
   ('Tinkering Tom', 'rarity', 'common'),
   ('Choking Blossom', 'rarity', 'rare'),
@@ -633,6 +615,13 @@ INSERT INTO card_string_values (title, key, value) VALUES
 UPDATE card_integer_values
 SET value = value * 10
 WHERE key IN ('cost', 'heroCost');
+
+UPDATE card_integer_values
+SET value = CASE title
+  WHEN 'Hop Bot' THEN 5
+  ELSE value
+END
+WHERE key = 'cost' AND title IN ('Hop Bot');
 
 -- Reusable action objects and ordered card references.
 INSERT INTO actions (
@@ -677,7 +666,6 @@ INSERT INTO card_actions (title, action_name, item_index) VALUES
   ('Delving Daphodilus', 'TunnelMove0', 1),
   ('Elias Tiberion', 'ShortRookMove0', 0),
   ('Elias Tiberion', 'KingAttack3', 1),
-  ('Foot Soldier', 'BishopStep1', 0),
   ('Gentle Bot', 'KingMove0', 0),
   ('Hired Gun', 'LongRookMove0', 0),
   ('Hired Gun', 'KingAttack3', 1),
@@ -694,8 +682,6 @@ INSERT INTO card_actions (title, action_name, item_index) VALUES
   ('Scarlett Glumpkin', 'QueenStun0', 0),
   ('Sentroid', 'VerticalMove0', 0),
   ('Sentroid', 'BishopAttack1', 1),
-  ('Sky Pirate', 'BishopStep0', 0),
-  ('Sky Pirate', 'KingAttack1', 1),
   ('Stingy', 'BishopMove1', 0),
   ('Sweetykins', 'RookMove1', 0),
   ('Telematron', 'TeleportMove0', 0),
