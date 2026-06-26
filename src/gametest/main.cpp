@@ -418,6 +418,14 @@ int main(int argc, char** argv)
     check(sleepingAttack.legal && !sleepingAttack.moves && sleepingAttack.attacks,
           "sleeping pieces can still make stationary attacks");
 
+    Piece damagedTarget;
+    applyDamageStatus(damagedTarget, 2, 0);
+    check(damagedTarget.disabledTurns == DamageDisabledTurns && damagedTarget.sleepTurnsRemaining == 1,
+          "positive damage applies a one-turn disabled status");
+    applyDamageStatus(damagedTarget, 0, 2);
+    check(damagedTarget.disabledTurns == 2,
+          "explicit status duration can exceed the damage disabled duration");
+
     card_data::Card encodedCard;
     encodedCard.title = "Encoded";
     encodedCard.type = "Unit";

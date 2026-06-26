@@ -28,6 +28,7 @@ constexpr int MaxHeroCopies = 1;
 constexpr int MinHeroes = 1;
 constexpr int MaxHeroes = 4;
 constexpr int HeroCostLimit = 100;
+constexpr int DamageDisabledTurns = 1;
 
 inline std::optional<std::string> deckRulesError(const std::vector<card_data::Card>& cards)
 {
@@ -424,6 +425,20 @@ struct Piece
     bool isHero = false;
     bool hasActed = false;
 };
+
+inline int disabledTurnsForDamage(int damage, int statusTurns)
+{
+    return std::max(statusTurns, damage > 0 ? DamageDisabledTurns : 0);
+}
+
+inline void applyDamageStatus(Piece& target, int damage, int statusTurns)
+{
+    if (damage > 0)
+    {
+        target.sleepTurnsRemaining = std::max(target.sleepTurnsRemaining, 1);
+    }
+    target.disabledTurns = std::max(target.disabledTurns, disabledTurnsForDamage(damage, statusTurns));
+}
 
 // Returns the card keywords not supplied by any surviving friendly hero.
 // Keywords are requirements only when initially playing a Unit or Spell.

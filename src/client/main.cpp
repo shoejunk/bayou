@@ -4984,10 +4984,7 @@ int main(int argc, char** argv)
                 return;
             }
             target->health -= card.power;
-            if (card.power > 0)
-            {
-                target->sleepTurnsRemaining = std::max(target->sleepTurnsRemaining, 1);
-            }
+            game_data::applyDamageStatus(*target, card.power, 0);
             if (target->health <= 0)
             {
                 removePieceFromSnapshot(next, target->id);
@@ -5051,11 +5048,7 @@ int main(int argc, char** argv)
             targetName = target->name;
             targetAtDestination = target->row == row && target->column == column;
             target->health -= action.damage;
-            if (action.damage > 0)
-            {
-                target->sleepTurnsRemaining = std::max(target->sleepTurnsRemaining, 1);
-            }
-            target->disabledTurns = std::max(target->disabledTurns, action.statusTurns);
+            game_data::applyDamageStatus(*target, action.damage, action.statusTurns);
             if (target->health <= 0)
             {
                 targetDestroyed = true;
@@ -5085,10 +5078,21 @@ int main(int argc, char** argv)
         acting->disabledTurns = std::max(acting->disabledTurns, action.cooldownTurns);
         acting->hasActed = false;
 
-        next.status = action.attacks
-            ? attackerName + " hit " + targetName + " for " + std::to_string(action.damage) +
-                (targetDestroyed ? " and destroyed it." : ".")
-            : attackerName + " moved.";
+        if (action.attacks)
+        {
+            const int effectiveDisabledTurns =
+                game_data::disabledTurnsForDamage(action.damage, action.statusTurns);
+            next.status = attackerName + " hit " + targetName + " for " + std::to_string(action.damage);
+            if (!targetDestroyed && effectiveDisabledTurns > 0)
+            {
+                next.status += " and disabled it for " + std::to_string(effectiveDisabledTurns) + " turn(s)";
+            }
+            next.status += targetDestroyed ? " and destroyed it." : ".";
+        }
+        else
+        {
+            next.status = attackerName + " moved.";
+        }
         commitSandboxSnapshot(std::move(next));
     };
 
@@ -6423,9 +6427,7 @@ int main(int argc, char** argv)
                 drawContainSprite(
                     *token,
                     pieceTargetRect(anchor, pieceScale, true),
-                    piece.hasActed && piece.owner == gameSnapshot.activePlayer
-                        ? sf::Color(150, 150, 150, 215)
-                        : sf::Color::White);
+                    pieceUnavailable ? sf::Color(150, 150, 150, 215) : sf::Color::White);
             }
             else if (sf::Texture* walkSheet = walkAnimTexture(walkPath))
             {

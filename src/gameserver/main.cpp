@@ -960,11 +960,7 @@ private:
             targetAtDestination = target->row == toRow && target->column == toColumn;
             victimOwner = target->owner;
             target->health -= action.damage;
-            if (action.damage > 0)
-            {
-                target->sleepTurnsRemaining = std::max(target->sleepTurnsRemaining, 1);
-            }
-            target->disabledTurns = std::max(target->disabledTurns, action.statusTurns);
+            applyDamageStatus(*target, action.damage, action.statusTurns);
             if (target->health <= 0)
             {
                 targetDestroyed = true;
@@ -1006,14 +1002,15 @@ private:
 
         if (action.attacks)
         {
+            const int effectiveDisabledTurns = disabledTurnsForDamage(action.damage, action.statusTurns);
             std::string result = fmt::format(
                 "{} hit {} for {}",
                 attackerName,
                 targetName,
                 action.damage);
-            if (action.statusTurns > 0)
+            if (!targetDestroyed && effectiveDisabledTurns > 0)
             {
-                result += fmt::format(" and disabled it for {} turn(s)", action.statusTurns);
+                result += fmt::format(" and disabled it for {} turn(s)", effectiveDisabledTurns);
             }
             result += targetDestroyed ? " and destroyed it!" : ".";
             advanceTurn(result);
@@ -1189,10 +1186,7 @@ private:
                 return false;
             }
             target->health -= card.power;
-            if (card.power > 0)
-            {
-                target->sleepTurnsRemaining = std::max(target->sleepTurnsRemaining, 1);
-            }
+            applyDamageStatus(*target, card.power, 0);
             if (target->health <= 0)
             {
                 const int victimOwner = target->owner;
