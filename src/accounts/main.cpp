@@ -24,7 +24,6 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "../shared/network.hpp"
@@ -39,7 +38,20 @@ constexpr int AiWinRewardCoins = 1;
 constexpr int ShopCardCost = 5;
 constexpr const char* StarterDeckName = "Starter Deck";
 constexpr const char* PreferredStarterHero = "Steam Baron";
-constexpr const char* StarterHeroTitles[] = {"Tinkering Tom", "Scarlett Glumpkin", "Elias Tiberion"};
+constexpr const char* StarterDeckHeroTitles[] = {"Tinkering Tom", "Scarlett Glumpkin", "Elias Tiberion"};
+constexpr const char* StarterDeckNonHeroTitles[] = {
+    "Brass Pawn",
+    "Rifleman",
+    "Clockwork Rook",
+    "Steam Bishop",
+    "Automaton Knight",
+    "Dredger",
+    "Spark Drone",
+    "Sentroid",
+    "Patrol Bot",
+    "Rustbucket",
+};
+constexpr const char* StarterCollectionExtraTitles[] = {PreferredStarterHero};
 constexpr std::int64_t RememberTokenLifetimeSeconds = 30LL * 24LL * 60LL * 60LL;
 constexpr std::int64_t AccessTokenLifetimeSeconds = 12LL * 60LL * 60LL;
 constexpr std::int64_t LoginAttemptWindowSeconds = 15LL * 60LL;
@@ -111,6 +123,11 @@ const std::vector<std::string>& fallbackStarterNonHeroes()
         "Mudslide",
     };
     return titles;
+}
+
+bool containsTitle(const std::vector<std::string>& titles, const std::string& title)
+{
+    return std::find(titles.begin(), titles.end(), title) != titles.end();
 }
 }
 
@@ -2033,9 +2050,9 @@ private:
     {
         std::vector<std::string> heroes = loadCardTitlesFromCardsDb("Hero");
         std::vector<std::string> result;
-        for (const char* name : StarterHeroTitles)
+        for (const char* name : StarterDeckHeroTitles)
         {
-            if (std::find(heroes.begin(), heroes.end(), name) != heroes.end())
+            if (containsTitle(heroes, name))
             {
                 result.push_back(name);
             }
@@ -2049,34 +2066,36 @@ private:
 
     std::vector<std::string> starterNonHeroSlots()
     {
-        static const std::unordered_set<std::string> excludedFromStarter = {
-            "Curious Spirit",
-            "Lady Worthington",
-            "Lesser Demon",
-        };
-
         std::vector<std::string> available = loadNonHeroCardTitles();
-        if (available.empty())
-        {
-            available = fallbackStarterNonHeroes();
-        }
-        available.erase(
-            std::remove_if(available.begin(), available.end(),
-                [](const std::string& title) { return excludedFromStarter.count(title) > 0; }),
-            available.end());
-
         std::vector<std::string> ordered;
+
+        for (const char* title : StarterDeckNonHeroTitles)
+        {
+            if (available.empty() || containsTitle(available, title))
+            {
+                ordered.push_back(title);
+            }
+        }
+
         const std::vector<std::string>& fallback = fallbackStarterNonHeroes();
         for (const std::string& title : fallback)
         {
-            if (std::find(available.begin(), available.end(), title) != available.end())
+            if (ordered.size() >= StarterNonHeroKinds)
+            {
+                break;
+            }
+            if ((available.empty() || containsTitle(available, title)) && !containsTitle(ordered, title))
             {
                 ordered.push_back(title);
             }
         }
         for (const std::string& title : available)
         {
-            if (std::find(ordered.begin(), ordered.end(), title) == ordered.end())
+            if (ordered.size() >= StarterNonHeroKinds)
+            {
+                break;
+            }
+            if (!containsTitle(ordered, title))
             {
                 ordered.push_back(title);
             }
@@ -2096,6 +2115,22 @@ private:
             ordered.resize(StarterNonHeroKinds);
         }
         return ordered;
+    }
+
+    std::vector<std::string> starterCollectionTitles(const deck_data::Deck& starterDeck)
+    {
+        std::vector<std::string> collection = starterDeck.cardTitles;
+        const std::vector<std::string> allCards = loadAllCardTitles();
+
+        for (const char* title : StarterCollectionExtraTitles)
+        {
+            if (allCards.empty() || containsTitle(allCards, title))
+            {
+                collection.push_back(title);
+            }
+        }
+
+        return collection;
     }
 
     deck_data::Deck makeStarterDeck()
@@ -2125,16 +2160,10 @@ private:
 
         SQLite::Transaction transaction(*database);
         const deck_data::Deck starterDeck = makeStarterDeck();
-        if (!starterDeck.cardTitles.empty())
+        for (const std::string& title : starterCollectionTitles(starterDeck))
         {
-            addCollectionCopies(username, starterDeck.cardTitles.front(), 1);
-            for (std::size_t i = 1; i < starterDeck.cardTitles.size(); ++i)
-            {
-                addCollectionCopies(username, starterDeck.cardTitles[i], 1);
-            }
+            addCollectionCopies(username, title, 1);
         }
-
-        addCollectionCopies(username, PreferredStarterHero, 1);
 
         if (loadDecks(username).empty())
         {

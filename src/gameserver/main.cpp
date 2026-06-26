@@ -433,21 +433,21 @@ std::vector<card_data::Card> fallbackStarterDeck()
     hero.title = PreferredStarterHero;
     hero.type = "Hero";
     hero.imagePath = "cards/steam-baron.png";
-    hero.integerValues = {{"attack", 8}, {"health", 30}, {"heroCost", 10}, {"move", 1}, {"range", 1}};
+    hero.integerValues = {{"attack", 8}, {"health", 30}, {"heroCost", 100}, {"move", 1}, {"range", 1}};
     hero.stringValues = {{"movement", "omni"}};
     deck.push_back(hero);
 
     const std::vector<card_data::Card> units = {
-        makeFallbackUnit("Brass Pawn", 1, 4, 2, 1, 1, "ortho"),
-        makeFallbackUnit("Rifleman", 3, 6, 4, 3, 1, "ortho"),
-        makeFallbackUnit("Clockwork Rook", 4, 12, 5, 1, 7, "ortho"),
-        makeFallbackUnit("Steam Bishop", 4, 9, 5, 1, 7, "diag"),
-        makeFallbackUnit("Automaton Knight", 3, 9, 4, 1, 1, "jump"),
-        makeFallbackUnit("Dredger", 5, 16, 6, 1, 1, "omni"),
-        makeFallbackUnit("Spark Drone", 2, 4, 3, 2, 2, "omni"),
-        makeFallbackUnit("Gearwright", 2, 5, 2, 1, 2, "omni"),
-        makeFallbackUnit("Brass Medic", 3, 7, 2, 1, 2, "diag"),
-        makeFallbackUnit("Boiler Imp", 1, 3, 3, 1, 2, "omni"),
+        makeFallbackUnit("Brass Pawn", 10, 4, 2, 1, 1, "ortho"),
+        makeFallbackUnit("Rifleman", 30, 6, 4, 3, 1, "ortho"),
+        makeFallbackUnit("Clockwork Rook", 40, 12, 5, 1, 7, "ortho"),
+        makeFallbackUnit("Steam Bishop", 40, 9, 5, 1, 7, "diag"),
+        makeFallbackUnit("Automaton Knight", 30, 9, 4, 1, 1, "jump"),
+        makeFallbackUnit("Dredger", 50, 16, 6, 1, 1, "omni"),
+        makeFallbackUnit("Spark Drone", 20, 4, 3, 2, 2, "omni"),
+        makeFallbackUnit("Gearwright", 20, 5, 2, 1, 2, "omni"),
+        makeFallbackUnit("Brass Medic", 30, 7, 2, 1, 2, "diag"),
+        makeFallbackUnit("Boiler Imp", 10, 3, 3, 1, 2, "omni"),
     };
     for (const card_data::Card& unit : units)
     {

@@ -78,13 +78,13 @@ card_data::Action makeAction(
 std::vector<card_data::Card> makeTestDeck()
 {
     std::vector<card_data::Card> deck;
-    // Two heroes (hero cost 4 + 2 = 6, within the scaled limit of 100).
+    // Two heroes (hero cost 40 + 20 = 60, within the limit of 100).
     deck.push_back(makeCard("Gear Knight", "Hero",
-        {{"heroCost", 4}, {"health", 18}},
+        {{"heroCost", 40}, {"health", 18}},
         {},
         {makeAction("Gear Knight Jump", "jump", 2, 6)}));
     deck.push_back(makeCard("Cog Tinker", "Hero",
-        {{"heroCost", 2}, {"health", 9}},
+        {{"heroCost", 20}, {"health", 9}},
         {},
         {makeAction("Cog Tinker Step", "omni", 1, 3)}));
     // Twenty cheap units: two copies each of ten cards.
