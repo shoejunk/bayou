@@ -465,6 +465,37 @@ const card_data::Card* findCardByTitle(const std::vector<card_data::Card>& cards
     return found == cards.end() ? nullptr : &*found;
 }
 
+// Card titles copied from the "Bayou Gang" deck (account database, decks.id 16).
+const std::vector<std::string>& bayouGangDeckTitles()
+{
+    static const std::vector<std::string> titles = {
+        "Automatick",
+        "Automatick",
+        "Choking Blossom",
+        "Choking Blossom",
+        "Elias Tiberion",
+        "Hired Gun",
+        "Hired Gun",
+        "Rustbucket",
+        "Scarlett Glumpkin",
+        "Stingy",
+        "Stingy",
+        "Sweetykins",
+        "Sweetykins",
+        "Telematron",
+        "Telematron",
+        "Tinkering Tom",
+        "Rustbucket",
+        "Bramble Drone",
+        "Bramble Drone",
+        "Delving Daphodilus",
+        "Gentle Bot",
+        "Hop Bot",
+        "Gentle Bot",
+    };
+    return titles;
+}
+
 std::vector<card_data::Card> makeAiStarterDeck()
 {
     const std::vector<card_data::Card> library = loadCardsFromCardsDb();
@@ -472,6 +503,20 @@ std::vector<card_data::Card> makeAiStarterDeck()
     {
         return fallbackStarterDeck();
     }
+
+    std::vector<card_data::Card> bayouGangDeck;
+    for (const std::string& title : bayouGangDeckTitles())
+    {
+        if (const card_data::Card* card = findCardByTitle(library, title))
+        {
+            bayouGangDeck.push_back(*card);
+        }
+    }
+    if (!deckRulesError(bayouGangDeck))
+    {
+        return bayouGangDeck;
+    }
+    fmt::println("Bayou Gang AI deck failed deck rules validation, falling back");
 
     std::vector<card_data::Card> deck;
     const card_data::Card* hero = findCardByTitle(library, PreferredStarterHero);
