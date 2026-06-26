@@ -126,6 +126,10 @@ constexpr float PieceBaseWidth = 96.0f;
 constexpr float PieceBaseHeight = 100.0f;
 constexpr float PieceWalkBaseHeight = 108.0f;
 constexpr float WalkAnimationLoopSeconds = 1.0f;
+constexpr float AttackAnimationDurationSeconds = 0.42f;
+constexpr float AttackLungePixels = 18.0f;
+constexpr float AttackShakePixels = 4.0f;
+constexpr float Pi = 3.14159265358979323846f;
 constexpr float GameLabelY = 44.0f;
 constexpr float GameActionButtonY = 14.0f;
 constexpr float HandY = 512.0f;
@@ -2664,6 +2668,14 @@ int main(int argc, char** argv)
         float duration = 0.95f;
     };
     std::unordered_map<int, PieceMoveAnimation> pieceMoveAnimations;
+    struct PieceAttackAnimation
+    {
+        int targetRow = 0;
+        int targetColumn = 0;
+        float startTime = 0.0f;
+        float duration = AttackAnimationDurationSeconds;
+    };
+    std::unordered_map<int, PieceAttackAnimation> pieceAttackAnimations;
 
     Button findMatchButton({300.0f, 458.0f}, {200.0f, 52.0f}, "Find Match", font);
     Button abilityButton({392.0f, GameActionButtonY}, {138.0f, 36.0f}, "Use Ability", font);
@@ -3439,6 +3451,7 @@ int main(int argc, char** argv)
         gameRatingChange = 0;
         gameRewardText.clear();
         pieceMoveAnimations.clear();
+        pieceAttackAnimations.clear();
 
         // Submit our deck, then switch the socket to non-blocking polling.
         if (activeGameSocket)
@@ -4099,6 +4112,14 @@ int main(int argc, char** argv)
         return nullptr;
     };
 
+    auto startPieceAttackAnimation = [&](int pieceId, int targetRow, int targetColumn) {
+        pieceAttackAnimations[pieceId] = {
+            targetRow,
+            targetColumn,
+            animationTime,
+            AttackAnimationDurationSeconds};
+    };
+
     auto updatePieceMoveAnimations = [&](const game_data::Snapshot& nextSnapshot) {
         std::vector<int> staleAnimations;
         for (auto& [pieceId, animation] : pieceMoveAnimations)
@@ -4113,11 +4134,25 @@ int main(int argc, char** argv)
             pieceMoveAnimations.erase(pieceId);
         }
 
+        staleAnimations.clear();
+        for (auto& [pieceId, animation] : pieceAttackAnimations)
+        {
+            if (!pieceByIdInSnapshot(nextSnapshot, pieceId))
+            {
+                staleAnimations.push_back(pieceId);
+            }
+        }
+        for (int pieceId : staleAnimations)
+        {
+            pieceAttackAnimations.erase(pieceId);
+        }
+
         if (!haveSnapshot)
         {
             return;
         }
 
+        const bool snapshotDescribesAttack = nextSnapshot.status.find(" hit ") != std::string::npos;
         for (const game_data::Piece& nextPiece : nextSnapshot.pieces)
         {
             const game_data::Piece* currentPiece = pieceByIdInSnapshot(gameSnapshot, nextPiece.id);
@@ -4135,6 +4170,66 @@ int main(int argc, char** argv)
                     nextPiece.column,
                     animationTime,
                     0.95f};
+            }
+        }
+
+        if (!snapshotDescribesAttack)
+        {
+            return;
+        }
+
+        for (const game_data::Piece& currentPiece : gameSnapshot.pieces)
+        {
+            const game_data::Piece* nextActor = pieceByIdInSnapshot(nextSnapshot, currentPiece.id);
+            if (!nextActor)
+            {
+                continue;
+            }
+
+            const std::string attackStatusPrefix = currentPiece.name + " hit ";
+            if (nextSnapshot.status.rfind(attackStatusPrefix, 0) != 0)
+            {
+                continue;
+            }
+
+            const bool actorWasUsed = nextActor->hasActed ||
+                currentPiece.row != nextActor->row ||
+                currentPiece.column != nextActor->column ||
+                nextActor->disabledTurns != currentPiece.disabledTurns;
+            if (!actorWasUsed)
+            {
+                continue;
+            }
+
+            for (const game_data::Piece& currentTarget : gameSnapshot.pieces)
+            {
+                if (currentTarget.owner == currentPiece.owner)
+                {
+                    continue;
+                }
+
+                const game_data::ActionResolution action = game_data::resolvePieceAction(
+                    gameSnapshot.pieces,
+                    gameSnapshot.holes,
+                    currentPiece,
+                    currentTarget.row,
+                    currentTarget.column);
+                if (!action.legal || !action.attacks || action.targetId != currentTarget.id)
+                {
+                    continue;
+                }
+
+                const game_data::Piece* nextTarget = pieceByIdInSnapshot(nextSnapshot, currentTarget.id);
+                const bool targetChanged = nextTarget == nullptr ||
+                    nextTarget->health < currentTarget.health ||
+                    nextTarget->disabledTurns != currentTarget.disabledTurns;
+                if (!targetChanged)
+                {
+                    continue;
+                }
+
+                startPieceAttackAnimation(currentPiece.id, currentTarget.row, currentTarget.column);
+                break;
             }
         }
     };
@@ -4360,6 +4455,7 @@ int main(int argc, char** argv)
         gameRatingChange = 0;
         gameRewardText.clear();
         pieceMoveAnimations.clear();
+        pieceAttackAnimations.clear();
 
         game_data::Snapshot snapshot;
         snapshot.phase = static_cast<std::uint8_t>(game_data::Phase::Playing);
@@ -5278,6 +5374,7 @@ int main(int argc, char** argv)
             }
             targetName = target->name;
             targetAtDestination = target->row == row && target->column == column;
+            startPieceAttackAnimation(attackerId, target->row, target->column);
             target->health -= action.damage;
             game_data::applyDamageStatus(*target, action.damage, action.statusTurns);
             if (target->health <= 0)
@@ -5769,6 +5866,7 @@ int main(int argc, char** argv)
         gameRatingChange = 0;
         gameRewardText.clear();
         pieceMoveAnimations.clear();
+        pieceAttackAnimations.clear();
         sandboxMode = false;
         sandboxPlacementPlayer = 1;
         nextSandboxPieceId = 1;
@@ -6590,6 +6688,8 @@ int main(int argc, char** argv)
             float pieceScale = cell.depthScale;
             bool isMoving = false;
             float walkAnimationElapsed = 0.0f;
+            float attackAnimationProgress = -1.0f;
+            std::optional<sf::Vector2f> attackImpactAnchor;
             if (const auto animation = pieceMoveAnimations.find(piece.id); animation != pieceMoveAnimations.end())
             {
                 walkAnimationElapsed = std::max(0.0f, animationTime - animation->second.startTime);
@@ -6611,6 +6711,39 @@ int main(int argc, char** argv)
                 else
                 {
                     pieceMoveAnimations.erase(piece.id);
+                }
+            }
+
+            if (const auto animation = pieceAttackAnimations.find(piece.id); animation != pieceAttackAnimations.end())
+            {
+                const float attackElapsed = std::max(0.0f, animationTime - animation->second.startTime);
+                const float progress = std::min(attackElapsed / animation->second.duration, 1.0f);
+                if (progress < 1.0f)
+                {
+                    const BoardCellMetrics targetCell = boardCellMetricsForViewer(
+                        animation->second.targetRow,
+                        animation->second.targetColumn,
+                        gameSnapshot.yourPlayer);
+                    const sf::Vector2f targetAnchor = boardCellAnchor(targetCell);
+                    attackImpactAnchor = targetAnchor;
+                    attackAnimationProgress = progress;
+
+                    const float dx = targetAnchor.x - anchor.x;
+                    const float dy = targetAnchor.y - anchor.y;
+                    const float distance = std::sqrt(dx * dx + dy * dy);
+                    if (distance > 0.001f)
+                    {
+                        const float lunge = std::sin(progress * Pi) * AttackLungePixels * pieceScale;
+                        const float shake = std::sin(progress * Pi * 6.0f) *
+                            AttackShakePixels * pieceScale * (1.0f - progress);
+                        anchor.x += dx / distance * lunge;
+                        anchor.y += dy / distance * lunge + shake;
+                        pieceScale *= 1.0f + 0.045f * std::sin(progress * Pi);
+                    }
+                }
+                else
+                {
+                    pieceAttackAnimations.erase(piece.id);
                 }
             }
 
@@ -6692,6 +6825,36 @@ int main(int argc, char** argv)
                 body.setPosition({anchor.x - radius, anchor.y - radius * 2.0f});
                 body.setFillColor(color);
                 window.draw(body);
+            }
+            if (attackImpactAnchor && attackAnimationProgress >= 0.22f && attackAnimationProgress <= 0.78f)
+            {
+                const float flashProgress = (attackAnimationProgress - 0.22f) / 0.56f;
+                const float flash = std::sin(flashProgress * Pi);
+                const float radius = (10.0f + 11.0f * flash) * pieceScale;
+                const auto alpha = static_cast<std::uint8_t>(std::clamp(210.0f * flash, 0.0f, 210.0f));
+                sf::CircleShape ring(radius);
+                ring.setPosition({attackImpactAnchor->x - radius, attackImpactAnchor->y - radius});
+                ring.setFillColor(sf::Color::Transparent);
+                ring.setOutlineThickness(std::max(2.0f, 3.0f * pieceScale));
+                ring.setOutlineColor(sf::Color(255, 228, 126, alpha));
+                window.draw(ring);
+
+                const sf::Vector2f slashSize{
+                    std::max(18.0f, radius * 1.45f),
+                    std::max(2.0f, 4.0f * pieceScale)};
+                sf::RectangleShape slashA(slashSize);
+                slashA.setOrigin({slashSize.x * 0.5f, slashSize.y * 0.5f});
+                slashA.setPosition(*attackImpactAnchor);
+                slashA.setRotation(sf::degrees(45.0f));
+                slashA.setFillColor(sf::Color(255, 246, 188, alpha));
+                window.draw(slashA);
+
+                sf::RectangleShape slashB(slashSize);
+                slashB.setOrigin({slashSize.x * 0.5f, slashSize.y * 0.5f});
+                slashB.setPosition(*attackImpactAnchor);
+                slashB.setRotation(sf::degrees(-45.0f));
+                slashB.setFillColor(sf::Color(255, 202, 102, alpha));
+                window.draw(slashB);
             }
             const unsigned int healthSize = static_cast<unsigned int>(std::clamp(12.0f * pieceScale, 10.0f, 17.0f));
             drawText(window, font, std::to_string(piece.health), healthSize,
