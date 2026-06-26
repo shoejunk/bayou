@@ -38,6 +38,7 @@ constexpr int AiWinRewardCoins = 1;
 constexpr int ShopCardCost = 5;
 constexpr const char* StarterDeckName = "Starter Deck";
 constexpr const char* PreferredStarterHero = "Steam Baron";
+constexpr const char* StarterHeroTitles[] = {"Tinkering Tom", "Scarlett Glumpkin", "Elias Tiberion"};
 constexpr std::int64_t RememberTokenLifetimeSeconds = 30LL * 24LL * 60LL * 60LL;
 constexpr std::int64_t AccessTokenLifetimeSeconds = 12LL * 60LL * 60LL;
 constexpr std::int64_t LoginAttemptWindowSeconds = 15LL * 60LL;
@@ -2027,6 +2028,24 @@ private:
         return preferred == heroes.end() ? heroes.front() : *preferred;
     }
 
+    std::vector<std::string> starterHeroTitles()
+    {
+        std::vector<std::string> heroes = loadCardTitlesFromCardsDb("Hero");
+        std::vector<std::string> result;
+        for (const char* name : StarterHeroTitles)
+        {
+            if (std::find(heroes.begin(), heroes.end(), name) != heroes.end())
+            {
+                result.push_back(name);
+            }
+        }
+        if (result.empty())
+        {
+            result.push_back(starterHeroTitle());
+        }
+        return result;
+    }
+
     std::vector<std::string> starterNonHeroSlots()
     {
         std::vector<std::string> available = loadNonHeroCardTitles();
@@ -2072,7 +2091,10 @@ private:
     {
         deck_data::Deck deck;
         deck.name = StarterDeckName;
-        deck.cardTitles.push_back(starterHeroTitle());
+        for (const std::string& hero : starterHeroTitles())
+        {
+            deck.cardTitles.push_back(hero);
+        }
         for (const std::string& title : starterNonHeroSlots())
         {
             for (int copy = 0; copy < game_data::MaxCardCopies; ++copy)
@@ -2100,6 +2122,8 @@ private:
                 addCollectionCopies(username, starterDeck.cardTitles[i], 1);
             }
         }
+
+        addCollectionCopies(username, PreferredStarterHero, 1);
 
         if (loadDecks(username).empty())
         {
