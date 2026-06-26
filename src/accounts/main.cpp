@@ -24,6 +24,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "../shared/network.hpp"
@@ -95,9 +96,9 @@ const std::vector<std::string>& fallbackStarterNonHeroes()
         "Automaton Knight",
         "Dredger",
         "Spark Drone",
-        "Smoke Bomb",
-        "Cannon Blast",
-        "Repair Kit",
+        "Sentroid",
+        "Patrol Bot",
+        "Rustbucket",
         "Overpressure",
         "Gearwright",
         "Brass Medic",
@@ -2048,11 +2049,21 @@ private:
 
     std::vector<std::string> starterNonHeroSlots()
     {
+        static const std::unordered_set<std::string> excludedFromStarter = {
+            "Curious Spirit",
+            "Lady Worthington",
+            "Lesser Demon",
+        };
+
         std::vector<std::string> available = loadNonHeroCardTitles();
         if (available.empty())
         {
             available = fallbackStarterNonHeroes();
         }
+        available.erase(
+            std::remove_if(available.begin(), available.end(),
+                [](const std::string& title) { return excludedFromStarter.count(title) > 0; }),
+            available.end());
 
         std::vector<std::string> ordered;
         const std::vector<std::string>& fallback = fallbackStarterNonHeroes();
