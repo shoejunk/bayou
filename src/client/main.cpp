@@ -1,6 +1,16 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/Network.hpp>
 
+#include "client_board_layout.hpp"
+#include "client_card_text.hpp"
+#include "client_config.hpp"
+#include "client_display.hpp"
+#include "client_sandbox.hpp"
+#include "client_string.hpp"
+#include "client_textures.hpp"
+#include "client_ui.hpp"
+#include "deck_collection.hpp"
+
 #include "../shared/account_data.hpp"
 #include "../shared/card_data.hpp"
 #include "../shared/deck_data.hpp"
@@ -15,9 +25,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <future>
-#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -31,22 +39,19 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
-#include <wincrypt.h>
 #include <shellapi.h>
 #endif
 
 import button;
 import card_editor_screen;
+import client_services;
 import inputbox;
 import network;
 
 namespace
 {
-constexpr unsigned short AccountServerPort = 55000;
-constexpr unsigned short MatchmakingServerPort = 55001;
-constexpr unsigned short CardServerPort = 55004;
-constexpr const char* DefaultServerHost = "127.0.0.1";
-constexpr const char* DefaultPaymentServerUrl = "http://127.0.0.1:55005";
+using namespace bayou::client;
+
 constexpr bool EnableCoinPurchases = false;
 constexpr const char* CoinPackId = "coins_50";
 constexpr int CoinPackCoins = 50;
@@ -111,26 +116,6 @@ enum class CollectionTypeFilter
     Spells
 };
 
-// In-game board layout.
-constexpr float BoardOriginX = 24.0f;
-constexpr float BoardOriginY = 70.0f;
-constexpr float CellSize = 94.0f;
-constexpr float BoardBottomWidth = CellSize * static_cast<float>(game_data::BoardSize);
-constexpr float BoardTopWidth = 544.0f;
-constexpr float BoardHeight = 418.0f;
-constexpr float BoardCenterX = BoardOriginX + BoardBottomWidth * 0.5f;
-constexpr float BoardPerspectiveExponent = 1.18f;
-constexpr float BoardThickness = 14.0f;
-constexpr float PieceFarScale = 0.72f;
-constexpr float PieceNearScale = 1.22f;
-constexpr float PieceBaseWidth = 96.0f;
-constexpr float PieceBaseHeight = 100.0f;
-constexpr float PieceWalkBaseHeight = 108.0f;
-constexpr float WalkAnimationLoopSeconds = 1.0f;
-constexpr float AttackAnimationDurationSeconds = 0.42f;
-constexpr float AttackLungePixels = 18.0f;
-constexpr float AttackShakePixels = 4.0f;
-constexpr float Pi = 3.14159265358979323846f;
 constexpr float GameLabelY = 44.0f;
 constexpr float GameActionButtonY = 14.0f;
 constexpr float HandY = 512.0f;
@@ -151,741 +136,6 @@ constexpr float PiecePopupScrollHeight = PiecePopupHeight - (PiecePopupScrollY -
 constexpr float PieceDoubleClickSeconds = 0.38f;
 constexpr float DeckCardDoubleClickSeconds = 0.38f;
 constexpr float GameDragStartDistanceSquared = 36.0f;
-constexpr float LogicalWidth = 800.0f;
-constexpr float LogicalHeight = 600.0f;
-constexpr const char* DisplaySettingsFileName = "display.cfg";
-constexpr const char* RememberTokenFileName = "remember_me.dat";
-
-struct ServerEndpoint
-{
-    std::string host = DefaultServerHost;
-    unsigned short port = 0;
-};
-
-struct ClientConfig
-{
-    ServerEndpoint account{DefaultServerHost, AccountServerPort};
-    ServerEndpoint matchmaking{DefaultServerHost, MatchmakingServerPort};
-    ServerEndpoint card{DefaultServerHost, CardServerPort};
-    std::string gameServerHost = DefaultServerHost;
-    std::string paymentServerUrl = DefaultPaymentServerUrl;
-};
-
-struct DisplaySettings
-{
-    bool fullscreen = true;
-    unsigned int width = 0;
-    unsigned int height = 0;
-};
-
-std::string cardRarity(const card_data::Card& card)
-{
-    const std::string rarity = game_data::cardStr(card, "rarity", "common");
-    if (rarity == "rare" || rarity == "legendary")
-    {
-        return rarity;
-    }
-    return "common";
-}
-
-std::string cardRarityLabel(const card_data::Card& card)
-{
-    const std::string rarity = cardRarity(card);
-    if (rarity == "legendary")
-    {
-        return "Legendary";
-    }
-    if (rarity == "rare")
-    {
-        return "Rare";
-    }
-    return "Common";
-}
-
-sf::Color cardRarityColor(const card_data::Card& card)
-{
-    const std::string rarity = cardRarity(card);
-    if (rarity == "legendary")
-    {
-        return sf::Color(248, 214, 112);
-    }
-    if (rarity == "rare")
-    {
-        return sf::Color(151, 192, 255);
-    }
-    return sf::Color(190, 198, 214);
-}
-
-struct ServerResult
-{
-    bool success = false;
-    std::string message;
-    std::shared_ptr<sf::TcpSocket> gameSocket;
-    std::string username;
-    std::string accessToken;
-    std::string rememberToken;
-    bool rejectStoredCredential = false;
-    bool cancelled = false;
-};
-
-struct MatchmakingCancelState
-{
-    std::atomic<bool> requested{false};
-    std::atomic<bool> sent{false};
-    std::atomic<bool> aiRequested{false};
-    std::atomic<bool> aiSent{false};
-};
-
-struct CardListResult
-{
-    bool success = false;
-    std::string message;
-    std::vector<card_data::Card> cards;
-};
-
-struct DeckListResult
-{
-    bool success = false;
-    std::string message;
-    std::vector<deck_data::Deck> decks;
-};
-
-struct AccountStateResult
-{
-    bool success = false;
-    std::string message;
-    int coins = 0;
-    int rating = 0;
-    bool isAdmin = false;
-    std::vector<account_data::CollectionCard> collection;
-};
-
-struct DeckEditorLoadResult
-{
-    bool success = false;
-    std::string message;
-    std::vector<card_data::Card> cards;
-    std::vector<deck_data::Deck> decks;
-    int coins = 0;
-    std::vector<account_data::CollectionCard> collection;
-};
-
-struct DeckCommandResult
-{
-    bool success = false;
-    std::string message;
-    std::string originalName;
-    deck_data::Deck deck;
-};
-
-struct AccountCommandResult
-{
-    bool success = false;
-    std::string message;
-    int coins = 0;
-    std::string cardTitle;
-};
-
-struct ShopLoadResult
-{
-    bool success = false;
-    std::string message;
-    std::vector<card_data::Card> cards;
-    int coins = 0;
-    std::vector<account_data::CollectionCard> collection;
-};
-
-struct AdminUsersLoadResult
-{
-    bool success = false;
-    std::string message;
-    std::uint32_t totalCount = 0;
-    std::uint32_t page = 0;
-    std::uint32_t pageSize = 0;
-    std::vector<network::AdminUserSummary> users;
-};
-
-struct AdminUserPrivilegeResult
-{
-    bool success = false;
-    std::string message;
-    bool targetIsAdmin = false;
-};
-
-struct AdminUserGoldResult
-{
-    bool success = false;
-    std::string message;
-    std::string targetUsername;
-    int targetGold = 0;
-};
-
-struct AdminUserDeleteResult
-{
-    bool success = false;
-    std::string message;
-    std::string targetUsername;
-};
-
-struct BoardCellMetrics
-{
-    std::array<sf::Vector2f, 4> corners{};
-    sf::Vector2f center{};
-    float height = 0.0f;
-    float depthScale = 1.0f;
-    int screenRow = 0;
-};
-
-std::filesystem::path executableDirectory;
-
-std::string trim(const std::string& value)
-{
-    const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) {
-        return std::isspace(ch) != 0;
-    });
-    const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) {
-        return std::isspace(ch) != 0;
-    }).base();
-
-    if (first >= last)
-    {
-        return "";
-    }
-
-    return std::string(first, last);
-}
-
-std::string lowerKey(std::string value)
-{
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
-    return value;
-}
-
-std::filesystem::path displaySettingsPath()
-{
-#ifdef _WIN32
-    if (const char* appData = std::getenv("APPDATA"); appData && *appData)
-    {
-        return std::filesystem::path(appData) / "SteamTactics" / DisplaySettingsFileName;
-    }
-#else
-    if (const char* home = std::getenv("HOME"); home && *home)
-    {
-        return std::filesystem::path(home) / ".config" / "SteamTactics" / DisplaySettingsFileName;
-    }
-#endif
-
-    if (!executableDirectory.empty())
-    {
-        return executableDirectory / DisplaySettingsFileName;
-    }
-    return DisplaySettingsFileName;
-}
-
-std::filesystem::path userDataPath(const char* fileName)
-{
-#ifdef _WIN32
-    if (const char* appData = std::getenv("APPDATA"); appData && *appData)
-    {
-        return std::filesystem::path(appData) / "SteamTactics" / fileName;
-    }
-#else
-    if (const char* home = std::getenv("HOME"); home && *home)
-    {
-        return std::filesystem::path(home) / ".config" / "SteamTactics" / fileName;
-    }
-#endif
-
-    if (!executableDirectory.empty())
-    {
-        return executableDirectory / fileName;
-    }
-    return fileName;
-}
-
-std::filesystem::path rememberTokenPath()
-{
-    return userDataPath(RememberTokenFileName);
-}
-
-bool saveRememberToken(const std::string& token)
-{
-    if (token.empty())
-    {
-        return false;
-    }
-
-    std::vector<std::uint8_t> stored;
-#ifdef _WIN32
-    DATA_BLOB plaintext{
-        static_cast<DWORD>(token.size()),
-        reinterpret_cast<BYTE*>(const_cast<char*>(token.data()))};
-    DATA_BLOB protectedData{};
-    if (!CryptProtectData(
-            &plaintext,
-            L"Steam Tactics remembered login",
-            nullptr,
-            nullptr,
-            nullptr,
-            CRYPTPROTECT_UI_FORBIDDEN,
-            &protectedData))
-    {
-        return false;
-    }
-    stored.assign(protectedData.pbData, protectedData.pbData + protectedData.cbData);
-    LocalFree(protectedData.pbData);
-#else
-    stored.assign(token.begin(), token.end());
-#endif
-
-    const std::filesystem::path path = rememberTokenPath();
-    std::error_code error;
-    if (path.has_parent_path())
-    {
-        std::filesystem::create_directories(path.parent_path(), error);
-        if (error)
-        {
-            return false;
-        }
-    }
-
-    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
-    if (!stream)
-    {
-        return false;
-    }
-    stream.write(
-        reinterpret_cast<const char*>(stored.data()),
-        static_cast<std::streamsize>(stored.size()));
-    stream.close();
-    if (!stream)
-    {
-        return false;
-    }
-
-#ifndef _WIN32
-    std::filesystem::permissions(
-        path,
-        std::filesystem::perms::owner_read | std::filesystem::perms::owner_write,
-        std::filesystem::perm_options::replace,
-        error);
-#endif
-    return true;
-}
-
-std::optional<std::string> loadRememberToken()
-{
-    std::ifstream stream(rememberTokenPath(), std::ios::binary);
-    if (!stream)
-    {
-        return std::nullopt;
-    }
-
-    std::vector<std::uint8_t> stored(
-        (std::istreambuf_iterator<char>(stream)),
-        std::istreambuf_iterator<char>());
-    if (stored.empty())
-    {
-        return std::nullopt;
-    }
-
-#ifdef _WIN32
-    DATA_BLOB protectedData{
-        static_cast<DWORD>(stored.size()),
-        reinterpret_cast<BYTE*>(stored.data())};
-    DATA_BLOB plaintext{};
-    if (!CryptUnprotectData(
-            &protectedData,
-            nullptr,
-            nullptr,
-            nullptr,
-            nullptr,
-            CRYPTPROTECT_UI_FORBIDDEN,
-            &plaintext))
-    {
-        return std::nullopt;
-    }
-    std::string token(
-        reinterpret_cast<const char*>(plaintext.pbData),
-        plaintext.cbData);
-    SecureZeroMemory(plaintext.pbData, plaintext.cbData);
-    LocalFree(plaintext.pbData);
-    return token.empty() ? std::nullopt : std::optional<std::string>(std::move(token));
-#else
-    return std::string(stored.begin(), stored.end());
-#endif
-}
-
-void clearRememberToken()
-{
-    std::error_code error;
-    std::filesystem::remove(rememberTokenPath(), error);
-}
-
-DisplaySettings loadDisplaySettings()
-{
-    DisplaySettings settings;
-    std::ifstream stream(displaySettingsPath());
-    std::string line;
-    while (std::getline(stream, line))
-    {
-        const std::size_t delimiter = line.find('=');
-        if (delimiter == std::string::npos)
-        {
-            continue;
-        }
-
-        const std::string key = lowerKey(trim(line.substr(0, delimiter)));
-        const std::string value = lowerKey(trim(line.substr(delimiter + 1)));
-        try
-        {
-            if (key == "fullscreen")
-            {
-                settings.fullscreen = value == "1" || value == "true" || value == "yes";
-            }
-            else if (key == "width")
-            {
-                settings.width = static_cast<unsigned int>(std::stoul(value));
-            }
-            else if (key == "height")
-            {
-                settings.height = static_cast<unsigned int>(std::stoul(value));
-            }
-        }
-        catch (const std::exception&)
-        {
-            // Ignore malformed values and retain safe defaults.
-        }
-    }
-    return settings;
-}
-
-bool saveDisplaySettings(const DisplaySettings& settings)
-{
-    const std::filesystem::path path = displaySettingsPath();
-    std::error_code error;
-    if (path.has_parent_path())
-    {
-        std::filesystem::create_directories(path.parent_path(), error);
-        if (error)
-        {
-            return false;
-        }
-    }
-
-    std::ofstream stream(path, std::ios::trunc);
-    if (!stream)
-    {
-        return false;
-    }
-
-    stream << "fullscreen=" << (settings.fullscreen ? "true" : "false") << '\n'
-           << "width=" << settings.width << '\n'
-           << "height=" << settings.height << '\n';
-    return static_cast<bool>(stream);
-}
-
-std::string stripTrailingSlashes(std::string value)
-{
-    while (!value.empty() && value.back() == '/')
-    {
-        value.pop_back();
-    }
-    return value;
-}
-
-std::string assetRelativePath(const std::string& value)
-{
-    const std::string trimmed = trim(value);
-    if (trimmed.empty())
-    {
-        return "";
-    }
-
-    std::filesystem::path path(trimmed);
-    if (path.is_absolute() || path.has_root_name() || path.has_root_directory())
-    {
-        return path.lexically_normal().generic_string();
-    }
-
-    std::filesystem::path normalizedPath;
-    bool checkedFirstComponent = false;
-    for (const std::filesystem::path& component : path)
-    {
-        if (!checkedFirstComponent)
-        {
-            checkedFirstComponent = true;
-            if (lowerKey(component.string()) == "assets")
-            {
-                continue;
-            }
-        }
-
-        normalizedPath /= component;
-    }
-
-    return normalizedPath.lexically_normal().generic_string();
-}
-
-std::optional<std::filesystem::path> resolveAssetPath(const std::string& value)
-{
-    const std::string relativeValue = assetRelativePath(value);
-    if (relativeValue.empty())
-    {
-        return std::nullopt;
-    }
-
-    const std::filesystem::path relativePath(relativeValue);
-    if (relativePath.is_absolute())
-    {
-        return relativePath;
-    }
-
-    const std::filesystem::path cwdCandidate = (std::filesystem::path("assets") / relativePath).lexically_normal();
-    if (std::filesystem::exists(cwdCandidate))
-    {
-        return cwdCandidate;
-    }
-
-    if (!executableDirectory.empty())
-    {
-        const std::filesystem::path exeCandidate = (executableDirectory / "assets" / relativePath).lexically_normal();
-        if (std::filesystem::exists(exeCandidate))
-        {
-            return exeCandidate;
-        }
-    }
-
-    return cwdCandidate;
-}
-
-std::optional<unsigned short> parsePort(const std::string& value)
-{
-    const std::string trimmed = trim(value);
-    if (trimmed.empty())
-    {
-        return std::nullopt;
-    }
-
-    try
-    {
-        std::size_t parsed = 0;
-        const unsigned long port = std::stoul(trimmed, &parsed);
-        if (parsed != trimmed.size() || port == 0 || port > std::numeric_limits<unsigned short>::max())
-        {
-            return std::nullopt;
-        }
-
-        return static_cast<unsigned short>(port);
-    }
-    catch (const std::exception&)
-    {
-        return std::nullopt;
-    }
-}
-
-void applyServerValue(ServerEndpoint& endpoint, const std::string& value)
-{
-    const std::string server = trim(value);
-    if (server.empty())
-    {
-        return;
-    }
-
-    if (server.front() == '[')
-    {
-        const std::size_t closeBracket = server.find(']');
-        if (closeBracket != std::string::npos)
-        {
-            const std::string host = trim(server.substr(1, closeBracket - 1));
-            if (!host.empty())
-            {
-                endpoint.host = host;
-            }
-
-            if (closeBracket + 1 < server.size() && server[closeBracket + 1] == ':')
-            {
-                if (const std::optional<unsigned short> port = parsePort(server.substr(closeBracket + 2)))
-                {
-                    endpoint.port = *port;
-                }
-            }
-            return;
-        }
-    }
-
-    const std::size_t delimiter = server.rfind(':');
-    if (delimiter != std::string::npos && server.find(':') == delimiter)
-    {
-        const std::string host = trim(server.substr(0, delimiter));
-        if (!host.empty())
-        {
-            endpoint.host = host;
-        }
-
-        if (const std::optional<unsigned short> port = parsePort(server.substr(delimiter + 1)))
-        {
-            endpoint.port = *port;
-        }
-        return;
-    }
-
-    endpoint.host = server;
-}
-
-void applyConfigEntry(ClientConfig& config, const std::string& key, const std::string& value)
-{
-    const std::string normalizedKey = lowerKey(trim(key));
-    if (normalizedKey == "account_server" || normalizedKey == "accounts_server")
-    {
-        applyServerValue(config.account, value);
-    }
-    else if (normalizedKey == "account_server_host" || normalizedKey == "accounts_server_host")
-    {
-        const std::string host = trim(value);
-        if (!host.empty())
-        {
-            config.account.host = host;
-        }
-    }
-    else if (normalizedKey == "account_server_port" || normalizedKey == "accounts_server_port")
-    {
-        if (const std::optional<unsigned short> port = parsePort(value))
-        {
-            config.account.port = *port;
-        }
-    }
-    else if (normalizedKey == "matchmaking_server")
-    {
-        applyServerValue(config.matchmaking, value);
-    }
-    else if (normalizedKey == "matchmaking_server_host")
-    {
-        const std::string host = trim(value);
-        if (!host.empty())
-        {
-            config.matchmaking.host = host;
-        }
-    }
-    else if (normalizedKey == "matchmaking_server_port")
-    {
-        if (const std::optional<unsigned short> port = parsePort(value))
-        {
-            config.matchmaking.port = *port;
-        }
-    }
-    else if (normalizedKey == "card_server" || normalizedKey == "cardserver")
-    {
-        applyServerValue(config.card, value);
-    }
-    else if (normalizedKey == "card_server_host" || normalizedKey == "cardserver_host")
-    {
-        const std::string host = trim(value);
-        if (!host.empty())
-        {
-            config.card.host = host;
-        }
-    }
-    else if (normalizedKey == "card_server_port" || normalizedKey == "cardserver_port")
-    {
-        if (const std::optional<unsigned short> port = parsePort(value))
-        {
-            config.card.port = *port;
-        }
-    }
-    else if (normalizedKey == "game_server_host")
-    {
-        const std::string host = trim(value);
-        if (!host.empty())
-        {
-            config.gameServerHost = host;
-        }
-    }
-    else if (normalizedKey == "payment_server_url" || normalizedKey == "stripe_server_url")
-    {
-        const std::string url = stripTrailingSlashes(trim(value));
-        if (!url.empty())
-        {
-            config.paymentServerUrl = url;
-        }
-    }
-}
-
-std::optional<ClientConfig> loadClientConfigFrom(const std::filesystem::path& path)
-{
-    std::ifstream stream(path);
-    if (!stream)
-    {
-        return std::nullopt;
-    }
-
-    ClientConfig config;
-    std::string line;
-    while (std::getline(stream, line))
-    {
-        line = trim(line);
-        if (line.empty() || line.front() == '#' || line.front() == ';')
-        {
-            continue;
-        }
-
-        const std::size_t delimiter = line.find('=');
-        if (delimiter == std::string::npos)
-        {
-            continue;
-        }
-
-        applyConfigEntry(config, line.substr(0, delimiter), line.substr(delimiter + 1));
-    }
-
-    return config;
-}
-
-ClientConfig loadClientConfig()
-{
-    if (const std::optional<ClientConfig> config = loadClientConfigFrom(ClientConfigFileName))
-    {
-        return *config;
-    }
-
-    if (!executableDirectory.empty())
-    {
-        if (const std::optional<ClientConfig> config = loadClientConfigFrom(executableDirectory / ClientConfigFileName))
-        {
-            return *config;
-        }
-    }
-
-    return {};
-}
-
-const ClientConfig& clientConfig()
-{
-    static const ClientConfig config = loadClientConfig();
-    return config;
-}
-
-void setExecutableDirectory(const char* executablePath)
-{
-    if (executablePath == nullptr)
-    {
-        return;
-    }
-
-    const std::filesystem::path path(executablePath);
-    if (path.has_parent_path())
-    {
-        executableDirectory = path.parent_path();
-    }
-}
-
-std::string endpointText(const ServerEndpoint& endpoint)
-{
-    return endpoint.host + ":" + std::to_string(endpoint.port);
-}
-
 std::string urlEncode(const std::string& value)
 {
     static constexpr char Hex[] = "0123456789ABCDEF";
@@ -948,1295 +198,6 @@ bool openExternalUrl(const std::string& url)
 #endif
 }
 
-bool connectToHostPort(sf::TcpSocket& socket, const std::string& host, unsigned short port)
-{
-    const std::optional<sf::IpAddress> address = sf::IpAddress::resolve(host);
-    if (!address)
-    {
-        return false;
-    }
-
-    return socket.connect(*address, port) == sf::Socket::Status::Done;
-}
-
-bool connectToEndpoint(sf::TcpSocket& socket, const ServerEndpoint& endpoint)
-{
-    return connectToHostPort(socket, endpoint.host, endpoint.port);
-}
-
-void centerText(sf::Text& text, float x)
-{
-    sf::FloatRect bounds = text.getLocalBounds();
-    text.setOrigin({bounds.position.x + bounds.size.x / 2.0f, text.getOrigin().y});
-    text.setPosition({x, text.getPosition().y});
-}
-
-void setMessage(sf::Text& text, const std::string& message, const sf::Color& color)
-{
-    text.setString(message);
-    text.setFillColor(color);
-    centerText(text, 400.0f);
-}
-
-void setMessageY(sf::Text& text, float y)
-{
-    text.setPosition({text.getPosition().x, y});
-    centerText(text, 400.0f);
-}
-
-std::string elideToWidth(sf::Font& font, const std::string& value, unsigned int size, float maxWidth)
-{
-    sf::Text text(font, value, size);
-    if (text.getLocalBounds().size.x <= maxWidth)
-    {
-        return value;
-    }
-
-    std::string display = value;
-    while (!display.empty())
-    {
-        display.pop_back();
-        text.setString(display + "...");
-        if (text.getLocalBounds().size.x <= maxWidth)
-        {
-            return display + "...";
-        }
-    }
-
-    return "...";
-}
-
-void drawText(
-    sf::RenderWindow& window,
-    sf::Font& font,
-    const std::string& value,
-    unsigned int size,
-    sf::Vector2f position,
-    sf::Color color,
-    float maxWidth = 0.0f)
-{
-    sf::Text text(font, maxWidth > 0.0f ? elideToWidth(font, value, size, maxWidth) : value, size);
-    text.setFillColor(color);
-    text.setPosition(position);
-    window.draw(text);
-}
-
-std::vector<std::string> wrapText(sf::Font& font, const std::string& value, unsigned int size, float maxWidth)
-{
-    std::vector<std::string> lines;
-    sf::Text measuringText(font, "", size);
-    std::string line;
-    std::size_t position = 0;
-
-    auto fits = [&](const std::string& text) {
-        measuringText.setString(text);
-        return measuringText.getLocalBounds().size.x <= maxWidth;
-    };
-
-    auto pushLine = [&]() {
-        lines.push_back(line);
-        line.clear();
-    };
-
-    while (position < value.size())
-    {
-        if (value[position] == '\n')
-        {
-            pushLine();
-            ++position;
-            continue;
-        }
-
-        while (position < value.size() && value[position] == ' ')
-        {
-            ++position;
-        }
-        if (position >= value.size())
-        {
-            break;
-        }
-
-        const std::size_t wordStart = position;
-        while (position < value.size() && value[position] != ' ' && value[position] != '\n')
-        {
-            ++position;
-        }
-
-        const std::string word = value.substr(wordStart, position - wordStart);
-        const std::string candidate = line.empty() ? word : line + " " + word;
-        if (line.empty() || fits(candidate))
-        {
-            line = candidate;
-        }
-        else
-        {
-            pushLine();
-            line = word;
-        }
-    }
-
-    if (!line.empty() || lines.empty())
-    {
-        lines.push_back(line);
-    }
-    return lines;
-}
-
-float drawWrappedText(
-    sf::RenderWindow& window,
-    sf::Font& font,
-    const std::string& value,
-    unsigned int size,
-    sf::Vector2f position,
-    sf::Color color,
-    float maxWidth,
-    float lineGap = 4.0f)
-{
-    float y = position.y;
-    for (const std::string& line : wrapText(font, value, size, maxWidth))
-    {
-        drawText(window, font, line, size, {position.x, y}, color);
-        y += static_cast<float>(size) + lineGap;
-    }
-    return y;
-}
-
-void drawPanel(sf::RenderWindow& window, sf::Vector2f position, sf::Vector2f size)
-{
-    sf::RectangleShape shadow(size);
-    shadow.setPosition(position + sf::Vector2f(5.0f, 6.0f));
-    shadow.setFillColor(sf::Color(0, 0, 0, 110));
-    window.draw(shadow);
-
-    sf::RectangleShape panel(size);
-    panel.setPosition(position);
-    panel.setFillColor(sf::Color(10, 21, 23, 238));
-    panel.setOutlineThickness(2.0f);
-    panel.setOutlineColor(sf::Color(158, 111, 56));
-    window.draw(panel);
-
-    sf::RectangleShape inner({size.x - 8.0f, size.y - 8.0f});
-    inner.setPosition({position.x + 4.0f, position.y + 4.0f});
-    inner.setFillColor(sf::Color::Transparent);
-    inner.setOutlineThickness(1.0f);
-    inner.setOutlineColor(sf::Color(50, 126, 116, 165));
-    window.draw(inner);
-
-    sf::RectangleShape topRule({size.x - 12.0f, 2.0f});
-    topRule.setPosition({position.x + 6.0f, position.y + 6.0f});
-    topRule.setFillColor(sf::Color(213, 157, 76, 85));
-    window.draw(topRule);
-
-    for (const sf::Vector2f offset : std::array<sf::Vector2f, 4>{
-             sf::Vector2f{8.0f, 8.0f},
-             sf::Vector2f{size.x - 8.0f, 8.0f},
-             sf::Vector2f{8.0f, size.y - 8.0f},
-             sf::Vector2f{size.x - 8.0f, size.y - 8.0f}})
-    {
-        sf::CircleShape rivet(2.0f);
-        rivet.setOrigin({2.0f, 2.0f});
-        rivet.setPosition(position + offset);
-        rivet.setFillColor(sf::Color(186, 131, 61, 180));
-        window.draw(rivet);
-    }
-}
-
-void drawRow(
-    sf::RenderWindow& window,
-    sf::Font& font,
-    sf::Vector2f position,
-    sf::Vector2f size,
-    const std::string& primary,
-    const std::string& secondary,
-    bool selected)
-{
-    sf::RectangleShape row(size);
-    row.setPosition(position);
-    row.setFillColor(selected ? sf::Color(42, 112, 103, 230) : sf::Color(28, 39, 42, 224));
-    row.setOutlineThickness(1.0f);
-    row.setOutlineColor(selected ? sf::Color(111, 226, 200) : sf::Color(102, 76, 46));
-    window.draw(row);
-
-    drawText(window, font, primary, 16, {position.x + 8.0f, position.y + 5.0f}, sf::Color(246, 238, 218), size.x - 16.0f);
-    if (!secondary.empty())
-    {
-        drawText(window, font, secondary, 12, {position.x + 8.0f, position.y + 22.0f}, sf::Color(198, 180, 142), size.x - 16.0f);
-    }
-}
-
-std::optional<std::size_t> rowIndexAt(
-    sf::Vector2f mouse,
-    float x,
-    float y,
-    float width,
-    float rowHeight,
-    std::size_t visibleRows,
-    std::size_t offset,
-    std::size_t totalRows)
-{
-    if (mouse.x < x || mouse.x > x + width || mouse.y < y)
-    {
-        return std::nullopt;
-    }
-
-    const std::size_t visibleIndex = static_cast<std::size_t>((mouse.y - y) / rowHeight);
-    const std::size_t index = offset + visibleIndex;
-    if (visibleIndex < visibleRows && index < totalRows)
-    {
-        return index;
-    }
-
-    return std::nullopt;
-}
-
-bool isInsideRect(sf::Vector2f mouse, float x, float y, float width, float height)
-{
-    return mouse.x >= x && mouse.x <= x + width && mouse.y >= y && mouse.y <= y + height;
-}
-
-void scrollList(std::size_t& offset, std::size_t totalRows, std::size_t visibleRows, float delta)
-{
-    if (delta < 0.0f)
-    {
-        if (offset + visibleRows < totalRows)
-        {
-            ++offset;
-        }
-    }
-    else if (offset > 0)
-    {
-        --offset;
-    }
-}
-
-void clampListOffset(std::size_t& offset, std::size_t totalRows, std::size_t visibleRows)
-{
-    if (totalRows <= visibleRows)
-    {
-        offset = 0;
-        return;
-    }
-
-    offset = std::min(offset, totalRows - visibleRows);
-}
-
-void sendDisconnect(sf::TcpSocket& socket)
-{
-    sf::Packet disconnectPacket;
-    disconnectPacket << static_cast<std::uint8_t>(network::MessageType::Disconnect);
-    [[maybe_unused]] auto disconnectResult = socket.send(disconnectPacket);
-    socket.disconnect();
-}
-
-// Resolves a saved deck's card titles into full card definitions from the
-// library so the game server can read their stats.
-std::vector<card_data::Card> resolveDeckCards(
-    const deck_data::Deck& deck,
-    const std::vector<card_data::Card>& library)
-{
-    std::vector<card_data::Card> resolved;
-    resolved.reserve(deck.cardTitles.size());
-    for (const std::string& title : deck.cardTitles)
-    {
-        const auto found = std::find_if(library.begin(), library.end(), [&](const card_data::Card& card) {
-            return card.title == title;
-        });
-        if (found != library.end())
-        {
-            resolved.push_back(*found);
-        }
-    }
-    return resolved;
-}
-
-int collectionCopiesFor(const std::vector<account_data::CollectionCard>& collection, const std::string& title)
-{
-    const auto found = std::find_if(collection.begin(), collection.end(), [&](const account_data::CollectionCard& card) {
-        return card.title == title;
-    });
-    return found == collection.end() ? 0 : found->copies;
-}
-
-std::vector<card_data::Card> ownedCardsFromCollection(
-    const std::vector<card_data::Card>& library,
-    const std::vector<account_data::CollectionCard>& collection)
-{
-    std::vector<card_data::Card> ownedCards;
-    for (const card_data::Card& card : library)
-    {
-        if (collectionCopiesFor(collection, card.title) > 0)
-        {
-            ownedCards.push_back(card);
-        }
-    }
-    return ownedCards;
-}
-
-int countHeroes(const std::vector<card_data::Card>& cards)
-{
-    return static_cast<int>(std::count_if(cards.begin(), cards.end(), [](const card_data::Card& card) {
-        return game_data::isHeroCard(card);
-    }));
-}
-
-void sendSubmitDeck(sf::TcpSocket& socket, const std::vector<card_data::Card>& cards)
-{
-    sf::Packet packet;
-    packet << static_cast<std::uint8_t>(network::MessageType::SubmitDeck);
-    packet << static_cast<std::uint32_t>(cards.size());
-    for (const card_data::Card& card : cards)
-    {
-        card_data::writeCard(packet, card);
-    }
-    [[maybe_unused]] auto result = socket.send(packet);
-}
-
-ServerResult sendAccountRequest(
-    network::MessageType requestType,
-    network::MessageType expectedResponseType,
-    const std::string& username,
-    const std::string& password,
-    bool rememberMe = false)
-{
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().account))
-    {
-        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
-    }
-
-    sf::Packet packet;
-    packet << static_cast<uint8_t>(requestType);
-    packet << username;
-    packet << password;
-    if (requestType == network::MessageType::Login)
-    {
-        packet << rememberMe;
-    }
-
-    if (socket.send(packet) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Failed to send to account server"};
-    }
-
-    sf::Packet response;
-    if (socket.receive(response) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "No response from account server"};
-    }
-
-    uint8_t responseType = 0;
-    bool success = false;
-    std::string message;
-    response >> responseType >> success >> message;
-
-    if (static_cast<network::MessageType>(responseType) != expectedResponseType)
-    {
-        socket.disconnect();
-        return {false, "Unexpected account server response"};
-    }
-
-    std::string authenticatedUsername;
-    std::string accessToken;
-    std::string rememberToken;
-    if (requestType == network::MessageType::Login ||
-        (requestType == network::MessageType::CreateAccount && success))
-    {
-        response >> authenticatedUsername >> accessToken >> rememberToken;
-        if (!response)
-        {
-            socket.disconnect();
-            return {false, "Invalid account server response"};
-        }
-    }
-
-    sendDisconnect(socket);
-    ServerResult result;
-    result.success = success;
-    result.message = std::move(message);
-    result.username = std::move(authenticatedUsername);
-    result.accessToken = std::move(accessToken);
-    result.rememberToken = std::move(rememberToken);
-    return result;
-}
-
-ServerResult sendRememberLogin(const std::string& token)
-{
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().account))
-    {
-        return {false, "Could not restore saved login; account server is unavailable"};
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::RememberLogin) << token;
-    if (socket.send(request) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Could not restore saved login"};
-    }
-
-    sf::Packet response;
-    if (socket.receive(response) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Could not restore saved login"};
-    }
-
-    std::uint8_t responseType = 0;
-    bool success = false;
-    std::string message;
-    std::string username;
-    std::string accessToken;
-    std::string replacementToken;
-    response >> responseType >> success >> message >> username >> accessToken >> replacementToken;
-    socket.disconnect();
-    if (!response ||
-        static_cast<network::MessageType>(responseType) != network::MessageType::RememberLoginResponse)
-    {
-        return {false, "Unexpected account server response"};
-    }
-
-    ServerResult result;
-    result.success = success;
-    result.message = std::move(message);
-    result.username = std::move(username);
-    result.accessToken = std::move(accessToken);
-    result.rememberToken = std::move(replacementToken);
-    result.rejectStoredCredential = !success;
-    return result;
-}
-
-void revokeLoginTokens(const std::string& rememberToken, const std::string& accessToken)
-{
-    if (rememberToken.empty() && accessToken.empty())
-    {
-        return;
-    }
-
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().account))
-    {
-        return;
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::RevokeRememberToken)
-            << rememberToken << accessToken;
-    if (socket.send(request) == sf::Socket::Status::Done)
-    {
-        sf::Packet response;
-        [[maybe_unused]] auto status = socket.receive(response);
-    }
-    socket.disconnect();
-}
-
-CardListResult fetchCards()
-{
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().card))
-    {
-        return {false, "Failed to connect to card server " + endpointText(clientConfig().card)};
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::CardListRequest);
-    if (socket.send(request) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Failed to send card list request"};
-    }
-
-    sf::Packet response;
-    if (socket.receive(response) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "No response from card server"};
-    }
-
-    std::uint8_t responseType = 0;
-    bool success = false;
-    std::string message;
-    std::uint32_t count = 0;
-    response >> responseType >> success >> message >> count;
-    if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::CardListResponse)
-    {
-        socket.disconnect();
-        return {false, "Unexpected card list response"};
-    }
-
-    std::vector<card_data::Card> cards;
-    cards.reserve(count);
-    for (std::uint32_t i = 0; i < count; ++i)
-    {
-        card_data::Card card;
-        if (!card_data::readCard(response, card))
-        {
-            socket.disconnect();
-            return {false, "Invalid card list payload"};
-        }
-        cards.push_back(card);
-    }
-
-    socket.disconnect();
-    return {success, message, cards};
-}
-
-DeckListResult fetchDecks(const std::string& accessToken)
-{
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().account))
-    {
-        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::DeckListRequest);
-    request << accessToken;
-    if (socket.send(request) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Failed to send deck list request"};
-    }
-
-    sf::Packet response;
-    if (socket.receive(response) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "No deck list response from account server"};
-    }
-
-    std::uint8_t responseType = 0;
-    bool success = false;
-    std::string message;
-    std::uint32_t count = 0;
-    response >> responseType >> success >> message >> count;
-    if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::DeckListResponse)
-    {
-        socket.disconnect();
-        return {false, "Unexpected deck list response"};
-    }
-
-    std::vector<deck_data::Deck> decks;
-    decks.reserve(count);
-    for (std::uint32_t i = 0; i < count; ++i)
-    {
-        deck_data::Deck deck;
-        if (!deck_data::readDeck(response, deck))
-        {
-            socket.disconnect();
-            return {false, "Invalid deck list payload"};
-        }
-        decks.push_back(deck);
-    }
-
-    sendDisconnect(socket);
-    return {success, message, decks};
-}
-
-AccountStateResult fetchAccountState(const std::string& accessToken)
-{
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().account))
-    {
-        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::AccountStateRequest);
-    request << accessToken;
-    if (socket.send(request) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Failed to send account state request"};
-    }
-
-    sf::Packet response;
-    if (socket.receive(response) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "No account state response from account server"};
-    }
-
-    std::uint8_t responseType = 0;
-    bool success = false;
-    std::string message;
-    account_data::AccountState accountState;
-    response >> responseType >> success >> message;
-    if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::AccountStateResponse)
-    {
-        socket.disconnect();
-        return {false, "Unexpected account state response"};
-    }
-
-    if (!account_data::readAccountState(response, accountState))
-    {
-        socket.disconnect();
-        return {false, "Invalid account state payload"};
-    }
-
-    sendDisconnect(socket);
-    return {
-        success,
-        message,
-        accountState.coins,
-        accountState.rating,
-        accountState.isAdmin,
-        std::move(accountState.collection)};
-}
-
-DeckCommandResult readDeckCommandResponse(
-    sf::TcpSocket& socket,
-    network::MessageType expectedResponseType,
-    const std::string& fallbackMessage,
-    const std::string& originalName,
-    const deck_data::Deck& deck)
-{
-    sf::Packet response;
-    if (socket.receive(response) != sf::Socket::Status::Done)
-    {
-        return {false, fallbackMessage, originalName, deck};
-    }
-
-    std::uint8_t responseType = 0;
-    bool success = false;
-    std::string message;
-    response >> responseType >> success >> message;
-    if (!response || static_cast<network::MessageType>(responseType) != expectedResponseType)
-    {
-        return {false, "Unexpected deck command response", originalName, deck};
-    }
-
-    return {success, message, originalName, deck};
-}
-
-DeckCommandResult saveDeckToAccount(
-    const std::string& accessToken,
-    const std::string& originalName,
-    const deck_data::Deck& deck)
-{
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().account))
-    {
-        return {false, "Failed to connect to account server " + endpointText(clientConfig().account), originalName, deck};
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::DeckSaveRequest);
-    request << accessToken << originalName;
-    deck_data::writeDeck(request, deck);
-    if (socket.send(request) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Failed to send deck save request", originalName, deck};
-    }
-
-    DeckCommandResult result = readDeckCommandResponse(
-        socket,
-        network::MessageType::DeckSaveResponse,
-        "No deck save response from account server",
-        originalName,
-        deck);
-    sendDisconnect(socket);
-    return result;
-}
-
-DeckCommandResult deleteDeckFromAccount(const std::string& accessToken, const std::string& deckName)
-{
-    deck_data::Deck deck;
-    deck.name = deckName;
-
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().account))
-    {
-        return {false, "Failed to connect to account server " + endpointText(clientConfig().account), deckName, deck};
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::DeckDeleteRequest);
-    request << accessToken << deckName;
-    if (socket.send(request) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Failed to send deck delete request", deckName, deck};
-    }
-
-    DeckCommandResult result = readDeckCommandResponse(
-        socket,
-        network::MessageType::DeckDeleteResponse,
-        "No deck delete response from account server",
-        deckName,
-        deck);
-    sendDisconnect(socket);
-    return result;
-}
-
-AccountCommandResult sendCoinCommand(
-    network::MessageType requestType,
-    network::MessageType expectedResponseType,
-    const std::string& accessToken)
-{
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().account))
-    {
-        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(requestType);
-    request << accessToken;
-    if (socket.send(request) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Failed to send account command"};
-    }
-
-    sf::Packet response;
-    if (socket.receive(response) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "No account command response"};
-    }
-
-    std::uint8_t responseType = 0;
-    bool success = false;
-    std::string message;
-    int coins = 0;
-    response >> responseType >> success >> message >> coins;
-    if (!response || static_cast<network::MessageType>(responseType) != expectedResponseType)
-    {
-        socket.disconnect();
-        return {false, "Unexpected account command response"};
-    }
-
-    sendDisconnect(socket);
-    return {success, message, coins};
-}
-
-AccountCommandResult purchaseRandomCard(const std::string& accessToken)
-{
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().account))
-    {
-        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::ShopPurchaseRequest);
-    request << accessToken;
-    if (socket.send(request) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Failed to send shop purchase request"};
-    }
-
-    sf::Packet response;
-    if (socket.receive(response) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "No shop purchase response"};
-    }
-
-    std::uint8_t responseType = 0;
-    bool success = false;
-    std::string message;
-    int coins = 0;
-    std::string cardTitle;
-    response >> responseType >> success >> message >> coins >> cardTitle;
-    if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::ShopPurchaseResponse)
-    {
-        socket.disconnect();
-        return {false, "Unexpected shop purchase response"};
-    }
-
-    sendDisconnect(socket);
-    return {success, message, coins, cardTitle};
-}
-
-AccountCommandResult changePassword(
-    const std::string& accessToken,
-    const std::string& currentPassword,
-    const std::string& newPassword)
-{
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().account))
-    {
-        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::ChangePasswordRequest)
-            << accessToken << currentPassword << newPassword;
-    if (socket.send(request) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Failed to send password change request"};
-    }
-
-    socket.setBlocking(false);
-    sf::Packet response;
-    const auto responseDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    sf::Socket::Status receiveStatus = sf::Socket::Status::NotReady;
-    while (std::chrono::steady_clock::now() < responseDeadline)
-    {
-        receiveStatus = socket.receive(response);
-        if (receiveStatus != sf::Socket::Status::NotReady)
-        {
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
-    if (receiveStatus != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {
-            false,
-            receiveStatus == sf::Socket::Status::NotReady
-                ? "Password change timed out; restart the account server with the latest build"
-                : "No password change response"};
-    }
-
-    std::uint8_t responseType = 0;
-    bool success = false;
-    std::string message;
-    response >> responseType >> success >> message;
-    if (!response ||
-        static_cast<network::MessageType>(responseType) != network::MessageType::ChangePasswordResponse)
-    {
-        socket.disconnect();
-        return {false, "Unexpected password change response"};
-    }
-
-    sendDisconnect(socket);
-    return {success, message};
-}
-
-AdminUsersLoadResult loadAdminUsers(
-    const std::string& accessToken,
-    const std::string& search,
-    std::uint32_t page,
-    std::uint32_t pageSize)
-{
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().account))
-    {
-        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::AdminUserListRequest);
-    request << accessToken << search << page << pageSize;
-    if (socket.send(request) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Failed to send admin user list request"};
-    }
-
-    sf::Packet response;
-    if (socket.receive(response) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "No admin user list response"};
-    }
-
-    std::uint8_t responseType = 0;
-    bool success = false;
-    std::string message;
-    std::uint32_t totalCount = 0;
-    std::uint32_t responsePage = 0;
-    std::uint32_t responsePageSize = 0;
-    std::uint32_t count = 0;
-    response >> responseType >> success >> message >> totalCount >> responsePage >> responsePageSize >> count;
-    if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::AdminUserListResponse)
-    {
-        socket.disconnect();
-        return {false, "Unexpected admin user list response"};
-    }
-
-    std::vector<network::AdminUserSummary> users;
-    users.reserve(count);
-    for (std::uint32_t i = 0; i < count; ++i)
-    {
-        network::AdminUserSummary user;
-        response >> user.username >> user.isAdmin >> user.gold;
-        if (!response)
-        {
-            socket.disconnect();
-            return {false, "Invalid admin user list payload"};
-        }
-        users.push_back(std::move(user));
-    }
-
-    sendDisconnect(socket);
-    return {success, message, totalCount, responsePage, responsePageSize, std::move(users)};
-}
-
-AdminUserPrivilegeResult updateAdminUserPrivilege(
-    const std::string& accessToken,
-    const std::string& targetUsername,
-    bool makeAdmin)
-{
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().account))
-    {
-        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::AdminUserPrivilegeRequest);
-    request << accessToken << targetUsername << makeAdmin;
-    if (socket.send(request) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Failed to send admin privilege request"};
-    }
-
-    sf::Packet response;
-    if (socket.receive(response) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "No admin privilege response"};
-    }
-
-    std::uint8_t responseType = 0;
-    bool success = false;
-    std::string message;
-    bool targetIsAdmin = false;
-    response >> responseType >> success >> message >> targetIsAdmin;
-    if (!response ||
-        static_cast<network::MessageType>(responseType) != network::MessageType::AdminUserPrivilegeResponse)
-    {
-        socket.disconnect();
-        return {false, "Unexpected admin privilege response"};
-    }
-
-    sendDisconnect(socket);
-    return {success, message, targetIsAdmin};
-}
-
-AdminUserGoldResult updateAdminUserGold(
-    const std::string& accessToken,
-    const std::string& targetUsername,
-    int amount)
-{
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().account))
-    {
-        return {false, "Failed to connect to account server " + endpointText(clientConfig().account), targetUsername};
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::AdminUserGoldRequest);
-    request << accessToken << targetUsername << amount;
-    if (socket.send(request) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Failed to send admin gold request", targetUsername};
-    }
-
-    sf::Packet response;
-    if (socket.receive(response) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "No admin gold response", targetUsername};
-    }
-
-    std::uint8_t responseType = 0;
-    bool success = false;
-    std::string message;
-    int targetGold = 0;
-    response >> responseType >> success >> message >> targetGold;
-    if (!response ||
-        static_cast<network::MessageType>(responseType) != network::MessageType::AdminUserGoldResponse)
-    {
-        socket.disconnect();
-        return {false, "Unexpected admin gold response", targetUsername};
-    }
-
-    sendDisconnect(socket);
-    return {success, message, targetUsername, targetGold};
-}
-
-AdminUserDeleteResult deleteAdminUser(
-    const std::string& accessToken,
-    const std::string& targetUsername)
-{
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().account))
-    {
-        return {false, "Failed to connect to account server " + endpointText(clientConfig().account), targetUsername};
-    }
-
-    sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::AdminUserDeleteRequest);
-    request << accessToken << targetUsername;
-    if (socket.send(request) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Failed to send delete user request", targetUsername};
-    }
-
-    sf::Packet response;
-    if (socket.receive(response) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "No delete user response", targetUsername};
-    }
-
-    std::uint8_t responseType = 0;
-    bool success = false;
-    std::string message;
-    response >> responseType >> success >> message;
-    if (!response ||
-        static_cast<network::MessageType>(responseType) != network::MessageType::AdminUserDeleteResponse)
-    {
-        socket.disconnect();
-        return {false, "Unexpected delete user response", targetUsername};
-    }
-
-    sendDisconnect(socket);
-    return {success, message, targetUsername};
-}
-
-DeckEditorLoadResult loadDeckEditorData(const std::string& accessToken)
-{
-    CardListResult cardResult = fetchCards();
-    if (!cardResult.success)
-    {
-        return {false, cardResult.message};
-    }
-
-    AccountStateResult accountResult = fetchAccountState(accessToken);
-    if (!accountResult.success)
-    {
-        return {false, accountResult.message};
-    }
-
-    DeckListResult deckResult = fetchDecks(accessToken);
-    if (!deckResult.success)
-    {
-        return {
-            false,
-            deckResult.message,
-            ownedCardsFromCollection(cardResult.cards, accountResult.collection),
-            {},
-            accountResult.coins,
-            std::move(accountResult.collection)};
-    }
-
-    std::vector<card_data::Card> ownedCards = ownedCardsFromCollection(cardResult.cards, accountResult.collection);
-    const std::string message =
-        "Loaded " + std::to_string(ownedCards.size()) + " owned cards and " +
-        std::to_string(deckResult.decks.size()) + " decks";
-    return {
-        true,
-        message,
-        std::move(ownedCards),
-        std::move(deckResult.decks),
-        accountResult.coins,
-        std::move(accountResult.collection)};
-}
-
-ShopLoadResult loadShopData(const std::string& accessToken)
-{
-    CardListResult cardResult = fetchCards();
-    if (!cardResult.success)
-    {
-        return {false, cardResult.message};
-    }
-
-    AccountStateResult accountResult = fetchAccountState(accessToken);
-    if (!accountResult.success)
-    {
-        return {false, accountResult.message, std::move(cardResult.cards)};
-    }
-
-    return {
-        true,
-        "Shop loaded",
-        std::move(cardResult.cards),
-        accountResult.coins,
-        std::move(accountResult.collection)};
-}
-
-ServerResult joinGameServer(
-    int matchId,
-    int playerNumber,
-    unsigned short gamePort,
-    const std::string& accessToken)
-{
-    if (gamePort == 0)
-    {
-        return {false, "Game server did not assign a game"};
-    }
-
-    auto socket = std::make_shared<sf::TcpSocket>();
-    bool connected = false;
-    for (int attempt = 0; attempt < 30; ++attempt)
-    {
-        if (connectToHostPort(*socket, clientConfig().gameServerHost, gamePort))
-        {
-            connected = true;
-            break;
-        }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-
-    if (!connected)
-    {
-        socket->disconnect();
-        return {false, "Failed to connect to game server"};
-    }
-
-    sf::Packet joinRequest;
-    joinRequest << static_cast<uint8_t>(network::MessageType::JoinGame);
-    joinRequest << matchId;
-    joinRequest << playerNumber;
-    joinRequest << accessToken;
-
-    if (socket->send(joinRequest) != sf::Socket::Status::Done)
-    {
-        socket->disconnect();
-        return {false, "Failed to join game"};
-    }
-
-    sf::Packet response;
-    if (socket->receive(response) != sf::Socket::Status::Done)
-    {
-        socket->disconnect();
-        return {false, "No game server response"};
-    }
-
-    uint8_t responseType = 0;
-    int responseMatchId = 0;
-    int responsePlayerNumber = 0;
-    std::string message;
-    response >> responseType >> responseMatchId >> responsePlayerNumber >> message;
-    if (static_cast<network::MessageType>(responseType) != network::MessageType::GameReady ||
-        responseMatchId != matchId ||
-        responsePlayerNumber != playerNumber)
-    {
-        socket->disconnect();
-        return {false, "Unexpected game server response"};
-    }
-
-    return {true, message, socket};
-}
-
-ServerResult joinMatchmaking(
-    const std::string& accessToken,
-    std::shared_ptr<MatchmakingCancelState> cancelState)
-{
-    sf::TcpSocket socket;
-    if (!connectToEndpoint(socket, clientConfig().matchmaking))
-    {
-        return {false, "Failed to connect to matchmaking " + endpointText(clientConfig().matchmaking)};
-    }
-
-    sf::Packet packet;
-    packet << static_cast<uint8_t>(network::MessageType::JoinMatchmaking);
-    packet << accessToken;
-
-    if (socket.send(packet) != sf::Socket::Status::Done)
-    {
-        socket.disconnect();
-        return {false, "Failed to join matchmaking"};
-    }
-
-    socket.setBlocking(false);
-    sf::Packet cancelPacket;
-    cancelPacket << static_cast<uint8_t>(network::MessageType::CancelMatchmaking);
-    sf::Packet aiPacket;
-    aiPacket << static_cast<uint8_t>(network::MessageType::PlayAiMatchmaking);
-
-    while (true)
-    {
-        if (cancelState &&
-            cancelState->aiRequested.load() &&
-            !cancelState->aiSent.load())
-        {
-            const sf::Socket::Status aiStatus = socket.send(aiPacket);
-            if (aiStatus == sf::Socket::Status::Done)
-            {
-                cancelState->aiSent.store(true);
-            }
-            else if (aiStatus != sf::Socket::Status::NotReady &&
-                     aiStatus != sf::Socket::Status::Partial)
-            {
-                socket.disconnect();
-                return {false, "Failed to request AI match"};
-            }
-        }
-
-        if (cancelState &&
-            cancelState->requested.load() &&
-            !cancelState->sent.load())
-        {
-            const sf::Socket::Status cancelStatus = socket.send(cancelPacket);
-            if (cancelStatus == sf::Socket::Status::Done)
-            {
-                cancelState->sent.store(true);
-            }
-            else if (cancelStatus != sf::Socket::Status::NotReady &&
-                     cancelStatus != sf::Socket::Status::Partial)
-            {
-                socket.disconnect();
-                return {false, "Failed to cancel matchmaking"};
-            }
-        }
-
-        sf::Packet response;
-        const sf::Socket::Status receiveStatus = socket.receive(response);
-        if (receiveStatus == sf::Socket::Status::NotReady)
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(25));
-            continue;
-        }
-
-        if (receiveStatus != sf::Socket::Status::Done)
-        {
-            socket.disconnect();
-            return {false, "Disconnected from matchmaking"};
-        }
-
-        uint8_t responseType = 0;
-        response >> responseType;
-        const auto messageType = static_cast<network::MessageType>(responseType);
-        if (messageType == network::MessageType::CancelMatchmakingResponse)
-        {
-            bool cancelled = false;
-            std::string message;
-            response >> cancelled >> message;
-            socket.disconnect();
-            if (!response || !cancelled)
-            {
-                return {false, message.empty() ? "Matchmaking cancel was rejected" : message};
-            }
-
-            ServerResult result;
-            result.message = message.empty() ? "Matchmaking cancelled." : message;
-            result.cancelled = true;
-            return result;
-        }
-
-        if (messageType != network::MessageType::MatchFound)
-        {
-            socket.disconnect();
-            return {false, "Unexpected matchmaking response"};
-        }
-
-        int matchId = 0;
-        int playerNumber = 0;
-        unsigned short gamePort = 0;
-        response >> matchId >> playerNumber >> gamePort;
-        socket.disconnect();
-        return joinGameServer(matchId, playerNumber, gamePort, accessToken);
-    }
-}
-
 void resetForm(InputBox& usernameInput, InputBox& passwordInput, InputBox& confirmInput, sf::Text& messageText)
 {
     usernameInput.clear();
@@ -2252,101 +213,14 @@ int main(int argc, char** argv)
 
     const sf::VideoMode desktopMode = sf::VideoMode::getDesktopMode();
     const std::vector<sf::VideoMode>& fullscreenModes = sf::VideoMode::getFullscreenModes();
-    std::vector<sf::Vector2u> displayResolutions;
-    auto addResolution = [&](sf::Vector2u size) {
-        if (size.x < 1024u ||
-            size.y < 720u ||
-            size.x > desktopMode.size.x ||
-            size.y > desktopMode.size.y)
-        {
-            return;
-        }
-        if (std::find(displayResolutions.begin(), displayResolutions.end(), size) == displayResolutions.end())
-        {
-            displayResolutions.push_back(size);
-        }
-    };
-
-    addResolution({1024, 768});
-    addResolution({1280, 720});
-    addResolution({1280, 800});
-    addResolution({1366, 768});
-    addResolution({1600, 900});
-    addResolution({1920, 1080});
-    addResolution({2560, 1440});
-    addResolution(desktopMode.size);
-    for (const sf::VideoMode& mode : fullscreenModes)
-    {
-        addResolution(mode.size);
-    }
-    std::sort(displayResolutions.begin(), displayResolutions.end(), [](sf::Vector2u left, sf::Vector2u right) {
-        const std::uint64_t leftPixels = static_cast<std::uint64_t>(left.x) * left.y;
-        const std::uint64_t rightPixels = static_cast<std::uint64_t>(right.x) * right.y;
-        return leftPixels == rightPixels ? left.x < right.x : leftPixels < rightPixels;
-    });
+    std::vector<sf::Vector2u> displayResolutions =
+        availableDisplayResolutions(desktopMode, fullscreenModes);
 
     DisplaySettings displaySettings = loadDisplaySettings();
-    if (displaySettings.width == 0 || displaySettings.height == 0)
-    {
-        displaySettings.width = desktopMode.size.x;
-        displaySettings.height = desktopMode.size.y;
-    }
-    sf::Vector2u configuredSize{displaySettings.width, displaySettings.height};
-    if (std::find(displayResolutions.begin(), displayResolutions.end(), configuredSize) == displayResolutions.end())
-    {
-        configuredSize = desktopMode.size;
-        displaySettings.width = configuredSize.x;
-        displaySettings.height = configuredSize.y;
-    }
+    normalizeDisplaySettings(displaySettings, desktopMode.size, displayResolutions);
 
     sf::RenderWindow window;
-    auto applyLogicalView = [&]() {
-        const sf::Vector2u windowSize = window.getSize();
-        if (windowSize.x == 0 || windowSize.y == 0)
-        {
-            return;
-        }
-
-        const float windowAspect = static_cast<float>(windowSize.x) / static_cast<float>(windowSize.y);
-        const float logicalAspect = LogicalWidth / LogicalHeight;
-        sf::FloatRect viewport({0.0f, 0.0f}, {1.0f, 1.0f});
-        if (windowAspect > logicalAspect)
-        {
-            viewport.size.x = logicalAspect / windowAspect;
-            viewport.position.x = (1.0f - viewport.size.x) * 0.5f;
-        }
-        else if (windowAspect < logicalAspect)
-        {
-            viewport.size.y = windowAspect / logicalAspect;
-            viewport.position.y = (1.0f - viewport.size.y) * 0.5f;
-        }
-
-        sf::View view(sf::FloatRect({0.0f, 0.0f}, {LogicalWidth, LogicalHeight}));
-        view.setViewport(viewport);
-        window.setView(view);
-    };
-
-    auto createDisplayWindow = [&](DisplaySettings& settings) {
-        sf::VideoMode mode({settings.width, settings.height});
-        if (settings.fullscreen)
-        {
-            const auto matchingMode = std::find_if(fullscreenModes.begin(), fullscreenModes.end(), [&](const sf::VideoMode& candidate) {
-                return candidate.size == mode.size;
-            });
-            mode = matchingMode != fullscreenModes.end() ? *matchingMode : desktopMode;
-            settings.width = mode.size.x;
-            settings.height = mode.size.y;
-            window.create(mode, "Steam Tactics", sf::State::Fullscreen);
-        }
-        else
-        {
-            window.create(mode, "Steam Tactics", sf::Style::Titlebar | sf::Style::Close, sf::State::Windowed);
-        }
-        window.setFramerateLimit(60);
-        applyLogicalView();
-    };
-
-    createDisplayWindow(displaySettings);
+    createDisplayWindow(window, displaySettings, desktopMode, fullscreenModes);
 
     sf::Font font;
     const std::optional<std::filesystem::path> fontPath = resolveAssetPath("Roboto.ttf");
@@ -2355,101 +229,8 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::unordered_map<std::string, std::shared_ptr<sf::Texture>> textureCache;
-    auto loadTexture = [&](const std::string& assetPath) -> sf::Texture* {
-        const std::string key = assetRelativePath(assetPath);
-        if (key.empty())
-        {
-            return nullptr;
-        }
-
-        if (const auto found = textureCache.find(key); found != textureCache.end())
-        {
-            return found->second.get();
-        }
-
-        const std::optional<std::filesystem::path> resolvedPath = resolveAssetPath(key);
-        auto texture = std::make_shared<sf::Texture>();
-        if (!resolvedPath || !texture->loadFromFile(*resolvedPath))
-        {
-            return nullptr;
-        }
-
-        texture->setSmooth(true);
-        sf::Texture* loaded = texture.get();
-        textureCache.emplace(key, std::move(texture));
-        return loaded;
-    };
-
-    sf::Texture* backdropTexture = loadTexture("ui/steampunk-bayou-backdrop.png");
-
-    auto drawCoverSprite = [&](sf::Texture& texture, sf::FloatRect target, sf::Color color = sf::Color::White) {
-        sf::Sprite sprite(texture);
-        const sf::Vector2u imageSize = texture.getSize();
-        const float scale = std::max(target.size.x / static_cast<float>(imageSize.x),
-                                     target.size.y / static_cast<float>(imageSize.y));
-        sprite.setScale({scale, scale});
-        sprite.setColor(color);
-        sprite.setPosition({
-            target.position.x + (target.size.x - static_cast<float>(imageSize.x) * scale) * 0.5f,
-            target.position.y + (target.size.y - static_cast<float>(imageSize.y) * scale) * 0.5f});
-        window.draw(sprite);
-    };
-
-    auto drawContainSprite = [&](sf::Texture& texture,
-                                 sf::FloatRect target,
-                                 sf::Color color = sf::Color::White,
-                                 bool flipX = false) {
-        sf::Sprite sprite(texture);
-        const sf::Vector2u imageSize = texture.getSize();
-        const float sourceWidth = static_cast<float>(imageSize.x);
-        const float sourceHeight = static_cast<float>(imageSize.y);
-        const float scale = std::min(target.size.x / static_cast<float>(imageSize.x),
-                                     target.size.y / static_cast<float>(imageSize.y));
-        sprite.setScale({flipX ? -scale : scale, scale});
-        sprite.setColor(color);
-        sprite.setPosition({
-            target.position.x + (target.size.x + (flipX ? sourceWidth * scale : -sourceWidth * scale)) * 0.5f,
-            target.position.y + (target.size.y - sourceHeight * scale) * 0.5f});
-        window.draw(sprite);
-    };
-
-    auto drawTextureRectContain = [&](sf::Texture& texture,
-                                      sf::IntRect textureRect,
-                                      sf::FloatRect target,
-                                      sf::Color color = sf::Color::White,
-                                      bool flipX = false) {
-        sf::Sprite sprite(texture);
-        sprite.setTextureRect(textureRect);
-        const float sourceWidth = static_cast<float>(textureRect.size.x);
-        const float sourceHeight = static_cast<float>(textureRect.size.y);
-        const float scale = std::min(target.size.x / sourceWidth, target.size.y / sourceHeight);
-        sprite.setScale({flipX ? -scale : scale, scale});
-        sprite.setColor(color);
-        sprite.setPosition({
-            target.position.x + (target.size.x + (flipX ? sourceWidth * scale : -sourceWidth * scale)) * 0.5f,
-            target.position.y + (target.size.y - sourceHeight * scale) * 0.5f});
-        window.draw(sprite);
-    };
-
-    auto drawBackdrop = [&]() {
-        if (backdropTexture)
-        {
-            drawCoverSprite(*backdropTexture, {{0.0f, 0.0f}, {800.0f, 600.0f}});
-        }
-        else
-        {
-            window.clear(sf::Color(9, 17, 19));
-        }
-
-        sf::RectangleShape wash({800.0f, 600.0f});
-        wash.setFillColor(sf::Color(5, 12, 15, 118));
-        window.draw(wash);
-
-        sf::RectangleShape topShade({800.0f, 124.0f});
-        topShade.setFillColor(sf::Color(4, 9, 11, 156));
-        window.draw(topShade);
-    };
+    TextureStore textures;
+    sf::Texture* backdropTexture = textures.load("ui/steampunk-bayou-backdrop.png");
 
     sf::Text title(font, "Steam Tactics", 48);
     title.setFillColor(sf::Color(248, 224, 172));
@@ -2546,10 +327,9 @@ int main(int argc, char** argv)
     GameState currentState = GameState::Menu;
     GameState optionsReturnState = GameState::Menu;
     DisplaySettings pendingDisplaySettings = displaySettings;
-    configuredSize = {displaySettings.width, displaySettings.height};
-    std::size_t selectedResolution = static_cast<std::size_t>(std::distance(
-        displayResolutions.begin(),
-        std::find(displayResolutions.begin(), displayResolutions.end(), configuredSize)));
+    std::size_t selectedResolution = displayResolutionIndex(
+        displayResolutions,
+        {displaySettings.width, displaySettings.height});
     std::optional<std::future<ServerResult>> pendingRequest;
     std::optional<std::future<ServerResult>> pendingMatchmaking;
     std::optional<std::future<CardListResult>> pendingSandboxLoad;
@@ -4018,82 +1798,8 @@ int main(int argc, char** argv)
 
     // ---- in-game helpers ---------------------------------------------------
 
-    auto ownerColor = [](int owner) -> sf::Color {
-        if (owner == 1) return sf::Color(80, 132, 214);
-        if (owner == 2) return sf::Color(214, 102, 74);
-        return sf::Color(120, 124, 134);
-    };
-
-    auto ownerTint = [](int owner) -> sf::Color {
-        if (owner == 1) return sf::Color(24, 64, 72, 226);
-        if (owner == 2) return sf::Color(88, 48, 36, 226);
-        return sf::Color(38, 48, 43, 214);
-    };
-
-    // Fixed 2.5D camera: row 1 is nearest at the bottom, row 8 is farthest at the top.
-    auto screenRowForViewer = [](int row, int /*viewer*/) {
-        return game_data::BoardSize - 1 - row;
-    };
-
-    auto rowForScreenRow = [](int screenRow, int /*viewer*/) {
-        return game_data::BoardSize - 1 - screenRow;
-    };
-
-    auto boardEdgePoint = [](int screenEdge, int columnEdge) -> sf::Vector2f {
-        const float t = static_cast<float>(screenEdge) / static_cast<float>(game_data::BoardSize);
-        const float y = BoardOriginY + BoardHeight * std::pow(t, BoardPerspectiveExponent);
-        const float width = BoardTopWidth + (BoardBottomWidth - BoardTopWidth) * t;
-        const float left = BoardCenterX - width * 0.5f;
-        return {
-            left + width * static_cast<float>(columnEdge) / static_cast<float>(game_data::BoardSize),
-            y};
-    };
-
-    auto pieceScaleForScreenRow = [](int screenRow) {
-        const float t = static_cast<float>(screenRow) / static_cast<float>(game_data::BoardSize - 1);
-        return PieceFarScale + (PieceNearScale - PieceFarScale) * t;
-    };
-
-    auto boardCellMetricsForViewer = [&](int row, int column, int viewer) {
-        BoardCellMetrics metrics;
-        metrics.screenRow = screenRowForViewer(row, viewer);
-        metrics.corners = {
-            boardEdgePoint(metrics.screenRow, column),
-            boardEdgePoint(metrics.screenRow, column + 1),
-            boardEdgePoint(metrics.screenRow + 1, column + 1),
-            boardEdgePoint(metrics.screenRow + 1, column)};
-        metrics.center = {
-            (metrics.corners[0].x + metrics.corners[1].x + metrics.corners[2].x + metrics.corners[3].x) * 0.25f,
-            (metrics.corners[0].y + metrics.corners[1].y + metrics.corners[2].y + metrics.corners[3].y) * 0.25f};
-        metrics.height = metrics.corners[3].y - metrics.corners[0].y;
-        metrics.depthScale = pieceScaleForScreenRow(metrics.screenRow);
-        return metrics;
-    };
-
     auto boardCellMetrics = [&](int row, int column) {
         return boardCellMetricsForViewer(row, column, gameSnapshot.yourPlayer);
-    };
-
-    auto boardCellAnchor = [](const BoardCellMetrics& metrics) {
-        return sf::Vector2f{metrics.center.x, metrics.center.y + metrics.height * 0.36f};
-    };
-
-    auto pointInConvex = [](sf::Vector2f point, const std::array<sf::Vector2f, 4>& corners) {
-        bool hasNegative = false;
-        bool hasPositive = false;
-        for (std::size_t i = 0; i < corners.size(); ++i)
-        {
-            const sf::Vector2f a = corners[i];
-            const sf::Vector2f b = corners[(i + 1) % corners.size()];
-            const float cross = (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x);
-            hasNegative = hasNegative || cross < -0.01f;
-            hasPositive = hasPositive || cross > 0.01f;
-            if (hasNegative && hasPositive)
-            {
-                return false;
-            }
-        }
-        return true;
     };
 
     auto drawQuad = [&](const std::array<sf::Vector2f, 4>& corners,
@@ -4110,31 +1816,6 @@ int main(int argc, char** argv)
         quad.setOutlineThickness(outlineThickness);
         quad.setOutlineColor(outline);
         window.draw(quad);
-    };
-
-    auto offsetQuad = [](std::array<sf::Vector2f, 4> corners, sf::Vector2f offset) {
-        for (sf::Vector2f& corner : corners)
-        {
-            corner += offset;
-        }
-        return corners;
-    };
-
-    auto pieceTargetRect = [](sf::Vector2f anchor, float scale, bool walkSheet) {
-        const float width = PieceBaseWidth * scale;
-        const float height = (walkSheet ? PieceWalkBaseHeight : PieceBaseHeight) * scale;
-        return sf::FloatRect{{anchor.x - width * 0.5f, anchor.y - height}, {width, height}};
-    };
-
-    auto pieceByIdInSnapshot = [](const game_data::Snapshot& snapshot, int id) -> const game_data::Piece* {
-        for (const game_data::Piece& piece : snapshot.pieces)
-        {
-            if (piece.id == id)
-            {
-                return &piece;
-            }
-        }
-        return nullptr;
     };
 
     auto startPieceAttackAnimation = [&](int pieceId, int targetRow, int targetColumn) {
@@ -4291,115 +1972,6 @@ int main(int argc, char** argv)
         return nullptr;
     };
 
-    auto pieceAtInSnapshot = [](const game_data::Snapshot& snapshot, int row, int column) -> const game_data::Piece* {
-        return game_data::findPieceAt(snapshot.pieces, row, column);
-    };
-
-    auto pieceByIdInSnapshotMutable = [](game_data::Snapshot& snapshot, int id) -> game_data::Piece* {
-        for (game_data::Piece& piece : snapshot.pieces)
-        {
-            if (piece.id == id)
-            {
-                return &piece;
-            }
-        }
-        return nullptr;
-    };
-
-    auto removePieceFromSnapshot = [](game_data::Snapshot& snapshot, int id) {
-        snapshot.pieces.erase(
-            std::remove_if(snapshot.pieces.begin(), snapshot.pieces.end(), [id](const game_data::Piece& piece) {
-                return piece.id == id;
-            }),
-            snapshot.pieces.end());
-    };
-
-    auto controlledCountInSnapshot = [](const game_data::Snapshot& snapshot, int playerNumber) {
-        return static_cast<int>(std::count(
-            snapshot.control.begin(),
-            snapshot.control.end(),
-            static_cast<std::uint8_t>(playerNumber)));
-    };
-
-    auto heroesAliveInSnapshot = [](const game_data::Snapshot& snapshot, int playerNumber) {
-        return static_cast<int>(std::count_if(snapshot.pieces.begin(), snapshot.pieces.end(), [playerNumber](const game_data::Piece& piece) {
-            return piece.owner == playerNumber && piece.isHero;
-        }));
-    };
-
-    auto refreshSandboxPlayerSnapshots = [&](game_data::Snapshot& snapshot) {
-        snapshot.players[0].steam = 999;
-        snapshot.players[0].controlledSquares = controlledCountInSnapshot(snapshot, 1);
-        snapshot.players[0].handCount = static_cast<int>(snapshot.hand.size());
-        snapshot.players[0].heroesToPlace = 0;
-        snapshot.players[0].heroesAlive = heroesAliveInSnapshot(snapshot, 1);
-        snapshot.players[0].drawPileCount = 0;
-
-        snapshot.players[1].steam = 0;
-        snapshot.players[1].controlledSquares = controlledCountInSnapshot(snapshot, 2);
-        snapshot.players[1].handCount = 0;
-        snapshot.players[1].heroesToPlace = 0;
-        snapshot.players[1].heroesAlive = heroesAliveInSnapshot(snapshot, 2);
-        snapshot.players[1].drawPileCount = 0;
-    };
-
-    auto recomputeSandboxControl = [&](game_data::Snapshot& snapshot) {
-        std::array<std::uint8_t, game_data::BoardSquares> next = snapshot.control;
-        for (int row = 0; row < game_data::BoardSize; ++row)
-        {
-            for (int column = 0; column < game_data::BoardSize; ++column)
-            {
-                const std::size_t index = static_cast<std::size_t>(game_data::squareIndex(row, column));
-                if (const game_data::Piece* occupant = pieceAtInSnapshot(snapshot, row, column))
-                {
-                    if (occupant->canControl)
-                    {
-                        next[index] = static_cast<std::uint8_t>(occupant->owner);
-                    }
-                    continue;
-                }
-
-                int influence1 = 0;
-                int influence2 = 0;
-                for (int dr = -1; dr <= 1; ++dr)
-                {
-                    for (int dc = -1; dc <= 1; ++dc)
-                    {
-                        if (dr == 0 && dc == 0)
-                        {
-                            continue;
-                        }
-                        const game_data::Piece* neighbor = game_data::inBounds(row + dr, column + dc)
-                            ? pieceAtInSnapshot(snapshot, row + dr, column + dc)
-                            : nullptr;
-                        if (!neighbor || !neighbor->canControl)
-                        {
-                            continue;
-                        }
-                        if (neighbor->owner == 1)
-                        {
-                            ++influence1;
-                        }
-                        else if (neighbor->owner == 2)
-                        {
-                            ++influence2;
-                        }
-                    }
-                }
-
-                if (influence1 > influence2)
-                {
-                    next[index] = 1;
-                }
-                else if (influence2 > influence1)
-                {
-                    next[index] = 2;
-                }
-            }
-        }
-        snapshot.control = next;
-    };
-
     auto commitSandboxSnapshot = [&](game_data::Snapshot nextSnapshot) {
         recomputeSandboxControl(nextSnapshot);
         refreshSandboxPlayerSnapshots(nextSnapshot);
@@ -4416,68 +1988,6 @@ int main(int argc, char** argv)
             inspectedHandIndex.reset();
             inspectedPieceScroll = 0.0f;
         }
-    };
-
-    auto spawnSandboxPiece = [&](game_data::Snapshot& snapshot, int owner, const game_data::GameCard& card, int row, int column, bool isHero) {
-        game_data::Piece piece;
-        piece.id = nextSandboxPieceId++;
-        piece.owner = owner;
-        piece.row = row;
-        piece.column = column;
-        piece.name = card.title;
-        piece.keywords = card.keywords;
-        piece.imagePath = card.imagePath;
-        piece.walkAnimPath = card.walkAnimPath;
-        piece.blueTokenPath = card.blueTokenPath;
-        piece.redTokenPath = card.redTokenPath;
-        piece.blueWalkAnimPath = card.blueWalkAnimPath;
-        piece.redWalkAnimPath = card.redWalkAnimPath;
-        piece.walkAnimFrames = card.walkAnimFrames;
-        piece.maxHealth = card.health;
-        piece.health = card.health;
-        piece.attack = card.attack;
-        piece.attackRange = card.attackRange;
-        piece.movePattern = card.movePattern;
-        piece.moveRange = card.moveRange;
-        piece.attackingMove = card.attackingMove;
-        piece.canControl = card.canControl;
-        piece.growTurnsRemaining = card.growTurns;
-        piece.actions = card.actions;
-        piece.ability = card.ability;
-        piece.abilityLabels = card.abilityLabels;
-        piece.abilityUses = card.abilityUses;
-        piece.isHero = isHero;
-        piece.hasActed = false;
-        snapshot.pieces.push_back(std::move(piece));
-    };
-
-    auto makeStoryTomCard = []() {
-        game_data::GameCard card;
-        card.title = "Tinkering Tom";
-        card.type = "Hero";
-        card.keywords = {"mechanical"};
-        card.imagePath = "cards/tinkering-tom.png";
-        card.blueTokenPath = "characters/blue/tinkeringTom.png";
-        card.redTokenPath = "characters/red/tinkeringTom.png";
-        card.blueWalkAnimPath = "animations/blue/tinkeringTom-walk.png";
-        card.redWalkAnimPath = "animations/red/tinkeringTom-walk.png";
-        card.walkAnimFrames = 81;
-        card.health = 1;
-        card.attack = 0;
-        card.attackRange = 1;
-        card.movePattern = static_cast<std::uint8_t>(game_data::MovePattern::Omni);
-        card.moveRange = 1;
-        card.canControl = false;
-
-        game_data::ActionProfile moveAction;
-        moveAction.name = "Careful Step";
-        moveAction.pattern = static_cast<std::uint8_t>(game_data::MovePattern::Omni);
-        moveAction.minRange = 1;
-        moveAction.maxRange = 1;
-        moveAction.canMove = true;
-        moveAction.canAttack = false;
-        card.actions.push_back(moveAction);
-        return card;
     };
 
     auto showStoryIntro = [&]() {
@@ -4536,7 +2046,7 @@ int main(int argc, char** argv)
         {
             snapshot.control[static_cast<std::size_t>(game_data::squareIndex(row, column))] = 1;
         }
-        spawnSandboxPiece(snapshot, 1, makeStoryTomCard(), 4, 0, true);
+        spawnSandboxPiece(snapshot, nextSandboxPieceId, 1, makeStoryTomCard(), 4, 0, true);
         snapshot.status = "Story: click Tinkering Tom, then click the glowing square to move him.";
 
         haveSnapshot = false;
@@ -4651,11 +2161,11 @@ int main(int argc, char** argv)
     };
 
     auto cardArtTexture = [&](const std::string& imagePath) -> sf::Texture* {
-        return loadTexture(imagePath);
+        return textures.load(imagePath);
     };
 
     auto walkAnimTexture = [&](const std::string& walkAnimPath) -> sf::Texture* {
-        return loadTexture(walkAnimPath);
+        return textures.load(walkAnimPath);
     };
 
     auto pieceTokenPath = [](const game_data::Piece& piece) -> const std::string& {
@@ -4684,9 +2194,9 @@ int main(int argc, char** argv)
         const std::string& walkPath = cardWalkAnimPath(card, owner);
 
         bool drewPiece = false;
-        if (sf::Texture* token = loadTexture(tokenPath))
+        if (sf::Texture* token = textures.load(tokenPath))
         {
-            drawContainSprite(*token, pieceTargetRect(anchor, scale, true), tint);
+            drawContainSprite(window, *token, pieceTargetRect(anchor, scale, true), tint);
             drewPiece = true;
         }
         else if (sf::Texture* walkSheet = walkAnimTexture(walkPath))
@@ -4697,7 +2207,7 @@ int main(int argc, char** argv)
             const int frameHeight = static_cast<int>(sheetSize.y);
             if (frameWidth > 0 && frameHeight > 0)
             {
-                drawTextureRectContain(
+                drawTextureRectContain(window,
                     *walkSheet,
                     sf::IntRect({0, 0}, {frameWidth, frameHeight}),
                     pieceTargetRect(anchor, scale, true),
@@ -4707,7 +2217,7 @@ int main(int argc, char** argv)
         }
         else if (sf::Texture* art = cardArtTexture(card.imagePath))
         {
-            drawContainSprite(*art, pieceTargetRect(anchor, scale, false), tint);
+            drawContainSprite(window, *art, pieceTargetRect(anchor, scale, false), tint);
             drewPiece = true;
         }
 
@@ -4758,7 +2268,7 @@ int main(int argc, char** argv)
         window.draw(artFrame);
         if (sf::Texture* art = cardArtTexture(card.imagePath))
         {
-            drawContainSprite(*art, {{position.x + 20.0f, position.y + 20.0f}, {size.x - 40.0f, 142.0f}});
+            drawContainSprite(window, *art, {{position.x + 20.0f, position.y + 20.0f}, {size.x - 40.0f, 142.0f}});
         }
 
         drawText(window, font, card.title, 22, {position.x + 18.0f, position.y + 178.0f}, sf::Color(248, 239, 216), size.x - 36.0f);
@@ -4787,168 +2297,6 @@ int main(int argc, char** argv)
             {position.x + 18.0f, position.y + 264.0f},
             sf::Color(248, 214, 112),
             size.x - 36.0f);
-    };
-
-    auto joinStrings = [](const std::vector<std::string>& values, const std::string& separator) {
-        std::string result;
-        for (const std::string& value : values)
-        {
-            if (!result.empty())
-            {
-                result += separator;
-            }
-            result += value;
-        }
-        return result;
-    };
-
-    auto actionKindName = [](std::uint8_t kind) {
-        switch (static_cast<game_data::ActionKind>(kind))
-        {
-            case game_data::ActionKind::Ranged: return std::string("Ranged");
-            case game_data::ActionKind::Hop: return std::string("Hop");
-            case game_data::ActionKind::Teleport: return std::string("Teleport");
-            case game_data::ActionKind::Tunnel: return std::string("Tunnel");
-            default: return std::string("Slide");
-        }
-    };
-
-    auto actionPatternName = [](const game_data::ActionProfile& action) {
-        if (static_cast<game_data::MovePattern>(action.pattern) == game_data::MovePattern::None)
-        {
-            return static_cast<game_data::ActionKind>(action.kind) == game_data::ActionKind::Ranged
-                ? std::string("Any direction")
-                : std::string("No pattern");
-        }
-        return game_data::movePatternName(action.pattern);
-    };
-
-    auto actionRangeText = [](const game_data::ActionProfile& action) {
-        if (action.minRange == action.maxRange)
-        {
-            return "range " + std::to_string(action.maxRange);
-        }
-        return "range " + std::to_string(action.minRange) + "-" + std::to_string(action.maxRange);
-    };
-
-    auto actionDescription = [&](const game_data::ActionProfile& action, std::size_t index) {
-        std::vector<std::string> parts;
-        if (action.state != 0)
-        {
-            parts.push_back("state " + std::to_string(action.state));
-        }
-        parts.push_back(actionKindName(action.kind));
-        parts.push_back(actionPatternName(action));
-        parts.push_back(actionRangeText(action));
-        if (action.canMove)
-        {
-            parts.push_back("moves");
-        }
-        if (action.canAttack)
-        {
-            parts.push_back("attacks for " + std::to_string(action.damage));
-        }
-        if (action.statusTurns > 0)
-        {
-            parts.push_back("disables " + std::to_string(action.statusTurns) + " turn(s)");
-        }
-        if (action.cooldownTurns > 0)
-        {
-            parts.push_back("cooldown " + std::to_string(action.cooldownTurns));
-        }
-        if (action.passThrough)
-        {
-            parts.push_back("passes through blockers");
-        }
-        if (action.lineOfSight)
-        {
-            parts.push_back("line of sight");
-        }
-
-        const std::string label = action.name.empty()
-            ? "Action " + std::to_string(index + 1)
-            : action.name;
-        return label + ": " + joinStrings(parts, ", ");
-    };
-
-    auto deckEditorCardDetails = [&](const card_data::Card& card) {
-        std::vector<std::pair<std::string, sf::Color>> details;
-        const game_data::GameCard gameCard = game_data::toGameCard(card);
-        const bool hero = game_data::isHeroCard(card);
-        const bool unit = card.type == "Unit" || hero;
-
-        if (hero)
-        {
-            details.push_back({"Rarity: " + cardRarityLabel(card), cardRarityColor(card)});
-            details.push_back({"Hero cost: " + std::to_string(game_data::cardInt(card, "heroCost", 0)),
-                               sf::Color(248, 214, 112)});
-        }
-        else
-        {
-            details.push_back({"Rarity: " + cardRarityLabel(card), cardRarityColor(card)});
-            details.push_back({"Cost: " + std::to_string(game_data::cardInt(card, "cost", 0)) + " steam",
-                               sf::Color(150, 210, 235)});
-        }
-
-        if (unit)
-        {
-            details.push_back({"Health: " + std::to_string(gameCard.health), sf::Color(224, 210, 176)});
-            if (gameCard.actions.empty())
-            {
-                details.push_back({"Actions: none", sf::Color(225, 170, 150)});
-            }
-            for (std::size_t i = 0; i < gameCard.actions.size(); ++i)
-            {
-                details.push_back({actionDescription(gameCard.actions[i], i), sf::Color(143, 220, 205)});
-            }
-            details.push_back({"Territory: occupied square + adjacent influence", sf::Color(198, 180, 142)});
-        }
-        else
-        {
-            details.push_back({"Effect: " + game_data::cardStr(card, "effect", "none"),
-                               sf::Color(224, 210, 176)});
-            details.push_back({"Power: " + std::to_string(game_data::cardInt(card, "power", 0)),
-                               sf::Color(224, 210, 176)});
-            details.push_back({"Target: " + game_data::cardStr(card, "target", "none"),
-                               sf::Color(143, 220, 205)});
-        }
-
-        if (!card.keywords.empty())
-        {
-            details.push_back({"Keywords: " + joinStrings(card.keywords, ", "), sf::Color(210, 216, 228)});
-        }
-
-        auto isHiddenCardDetailKey = [](const std::string& key) {
-            return key == "cost" || key == "heroCost" || key == "health" || key == "attack" ||
-                key == "range" || key == "move" || key == "attackingMove" || key == "power" ||
-                key == "canControl" || key == "growTurns" || key == "abilityUses" ||
-                key == "WalkAnimFrames" || key == "rarity" || key == "effect" || key == "target" ||
-                key == "movement" || key == "WalkAnim" || key == "WalkAnimBlue" ||
-                key == "WalkAnimRed" || key == "TokenBlue" || key == "TokenRed";
-        };
-
-        for (const card_data::KeyIntPair& item : card.integerValues)
-        {
-            if (isHiddenCardDetailKey(item.key))
-            {
-                continue;
-            }
-            details.push_back({item.key + ": " + std::to_string(item.value), sf::Color(190, 198, 214)});
-        }
-        for (const card_data::KeyStringPair& item : card.stringValues)
-        {
-            if (isHiddenCardDetailKey(item.key))
-            {
-                continue;
-            }
-            details.push_back({item.key + ": " + item.value, sf::Color(190, 198, 214)});
-        }
-        for (const card_data::KeyStringList& item : card.stringLists)
-        {
-            details.push_back({item.key + ": " + joinStrings(item.values, ", "), sf::Color(190, 198, 214)});
-        }
-
-        return details;
     };
 
     auto deckEditorCardDetailsHeight = [&](const std::vector<std::pair<std::string, sf::Color>>& details) {
@@ -5002,7 +2350,7 @@ int main(int argc, char** argv)
         window.draw(artFrame);
         if (sf::Texture* art = cardArtTexture(card->imagePath))
         {
-            drawContainSprite(*art, {{PiecePopupX + 30.0f, PiecePopupY + 70.0f}, {88.0f, 88.0f}});
+            drawContainSprite(window, *art, {{PiecePopupX + 30.0f, PiecePopupY + 70.0f}, {88.0f, 88.0f}});
         }
 
         float y = PiecePopupY + 66.0f;
@@ -5444,7 +2792,7 @@ int main(int argc, char** argv)
                 return;
             }
 
-            spawnSandboxPiece(next, actingPlayer, card, row, column, card.type == "Hero");
+            spawnSandboxPiece(next, nextSandboxPieceId, actingPlayer, card, row, column, card.type == "Hero");
             next.status = "Sandbox played " + card.title + " for Player " + std::to_string(actingPlayer) + ".";
             commitSandboxSnapshot(std::move(next));
             return;
@@ -6081,7 +3429,7 @@ int main(int argc, char** argv)
             return;
         }
 
-        // Playing phase — only the active player may act.
+        // Playing phase Ã¢â‚¬â€ only the active player may act.
         if (!sandboxMode && gameSnapshot.activePlayer != me)
         {
             return;
@@ -6170,7 +3518,7 @@ int main(int argc, char** argv)
         window.draw(artFrame);
         if (sf::Texture* art = cardArtTexture(card.imagePath))
         {
-            drawContainSprite(*art, {{position.x + 7.0f, position.y + 7.0f}, {30.0f, 30.0f}},
+            drawContainSprite(window, *art, {{position.x + 7.0f, position.y + 7.0f}, {30.0f, 30.0f}},
                               affordable ? sf::Color::White : sf::Color(120, 112, 104));
         }
 
@@ -6454,7 +3802,7 @@ int main(int argc, char** argv)
         bool drewArt = false;
         if (sf::Texture* art = cardArtTexture(piece ? piece->imagePath : card->imagePath))
         {
-            drawContainSprite(
+            drawContainSprite(window,
                 *art,
                 {{PiecePopupX + 30.0f, PiecePopupY + 70.0f}, {88.0f, 88.0f}});
             drewArt = true;
@@ -6463,9 +3811,9 @@ int main(int argc, char** argv)
         {
             if (!drewArt)
             {
-                if (sf::Texture* token = loadTexture(pieceTokenPath(*piece)))
+                if (sf::Texture* token = textures.load(pieceTokenPath(*piece)))
                 {
-                    drawContainSprite(
+                    drawContainSprite(window,
                         *token,
                         {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}});
                     drewArt = true;
@@ -6478,7 +3826,7 @@ int main(int argc, char** argv)
                     const int frameHeight = static_cast<int>(sheetSize.y);
                     if (frameWidth > 0 && frameHeight > 0)
                     {
-                        drawTextureRectContain(
+                        drawTextureRectContain(window,
                             *walkSheet,
                             sf::IntRect({0, 0}, {frameWidth, frameHeight}),
                             {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}},
@@ -6973,7 +4321,7 @@ int main(int argc, char** argv)
                         const int frame = std::min(
                             static_cast<int>(loopProgress * static_cast<float>(walkFrameCount)),
                             walkFrameCount - 1);
-                        drawTextureRectContain(
+                        drawTextureRectContain(window,
                             *walkSheet,
                             sf::IntRect({frame * frameWidth, 0}, {frameWidth, frameHeight}),
                             pieceTargetRect(anchor, pieceScale, true),
@@ -6983,9 +4331,9 @@ int main(int argc, char** argv)
                     }
                 }
             }
-            else if (sf::Texture* token = loadTexture(tokenPath))
+            else if (sf::Texture* token = textures.load(tokenPath))
             {
-                drawContainSprite(
+                drawContainSprite(window,
                     *token,
                     pieceTargetRect(anchor, pieceScale, true),
                     pieceUnavailable ? sf::Color(150, 150, 150, 215) : sf::Color::White);
@@ -6999,7 +4347,7 @@ int main(int argc, char** argv)
                 const int frameHeight = static_cast<int>(sheetSize.y);
                 if (frameWidth > 0 && frameHeight > 0)
                 {
-                    drawTextureRectContain(
+                    drawTextureRectContain(window,
                         *walkSheet,
                         sf::IntRect({0, 0}, {frameWidth, frameHeight}),
                         pieceTargetRect(anchor, pieceScale, true),
@@ -7010,7 +4358,7 @@ int main(int argc, char** argv)
             }
             else if (sf::Texture* art = cardArtTexture(piece.imagePath))
             {
-                drawContainSprite(*art, pieceTargetRect(anchor, pieceScale, false),
+                drawContainSprite(window, *art, pieceTargetRect(anchor, pieceScale, false),
                                   pieceUnavailable
                                       ? sf::Color(130, 130, 130)
                                       : sf::Color::White);
@@ -7215,9 +4563,9 @@ int main(int argc, char** argv)
                     : sf::Color(220, 120, 110, 190);
                 bool drewPiece = false;
 
-                if (sf::Texture* token = loadTexture(pieceTokenPath(*draggedPiece)))
+                if (sf::Texture* token = textures.load(pieceTokenPath(*draggedPiece)))
                 {
-                    drawContainSprite(*token, pieceTargetRect(anchor, scale, true), tint);
+                    drawContainSprite(window, *token, pieceTargetRect(anchor, scale, true), tint);
                     drewPiece = true;
                 }
                 else if (sf::Texture* walkSheet = walkAnimTexture(pieceWalkAnimPath(*draggedPiece)))
@@ -7229,7 +4577,7 @@ int main(int argc, char** argv)
                     const int frameHeight = static_cast<int>(sheetSize.y);
                     if (frameWidth > 0 && frameHeight > 0)
                     {
-                        drawTextureRectContain(
+                        drawTextureRectContain(window,
                             *walkSheet,
                             sf::IntRect({0, 0}, {frameWidth, frameHeight}),
                             pieceTargetRect(anchor, scale, true),
@@ -7239,7 +4587,7 @@ int main(int argc, char** argv)
                 }
                 else if (sf::Texture* art = cardArtTexture(draggedPiece->imagePath))
                 {
-                    drawContainSprite(*art, pieceTargetRect(anchor, scale, false), tint);
+                    drawContainSprite(window, *art, pieceTargetRect(anchor, scale, false), tint);
                     drewPiece = true;
                 }
 
@@ -7332,7 +4680,7 @@ int main(int argc, char** argv)
         drawText(window, font, headings[static_cast<std::size_t>(storyComicPage)], 30, {44.0f, 28.0f}, sf::Color(248, 224, 172), 520.0f);
         drawText(window, font, "Part " + std::to_string(storyComicPage + 1) + "/3", 16, {674.0f, 40.0f}, sf::Color(190, 198, 214), 90.0f);
 
-        sf::Texture* tomArt = loadTexture("cards/tinkering-tom.png");
+        sf::Texture* tomArt = textures.load("cards/tinkering-tom.png");
         for (int i = 0; i < 3; ++i)
         {
             const sf::Vector2f panelPos{42.0f + static_cast<float>(i) * 250.0f, 96.0f};
@@ -7369,7 +4717,7 @@ int main(int argc, char** argv)
             if (tomArt)
             {
                 const float tomX = panelPos.x + 60.0f + static_cast<float>(i) * 16.0f;
-                drawContainSprite(*tomArt, {{tomX, panelPos.y + 66.0f}, {94.0f, 116.0f}});
+                drawContainSprite(window, *tomArt, {{tomX, panelPos.y + 66.0f}, {94.0f, 116.0f}});
             }
 
             if (storyComicPage == 2 && i == 2)
@@ -8039,14 +5387,11 @@ int main(int argc, char** argv)
                         const sf::Vector2u size = displayResolutions[selectedResolution];
                         pendingDisplaySettings.width = size.x;
                         pendingDisplaySettings.height = size.y;
-                        createDisplayWindow(pendingDisplaySettings);
+                        createDisplayWindow(window, pendingDisplaySettings, desktopMode, fullscreenModes);
                         displaySettings = pendingDisplaySettings;
-                        const sf::Vector2u appliedSize{displaySettings.width, displaySettings.height};
-                        if (const auto applied = std::find(displayResolutions.begin(), displayResolutions.end(), appliedSize);
-                            applied != displayResolutions.end())
-                        {
-                            selectedResolution = static_cast<std::size_t>(std::distance(displayResolutions.begin(), applied));
-                        }
+                        selectedResolution = displayResolutionIndex(
+                            displayResolutions,
+                            {displaySettings.width, displaySettings.height});
                         updateOptionsLabels();
                         const bool saved = saveDisplaySettings(displaySettings);
                         setMessage(
@@ -9160,7 +6505,7 @@ int main(int argc, char** argv)
         }
 
         window.clear(sf::Color(9, 17, 19));
-        drawBackdrop();
+        drawBackdrop(window, backdropTexture);
         if (currentState != GameState::DeckEditor &&
             currentState != GameState::Shop &&
             currentState != GameState::AdminUsers &&

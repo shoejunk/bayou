@@ -3,15 +3,19 @@
 #include <fmt/core.h>
 #include <sodium.h>
 
+#include "account_catalog.hpp"
+#include "account_decks.hpp"
+#include "account_rate_limiter.hpp"
+#include "account_security.hpp"
+#include "account_tokens.hpp"
+
 #include "../shared/account_data.hpp"
 #include "../shared/deck_data.hpp"
-#include "../shared/game_data.hpp"
 #include "../shared/ranking.hpp"
 #include "../shared/socket_timeout.hpp"
 
 #include <atomic>
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
@@ -21,10 +25,8 @@
 #include <mutex>
 #include <optional>
 #include <random>
-#include <stdexcept>
 #include <string>
 #include <thread>
-#include <unordered_map>
 #include <vector>
 
 #include "../shared/network.hpp"
@@ -33,104 +35,11 @@ using namespace network;
 
 namespace
 {
-constexpr int StarterNonHeroKinds = game_data::DeckCardCount / game_data::MaxCardCopies;
 constexpr int WinRewardCoins = 10;
 constexpr int AiWinRewardCoins = 1;
 constexpr int ShopCardCost = 5;
-constexpr const char* StarterDeckName = "Starter Deck";
-constexpr const char* PreferredStarterHero = "Steam Baron";
-constexpr const char* StarterDeckHeroTitles[] = {"Tinkering Tom", "Scarlett Glumpkin", "Elias Tiberion"};
-constexpr const char* StarterDeckNonHeroTitles[] = {
-    "Brass Pawn",
-    "Rifleman",
-    "Clockwork Rook",
-    "Steam Bishop",
-    "Automaton Knight",
-    "Dredger",
-    "Spark Drone",
-    "Sentroid",
-    "Patrol Bot",
-    "Rustbucket",
-};
-constexpr const char* StarterCollectionExtraTitles[] = {PreferredStarterHero};
-constexpr std::int64_t RememberTokenLifetimeSeconds = 30LL * 24LL * 60LL * 60LL;
-constexpr std::int64_t AccessTokenLifetimeSeconds = 12LL * 60LL * 60LL;
-constexpr std::int64_t LoginAttemptWindowSeconds = 15LL * 60LL;
-constexpr std::int64_t LoginBlockSeconds = 15LL * 60LL;
 constexpr auto ClientRequestTimeout = std::chrono::seconds(30);
-constexpr int MaximumLoginFailures = 5;
-constexpr int MaximumLoginFailuresPerAddress = 25;
-constexpr std::size_t MinimumPasswordLength = 15;
-constexpr std::size_t MaximumPasswordLength = 128;
-constexpr std::size_t MinimumUsernameLength = 3;
-constexpr std::size_t MaximumUsernameLength = 32;
 
-struct LoginAttempt
-{
-    int failures = 0;
-    std::int64_t windowStartedAt = 0;
-    std::int64_t blockedUntil = 0;
-};
-
-struct ShopCardEntry
-{
-    std::string title;
-    std::string rarity;
-};
-
-int shopRarityWeight(const std::string& rarity)
-{
-    if (rarity == "legendary")
-    {
-        return 5;
-    }
-    if (rarity == "rare")
-    {
-        return 25;
-    }
-    return 70;
-}
-
-std::string normalizedRarity(const std::string& rarity)
-{
-    if (rarity == "rare" || rarity == "legendary")
-    {
-        return rarity;
-    }
-    return "common";
-}
-
-const std::vector<std::string>& fallbackStarterNonHeroes()
-{
-    static const std::vector<std::string> titles = {
-        "Brass Pawn",
-        "Rifleman",
-        "Clockwork Rook",
-        "Steam Bishop",
-        "Automaton Knight",
-        "Dredger",
-        "Spark Drone",
-        "Sentroid",
-        "Patrol Bot",
-        "Rustbucket",
-        "Overpressure",
-        "Gearwright",
-        "Brass Medic",
-        "Boiler Imp",
-        "Railgunner",
-        "Swamp Skiff",
-        "Arc Lantern",
-        "Sprocket Swarm",
-        "Chain Harpoon",
-        "Mudslide",
-    };
-    return titles;
-}
-
-bool containsTitle(const std::vector<std::string>& titles, const std::string& title)
-{
-    return std::find(titles.begin(), titles.end(), title) != titles.end();
-}
 }
 
 class AccountServer
@@ -201,8 +110,7 @@ private:
     std::unique_ptr<sf::TcpListener> listener;
     std::unique_ptr<SQLite::Database> database;
     std::mutex databaseMutex;
-    std::mutex loginAttemptMutex;
-    std::unordered_map<std::string, LoginAttempt> loginAttempts;
+    account_rate_limiter::AccountRateLimiter loginRateLimiter;
     std::mt19937 rng{std::random_device{}()};
     std::atomic<bool> running{false};
     bool listening = false;
@@ -511,15 +419,15 @@ private:
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::CreateAccountResponse);
 
-        if (isLoginBlocked("create:" + remoteAddress))
+        if (loginRateLimiter.isBlocked("create:" + remoteAddress))
         {
             response << false << std::string("Too many account creation attempts; try again later");
             [[maybe_unused]] auto result = client.send(response);
             return;
         }
-        recordLoginFailure("create:" + remoteAddress);
+        loginRateLimiter.recordFailure("create:" + remoteAddress);
 
-        if (!isValidUsername(username))
+        if (!account_security::isValidUsername(username))
         {
             response << false << std::string(
                 "Username must be 3-32 characters using letters, numbers, '_' or '-'");
@@ -527,7 +435,7 @@ private:
             return;
         }
 
-        if (!isValidNewPassword(password))
+        if (!account_security::isValidNewPassword(password))
         {
             response << false << std::string("Password must be 15-128 characters");
             [[maybe_unused]] auto result = client.send(response);
@@ -547,11 +455,11 @@ private:
                     *database,
                     "INSERT INTO accounts (username, password_hash, is_admin) VALUES (?, ?, 0)");
                 insert.bind(1, username);
-                insert.bind(2, hashPassword(password));
+                insert.bind(2, account_security::hashPassword(password));
                 insert.exec();
 
-                ensureStarterInventory(username);
-                const std::string accessToken = issueAccessToken(username);
+                account_decks::ensureStarterInventory(*database, username);
+                const std::string accessToken = account_tokens::issueAccessToken(*database, username);
                 response << true << std::string("Account created successfully")
                          << username << accessToken << std::string();
                 fmt::println("Created account for user: {}", username);
@@ -576,7 +484,7 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
             if (!username)
             {
                 response << false << std::string("Authentication required");
@@ -584,7 +492,7 @@ private:
             }
             else
             {
-                const std::vector<deck_data::Deck> decks = loadDecks(*username);
+                const std::vector<deck_data::Deck> decks = account_decks::loadDecks(*database, *username);
                 response << true << std::string("Decks loaded");
                 response << static_cast<std::uint32_t>(decks.size());
                 for (const deck_data::Deck& deck : decks)
@@ -620,26 +528,27 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
             if (!username)
             {
                 sendDeckCommandResponse(client, MessageType::DeckSaveResponse, false, "Authentication required");
                 return;
             }
 
-            if (const std::optional<std::string> collectionError = deckCollectionError(*username, deck))
+            if (const std::optional<std::string> collectionError =
+                    account_decks::deckCollectionError(*database, *username, deck))
             {
                 sendDeckCommandResponse(client, MessageType::DeckSaveResponse, false, *collectionError);
                 return;
             }
 
-            if (const std::optional<std::string> rulesError = deckRulesError(deck))
+            if (const std::optional<std::string> rulesError = account_decks::deckRulesError(deck))
             {
                 sendDeckCommandResponse(client, MessageType::DeckSaveResponse, false, *rulesError);
                 return;
             }
 
-            saveDeck(*username, originalName, deck);
+            account_decks::saveDeck(*database, *username, originalName, deck);
             sendDeckCommandResponse(client, MessageType::DeckSaveResponse, true, "Deck saved");
             fmt::println("Saved deck '{}' for user {}", deck.name, *username);
         }
@@ -661,14 +570,14 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
             if (!username)
             {
                 sendDeckCommandResponse(client, MessageType::DeckDeleteResponse, false, "Authentication required");
                 return;
             }
 
-            if (!deleteDeck(*username, deckName))
+            if (!account_decks::deleteDeck(*database, *username, deckName))
             {
                 sendDeckCommandResponse(client, MessageType::DeckDeleteResponse, false, "Deck not found");
                 return;
@@ -689,14 +598,14 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
             if (!username)
             {
                 sendAccountStateResponse(client, false, "Authentication required", 0, 0, false, {});
                 return;
             }
 
-            ensureStarterInventory(*username);
+            account_decks::ensureStarterInventory(*database, *username);
             sendAccountStateResponse(
                 client,
                 true,
@@ -704,7 +613,7 @@ private:
                 loadCoins(*username),
                 loadRating(*username),
                 isAdmin(*username),
-                loadCollection(*username));
+                account_decks::loadCollection(*database, *username));
         }
         catch (const std::exception& error)
         {
@@ -721,7 +630,7 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
             if (!username)
             {
                 response << false << std::string("Authentication required")
@@ -756,9 +665,9 @@ private:
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
             const std::optional<std::string> playerOne =
-                authenticateAccessToken(playerOneToken);
+                account_tokens::authenticateAccessToken(*database, playerOneToken);
             const std::optional<std::string> playerTwo =
-                authenticateAccessToken(playerTwoToken);
+                account_tokens::authenticateAccessToken(*database, playerTwoToken);
             if (!playerOne || !playerTwo)
             {
                 response << false << std::string("Invalid ranked match players")
@@ -766,7 +675,7 @@ private:
             }
             else
             {
-                const std::string resultToken = generateRememberToken();
+                const std::string resultToken = account_security::generateToken();
                 SQLite::Statement insert(
                     *database,
                     "INSERT INTO ranked_matches "
@@ -774,7 +683,7 @@ private:
                 insert.bind(1, matchId);
                 insert.bind(2, *playerOne);
                 insert.bind(3, *playerTwo);
-                insert.bind(4, hashToken(resultToken));
+                insert.bind(4, account_security::hashToken(resultToken));
                 insert.exec();
                 response << true << std::string("Ranked match registered")
                          << *playerOne << *playerTwo << resultToken;
@@ -819,7 +728,7 @@ private:
                     "FROM ranked_matches WHERE match_id = ?");
                 matchQuery.bind(1, matchId);
                 if (!matchQuery.executeStep() ||
-                    matchQuery.getColumn(2).getString() != hashToken(resultToken) ||
+                    matchQuery.getColumn(2).getString() != account_security::hashToken(resultToken) ||
                     matchQuery.getColumn(3).getInt() != 0)
                 {
                     response << false << std::string("Ranked match is invalid or already completed")
@@ -905,7 +814,7 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
             if (!username)
             {
                 response << false << std::string("Authentication required") << 0;
@@ -953,7 +862,7 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
             if (!username)
             {
                 sendShopPurchaseResponse(client, false, "Authentication required", 0, "");
@@ -967,21 +876,21 @@ private:
                 return;
             }
 
-            const std::vector<ShopCardEntry> shopCards = loadShopCards();
+            const std::vector<account_catalog::ShopCardEntry> shopCards = account_catalog::loadShopCards();
             if (shopCards.empty())
             {
                 sendShopPurchaseResponse(client, false, "No cards are available in the shop", coins, "");
                 return;
             }
 
-            const std::string cardTitle = chooseShopCard(shopCards);
+            const std::string cardTitle = account_catalog::chooseShopCard(shopCards, rng);
 
             SQLite::Transaction transaction(*database);
             SQLite::Statement spend(*database, "UPDATE accounts SET coins = coins - ? WHERE username = ?");
             spend.bind(1, ShopCardCost);
             spend.bind(2, *username);
             spend.exec();
-            addCollectionCopies(*username, cardTitle, 1);
+            account_decks::addCollectionCopies(*database, *username, cardTitle, 1);
             transaction.commit();
 
             sendShopPurchaseResponse(
@@ -1016,7 +925,7 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
             if (!username || !isAdmin(*username))
             {
                 response << false << std::string("Admin access required")
@@ -1077,12 +986,12 @@ private:
         const std::string& newPassword,
         const std::string& remoteAddress)
     {
-        if (currentPassword.empty() || currentPassword.size() > MaximumPasswordLength)
+        if (currentPassword.empty() || currentPassword.size() > account_security::MaximumPasswordLength)
         {
             sendChangePasswordResponse(client, false, "Current password is incorrect");
             return;
         }
-        if (!isValidNewPassword(newPassword))
+        if (!account_security::isValidNewPassword(newPassword))
         {
             sendChangePasswordResponse(client, false, "New password must be 15-128 characters");
             return;
@@ -1091,7 +1000,7 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
             if (!username)
             {
                 sendChangePasswordResponse(client, false, "Authentication required");
@@ -1100,7 +1009,7 @@ private:
 
             const std::string userRateLimitKey = "password-change-user:" + *username;
             const std::string addressRateLimitKey = "password-change-address:" + remoteAddress;
-            if (isLoginBlocked(userRateLimitKey) || isLoginBlocked(addressRateLimitKey))
+            if (loginRateLimiter.isBlocked(userRateLimitKey) || loginRateLimiter.isBlocked(addressRateLimitKey))
             {
                 sendChangePasswordResponse(client, false, "Too many password attempts; try again later");
                 return;
@@ -1117,10 +1026,10 @@ private:
                     storedHash = query.getColumn(0).getString();
                 }
             }
-            if (storedHash.empty() || !verifyPassword(storedHash, currentPassword))
+            if (storedHash.empty() || !account_security::verifyPassword(storedHash, currentPassword))
             {
-                recordLoginFailure(userRateLimitKey);
-                recordLoginFailure(addressRateLimitKey, MaximumLoginFailuresPerAddress);
+                loginRateLimiter.recordFailure(userRateLimitKey);
+                loginRateLimiter.recordFailure(addressRateLimitKey, account_rate_limiter::MaximumLoginFailuresPerAddress);
                 sendChangePasswordResponse(client, false, "Current password is incorrect");
                 return;
             }
@@ -1147,12 +1056,12 @@ private:
                 *database,
                 "DELETE FROM access_tokens WHERE username = ? AND token_hash <> ?");
             deleteOtherAccessTokens.bind(1, *username);
-            deleteOtherAccessTokens.bind(2, hashToken(accessToken));
+            deleteOtherAccessTokens.bind(2, account_security::hashToken(accessToken));
             deleteOtherAccessTokens.exec();
             transaction.commit();
 
-            clearLoginFailures(userRateLimitKey);
-            clearLoginFailures(addressRateLimitKey);
+            loginRateLimiter.clearFailures(userRateLimitKey);
+            loginRateLimiter.clearFailures(addressRateLimitKey);
             fmt::println("Password changed for user: {}", *username);
             sendChangePasswordResponse(client, true, "Password changed successfully");
         }
@@ -1182,7 +1091,7 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
             if (!username || !isAdmin(*username))
             {
                 response << false << std::string("Admin access required") << false;
@@ -1235,7 +1144,7 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
             if (!username || !isAdmin(*username))
             {
                 response << false << std::string("Admin access required") << 0;
@@ -1305,7 +1214,7 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            const std::optional<std::string> username = authenticateAccessToken(accessToken);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
             if (!username || !isAdmin(*username))
             {
                 response << false << std::string("Admin access required");
@@ -1362,7 +1271,7 @@ private:
         const std::string userRateLimitKey = "login-user:" + normalizedUsername;
         const std::string addressRateLimitKey = "login-address:" + remoteAddress;
 
-        if (isLoginBlocked(userRateLimitKey) || isLoginBlocked(addressRateLimitKey))
+        if (loginRateLimiter.isBlocked(userRateLimitKey) || loginRateLimiter.isBlocked(addressRateLimitKey))
         {
             response << false << std::string("Too many login attempts; try again later")
                      << std::string() << std::string() << std::string();
@@ -1370,12 +1279,12 @@ private:
             return;
         }
 
-        if (username.empty() || password.empty() || password.size() > MaximumPasswordLength)
+        if (username.empty() || password.empty() || password.size() > account_security::MaximumPasswordLength)
         {
             response << false << std::string("Username and password cannot be empty")
                      << std::string() << std::string() << std::string();
-            recordLoginFailure(userRateLimitKey, MaximumLoginFailures);
-            recordLoginFailure(addressRateLimitKey, MaximumLoginFailuresPerAddress);
+            loginRateLimiter.recordFailure(userRateLimitKey, account_rate_limiter::MaximumLoginFailures);
+            loginRateLimiter.recordFailure(addressRateLimitKey, account_rate_limiter::MaximumLoginFailuresPerAddress);
             [[maybe_unused]] auto result = client.send(response);
             return;
         }
@@ -1390,32 +1299,32 @@ private:
 
             if (!query.executeStep())
             {
-                [[maybe_unused]] const bool ignored = verifyPassword(dummyPasswordHash(), password);
-                recordLoginFailure(userRateLimitKey, MaximumLoginFailures);
-                recordLoginFailure(addressRateLimitKey, MaximumLoginFailuresPerAddress);
+                [[maybe_unused]] const bool ignored = account_security::verifyPassword(account_security::dummyPasswordHash(), password);
+                loginRateLimiter.recordFailure(userRateLimitKey, account_rate_limiter::MaximumLoginFailures);
+                loginRateLimiter.recordFailure(addressRateLimitKey, account_rate_limiter::MaximumLoginFailuresPerAddress);
                 response << false << std::string("Invalid username or password")
                          << std::string() << std::string() << std::string();
             }
             else
             {
                 const std::string storedHash = query.getColumn(0).getString();
-                if (!verifyPassword(storedHash, password))
+                if (!account_security::verifyPassword(storedHash, password))
                 {
-                    recordLoginFailure(userRateLimitKey, MaximumLoginFailures);
-                    recordLoginFailure(addressRateLimitKey, MaximumLoginFailuresPerAddress);
+                    loginRateLimiter.recordFailure(userRateLimitKey, account_rate_limiter::MaximumLoginFailures);
+                    loginRateLimiter.recordFailure(addressRateLimitKey, account_rate_limiter::MaximumLoginFailuresPerAddress);
                     response << false << std::string("Invalid username or password")
                              << std::string() << std::string() << std::string();
                 }
                 else
                 {
-                    clearLoginFailures(userRateLimitKey);
-                    if (passwordHashNeedsUpgrade(storedHash))
+                    loginRateLimiter.clearFailures(userRateLimitKey);
+                    if (account_security::passwordHashNeedsUpgrade(storedHash))
                     {
                         updatePasswordHash(username, password);
                     }
-                    ensureStarterInventory(username);
-                    const std::string accessToken = issueAccessToken(username);
-                    const std::string rememberToken = rememberMe ? issueRememberToken(username) : std::string();
+                    account_decks::ensureStarterInventory(*database, username);
+                    const std::string accessToken = account_tokens::issueAccessToken(*database, username);
+                    const std::string rememberToken = rememberMe ? account_tokens::issueRememberToken(*database, username) : std::string();
                     response << true << std::string("Login successful") << username << accessToken << rememberToken;
                     fmt::println("User logged in: {}", username);
                 }
@@ -1449,41 +1358,21 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            deleteExpiredRememberTokens();
-
-            const std::string oldHash = hashToken(token);
-            SQLite::Statement query(
-                *database,
-                "SELECT username FROM remember_tokens "
-                "WHERE token_hash = ? AND expires_at > ?");
-            query.bind(1, oldHash);
-            query.bind(2, unixTime());
-
-            if (!query.executeStep())
+            const std::optional<account_tokens::RememberLogin> remembered =
+                account_tokens::rotateRememberToken(*database, token);
+            if (!remembered)
             {
                 response << false << std::string("Saved login has expired")
                          << std::string() << std::string() << std::string();
             }
             else
             {
-                const std::string username = query.getColumn(0).getString();
-                const std::string replacement = generateRememberToken();
-                const std::int64_t now = unixTime();
-                SQLite::Statement rotate(
-                    *database,
-                    "UPDATE remember_tokens "
-                    "SET token_hash = ?, expires_at = ?, last_used_at = ? "
-                    "WHERE token_hash = ?");
-                rotate.bind(1, hashToken(replacement));
-                rotate.bind(2, now + RememberTokenLifetimeSeconds);
-                rotate.bind(3, now);
-                rotate.bind(4, oldHash);
-                rotate.exec();
-
-                ensureStarterInventory(username);
-                const std::string accessToken = issueAccessToken(username);
-                response << true << std::string("Login successful") << username << accessToken << replacement;
-                fmt::println("User restored from remembered login: {}", username);
+                account_decks::ensureStarterInventory(*database, remembered->username);
+                const std::string accessToken =
+                    account_tokens::issueAccessToken(*database, remembered->username);
+                response << true << std::string("Login successful")
+                         << remembered->username << accessToken << remembered->replacementToken;
+                fmt::println("User restored from remembered login: {}", remembered->username);
             }
         }
         catch (const std::exception& error)
@@ -1506,22 +1395,8 @@ private:
         try
         {
             std::lock_guard<std::mutex> lock(databaseMutex);
-            if (!rememberToken.empty())
-            {
-                SQLite::Statement revoke(
-                    *database,
-                    "DELETE FROM remember_tokens WHERE token_hash = ?");
-                revoke.bind(1, hashToken(rememberToken));
-                revoke.exec();
-            }
-            if (!accessToken.empty())
-            {
-                SQLite::Statement revoke(
-                    *database,
-                    "DELETE FROM access_tokens WHERE token_hash = ?");
-                revoke.bind(1, hashToken(accessToken));
-                revoke.exec();
-            }
+            account_tokens::revokeRememberToken(*database, rememberToken);
+            account_tokens::revokeAccessToken(*database, accessToken);
         }
         catch (const std::exception& error)
         {
@@ -1622,42 +1497,6 @@ private:
         return false;
     }
 
-    std::vector<deck_data::Deck> loadDecks(const std::string& username)
-    {
-        std::vector<deck_data::Deck> decks;
-        SQLite::Statement query(
-            *database,
-            "SELECT id, name FROM decks WHERE username = ? ORDER BY name");
-        query.bind(1, username);
-
-        while (query.executeStep())
-        {
-            const std::int64_t deckId = query.getColumn(0).getInt64();
-            deck_data::Deck deck;
-            deck.name = query.getColumn(1).getString();
-            deck.cardTitles = loadDeckCards(deckId);
-            decks.push_back(deck);
-        }
-
-        return decks;
-    }
-
-    std::vector<std::string> loadDeckCards(std::int64_t deckId)
-    {
-        std::vector<std::string> cardTitles;
-        SQLite::Statement query(
-            *database,
-            "SELECT card_title FROM deck_cards WHERE deck_id = ? ORDER BY card_index");
-        query.bind(1, deckId);
-
-        while (query.executeStep())
-        {
-            cardTitles.push_back(query.getColumn(0).getString());
-        }
-
-        return cardTitles;
-    }
-
     int loadCoins(const std::string& username)
     {
         SQLite::Statement query(*database, "SELECT coins FROM accounts WHERE username = ? LIMIT 1");
@@ -1682,601 +1521,12 @@ private:
         return std::max(0, query.getColumn(0).getInt());
     }
 
-    std::vector<account_data::CollectionCard> loadCollection(const std::string& username)
-    {
-        std::vector<account_data::CollectionCard> collection;
-        SQLite::Statement query(
-            *database,
-            "SELECT card_title, copies FROM card_collections WHERE username = ? AND copies > 0 ORDER BY card_title");
-        query.bind(1, username);
-
-        while (query.executeStep())
-        {
-            collection.push_back({query.getColumn(0).getString(), query.getColumn(1).getInt()});
-        }
-
-        return collection;
-    }
-
-    bool collectionIsEmpty(const std::string& username)
-    {
-        SQLite::Statement query(
-            *database,
-            "SELECT 1 FROM card_collections WHERE username = ? AND copies > 0 LIMIT 1");
-        query.bind(1, username);
-        return !query.executeStep();
-    }
-
-    void addCollectionCopies(const std::string& username, const std::string& cardTitle, int copies)
-    {
-        if (cardTitle.empty() || copies <= 0)
-        {
-            return;
-        }
-
-        SQLite::Statement upsert(
-            *database,
-            "INSERT INTO card_collections (username, card_title, copies) VALUES (?, ?, ?) "
-            "ON CONFLICT(username, card_title) DO UPDATE SET copies = copies + excluded.copies");
-        upsert.bind(1, username);
-        upsert.bind(2, cardTitle);
-        upsert.bind(3, copies);
-        upsert.exec();
-    }
-
-    std::optional<std::string> deckCollectionError(const std::string& username, const deck_data::Deck& deck)
-    {
-        std::unordered_map<std::string, int> available;
-        for (const account_data::CollectionCard& card : loadCollection(username))
-        {
-            available[card.title] = card.copies;
-        }
-
-        std::unordered_map<std::string, int> used;
-        for (const std::string& title : deck.cardTitles)
-        {
-            const int count = ++used[title];
-            const int owned = available[title];
-            if (count > owned)
-            {
-                return "Deck uses " + std::to_string(count) + " copies of " + title +
-                    " but collection has " + std::to_string(owned);
-            }
-        }
-
-        return std::nullopt;
-    }
-
-    std::optional<std::string> deckRulesError(const deck_data::Deck& deck)
-    {
-        SQLite::Database cardsDatabase("cards.db", SQLite::OPEN_READONLY);
-        SQLite::Statement cardQuery(cardsDatabase, "SELECT type FROM cards WHERE title = ? LIMIT 1");
-
-        int cardCount = 0;
-        int heroCount = 0;
-        int heroCost = 0;
-        std::unordered_map<std::string, int> used;
-
-        for (const std::string& title : deck.cardTitles)
-        {
-            cardQuery.reset();
-            cardQuery.bind(1, title);
-            if (!cardQuery.executeStep())
-            {
-                return "Unknown card in deck: " + title;
-            }
-
-            const bool isHero = cardQuery.getColumn(0).getString() == "Hero";
-            const int count = ++used[title];
-            const int copyLimit = isHero ? game_data::MaxHeroCopies : game_data::MaxCardCopies;
-            if (count > copyLimit)
-            {
-                return "Deck can contain at most " + std::to_string(copyLimit) + " " +
-                    (isHero ? "copy of hero " : "copies of card ") + title;
-            }
-
-            if (isHero)
-            {
-                ++heroCount;
-                SQLite::Statement costQuery(
-                    cardsDatabase,
-                    "SELECT value FROM card_integer_values WHERE title = ? AND key = 'heroCost' LIMIT 1");
-                costQuery.bind(1, title);
-                if (costQuery.executeStep())
-                {
-                    heroCost += costQuery.getColumn(0).getInt();
-                }
-            }
-            else
-            {
-                ++cardCount;
-            }
-        }
-
-        if (cardCount != game_data::DeckCardCount)
-        {
-            return "Deck must contain exactly " + std::to_string(game_data::DeckCardCount) +
-                " non-hero cards";
-        }
-        if (heroCount < game_data::MinHeroes || heroCount > game_data::MaxHeroes)
-        {
-            return "Deck must contain " + std::to_string(game_data::MinHeroes) + "-" +
-                std::to_string(game_data::MaxHeroes) + " heroes";
-        }
-        if (heroCost > game_data::HeroCostLimit)
-        {
-            return "Hero cost exceeds limit " + std::to_string(game_data::HeroCostLimit);
-        }
-
-        return std::nullopt;
-    }
-
-    void saveDeck(const std::string& username, const std::string& originalName, const deck_data::Deck& deck)
-    {
-        SQLite::Transaction transaction(*database);
-
-        saveDeckRows(username, originalName, deck);
-        transaction.commit();
-    }
-
-    void saveDeckRows(const std::string& username, const std::string& originalName, const deck_data::Deck& deck)
-    {
-        const std::string lookupName = originalName.empty() ? deck.name : originalName;
-        std::optional<std::int64_t> deckId = findDeckId(username, lookupName);
-        if (deckId)
-        {
-            SQLite::Statement update(
-                *database,
-                "UPDATE decks SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
-            update.bind(1, deck.name);
-            update.bind(2, *deckId);
-            update.exec();
-        }
-        else
-        {
-            SQLite::Statement insert(
-                *database,
-                "INSERT INTO decks (username, name) VALUES (?, ?)");
-            insert.bind(1, username);
-            insert.bind(2, deck.name);
-            insert.exec();
-            deckId = database->getLastInsertRowid();
-        }
-
-        SQLite::Statement deleteCards(*database, "DELETE FROM deck_cards WHERE deck_id = ?");
-        deleteCards.bind(1, *deckId);
-        deleteCards.exec();
-
-        SQLite::Statement insertCard(
-            *database,
-            "INSERT INTO deck_cards (deck_id, card_index, card_title) VALUES (?, ?, ?)");
-        for (std::size_t i = 0; i < deck.cardTitles.size(); ++i)
-        {
-            insertCard.reset();
-            insertCard.bind(1, *deckId);
-            insertCard.bind(2, static_cast<int>(i));
-            insertCard.bind(3, deck.cardTitles[i]);
-            insertCard.exec();
-        }
-    }
-
-    bool deleteDeck(const std::string& username, const std::string& deckName)
-    {
-        const std::optional<std::int64_t> deckId = findDeckId(username, deckName);
-        if (!deckId)
-        {
-            return false;
-        }
-
-        SQLite::Transaction transaction(*database);
-        SQLite::Statement statement(*database, "DELETE FROM decks WHERE id = ?");
-        statement.bind(1, *deckId);
-        statement.exec();
-        transaction.commit();
-        return true;
-    }
-
-    std::optional<std::int64_t> findDeckId(const std::string& username, const std::string& deckName)
-    {
-        SQLite::Statement query(
-            *database,
-            "SELECT id FROM decks WHERE username = ? AND name = ? LIMIT 1");
-        query.bind(1, username);
-        query.bind(2, deckName);
-        if (!query.executeStep())
-        {
-            return std::nullopt;
-        }
-
-        return query.getColumn(0).getInt64();
-    }
-
-    std::vector<std::string> loadCardTitlesFromCardsDb(const std::string& typeFilter)
-    {
-        std::vector<std::string> titles;
-
-        try
-        {
-            SQLite::Database cardsDatabase("cards.db", SQLite::OPEN_READONLY);
-            const std::string sql = typeFilter.empty()
-                ? "SELECT title FROM cards ORDER BY title"
-                : "SELECT title FROM cards WHERE type = ? ORDER BY title";
-            SQLite::Statement query(cardsDatabase, sql);
-            if (!typeFilter.empty())
-            {
-                query.bind(1, typeFilter);
-            }
-
-            while (query.executeStep())
-            {
-                titles.push_back(query.getColumn(0).getString());
-            }
-        }
-        catch (const std::exception& error)
-        {
-            fmt::println("Could not read cards.db while building account inventory: {}", error.what());
-        }
-
-        return titles;
-    }
-
-    std::vector<std::string> loadNonHeroCardTitles()
-    {
-        std::vector<std::string> titles;
-
-        try
-        {
-            SQLite::Database cardsDatabase("cards.db", SQLite::OPEN_READONLY);
-            SQLite::Statement query(cardsDatabase, "SELECT title FROM cards WHERE type <> 'Hero' ORDER BY title");
-            while (query.executeStep())
-            {
-                titles.push_back(query.getColumn(0).getString());
-            }
-        }
-        catch (const std::exception& error)
-        {
-            fmt::println("Could not read non-hero cards from cards.db: {}", error.what());
-        }
-
-        return titles;
-    }
-
-    std::vector<std::string> loadAllCardTitles()
-    {
-        std::vector<std::string> titles = loadCardTitlesFromCardsDb("");
-        if (!titles.empty())
-        {
-            return titles;
-        }
-
-        titles.push_back(PreferredStarterHero);
-        const std::vector<std::string>& fallback = fallbackStarterNonHeroes();
-        titles.insert(titles.end(), fallback.begin(), fallback.end());
-        return titles;
-    }
-
-    std::vector<ShopCardEntry> loadShopCards()
-    {
-        std::vector<ShopCardEntry> cards;
-
-        try
-        {
-            SQLite::Database cardsDatabase("cards.db", SQLite::OPEN_READONLY);
-            SQLite::Statement query(
-                cardsDatabase,
-                "SELECT c.title, COALESCE(r.value, 'common') "
-                "FROM cards c "
-                "LEFT JOIN card_string_values r ON r.title = c.title AND r.key = 'rarity' "
-                "ORDER BY c.title");
-
-            while (query.executeStep())
-            {
-                cards.push_back({
-                    query.getColumn(0).getString(),
-                    normalizedRarity(query.getColumn(1).getString())});
-            }
-        }
-        catch (const std::exception& error)
-        {
-            fmt::println("Could not read shop cards from cards.db: {}", error.what());
-        }
-
-        if (!cards.empty())
-        {
-            return cards;
-        }
-
-        cards.push_back({PreferredStarterHero, "legendary"});
-        const std::vector<std::string>& fallback = fallbackStarterNonHeroes();
-        cards.reserve(cards.size() + fallback.size());
-        for (const std::string& title : fallback)
-        {
-            cards.push_back({title, "common"});
-        }
-        return cards;
-    }
-
-    std::string chooseShopCard(const std::vector<ShopCardEntry>& cards)
-    {
-        std::vector<ShopCardEntry> common;
-        std::vector<ShopCardEntry> rare;
-        std::vector<ShopCardEntry> legendary;
-        for (const ShopCardEntry& card : cards)
-        {
-            if (card.rarity == "legendary")
-            {
-                legendary.push_back(card);
-            }
-            else if (card.rarity == "rare")
-            {
-                rare.push_back(card);
-            }
-            else
-            {
-                common.push_back(card);
-            }
-        }
-
-        std::vector<const std::vector<ShopCardEntry>*> buckets;
-        std::vector<int> weights;
-        auto addBucket = [&](const std::vector<ShopCardEntry>& bucket, const std::string& rarity) {
-            if (!bucket.empty())
-            {
-                buckets.push_back(&bucket);
-                weights.push_back(shopRarityWeight(rarity));
-            }
-        };
-        addBucket(common, "common");
-        addBucket(rare, "rare");
-        addBucket(legendary, "legendary");
-
-        std::discrete_distribution<std::size_t> rarityDistribution(weights.begin(), weights.end());
-        const std::vector<ShopCardEntry>& bucket = *buckets[rarityDistribution(rng)];
-        std::uniform_int_distribution<std::size_t> cardDistribution(0, bucket.size() - 1);
-        return bucket[cardDistribution(rng)].title;
-    }
-
-    std::string starterHeroTitle()
-    {
-        std::vector<std::string> heroes = loadCardTitlesFromCardsDb("Hero");
-        if (heroes.empty())
-        {
-            return PreferredStarterHero;
-        }
-
-        const auto preferred = std::find(heroes.begin(), heroes.end(), PreferredStarterHero);
-        return preferred == heroes.end() ? heroes.front() : *preferred;
-    }
-
-    std::vector<std::string> starterHeroTitles()
-    {
-        std::vector<std::string> heroes = loadCardTitlesFromCardsDb("Hero");
-        std::vector<std::string> result;
-        for (const char* name : StarterDeckHeroTitles)
-        {
-            if (containsTitle(heroes, name))
-            {
-                result.push_back(name);
-            }
-        }
-        if (result.empty())
-        {
-            result.push_back(starterHeroTitle());
-        }
-        return result;
-    }
-
-    std::vector<std::string> starterNonHeroSlots()
-    {
-        std::vector<std::string> available = loadNonHeroCardTitles();
-        std::vector<std::string> ordered;
-
-        for (const char* title : StarterDeckNonHeroTitles)
-        {
-            if (available.empty() || containsTitle(available, title))
-            {
-                ordered.push_back(title);
-            }
-        }
-
-        const std::vector<std::string>& fallback = fallbackStarterNonHeroes();
-        for (const std::string& title : fallback)
-        {
-            if (ordered.size() >= StarterNonHeroKinds)
-            {
-                break;
-            }
-            if ((available.empty() || containsTitle(available, title)) && !containsTitle(ordered, title))
-            {
-                ordered.push_back(title);
-            }
-        }
-        for (const std::string& title : available)
-        {
-            if (ordered.size() >= StarterNonHeroKinds)
-            {
-                break;
-            }
-            if (!containsTitle(ordered, title))
-            {
-                ordered.push_back(title);
-            }
-        }
-        if (ordered.empty())
-        {
-            ordered = fallback;
-        }
-
-        const std::size_t uniqueCount = ordered.size();
-        for (std::size_t i = 0; ordered.size() < StarterNonHeroKinds; ++i)
-        {
-            ordered.push_back(ordered[i % uniqueCount]);
-        }
-        if (ordered.size() > StarterNonHeroKinds)
-        {
-            ordered.resize(StarterNonHeroKinds);
-        }
-        return ordered;
-    }
-
-    std::vector<std::string> starterCollectionTitles(const deck_data::Deck& starterDeck)
-    {
-        std::vector<std::string> collection = starterDeck.cardTitles;
-        const std::vector<std::string> allCards = loadAllCardTitles();
-
-        for (const char* title : StarterCollectionExtraTitles)
-        {
-            if (allCards.empty() || containsTitle(allCards, title))
-            {
-                collection.push_back(title);
-            }
-        }
-
-        return collection;
-    }
-
-    deck_data::Deck makeStarterDeck()
-    {
-        deck_data::Deck deck;
-        deck.name = StarterDeckName;
-        for (const std::string& hero : starterHeroTitles())
-        {
-            deck.cardTitles.push_back(hero);
-        }
-        for (const std::string& title : starterNonHeroSlots())
-        {
-            for (int copy = 0; copy < game_data::MaxCardCopies; ++copy)
-            {
-                deck.cardTitles.push_back(title);
-            }
-        }
-        return deck;
-    }
-
-    void ensureStarterInventory(const std::string& username)
-    {
-        if (!collectionIsEmpty(username))
-        {
-            return;
-        }
-
-        SQLite::Transaction transaction(*database);
-        const deck_data::Deck starterDeck = makeStarterDeck();
-        for (const std::string& title : starterCollectionTitles(starterDeck))
-        {
-            addCollectionCopies(username, title, 1);
-        }
-
-        if (loadDecks(username).empty())
-        {
-            saveDeckRows(username, "", starterDeck);
-        }
-        transaction.commit();
-    }
-
-    static std::int64_t unixTime()
-    {
-        return std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-    }
-
-    static std::string legacyPasswordHash(const std::string& password)
-    {
-        std::uint64_t hash = 14695981039346656037ull;
-        for (unsigned char c : password)
-        {
-            hash ^= c;
-            hash *= 1099511628211ull;
-        }
-
-        return fmt::format("{:016x}", hash);
-    }
-
-    static bool isModernPasswordHash(const std::string& hash)
-    {
-        return hash.starts_with("$argon2");
-    }
-
-    static bool passwordHashNeedsUpgrade(const std::string& hash)
-    {
-        if (!isModernPasswordHash(hash))
-        {
-            return true;
-        }
-
-        return crypto_pwhash_str_needs_rehash(
-            hash.c_str(),
-            crypto_pwhash_OPSLIMIT_INTERACTIVE,
-            crypto_pwhash_MEMLIMIT_INTERACTIVE) != 0;
-    }
-
-    static bool isValidUsername(const std::string& username)
-    {
-        if (username.size() < MinimumUsernameLength || username.size() > MaximumUsernameLength)
-        {
-            return false;
-        }
-
-        return std::all_of(username.begin(), username.end(), [](unsigned char ch) {
-            return std::isalnum(ch) != 0 || ch == '_' || ch == '-';
-        });
-    }
-
-    static bool isValidNewPassword(const std::string& password)
-    {
-        return password.size() >= MinimumPasswordLength &&
-               password.size() <= MaximumPasswordLength;
-    }
-
-    static std::string hashPassword(const std::string& password)
-    {
-        std::array<char, crypto_pwhash_STRBYTES> hash{};
-        if (crypto_pwhash_str(
-                hash.data(),
-                password.data(),
-                static_cast<unsigned long long>(password.size()),
-                crypto_pwhash_OPSLIMIT_INTERACTIVE,
-                crypto_pwhash_MEMLIMIT_INTERACTIVE) != 0)
-        {
-            throw std::runtime_error("Unable to hash password");
-        }
-        return hash.data();
-    }
-
-    static const std::string& dummyPasswordHash()
-    {
-        static const std::string hash = hashPassword(
-            "not-a-real-account-password-used-only-to-equalize-login-work");
-        return hash;
-    }
-
-    static bool verifyPassword(const std::string& storedHash, const std::string& password)
-    {
-        if (!isModernPasswordHash(storedHash))
-        {
-            const std::string expected = legacyPasswordHash(password);
-            if (storedHash.size() != expected.size())
-            {
-                return false;
-            }
-            return sodium_memcmp(
-                storedHash.data(),
-                expected.data(),
-                expected.size()) == 0;
-        }
-
-        return crypto_pwhash_str_verify(
-            storedHash.c_str(),
-            password.data(),
-            static_cast<unsigned long long>(password.size())) == 0;
-    }
-
     void updatePasswordHash(const std::string& username, const std::string& password)
     {
         SQLite::Statement update(
             *database,
             "UPDATE accounts SET password_hash = ? WHERE username = ?");
-        update.bind(1, hashPassword(password));
+        update.bind(1, account_security::hashPassword(password));
         update.bind(2, username);
         update.exec();
     }
@@ -2292,162 +1542,6 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    static std::string generateRememberToken()
-    {
-        std::array<unsigned char, 32> bytes{};
-        std::array<char, 65> encoded{};
-        randombytes_buf(bytes.data(), bytes.size());
-        sodium_bin2hex(encoded.data(), encoded.size(), bytes.data(), bytes.size());
-        return encoded.data();
-    }
-
-    static std::string hashToken(const std::string& token)
-    {
-        std::array<unsigned char, crypto_generichash_BYTES> hash{};
-        std::array<char, crypto_generichash_BYTES * 2 + 1> encoded{};
-        crypto_generichash(
-            hash.data(),
-            hash.size(),
-            reinterpret_cast<const unsigned char*>(token.data()),
-            static_cast<unsigned long long>(token.size()),
-            nullptr,
-            0);
-        sodium_bin2hex(encoded.data(), encoded.size(), hash.data(), hash.size());
-        return encoded.data();
-    }
-
-    void deleteExpiredRememberTokens()
-    {
-        SQLite::Statement cleanup(
-            *database,
-            "DELETE FROM remember_tokens WHERE expires_at <= ?");
-        cleanup.bind(1, unixTime());
-        cleanup.exec();
-    }
-
-    std::string issueRememberToken(const std::string& username)
-    {
-        deleteExpiredRememberTokens();
-        const std::string token = generateRememberToken();
-        const std::int64_t now = unixTime();
-        SQLite::Statement insert(
-            *database,
-            "INSERT INTO remember_tokens "
-            "(token_hash, username, expires_at, created_at, last_used_at) "
-            "VALUES (?, ?, ?, ?, ?)");
-        insert.bind(1, hashToken(token));
-        insert.bind(2, username);
-        insert.bind(3, now + RememberTokenLifetimeSeconds);
-        insert.bind(4, now);
-        insert.bind(5, now);
-        insert.exec();
-        return token;
-    }
-
-    void deleteExpiredAccessTokens()
-    {
-        SQLite::Statement cleanup(
-            *database,
-            "DELETE FROM access_tokens WHERE expires_at <= ?");
-        cleanup.bind(1, unixTime());
-        cleanup.exec();
-    }
-
-    std::string issueAccessToken(const std::string& username)
-    {
-        deleteExpiredAccessTokens();
-        const std::string token = generateRememberToken();
-        const std::int64_t now = unixTime();
-        SQLite::Statement insert(
-            *database,
-            "INSERT INTO access_tokens "
-            "(token_hash, username, expires_at, created_at, last_used_at) "
-            "VALUES (?, ?, ?, ?, ?)");
-        insert.bind(1, hashToken(token));
-        insert.bind(2, username);
-        insert.bind(3, now + AccessTokenLifetimeSeconds);
-        insert.bind(4, now);
-        insert.bind(5, now);
-        insert.exec();
-        return token;
-    }
-
-    std::optional<std::string> authenticateAccessToken(const std::string& token)
-    {
-        if (token.empty())
-        {
-            return std::nullopt;
-        }
-
-        const std::int64_t now = unixTime();
-        const std::string tokenHash = hashToken(token);
-        std::optional<std::string> username;
-        {
-            SQLite::Statement query(
-                *database,
-                "SELECT username FROM access_tokens WHERE token_hash = ? AND expires_at > ?");
-            query.bind(1, tokenHash);
-            query.bind(2, now);
-            if (!query.executeStep())
-            {
-                return std::nullopt;
-            }
-            username = query.getColumn(0).getString();
-        }
-
-        SQLite::Statement touch(
-            *database,
-            "UPDATE access_tokens SET last_used_at = ? WHERE token_hash = ?");
-        touch.bind(1, now);
-        touch.bind(2, tokenHash);
-        touch.exec();
-        return username;
-    }
-
-    bool isLoginBlocked(const std::string& key)
-    {
-        const std::int64_t now = unixTime();
-        std::lock_guard<std::mutex> lock(loginAttemptMutex);
-        auto found = loginAttempts.find(key);
-        if (found == loginAttempts.end())
-        {
-            return false;
-        }
-
-        LoginAttempt& attempt = found->second;
-        if (attempt.blockedUntil > now)
-        {
-            return true;
-        }
-        if (now - attempt.windowStartedAt >= LoginAttemptWindowSeconds)
-        {
-            loginAttempts.erase(found);
-        }
-        return false;
-    }
-
-    void recordLoginFailure(const std::string& key, int maximumFailures = MaximumLoginFailures)
-    {
-        const std::int64_t now = unixTime();
-        std::lock_guard<std::mutex> lock(loginAttemptMutex);
-        LoginAttempt& attempt = loginAttempts[key];
-        if (attempt.windowStartedAt == 0 || now - attempt.windowStartedAt >= LoginAttemptWindowSeconds)
-        {
-            attempt = LoginAttempt{0, now, 0};
-        }
-
-        ++attempt.failures;
-        if (attempt.failures >= maximumFailures)
-        {
-            attempt.blockedUntil = now + LoginBlockSeconds;
-        }
-    }
-
-    void clearLoginFailures(const std::string& key)
-    {
-        std::lock_guard<std::mutex> lock(loginAttemptMutex);
-        loginAttempts.erase(key);
-    }
 };
 
 int main()

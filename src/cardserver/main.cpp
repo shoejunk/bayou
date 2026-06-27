@@ -3,6 +3,7 @@
 #include <fmt/core.h>
 
 #include "../shared/card_data.hpp"
+#include "../shared/card_database.hpp"
 #include "../shared/network.hpp"
 #include "../shared/socket_timeout.hpp"
 
@@ -11,7 +12,6 @@
 #include <chrono>
 #include <cstdint>
 #include <exception>
-#include <map>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -623,144 +623,17 @@ private:
 
     std::vector<card_data::Card> loadCards()
     {
-        std::vector<card_data::Card> cards;
-        SQLite::Statement query(*database, "SELECT title, type, image_path FROM cards ORDER BY title");
-        while (query.executeStep())
-        {
-            card_data::Card card;
-            card.title = query.getColumn(0).getString();
-            card.type = query.getColumn(1).getString();
-            card.imagePath = query.getColumn(2).getString();
-            card.keywords = loadKeywords(card.title);
-            card.integerValues = loadIntegerValues(card.title);
-            card.stringValues = loadStringValues(card.title);
-            card.stringLists = loadStringLists(card.title);
-            card.actionNames = loadActionNames(card.title);
-            card.actions = loadCardActions(card.title);
-            cards.push_back(card);
-        }
-
-        return cards;
-    }
-
-    std::vector<std::string> loadKeywords(const std::string& title)
-    {
-        std::vector<std::string> values;
-        SQLite::Statement query(*database, "SELECT keyword FROM card_keywords WHERE title = ? ORDER BY keyword");
-        query.bind(1, title);
-        while (query.executeStep())
-        {
-            values.push_back(query.getColumn(0).getString());
-        }
-        return values;
-    }
-
-    std::vector<card_data::KeyIntPair> loadIntegerValues(const std::string& title)
-    {
-        std::vector<card_data::KeyIntPair> values;
-        SQLite::Statement query(*database, "SELECT key, value FROM card_integer_values WHERE title = ? ORDER BY key");
-        query.bind(1, title);
-        while (query.executeStep())
-        {
-            values.push_back({query.getColumn(0).getString(), query.getColumn(1).getInt()});
-        }
-        return values;
-    }
-
-    std::vector<card_data::KeyStringPair> loadStringValues(const std::string& title)
-    {
-        std::vector<card_data::KeyStringPair> values;
-        SQLite::Statement query(*database, "SELECT key, value FROM card_string_values WHERE title = ? ORDER BY key");
-        query.bind(1, title);
-        while (query.executeStep())
-        {
-            values.push_back({query.getColumn(0).getString(), query.getColumn(1).getString()});
-        }
-        return values;
-    }
-
-    std::vector<card_data::KeyStringList> loadStringLists(const std::string& title)
-    {
-        std::map<std::string, std::vector<std::string>> grouped;
-        SQLite::Statement query(
-            *database,
-            "SELECT key, value FROM card_string_lists WHERE title = ? ORDER BY key, item_index");
-        query.bind(1, title);
-        while (query.executeStep())
-        {
-            grouped[query.getColumn(0).getString()].push_back(query.getColumn(1).getString());
-        }
-
-        std::vector<card_data::KeyStringList> values;
-        for (auto& [key, items] : grouped)
-        {
-            values.push_back({key, std::move(items)});
-        }
-        return values;
-    }
-
-    std::vector<std::string> loadActionNames(const std::string& title)
-    {
-        std::vector<std::string> values;
-        SQLite::Statement query(
-            *database,
-            "SELECT action_name FROM card_actions WHERE title = ? ORDER BY item_index");
-        query.bind(1, title);
-        while (query.executeStep())
-        {
-            values.push_back(query.getColumn(0).getString());
-        }
-        return values;
-    }
-
-    static card_data::Action actionFromQuery(SQLite::Statement& query)
-    {
-        card_data::Action action;
-        action.name = query.getColumn(0).getString();
-        action.state = query.getColumn(1).getInt();
-        action.kind = query.getColumn(2).getString();
-        action.pattern = query.getColumn(3).getString();
-        action.minRange = query.getColumn(4).getInt();
-        action.maxRange = query.getColumn(5).getInt();
-        action.damage = query.getColumn(6).getInt();
-        action.canMove = query.getColumn(7).getInt() != 0;
-        action.canAttack = query.getColumn(8).getInt() != 0;
-        action.passThrough = query.getColumn(9).getInt() != 0;
-        action.lineOfSight = query.getColumn(10).getInt() != 0;
-        action.statusTurns = query.getColumn(11).getInt();
-        action.cooldownTurns = query.getColumn(12).getInt();
-        return action;
+        return card_database::loadCards(*database);
     }
 
     std::vector<card_data::Action> loadActions()
     {
-        std::vector<card_data::Action> actions;
-        SQLite::Statement query(
-            *database,
-            "SELECT name, state, kind, pattern, min_range, max_range, damage, can_move, can_attack, "
-            "pass_through, line_of_sight, status_turns, cooldown_turns FROM actions ORDER BY name");
-        while (query.executeStep())
-        {
-            actions.push_back(actionFromQuery(query));
-        }
-        return actions;
+        return card_database::loadActions(*database);
     }
 
     std::vector<card_data::Action> loadCardActions(const std::string& title)
     {
-        std::vector<card_data::Action> actions;
-        SQLite::Statement query(
-            *database,
-            "SELECT a.name, a.state, a.kind, a.pattern, a.min_range, a.max_range, a.damage, "
-            "a.can_move, a.can_attack, a.pass_through, a.line_of_sight, a.status_turns, a.cooldown_turns "
-            "FROM card_actions ca JOIN actions a ON a.name = ca.action_name "
-            "WHERE ca.title = ? ORDER BY ca.item_index");
-        query.bind(1, title);
-        while (query.executeStep())
-        {
-            actions.push_back(actionFromQuery(query));
-        }
-        return actions;
+        return card_database::loadCardActions(*database, title);
     }
 
     void bindAction(SQLite::Statement& statement, const card_data::Action& action, int offset = 1)

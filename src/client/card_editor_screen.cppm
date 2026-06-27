@@ -4,6 +4,9 @@ module;
 #include <SFML/Network.hpp>
 #include <fmt/core.h>
 
+#include "card_editor_assets.hpp"
+#include "client_string.hpp"
+
 #include "../shared/card_data.hpp"
 
 #include <algorithm>
@@ -16,7 +19,6 @@ module;
 #include <optional>
 #include <set>
 #include <string>
-#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -27,6 +29,13 @@ import network;
 
 namespace
 {
+using bayou::client::lowerKey;
+using bayou::client::trim;
+using bayou::client::card_editor_assets::assetRelativeImagePath;
+using bayou::client::card_editor_assets::normalizeCardImagePath;
+using bayou::client::card_editor_assets::resolveAssetImagePath;
+using bayou::client::card_editor_assets::setAssetRoot;
+
 constexpr float EditorWidth = 1280.0f;
 constexpr float EditorHeight = 760.0f;
 constexpr float ListPanelX = 24.0f;
@@ -52,138 +61,6 @@ const sf::Color Accent(91, 202, 181);
 const sf::Color AccentDark(35, 112, 102);
 const sf::Color Warn(213, 102, 79);
 const sf::Color Line(132, 91, 47);
-std::filesystem::path AssetRoot = "assets";
-
-std::string trim(const std::string& value)
-{
-    const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) {
-        return std::isspace(ch) != 0;
-    });
-    const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) {
-        return std::isspace(ch) != 0;
-    }).base();
-
-    if (first >= last)
-    {
-        return "";
-    }
-    return std::string(first, last);
-}
-
-std::string lowerKey(std::string value)
-{
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::tolower(ch));
-    });
-    return value;
-}
-
-std::string assetRelativeImagePath(const std::string& value)
-{
-    const std::string trimmed = trim(value);
-    if (trimmed.empty())
-    {
-        return "";
-    }
-
-    std::filesystem::path path(trimmed);
-    if (path.is_absolute() || path.has_root_name() || path.has_root_directory())
-    {
-        return path.generic_string();
-    }
-
-    std::filesystem::path normalizedPath;
-    bool checkedFirstComponent = false;
-    for (const std::filesystem::path& component : path)
-    {
-        if (!checkedFirstComponent)
-        {
-            checkedFirstComponent = true;
-            if (lowerKey(component.string()) == "assets")
-            {
-                continue;
-            }
-        }
-        normalizedPath /= component;
-    }
-
-    return normalizedPath.lexically_normal().generic_string();
-}
-
-bool escapesAssetsRoot(const std::filesystem::path& path)
-{
-    for (const std::filesystem::path& component : path)
-    {
-        if (component.string() == "..")
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-std::filesystem::path normalizedAbsolutePath(const std::filesystem::path& path)
-{
-    std::error_code error;
-    std::filesystem::path normalized = std::filesystem::weakly_canonical(path, error);
-    if (!error)
-    {
-        return normalized.lexically_normal();
-    }
-
-    error.clear();
-    normalized = std::filesystem::absolute(path, error);
-    if (!error)
-    {
-        return normalized.lexically_normal();
-    }
-    return path.lexically_normal();
-}
-
-bool isInsideAssetsRoot(const std::filesystem::path& path)
-{
-    const std::filesystem::path assetsRoot = normalizedAbsolutePath(AssetRoot);
-    const std::filesystem::path normalizedPath = normalizedAbsolutePath(path);
-    const std::filesystem::path relativePath = normalizedPath.lexically_relative(assetsRoot);
-    if (relativePath.empty())
-    {
-        return normalizedPath == assetsRoot;
-    }
-    if (relativePath.has_root_path())
-    {
-        return false;
-    }
-    const auto firstComponent = relativePath.begin();
-    return firstComponent == relativePath.end() || firstComponent->string() != "..";
-}
-
-std::optional<std::filesystem::path> resolveAssetImagePath(const std::string& value)
-{
-    const std::string relativeValue = assetRelativeImagePath(value);
-    if (relativeValue.empty())
-    {
-        return std::nullopt;
-    }
-
-    const std::filesystem::path relativePath(relativeValue);
-    if (relativePath.is_absolute() || relativePath.has_root_name() || relativePath.has_root_directory() ||
-        escapesAssetsRoot(relativePath))
-    {
-        return std::nullopt;
-    }
-
-    const std::filesystem::path resolvedPath = (AssetRoot / relativePath).lexically_normal();
-    if (!isInsideAssetsRoot(resolvedPath))
-    {
-        return std::nullopt;
-    }
-    return resolvedPath;
-}
-
-void normalizeCardImagePath(card_data::Card& card)
-{
-    card.imagePath = assetRelativeImagePath(card.imagePath);
-}
 
 void centerText(sf::Text& text, const sf::Vector2f& center)
 {
@@ -446,7 +323,7 @@ public:
         std::filesystem::path assetRoot = "assets")
         : font(screenFont), endpoint(std::move(screenEndpoint))
     {
-        AssetRoot = normalizedAbsolutePath(std::move(assetRoot));
+        setAssetRoot(std::move(assetRoot));
         buildControls();
     }
 

@@ -65,11 +65,22 @@ if(BAYOU_BUILD_CLIENTS)
     target_sources(client
         PUBLIC
             src/client/main.cpp
+            src/client/card_editor_assets.cpp
+            src/client/client_board_layout.cpp
+            src/client/client_card_text.cpp
+            src/client/client_config.cpp
+            src/client/client_display.cpp
+            src/client/client_sandbox.cpp
+            src/client/client_string.cpp
+            src/client/client_textures.cpp
+            src/client/client_ui.cpp
+            src/client/deck_collection.cpp
         PUBLIC
             FILE_SET CXX_MODULES FILES
                 src/shared/network.cppm
                 src/shared/inputbox.cppm
                 src/client/button.cppm
+                src/client/client_services.cppm
                 src/client/card_editor_screen.cppm
     )
 
@@ -95,6 +106,12 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
     target_sources(accounts
         PUBLIC
             src/accounts/main.cpp
+            src/accounts/account_catalog.cpp
+            src/accounts/account_decks.cpp
+            src/accounts/account_rate_limiter.cpp
+            src/accounts/account_security.cpp
+            src/accounts/account_tokens.cpp
+            src/shared/card_database.cpp
     )
 
     target_link_libraries(accounts PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network sodium)
@@ -121,6 +138,9 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
     target_sources(gameserver
         PUBLIC
             src/gameserver/main.cpp
+            src/gameserver/ai_deck.cpp
+            src/gameserver/ai_player.cpp
+            src/shared/card_database.cpp
     )
 
     target_link_libraries(gameserver PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network)
@@ -146,10 +166,10 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_CARDSERVER)
     target_sources(cardserver
         PUBLIC
             src/cardserver/main.cpp
+            src/shared/card_database.cpp
     )
 
     target_link_libraries(cardserver PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network)
 
     install(TARGETS cardserver RUNTIME DESTINATION bin)
 endif()
-
