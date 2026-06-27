@@ -79,6 +79,7 @@ constexpr float DeckCardsY = 252.0f;
 constexpr float DeckCardsWidth = 222.0f;
 constexpr float DeckCardRowHeight = 40.0f;
 constexpr std::size_t VisibleDeckCardRows = 6;
+constexpr float PasswordIconInset = 42.0f;
 constexpr std::uint32_t AdminUsersPageSize = 6;
 constexpr float AdminUserRowY = 174.0f;
 constexpr float AdminUserRowHeight = 43.0f;
@@ -88,6 +89,68 @@ constexpr float LibraryY = 226.0f;
 constexpr float LibraryWidth = 192.0f;
 constexpr float LibraryRowHeight = 40.0f;
 constexpr std::size_t VisibleLibraryRows = 6;
+
+struct PasswordVisibilityIcon
+{
+    sf::FloatRect fieldBounds;
+    sf::Texture* showTexture = nullptr;
+    sf::Texture* hideTexture = nullptr;
+    bool hovered = false;
+
+    PasswordVisibilityIcon() = default;
+
+    PasswordVisibilityIcon(sf::FloatRect bounds, sf::Texture* showIcon, sf::Texture* hideIcon)
+        : fieldBounds(bounds), showTexture(showIcon), hideTexture(hideIcon)
+    {
+    }
+
+    sf::FloatRect bounds() const
+    {
+        return {{fieldBounds.position.x + fieldBounds.size.x - 38.0f, fieldBounds.position.y + 4.0f},
+                {34.0f, fieldBounds.size.y - 8.0f}};
+    }
+
+    void update(sf::Vector2f mousePos)
+    {
+        hovered = bounds().contains(mousePos);
+    }
+
+    bool isClicked(sf::Vector2f mousePos) const
+    {
+        return bounds().contains(mousePos);
+    }
+
+    void draw(sf::RenderWindow& window, bool passwordVisible) const
+    {
+        const sf::FloatRect hitBounds = bounds();
+        if (hovered)
+        {
+            sf::RectangleShape hoverFill(hitBounds.size);
+            hoverFill.setPosition(hitBounds.position);
+            hoverFill.setFillColor(sf::Color(95, 219, 196, 34));
+            window.draw(hoverFill);
+        }
+
+        sf::RectangleShape divider({1.0f, hitBounds.size.y - 10.0f});
+        divider.setPosition({hitBounds.position.x - 4.0f, hitBounds.position.y + 5.0f});
+        divider.setFillColor(sf::Color(154, 112, 61, hovered ? 190 : 125));
+        window.draw(divider);
+
+        sf::Texture* texture = passwordVisible ? hideTexture : showTexture;
+        if (!texture)
+        {
+            return;
+        }
+
+        const sf::FloatRect iconTarget{{hitBounds.position.x + 5.0f, hitBounds.position.y + 4.0f},
+                                       {hitBounds.size.x - 10.0f, hitBounds.size.y - 8.0f}};
+        drawContainSprite(
+            window,
+            *texture,
+            iconTarget,
+            hovered ? sf::Color::White : sf::Color(238, 212, 159, 232));
+    }
+};
 
 enum class GameState
 {
@@ -231,6 +294,8 @@ int main(int argc, char** argv)
 
     TextureStore textures;
     sf::Texture* backdropTexture = textures.load("ui/steampunk-bayou-backdrop.png");
+    sf::Texture* showPasswordTexture = textures.load("ui/password-eye-open.png");
+    sf::Texture* hidePasswordTexture = textures.load("ui/password-eye-off.png");
 
     sf::Text title(font, "Steam Tactics", 48);
     title.setFillColor(sf::Color(248, 224, 172));
@@ -247,12 +312,21 @@ int main(int argc, char** argv)
     InputBox currentPasswordInput({300.0f, 150.0f}, {200.0f, 40.0f}, "Current Password", font, true);
     InputBox newPasswordInput({300.0f, 230.0f}, {200.0f, 40.0f}, "New Password", font, true);
     InputBox confirmNewPasswordInput({300.0f, 310.0f}, {200.0f, 40.0f}, "Confirm New Password", font, true);
+    passwordInput.setRightContentInset(PasswordIconInset);
+    confirmInput.setRightContentInset(PasswordIconInset);
+    currentPasswordInput.setRightContentInset(PasswordIconInset);
+    newPasswordInput.setRightContentInset(PasswordIconInset);
+    confirmNewPasswordInput.setRightContentInset(PasswordIconInset);
+    PasswordVisibilityIcon passwordVisibilityIcon(passwordInput.bounds(), showPasswordTexture, hidePasswordTexture);
+    PasswordVisibilityIcon confirmVisibilityIcon(confirmInput.bounds(), showPasswordTexture, hidePasswordTexture);
+    PasswordVisibilityIcon currentPasswordVisibilityIcon(currentPasswordInput.bounds(), showPasswordTexture, hidePasswordTexture);
+    PasswordVisibilityIcon newPasswordVisibilityIcon(newPasswordInput.bounds(), showPasswordTexture, hidePasswordTexture);
+    PasswordVisibilityIcon confirmNewPasswordVisibilityIcon(confirmNewPasswordInput.bounds(), showPasswordTexture, hidePasswordTexture);
     InputBox deckNameInput({304.0f, 154.0f}, {222.0f, 40.0f}, "Deck Name", font);
     InputBox adminSearchInput({120.0f, 94.0f}, {520.0f, 36.0f}, "", font);
     InputBox adminGoldInput({234.0f, 460.0f}, {130.0f, 36.0f}, "Gold amount", font);
 
     Button rememberMeButton({300.0f, 280.0f}, {200.0f, 42.0f}, "Remember Me: Off", font);
-    Button passwordVisibilityButton({520.0f, 220.0f}, {180.0f, 40.0f}, "Show Password", font);
     Button loginSubmitButton({300.0f, 342.0f}, {200.0f, 50.0f}, "Login", font);
     Button createSubmitButton({300.0f, 380.0f}, {200.0f, 50.0f}, "Create Account", font);
     Button backButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Back", font);
@@ -276,7 +350,6 @@ int main(int argc, char** argv)
     Button applyOptionsButton({300.0f, 350.0f}, {200.0f, 54.0f}, "Apply", font);
     Button changePasswordOptionButton({300.0f, 414.0f}, {200.0f, 54.0f}, "Change Password", font);
     Button optionsBackButton({300.0f, 478.0f}, {200.0f, 54.0f}, "Back", font);
-    Button changePasswordVisibilityButton({520.0f, 230.0f}, {180.0f, 40.0f}, "Show Passwords", font);
     Button changePasswordSubmitButton({300.0f, 390.0f}, {200.0f, 50.0f}, "Change Password", font);
     Button changePasswordBackButton({300.0f, 470.0f}, {200.0f, 50.0f}, "Back", font);
     Button dismissPasswordChangedButton({320.0f, 344.0f}, {160.0f, 46.0f}, "OK", font);
@@ -1184,8 +1257,6 @@ int main(int argc, char** argv)
         currentPasswordInput.setPasswordMode(!changePasswordsVisible);
         newPasswordInput.setPasswordMode(!changePasswordsVisible);
         confirmNewPasswordInput.setPasswordMode(!changePasswordsVisible);
-        changePasswordVisibilityButton.setLabel(
-            changePasswordsVisible ? "Hide Passwords" : "Show Passwords");
     };
 
     auto showChangePasswordScreen = [&]() {
@@ -1368,7 +1439,6 @@ int main(int argc, char** argv)
     auto updatePasswordVisibility = [&]() {
         passwordInput.setPasswordMode(!passwordVisible);
         confirmInput.setPasswordMode(!passwordVisible);
-        passwordVisibilityButton.setLabel(passwordVisible ? "Hide Password" : "Show Password");
     };
 
     auto submitCreateAccount = [&]() {
@@ -5426,7 +5496,9 @@ int main(int argc, char** argv)
                     {
                         submitPasswordChange();
                     }
-                    else if (changePasswordVisibilityButton.isClicked(clickPos))
+                    else if (currentPasswordVisibilityIcon.isClicked(clickPos) ||
+                             newPasswordVisibilityIcon.isClicked(clickPos) ||
+                             confirmNewPasswordVisibilityIcon.isClicked(clickPos))
                     {
                         changePasswordsVisible = !changePasswordsVisible;
                         updateChangePasswordVisibility();
@@ -5463,7 +5535,7 @@ int main(int argc, char** argv)
                         rememberMeChecked = !rememberMeChecked;
                         updateRememberMeLabel();
                     }
-                    else if (passwordVisibilityButton.isClicked(clickPos))
+                    else if (passwordVisibilityIcon.isClicked(clickPos))
                     {
                         passwordVisible = !passwordVisible;
                         updatePasswordVisibility();
@@ -5491,7 +5563,7 @@ int main(int argc, char** argv)
                     {
                         submitCreateAccount();
                     }
-                    else if (passwordVisibilityButton.isClicked(clickPos))
+                    else if (passwordVisibilityIcon.isClicked(clickPos) || confirmVisibilityIcon.isClicked(clickPos))
                     {
                         passwordVisible = !passwordVisible;
                         updatePasswordVisibility();
@@ -6332,7 +6404,9 @@ int main(int argc, char** argv)
             }
             else
             {
-                changePasswordVisibilityButton.update(mousePos);
+                currentPasswordVisibilityIcon.update(mousePos);
+                newPasswordVisibilityIcon.update(mousePos);
+                confirmNewPasswordVisibilityIcon.update(mousePos);
                 changePasswordSubmitButton.update(mousePos);
                 changePasswordBackButton.update(mousePos);
                 currentPasswordInput.updateCursor(deltaTime);
@@ -6343,7 +6417,7 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Login)
         {
             rememberMeButton.update(mousePos);
-            passwordVisibilityButton.update(mousePos);
+            passwordVisibilityIcon.update(mousePos);
             loginSubmitButton.update(mousePos);
             backButton.update(mousePos);
             usernameInput.updateCursor(deltaTime);
@@ -6351,7 +6425,8 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::CreateAccount)
         {
-            passwordVisibilityButton.update(mousePos);
+            passwordVisibilityIcon.update(mousePos);
+            confirmVisibilityIcon.update(mousePos);
             createSubmitButton.update(mousePos);
             backButton.update(mousePos);
             usernameInput.updateCursor(deltaTime);
@@ -6556,7 +6631,9 @@ int main(int argc, char** argv)
             currentPasswordInput.draw(window);
             newPasswordInput.draw(window);
             confirmNewPasswordInput.draw(window);
-            changePasswordVisibilityButton.draw(window);
+            currentPasswordVisibilityIcon.draw(window, changePasswordsVisible);
+            newPasswordVisibilityIcon.draw(window, changePasswordsVisible);
+            confirmNewPasswordVisibilityIcon.draw(window, changePasswordsVisible);
             changePasswordSubmitButton.draw(window);
             changePasswordBackButton.draw(window);
             window.draw(messageText);
@@ -6597,7 +6674,7 @@ int main(int argc, char** argv)
         {
             usernameInput.draw(window);
             passwordInput.draw(window);
-            passwordVisibilityButton.draw(window);
+            passwordVisibilityIcon.draw(window, passwordVisible);
             rememberMeButton.draw(window);
             loginSubmitButton.draw(window);
             backButton.draw(window);
@@ -6608,7 +6685,8 @@ int main(int argc, char** argv)
             usernameInput.draw(window);
             passwordInput.draw(window);
             confirmInput.draw(window);
-            passwordVisibilityButton.draw(window);
+            passwordVisibilityIcon.draw(window, passwordVisible);
+            confirmVisibilityIcon.draw(window, passwordVisible);
             createSubmitButton.draw(window);
             backButton.draw(window);
             window.draw(messageText);

@@ -129,6 +129,12 @@ export struct InputBox
         }
     }
 
+    void setRightContentInset(float inset)
+    {
+        rightContentInset = std::max(0.0f, inset);
+        refreshText();
+    }
+
     void setActive(bool next)
     {
         active = next;
@@ -293,6 +299,7 @@ private:
     std::size_t selectionAnchor = 0;
     std::size_t displayStart = 0;
     bool draggingSelection = false;
+    float rightContentInset = 0.0f;
 
     static bool shiftPressed()
     {
@@ -383,7 +390,7 @@ private:
 
     float maxTextWidth() const
     {
-        return std::max(1.0f, shape.getSize().x - style.horizontalPadding);
+        return std::max(1.0f, textRightEdge() - textLeftEdge());
     }
 
     std::string displayString(std::size_t first, std::size_t last) const
@@ -414,7 +421,18 @@ private:
 
     float caretX() const
     {
-        return std::clamp(characterX(caretIndex), shape.getPosition().x + style.textOffset.x, shape.getPosition().x + shape.getSize().x - style.textOffset.x);
+        return std::clamp(characterX(caretIndex), textLeftEdge(), textRightEdge());
+    }
+
+    float textLeftEdge() const
+    {
+        return shape.getPosition().x + style.textOffset.x;
+    }
+
+    float textRightEdge() const
+    {
+        const float fallbackRightPadding = std::max(0.0f, style.horizontalPadding - style.textOffset.x);
+        return shape.getPosition().x + shape.getSize().x - fallbackRightPadding - rightContentInset;
     }
 
     std::size_t indexFromMouseX(float x) const
