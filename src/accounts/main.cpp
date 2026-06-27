@@ -7,6 +7,7 @@
 #include "../shared/deck_data.hpp"
 #include "../shared/game_data.hpp"
 #include "../shared/ranking.hpp"
+#include "../shared/socket_timeout.hpp"
 
 #include <atomic>
 #include <algorithm>
@@ -56,6 +57,7 @@ constexpr std::int64_t RememberTokenLifetimeSeconds = 30LL * 24LL * 60LL * 60LL;
 constexpr std::int64_t AccessTokenLifetimeSeconds = 12LL * 60LL * 60LL;
 constexpr std::int64_t LoginAttemptWindowSeconds = 15LL * 60LL;
 constexpr std::int64_t LoginBlockSeconds = 15LL * 60LL;
+constexpr auto ClientRequestTimeout = std::chrono::seconds(30);
 constexpr int MaximumLoginFailures = 5;
 constexpr int MaximumLoginFailuresPerAddress = 25;
 constexpr std::size_t MinimumPasswordLength = 15;
@@ -305,7 +307,7 @@ private:
 
         while (running)
         {
-            if (client->receive(packet) != sf::Socket::Status::Done)
+            if (socket_timeout::receivePacket(*client, packet, ClientRequestTimeout) != sf::Socket::Status::Done)
             {
                 fmt::println("Client disconnected");
                 return;

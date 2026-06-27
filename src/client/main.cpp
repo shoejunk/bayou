@@ -93,6 +93,7 @@ enum class GameState
     CreateAccount,
     ChangePassword,
     Authenticated,
+    StoryIntro,
     DeckSelect,
     Matchmaking,
     DeckEditor,
@@ -2477,7 +2478,8 @@ int main(int argc, char** argv)
     Button exitDesktopButton({20.0f, 520.0f}, {200.0f, 45.0f}, "Exit to Desktop", font);
     Button cancelMatchmakingButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Cancel", font);
     Button playAiButton({150.0f, 520.0f}, {160.0f, 45.0f}, "Play vs AI", font);
-    Button playButton({300.0f, 136.0f}, {200.0f, 40.0f}, "Play", font);
+    Button storyButton({300.0f, 136.0f}, {200.0f, 40.0f}, "Story", font);
+    Button playButton({300.0f, 184.0f}, {200.0f, 40.0f}, "Play", font);
     Button sandboxButton({300.0f, 184.0f}, {200.0f, 40.0f}, "Sandbox", font);
     Button deckEditorButton({300.0f, 232.0f}, {200.0f, 40.0f}, "Deck Editor", font);
     Button shopButton({300.0f, 280.0f}, {200.0f, 40.0f}, "Shop", font);
@@ -2632,6 +2634,18 @@ int main(int argc, char** argv)
     game_data::Snapshot gameSnapshot;
     bool haveSnapshot = false;
     bool sandboxMode = false;
+    bool storyMode = false;
+    enum class StoryStage
+    {
+        None,
+        MoveTutorial,
+        ValveChallenge,
+        Complete
+    };
+    StoryStage storyStage = StoryStage::None;
+    int storyComicPage = 0;
+    int storyTargetRow = -1;
+    int storyTargetColumn = -1;
     int sandboxPlacementPlayer = 1;
     int nextSandboxPieceId = 1;
     std::size_t gameHandOffset = 0;
@@ -2739,7 +2753,7 @@ int main(int argc, char** argv)
     };
 
     auto layoutAuthenticatedButtons = [&]() {
-        float y = 140.0f;
+        float y = loggedInIsAdmin ? 104.0f : 128.0f;
         constexpr float x = 300.0f;
         constexpr float gap = 10.0f;
         constexpr float height = 40.0f;
@@ -2749,6 +2763,7 @@ int main(int argc, char** argv)
             y += height + gap;
         };
 
+        place(storyButton);
         place(playButton);
         place(sandboxButton);
         place(deckEditorButton);
@@ -3187,6 +3202,11 @@ int main(int argc, char** argv)
         pendingHandClickIndex.reset();
         inspectedPieceScroll = 0.0f;
         sandboxMode = false;
+        storyMode = false;
+        storyStage = StoryStage::None;
+        storyComicPage = 0;
+        storyTargetRow = -1;
+        storyTargetColumn = -1;
         sandboxPlacementPlayer = 1;
         nextSandboxPieceId = 1;
         gameHandOffset = 0;
@@ -3431,6 +3451,11 @@ int main(int argc, char** argv)
 
         haveSnapshot = false;
         sandboxMode = false;
+        storyMode = false;
+        storyStage = StoryStage::None;
+        storyComicPage = 0;
+        storyTargetRow = -1;
+        storyTargetColumn = -1;
         sandboxPlacementPlayer = 1;
         gameHandOffset = 0;
         nextSandboxPieceId = 1;
@@ -4426,8 +4451,104 @@ int main(int argc, char** argv)
         snapshot.pieces.push_back(std::move(piece));
     };
 
+    auto makeStoryTomCard = []() {
+        game_data::GameCard card;
+        card.title = "Tinkering Tom";
+        card.type = "Hero";
+        card.keywords = {"mechanical"};
+        card.imagePath = "cards/tinkering-tom.png";
+        card.blueTokenPath = "characters/blue/tinkeringTom.png";
+        card.redTokenPath = "characters/red/tinkeringTom.png";
+        card.blueWalkAnimPath = "animations/blue/tinkeringTom-walk.png";
+        card.redWalkAnimPath = "animations/red/tinkeringTom-walk.png";
+        card.walkAnimFrames = 81;
+        card.health = 1;
+        card.attack = 0;
+        card.attackRange = 1;
+        card.movePattern = static_cast<std::uint8_t>(game_data::MovePattern::Omni);
+        card.moveRange = 1;
+        card.canControl = false;
+
+        game_data::ActionProfile moveAction;
+        moveAction.name = "Careful Step";
+        moveAction.pattern = static_cast<std::uint8_t>(game_data::MovePattern::Omni);
+        moveAction.minRange = 1;
+        moveAction.maxRange = 1;
+        moveAction.canMove = true;
+        moveAction.canAttack = false;
+        card.actions.push_back(moveAction);
+        return card;
+    };
+
+    auto showStoryIntro = [&]() {
+        currentState = GameState::StoryIntro;
+        title.setString("Story");
+        centerText(title, 400.0f);
+        setMessageY(messageText, 560.0f);
+        setMessage(messageText, "", sf::Color::White);
+        storyComicPage = 0;
+        clearFocus();
+    };
+
+    auto beginStory = [&]() {
+        sandboxMode = true;
+        storyMode = true;
+        storyStage = StoryStage::MoveTutorial;
+        storyTargetRow = 4;
+        storyTargetColumn = 1;
+        sandboxPlacementPlayer = 1;
+        sandboxPlayerButton.setLabel("P1");
+        activeGameSocket.reset();
+        currentState = GameState::Game;
+        title.setString("");
+        centerText(title, 400.0f);
+        setMessage(messageText, "", sf::Color::Red);
+        clearFocus();
+
+        nextSandboxPieceId = 1;
+        gameHandOffset = 0;
+        selectedPieceId.reset();
+        selectedHandIndex.reset();
+        inspectedPieceId.reset();
+        inspectedHandIndex.reset();
+        lastClickedPieceId.reset();
+        pendingHandClickIndex.reset();
+        inspectedPieceScroll = 0.0f;
+        gameDragKind = GameDragKind::None;
+        draggingHandIndex.reset();
+        draggingPieceId.reset();
+        gameDragActive = false;
+        gameResultReceived = false;
+        gameResultSuccess = false;
+        gameRatingChange = 0;
+        gameRewardText.clear();
+        pieceMoveAnimations.clear();
+        pieceAttackAnimations.clear();
+
+        game_data::Snapshot snapshot;
+        snapshot.phase = static_cast<std::uint8_t>(game_data::Phase::Playing);
+        snapshot.activePlayer = 1;
+        snapshot.yourPlayer = 1;
+        snapshot.winner = 0;
+        snapshot.control.fill(0);
+        snapshot.holes.fill(0);
+        for (const auto& [row, column] : game_data::homeSquares(1))
+        {
+            snapshot.control[static_cast<std::size_t>(game_data::squareIndex(row, column))] = 1;
+        }
+        spawnSandboxPiece(snapshot, 1, makeStoryTomCard(), 4, 0, true);
+        snapshot.status = "Story: click Tinkering Tom, then click the glowing square to move him.";
+
+        haveSnapshot = false;
+        commitSandboxSnapshot(std::move(snapshot));
+    };
+
     auto beginSandbox = [&](std::vector<card_data::Card> cards) {
         sandboxMode = true;
+        storyMode = false;
+        storyStage = StoryStage::None;
+        storyTargetRow = -1;
+        storyTargetColumn = -1;
         sandboxPlacementPlayer = 1;
         sandboxPlayerButton.setLabel("P1");
         activeGameSocket.reset();
@@ -5264,6 +5385,43 @@ int main(int argc, char** argv)
         return true;
     };
 
+    auto updateStoryAfterMove = [&](game_data::Snapshot& snapshot, const game_data::Piece& piece) {
+        if (!storyMode || piece.name != "Tinkering Tom")
+        {
+            return;
+        }
+
+        if (storyStage == StoryStage::MoveTutorial)
+        {
+            if (piece.row == storyTargetRow && piece.column == storyTargetColumn)
+            {
+                storyStage = StoryStage::ValveChallenge;
+                storyTargetRow = 2;
+                storyTargetColumn = 3;
+                snapshot.status =
+                    "Good. Now guide Tom to the sparking valve. He can only step one square at a time.";
+            }
+            else
+            {
+                snapshot.status = "Try moving Tom onto the glowing square.";
+            }
+        }
+        else if (storyStage == StoryStage::ValveChallenge)
+        {
+            if (piece.row == storyTargetRow && piece.column == storyTargetColumn)
+            {
+                storyStage = StoryStage::Complete;
+                storyTargetRow = -1;
+                storyTargetColumn = -1;
+                snapshot.status = "Tom repaired the valve. The first story part is complete.";
+            }
+            else
+            {
+                snapshot.status = "Keep stepping Tom toward the sparking valve.";
+            }
+        }
+    };
+
     auto sandboxPlayCard = [&](int handIndex, int row, int column) {
         if (!sandboxMode || !haveSnapshot ||
             static_cast<game_data::Phase>(gameSnapshot.phase) != game_data::Phase::Playing ||
@@ -5339,6 +5497,10 @@ int main(int argc, char** argv)
     auto sandboxActWithPiece = [&](int pieceId, int row, int column) {
         if (!sandboxMode || !haveSnapshot ||
             static_cast<game_data::Phase>(gameSnapshot.phase) != game_data::Phase::Playing)
+        {
+            return;
+        }
+        if (storyMode && storyStage == StoryStage::Complete)
         {
             return;
         }
@@ -5420,6 +5582,10 @@ int main(int argc, char** argv)
         else
         {
             next.status = attackerName + " moved.";
+        }
+        if (acting)
+        {
+            updateStoryAfterMove(next, *acting);
         }
         commitSandboxSnapshot(std::move(next));
     };
@@ -5868,6 +6034,10 @@ int main(int argc, char** argv)
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
         sandboxMode = false;
+        storyMode = false;
+        storyStage = StoryStage::None;
+        storyTargetRow = -1;
+        storyTargetColumn = -1;
         sandboxPlacementPlayer = 1;
         nextSandboxPieceId = 1;
         gameHandOffset = 0;
@@ -6556,6 +6726,11 @@ int main(int argc, char** argv)
                 }
             }
         }
+        if (storyMode && storyTargetRow >= 0 && storyTargetColumn >= 0 &&
+            game_data::inBounds(storyTargetRow, storyTargetColumn))
+        {
+            highlight[static_cast<std::size_t>(game_data::squareIndex(storyTargetRow, storyTargetColumn))] = 5;
+        }
 
         const std::array<sf::Vector2f, 4> boardTop = {
             boardEdgePoint(0, 0),
@@ -6618,13 +6793,35 @@ int main(int argc, char** argv)
 
                 if (highlight[idx] != 0)
                 {
-                    sf::Color colors[5] = {
+                    sf::Color colors[6] = {
                         sf::Color::Transparent,
                         sf::Color(90, 200, 120, 90),
                         sf::Color(220, 90, 80, 110),
                         sf::Color(90, 200, 210, 90),
-                        sf::Color(110, 200, 150, 90)};
+                        sf::Color(110, 200, 150, 90),
+                        sf::Color(248, 214, 112, 135)};
                     drawQuad(metrics.corners, colors[highlight[idx]]);
+                }
+
+                if (storyMode && row == storyTargetRow && column == storyTargetColumn)
+                {
+                    const sf::Vector2f anchor = boardCellAnchor(metrics);
+                    const float pulse = 1.0f + std::sin(animationTime * 4.0f) * 0.12f;
+                    const float radius = 14.0f * metrics.depthScale * pulse;
+                    sf::CircleShape glow(radius);
+                    glow.setOrigin({radius, radius});
+                    glow.setScale({1.35f, 0.62f});
+                    glow.setPosition({anchor.x, anchor.y - 6.0f * metrics.depthScale});
+                    glow.setFillColor(sf::Color(248, 214, 112, 92));
+                    window.draw(glow);
+
+                    sf::RectangleShape valve({30.0f * metrics.depthScale, 8.0f * metrics.depthScale});
+                    valve.setOrigin({15.0f * metrics.depthScale, 4.0f * metrics.depthScale});
+                    valve.setPosition({anchor.x, anchor.y - 12.0f * metrics.depthScale});
+                    valve.setFillColor(sf::Color(93, 64, 39));
+                    valve.setOutlineThickness(1.5f);
+                    valve.setOutlineColor(sf::Color(248, 214, 112));
+                    window.draw(valve);
                 }
 
                 if (draggedHandSquare &&
@@ -6866,10 +7063,12 @@ int main(int argc, char** argv)
         const int activePlayer = std::clamp(gameSnapshot.activePlayer, 1, 2);
         const game_data::PlayerSnapshot& activePlayerSnapshot =
             gameSnapshot.players[static_cast<std::size_t>(activePlayer - 1)];
-        const std::string activePlayerName = sandboxMode
+        const std::string activePlayerName = storyMode
+            ? "Tinkering Tom"
+            : (sandboxMode
             ? "Player " + std::to_string(activePlayer)
-            : (activePlayer == me ? loggedInUsername : "Opponent");
-        const std::string steamText = sandboxMode ? "free" : std::to_string(activePlayerSnapshot.steam);
+            : (activePlayer == me ? loggedInUsername : "Opponent"));
+        const std::string steamText = storyMode ? "story" : (sandboxMode ? "free" : std::to_string(activePlayerSnapshot.steam));
         drawText(window, font, "Turn: " + activePlayerName, 16, {BoardOriginX, GameLabelY},
                  ownerColor(activePlayer), 240.0f);
         drawText(window, font, "Steam: " + steamText, 16, {282.0f, GameLabelY},
@@ -6883,7 +7082,7 @@ int main(int argc, char** argv)
                 abilityButton.setLabel(game_data::pieceAbilityLabel(*selectedPiece));
                 abilityButton.draw(window);
             }
-            if (sandboxMode)
+            if (sandboxMode && !storyMode)
             {
                 sandboxPlayerButton.draw(window);
                 sandboxAdvanceTurnButton.draw(window);
@@ -6895,30 +7094,77 @@ int main(int argc, char** argv)
         }
         leaveGameButton.draw(window);
 
-        // Hand.
-        clampListOffset(gameHandOffset, gameSnapshot.hand.size(), VisibleGameHandCards);
-        const std::size_t lastHandCard = std::min(gameSnapshot.hand.size(), gameHandOffset + VisibleGameHandCards);
-        if (gameSnapshot.hand.size() > VisibleGameHandCards)
+        if (storyMode)
         {
-            drawText(
-                window,
-                font,
-                "Cards " + std::to_string(gameHandOffset + 1) + "-" +
-                    std::to_string(lastHandCard) + "/" + std::to_string(gameSnapshot.hand.size()),
-                12,
-                {HandStartX, HandY - 18.0f},
-                sf::Color(190, 198, 214),
-                240.0f);
+            drawPanel(window, {24.0f, 506.0f}, {752.0f, 74.0f});
+            if (storyStage == StoryStage::MoveTutorial)
+            {
+                drawText(window, font, "Move Tinkering Tom", 18, {44.0f, 516.0f}, sf::Color(248, 224, 172), 220.0f);
+                drawWrappedText(
+                    window,
+                    font,
+                    "Click Tom, then click the glowing square beside him. You can also drag him there.",
+                    15,
+                    {44.0f, 542.0f},
+                    sf::Color(220, 224, 230),
+                    650.0f,
+                    3.0f);
+            }
+            else if (storyStage == StoryStage::ValveChallenge)
+            {
+                drawText(window, font, "Repair the Valve", 18, {44.0f, 516.0f}, sf::Color(248, 224, 172), 220.0f);
+                drawWrappedText(
+                    window,
+                    font,
+                    "Guide Tom to the glowing valve. He moves one square per step, so choose a clear path.",
+                    15,
+                    {44.0f, 542.0f},
+                    sf::Color(220, 224, 230),
+                    650.0f,
+                    3.0f);
+            }
+            else
+            {
+                drawText(window, font, "First Part Complete", 18, {44.0f, 516.0f}, sf::Color(120, 220, 150), 260.0f);
+                drawWrappedText(
+                    window,
+                    font,
+                    "Tom steadies the marshworks. Leave returns to the menu; the story will continue later.",
+                    15,
+                    {44.0f, 542.0f},
+                    sf::Color(220, 224, 230),
+                    650.0f,
+                    3.0f);
+            }
         }
-        for (std::size_t i = gameHandOffset; i < lastHandCard; ++i)
+
+        // Hand.
+        if (!storyMode)
         {
-            const float x = HandStartX + static_cast<float>(i - gameHandOffset) * (HandCardWidth + HandGap);
-            const game_data::GameCard& card = gameSnapshot.hand[i];
-            const bool affordable = phase == game_data::Phase::HeroPlacement ||
-                ((sandboxMode || card.cost <= mine.steam) && (sandboxMode || gameSnapshot.activePlayer == me) &&
-                 phase == game_data::Phase::Playing &&
-                 (sandboxMode || game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, card)));
-            drawGameCardFace({x, HandY}, card, selectedHandIndex && *selectedHandIndex == i, affordable);
+            clampListOffset(gameHandOffset, gameSnapshot.hand.size(), VisibleGameHandCards);
+            const std::size_t lastHandCard = std::min(gameSnapshot.hand.size(), gameHandOffset + VisibleGameHandCards);
+            if (gameSnapshot.hand.size() > VisibleGameHandCards)
+            {
+                drawText(
+                    window,
+                    font,
+                    "Cards " + std::to_string(gameHandOffset + 1) + "-" +
+                        std::to_string(lastHandCard) + "/" + std::to_string(gameSnapshot.hand.size()),
+                    12,
+                    {HandStartX, HandY - 18.0f},
+                    sf::Color(190, 198, 214),
+                    240.0f);
+            }
+            for (std::size_t i = gameHandOffset; i < lastHandCard; ++i)
+            {
+                const float x = HandStartX + static_cast<float>(i - gameHandOffset) * (HandCardWidth + HandGap);
+                const game_data::GameCard& card = gameSnapshot.hand[i];
+                const bool affordable = phase == game_data::Phase::HeroPlacement ||
+                    ((sandboxMode || card.cost <= mine.steam) && (sandboxMode || gameSnapshot.activePlayer == me) &&
+                     phase == game_data::Phase::Playing &&
+                     (sandboxMode || game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, card)));
+                drawGameCardFace({x, HandY}, card, selectedHandIndex && *selectedHandIndex == i, affordable);
+            }
         }
 
         if (gameDragActive)
@@ -7021,6 +7267,12 @@ int main(int argc, char** argv)
             }
         }
 
+        if (storyMode)
+        {
+            drawPiecePopup();
+            return;
+        }
+
         // Game-over banner.
         if (phase == game_data::Phase::GameOver)
         {
@@ -7055,6 +7307,113 @@ int main(int argc, char** argv)
         }
 
         drawPiecePopup();
+    };
+
+    auto drawStoryIntro = [&]() {
+        const std::array<std::string, 3> headings = {
+            "Chapter 1: The Loose Valve",
+            "Tinkering Tom Takes the Case",
+            "Into the Marshworks"};
+        const std::array<std::array<std::string, 3>, 3> captions = {{
+            {{
+                "The bayou engine coughs smoke across the midnight water.",
+                "A warning bell clatters from the old marshworks.",
+                "One small valve is rattling hard enough to shake the whole dock."}},
+            {{
+                "Tinkering Tom grabs his wrench and lantern.",
+                "No crew is nearby, so Tom will have to cross the boards alone.",
+                "A careful step is better than a heroic splash."}},
+            {{
+                "The repair hatch glows ahead.",
+                "Move Tom one square at a time until he reaches the trouble.",
+                "Click anywhere to start."}}
+        }};
+
+        drawText(window, font, headings[static_cast<std::size_t>(storyComicPage)], 30, {44.0f, 28.0f}, sf::Color(248, 224, 172), 520.0f);
+        drawText(window, font, "Part " + std::to_string(storyComicPage + 1) + "/3", 16, {674.0f, 40.0f}, sf::Color(190, 198, 214), 90.0f);
+
+        sf::Texture* tomArt = loadTexture("cards/tinkering-tom.png");
+        for (int i = 0; i < 3; ++i)
+        {
+            const sf::Vector2f panelPos{42.0f + static_cast<float>(i) * 250.0f, 96.0f};
+            const sf::Vector2f panelSize{216.0f, 354.0f};
+            sf::RectangleShape shadow(panelSize);
+            shadow.setPosition(panelPos + sf::Vector2f(5.0f, 6.0f));
+            shadow.setFillColor(sf::Color(0, 0, 0, 125));
+            window.draw(shadow);
+
+            sf::RectangleShape panel(panelSize);
+            panel.setPosition(panelPos);
+            panel.setFillColor(sf::Color(241, 226, 188, 238));
+            panel.setOutlineThickness(4.0f);
+            panel.setOutlineColor(sf::Color(18, 23, 24));
+            window.draw(panel);
+
+            sf::RectangleShape scene({panelSize.x - 24.0f, 190.0f});
+            scene.setPosition(panelPos + sf::Vector2f(12.0f, 14.0f));
+            scene.setFillColor(i == 0 ? sf::Color(42, 86, 89) : (i == 1 ? sf::Color(83, 67, 48) : sf::Color(45, 72, 58)));
+            scene.setOutlineThickness(2.0f);
+            scene.setOutlineColor(sf::Color(28, 31, 30));
+            window.draw(scene);
+
+            for (int steam = 0; steam < 3; ++steam)
+            {
+                sf::CircleShape puff(16.0f + static_cast<float>(steam) * 7.0f);
+                puff.setPosition({
+                    panelPos.x + 34.0f + static_cast<float>(steam) * 45.0f,
+                    panelPos.y + 36.0f + std::sin(animationTime * 1.8f + static_cast<float>(steam)) * 4.0f});
+                puff.setFillColor(sf::Color(225, 231, 220, static_cast<std::uint8_t>(42 - steam * 8)));
+                window.draw(puff);
+            }
+
+            if (tomArt)
+            {
+                const float tomX = panelPos.x + 60.0f + static_cast<float>(i) * 16.0f;
+                drawContainSprite(*tomArt, {{tomX, panelPos.y + 66.0f}, {94.0f, 116.0f}});
+            }
+
+            if (storyComicPage == 2 && i == 2)
+            {
+                sf::CircleShape glow(30.0f);
+                glow.setOrigin({30.0f, 30.0f});
+                glow.setPosition({panelPos.x + 152.0f, panelPos.y + 116.0f});
+                glow.setFillColor(sf::Color(244, 204, 92, 88));
+                window.draw(glow);
+                sf::RectangleShape valve({42.0f, 12.0f});
+                valve.setOrigin({21.0f, 6.0f});
+                valve.setPosition({panelPos.x + 152.0f, panelPos.y + 116.0f});
+                valve.setFillColor(sf::Color(93, 64, 39));
+                valve.setOutlineThickness(2.0f);
+                valve.setOutlineColor(sf::Color(248, 214, 112));
+                window.draw(valve);
+            }
+
+            sf::RectangleShape captionBox({panelSize.x - 24.0f, 112.0f});
+            captionBox.setPosition(panelPos + sf::Vector2f(12.0f, 222.0f));
+            captionBox.setFillColor(sf::Color(255, 248, 224, 238));
+            captionBox.setOutlineThickness(2.0f);
+            captionBox.setOutlineColor(sf::Color(28, 31, 30));
+            window.draw(captionBox);
+            drawWrappedText(
+                window,
+                font,
+                captions[static_cast<std::size_t>(storyComicPage)][static_cast<std::size_t>(i)],
+                16,
+                panelPos + sf::Vector2f(24.0f, 236.0f),
+                sf::Color(21, 25, 24),
+                panelSize.x - 48.0f,
+                5.0f);
+        }
+
+        drawText(
+            window,
+            font,
+            storyComicPage + 1 >= 3 ? "Click to start" : "Click to continue",
+            18,
+            {328.0f, 476.0f},
+            sf::Color(248, 239, 216),
+            180.0f);
+        backButton.draw(window);
     };
 
     auto drawDeckSelect = [&]() {
@@ -7641,6 +8000,21 @@ int main(int argc, char** argv)
                         showOptionsScreen(GameState::Menu);
                     }
                 }
+                else if (currentState == GameState::StoryIntro)
+                {
+                    if (backButton.isClicked(clickPos))
+                    {
+                        showAuthenticatedScreen();
+                    }
+                    else if (storyComicPage + 1 >= 3)
+                    {
+                        beginStory();
+                    }
+                    else
+                    {
+                        ++storyComicPage;
+                    }
+                }
                 else if (currentState == GameState::Options)
                 {
                     if (displayModeButton.isClicked(clickPos))
@@ -7796,7 +8170,11 @@ int main(int argc, char** argv)
                 }
                 else if (currentState == GameState::Authenticated)
                 {
-                    if (playButton.isClicked(clickPos))
+                    if (storyButton.isClicked(clickPos))
+                    {
+                        showStoryIntro();
+                    }
+                    else if (playButton.isClicked(clickPos))
                     {
                         showDeckSelect();
                     }
@@ -8013,12 +8391,12 @@ int main(int argc, char** argv)
                             selectedHandIndex.reset();
                         }
                     }
-                    else if (sandboxMode && sandboxPlayerButton.isClicked(clickPos))
+                    else if (sandboxMode && !storyMode && sandboxPlayerButton.isClicked(clickPos))
                     {
                         pendingHandClickIndex.reset();
                         toggleSandboxPlacementPlayer();
                     }
-                    else if (sandboxMode && sandboxAdvanceTurnButton.isClicked(clickPos))
+                    else if (sandboxMode && !storyMode && sandboxAdvanceTurnButton.isClicked(clickPos))
                     {
                         pendingHandClickIndex.reset();
                         sendEndTurn();
@@ -8413,6 +8791,10 @@ int main(int argc, char** argv)
                     {
                         leaveOptionsScreen();
                     }
+                    else if (currentState == GameState::StoryIntro)
+                    {
+                        showAuthenticatedScreen();
+                    }
                     else if (currentState == GameState::ChangePassword && !pendingPasswordChange)
                     {
                         leaveChangePasswordScreen();
@@ -8593,6 +8975,10 @@ int main(int argc, char** argv)
             }
             optionsBackButton.update(mousePos);
         }
+        else if (currentState == GameState::StoryIntro)
+        {
+            backButton.update(mousePos);
+        }
         else if (currentState == GameState::ChangePassword)
         {
             if (passwordChangedPopupVisible)
@@ -8638,6 +9024,7 @@ int main(int argc, char** argv)
             }
             else
             {
+                storyButton.update(mousePos);
                 playButton.update(mousePos);
                 sandboxButton.update(mousePos);
                 deckEditorButton.update(mousePos);
@@ -8759,7 +9146,7 @@ int main(int argc, char** argv)
                         abilityButton.update(mousePos);
                     }
                 }
-                if (sandboxMode)
+                if (sandboxMode && !storyMode)
                 {
                     sandboxPlayerButton.update(mousePos);
                     sandboxAdvanceTurnButton.update(mousePos);
@@ -8814,6 +9201,10 @@ int main(int argc, char** argv)
             }
             optionsBackButton.draw(window);
             window.draw(messageText);
+        }
+        else if (currentState == GameState::StoryIntro)
+        {
+            drawStoryIntro();
         }
         else if (currentState == GameState::ChangePassword)
         {
@@ -8883,6 +9274,7 @@ int main(int argc, char** argv)
             drawText(window, font, "Rating: " + std::to_string(playerRating), 16, {24.0f, 48.0f}, sf::Color(151, 192, 255), 180.0f);
             drawCoinIcon({24.0f, 76.0f}, 13.0f);
             drawText(window, font, std::to_string(playerCoins), 18, {58.0f, 75.0f}, sf::Color(248, 239, 216), 120.0f);
+            storyButton.draw(window);
             playButton.draw(window);
             sandboxButton.draw(window);
             deckEditorButton.draw(window);

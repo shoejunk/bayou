@@ -4,9 +4,11 @@
 
 #include "../shared/card_data.hpp"
 #include "../shared/network.hpp"
+#include "../shared/socket_timeout.hpp"
 
 #include <atomic>
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <exception>
 #include <map>
@@ -21,6 +23,7 @@ using namespace network;
 namespace
 {
 constexpr unsigned short CardServerPort = 55004;
+constexpr auto InitialRequestTimeout = std::chrono::seconds(2);
 
 void writeCards(sf::Packet& packet, const std::vector<card_data::Card>& cards)
 {
@@ -220,7 +223,7 @@ private:
     void handleClient(sf::TcpSocket& client)
     {
         sf::Packet request;
-        if (client.receive(request) != sf::Socket::Status::Done)
+        if (socket_timeout::receivePacket(client, request, InitialRequestTimeout) != sf::Socket::Status::Done)
         {
             return;
         }

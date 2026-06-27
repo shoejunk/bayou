@@ -15,6 +15,7 @@
 
 #include "../shared/network.hpp"
 #include "../shared/ranking.hpp"
+#include "../shared/socket_timeout.hpp"
 
 using namespace network;
 
@@ -24,6 +25,7 @@ constexpr unsigned short AccountServerPort = 55000;
 constexpr unsigned short GameServerPort = 55002;
 constexpr auto ListenerRetryInterval = std::chrono::milliseconds(250);
 constexpr auto ListenerRetryTimeout = std::chrono::seconds(5);
+constexpr auto InitialRequestTimeout = std::chrono::seconds(2);
 
 struct RankedPlayer
 {
@@ -262,7 +264,7 @@ private:
             }
 
             sf::Packet packet;
-            if (client->receive(packet) != sf::Socket::Status::Done)
+            if (socket_timeout::receivePacket(*client, packet, InitialRequestTimeout) != sf::Socket::Status::Done)
             {
                 continue;
             }

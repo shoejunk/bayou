@@ -28,6 +28,7 @@
 #include "../shared/game_data.hpp"
 
 #include "../shared/network.hpp"
+#include "../shared/socket_timeout.hpp"
 
 using namespace network;
 using namespace game_data;
@@ -37,6 +38,7 @@ namespace
 constexpr unsigned short GameServerPort = 55002;
 constexpr unsigned short FirstGamePort = 56000;
 constexpr unsigned short AccountServerPort = 55000;
+constexpr auto InitialRequestTimeout = std::chrono::seconds(2);
 constexpr int AiPlayerNumber = 2;
 constexpr int AiSearchPlies = 2;
 constexpr int AiMaxCandidateActions = 80;
@@ -1653,7 +1655,7 @@ private:
     void handleClient(sf::TcpSocket& client)
     {
         sf::Packet packet;
-        if (client.receive(packet) != sf::Socket::Status::Done)
+        if (socket_timeout::receivePacket(client, packet, InitialRequestTimeout) != sf::Socket::Status::Done)
         {
             return;
         }
@@ -1939,7 +1941,7 @@ private:
         }
 
         sf::Packet packet;
-        if (client->receive(packet) != sf::Socket::Status::Done)
+        if (socket_timeout::receivePacket(*client, packet, InitialRequestTimeout) != sf::Socket::Status::Done)
         {
             return std::nullopt;
         }
