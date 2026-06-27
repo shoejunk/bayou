@@ -406,6 +406,27 @@ int main(int argc, char** argv)
               raisedAttack.damage == 3,
           "raised gun can deal damage without moving");
 
+    raisedGun.maxRange = 3;
+    raisedGun.lineOfSight = false;
+    gunner.actions = {raisedGun};
+    gunner.actionState = 1;
+    gunTarget.row = 3;
+    gunTarget.column = 6;
+    Piece friendlyBlocker;
+    friendlyBlocker.id = 22;
+    friendlyBlocker.owner = 1;
+    friendlyBlocker.row = 3;
+    friendlyBlocker.column = 4;
+    const std::vector<Piece> friendlyBlockedShotPieces = {gunner, friendlyBlocker, gunTarget};
+    check(!resolvePieceAction(friendlyBlockedShotPieces, holes, friendlyBlockedShotPieces[0], 3, 6).legal,
+          "ranged attacks cannot shoot through friendly pieces");
+    Piece enemyBlocker = friendlyBlocker;
+    enemyBlocker.id = 23;
+    enemyBlocker.owner = 2;
+    const std::vector<Piece> enemyBlockedShotPieces = {gunner, enemyBlocker, gunTarget};
+    check(!resolvePieceAction(enemyBlockedShotPieces, holes, enemyBlockedShotPieces[0], 3, 6).legal,
+          "ranged attacks cannot shoot through enemy pieces");
+
     std::vector<Piece> sleepingGunPieces = gunPieces;
     sleepingGunPieces[0].sleepTurnsRemaining = 1;
     const ActionResolution sleepingMove =

@@ -247,6 +247,13 @@ inline bool actionPathClear(
 
     const int deltaRow = toRow - piece.row;
     const int deltaColumn = toColumn - piece.column;
+    const bool straight = deltaRow == 0 || deltaColumn == 0;
+    const bool diagonal = absInt(deltaRow) == absInt(deltaColumn);
+    if (!straight && !diagonal)
+    {
+        return true;
+    }
+
     const int stepRow = (deltaRow > 0) - (deltaRow < 0);
     const int stepColumn = (deltaColumn > 0) - (deltaColumn < 0);
     int row = piece.row + stepRow;
@@ -351,7 +358,7 @@ inline ActionResolution resolvePieceAction(
                     deltaColumn,
                     action.minRange,
                     action.maxRange) &&
-                (!action.lineOfSight || actionPathClear(pieces, piece, toRow, toColumn, false)))
+                actionPathClear(pieces, piece, toRow, toColumn, false))
             {
                 candidate.legal = true;
                 candidate.attacks = true;
