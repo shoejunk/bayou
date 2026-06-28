@@ -152,6 +152,71 @@ struct PasswordVisibilityIcon
     }
 };
 
+struct CheckboxControl
+{
+    sf::RectangleShape box;
+    sf::Text label;
+    sf::Texture* checkTexture = nullptr;
+    bool hovered = false;
+
+    CheckboxControl(sf::Vector2f position, const std::string& labelText, sf::Font& font, sf::Texture* checkmarkTexture)
+        : label(font, labelText, 18)
+        , checkTexture(checkmarkTexture)
+    {
+        box.setPosition(position);
+        box.setSize({24.0f, 24.0f});
+        box.setFillColor(sf::Color(16, 23, 25, 230));
+        box.setOutlineThickness(2.0f);
+        box.setOutlineColor(sf::Color(154, 112, 61));
+
+        label.setFillColor(sf::Color(221, 198, 157));
+        label.setPosition({position.x + 36.0f, position.y - 1.0f});
+    }
+
+    sf::FloatRect bounds() const
+    {
+        const sf::FloatRect boxBounds = box.getGlobalBounds();
+        const sf::FloatRect labelBounds = label.getGlobalBounds();
+        const float left = std::min(boxBounds.position.x, labelBounds.position.x);
+        const float top = std::min(boxBounds.position.y, labelBounds.position.y);
+        const float right = std::max(boxBounds.position.x + boxBounds.size.x, labelBounds.position.x + labelBounds.size.x);
+        const float bottom = std::max(boxBounds.position.y + boxBounds.size.y, labelBounds.position.y + labelBounds.size.y);
+        return {{left, top}, {right - left, bottom - top}};
+    }
+
+    void update(sf::Vector2f mousePos)
+    {
+        hovered = bounds().contains(mousePos);
+        box.setOutlineColor(hovered ? sf::Color(239, 190, 98) : sf::Color(154, 112, 61));
+        label.setFillColor(hovered ? sf::Color(255, 244, 215) : sf::Color(221, 198, 157));
+    }
+
+    bool isClicked(sf::Vector2f mousePos) const
+    {
+        return bounds().contains(mousePos);
+    }
+
+    void draw(sf::RenderWindow& window, bool checked) const
+    {
+        window.draw(box);
+
+        if (checked)
+        {
+            const sf::Vector2f position = box.getPosition();
+            if (checkTexture)
+            {
+                drawContainSprite(
+                    window,
+                    *checkTexture,
+                    {{position.x - 2.0f, position.y + 1.0f}, {28.0f, 22.0f}},
+                    hovered ? sf::Color(255, 244, 215) : sf::Color::White);
+            }
+        }
+
+        window.draw(label);
+    }
+};
+
 enum class GameState
 {
     Menu,
@@ -296,6 +361,7 @@ int main(int argc, char** argv)
     sf::Texture* backdropTexture = textures.load("ui/steampunk-bayou-backdrop.png");
     sf::Texture* showPasswordTexture = textures.load("ui/password-eye-open.png");
     sf::Texture* hidePasswordTexture = textures.load("ui/password-eye-off.png");
+    sf::Texture* rememberCheckTexture = textures.load("ui/remember-checkmark.png");
 
     sf::Text title(font, "Steam Tactics", 48);
     title.setFillColor(sf::Color(248, 224, 172));
@@ -326,7 +392,7 @@ int main(int argc, char** argv)
     InputBox adminSearchInput({120.0f, 94.0f}, {520.0f, 36.0f}, "", font);
     InputBox adminGoldInput({234.0f, 460.0f}, {130.0f, 36.0f}, "Gold amount", font);
 
-    Button rememberMeButton({300.0f, 280.0f}, {200.0f, 42.0f}, "Remember Me: Off", font);
+    CheckboxControl rememberMeCheckbox({300.0f, 286.0f}, "Remember me", font, rememberCheckTexture);
     Button loginSubmitButton({300.0f, 342.0f}, {200.0f, 50.0f}, "Login", font);
     Button createSubmitButton({300.0f, 380.0f}, {200.0f, 50.0f}, "Create Account", font);
     Button backButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Back", font);
@@ -1430,10 +1496,6 @@ int main(int argc, char** argv)
         {
             startRequest(network::MessageType::Login, network::MessageType::LoginResponse);
         }
-    };
-
-    auto updateRememberMeLabel = [&]() {
-        rememberMeButton.setLabel(rememberMeChecked ? "Remember Me: On" : "Remember Me: Off");
     };
 
     auto updatePasswordVisibility = [&]() {
@@ -5398,7 +5460,6 @@ int main(int argc, char** argv)
                         resetForm(usernameInput, passwordInput, confirmInput, messageText);
                         rememberMeChecked = false;
                         passwordVisible = false;
-                        updateRememberMeLabel();
                         updatePasswordVisibility();
                         focusLoginInput(0);
                     }
@@ -5530,10 +5591,9 @@ int main(int argc, char** argv)
                     {
                         submitLogin();
                     }
-                    else if (rememberMeButton.isClicked(clickPos))
+                    else if (rememberMeCheckbox.isClicked(clickPos))
                     {
                         rememberMeChecked = !rememberMeChecked;
-                        updateRememberMeLabel();
                     }
                     else if (passwordVisibilityIcon.isClicked(clickPos))
                     {
@@ -6416,7 +6476,7 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Login)
         {
-            rememberMeButton.update(mousePos);
+            rememberMeCheckbox.update(mousePos);
             passwordVisibilityIcon.update(mousePos);
             loginSubmitButton.update(mousePos);
             backButton.update(mousePos);
@@ -6675,7 +6735,7 @@ int main(int argc, char** argv)
             usernameInput.draw(window);
             passwordInput.draw(window);
             passwordVisibilityIcon.draw(window, passwordVisible);
-            rememberMeButton.draw(window);
+            rememberMeCheckbox.draw(window, rememberMeChecked);
             loginSubmitButton.draw(window);
             backButton.draw(window);
             window.draw(messageText);
