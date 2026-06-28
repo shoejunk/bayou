@@ -76,20 +76,77 @@ public:
 
     void play(AudioCue cue, float volumeScale = 1.0f)
     {
+        if (allMuted || soundEffectsMuted)
+        {
+            return;
+        }
+
         trimStoppedSounds();
         sf::SoundBuffer& buffer = effectBuffers[static_cast<std::size_t>(cue)];
         sf::Sound& sound = activeSounds.emplace_back(buffer);
-        sound.setVolume(effectVolume(cue) * volumeScale);
+        sound.setVolume(effectVolume(cue) * volumeScale * masterVolume);
         sound.play();
     }
 
     void update()
     {
         trimStoppedSounds();
+        updateMusicVolume();
         if (music && music->getStatus() != sf::SoundSource::Status::Playing)
         {
             music->play();
         }
+    }
+
+    void setMasterVolume(float volume)
+    {
+        masterVolume = std::clamp(volume, 0.0f, 1.0f);
+        updateMusicVolume();
+    }
+
+    float getMasterVolume() const
+    {
+        return masterVolume;
+    }
+
+    void setAllMuted(bool muted)
+    {
+        allMuted = muted;
+        if (allMuted)
+        {
+            stopActiveSounds();
+        }
+        updateMusicVolume();
+    }
+
+    bool isAllMuted() const
+    {
+        return allMuted;
+    }
+
+    void setMusicMuted(bool muted)
+    {
+        musicMuted = muted;
+        updateMusicVolume();
+    }
+
+    bool isMusicMuted() const
+    {
+        return musicMuted;
+    }
+
+    void setSoundEffectsMuted(bool muted)
+    {
+        soundEffectsMuted = muted;
+        if (soundEffectsMuted)
+        {
+            stopActiveSounds();
+        }
+    }
+
+    bool isSoundEffectsMuted() const
+    {
+        return soundEffectsMuted;
     }
 
 private:
@@ -98,6 +155,10 @@ private:
     std::array<sf::SoundBuffer, EffectCount> effectBuffers;
     std::unique_ptr<sf::Music> music;
     std::list<sf::Sound> activeSounds;
+    float masterVolume = 1.0f;
+    bool allMuted = false;
+    bool musicMuted = false;
+    bool soundEffectsMuted = false;
 
     static float envelope(float t, float duration, float attack, float release)
     {
@@ -249,6 +310,14 @@ private:
         music = std::move(loadedMusic);
     }
 
+    void updateMusicVolume()
+    {
+        if (music)
+        {
+            music->setVolume((allMuted || musicMuted) ? 0.0f : 22.0f * masterVolume);
+        }
+    }
+
     void trimStoppedSounds()
     {
         for (auto sound = activeSounds.begin(); sound != activeSounds.end();)
@@ -262,6 +331,15 @@ private:
                 ++sound;
             }
         }
+    }
+
+    void stopActiveSounds()
+    {
+        for (sf::Sound& sound : activeSounds)
+        {
+            sound.stop();
+        }
+        trimStoppedSounds();
     }
 
     static float effectVolume(AudioCue cue)
@@ -491,6 +569,13 @@ enum class GameState
     Game
 };
 
+enum class OptionsTab
+{
+    Graphics,
+    Audio,
+    Account
+};
+
 enum class DeckEditorMode
 {
     DeckList,
@@ -662,12 +747,21 @@ int main(int argc, char** argv)
     Button authenticatedOptionsButton({300.0f, 424.0f}, {200.0f, 40.0f}, "Options", font);
     Button logoutButton({300.0f, 472.0f}, {200.0f, 40.0f}, "Log Out", font);
 
-    Button displayModeButton({270.0f, 178.0f}, {260.0f, 54.0f}, "", font);
-    Button previousResolutionButton({210.0f, 276.0f}, {64.0f, 54.0f}, "<", font);
-    Button resolutionButton({290.0f, 276.0f}, {220.0f, 54.0f}, "", font);
-    Button nextResolutionButton({526.0f, 276.0f}, {64.0f, 54.0f}, ">", font);
-    Button applyOptionsButton({300.0f, 350.0f}, {200.0f, 54.0f}, "Apply", font);
-    Button changePasswordOptionButton({300.0f, 414.0f}, {200.0f, 54.0f}, "Change Password", font);
+    Button graphicsOptionsTabButton({132.0f, 118.0f}, {160.0f, 42.0f}, "Graphics", font);
+    Button audioOptionsTabButton({320.0f, 118.0f}, {160.0f, 42.0f}, "Audio", font);
+    Button accountOptionsTabButton({508.0f, 118.0f}, {160.0f, 42.0f}, "Account", font);
+    Button displayModeButton({270.0f, 210.0f}, {260.0f, 54.0f}, "", font);
+    Button previousResolutionButton({210.0f, 316.0f}, {64.0f, 54.0f}, "<", font);
+    Button resolutionButton({290.0f, 316.0f}, {220.0f, 54.0f}, "", font);
+    Button nextResolutionButton({526.0f, 316.0f}, {64.0f, 54.0f}, ">", font);
+    Button applyOptionsButton({300.0f, 410.0f}, {200.0f, 54.0f}, "Apply", font);
+    Button volumeDownButton({234.0f, 236.0f}, {64.0f, 54.0f}, "-", font);
+    Button audioVolumeButton({316.0f, 236.0f}, {168.0f, 54.0f}, "", font);
+    Button volumeUpButton({502.0f, 236.0f}, {64.0f, 54.0f}, "+", font);
+    CheckboxControl muteAllAudioCheckbox({276.0f, 326.0f}, "Mute all audio", font, rememberCheckTexture);
+    CheckboxControl muteMusicCheckbox({276.0f, 370.0f}, "Mute music", font, rememberCheckTexture);
+    CheckboxControl muteSoundFxCheckbox({276.0f, 414.0f}, "Mute sound fx", font, rememberCheckTexture);
+    Button changePasswordOptionButton({300.0f, 250.0f}, {200.0f, 54.0f}, "Change Password", font);
     Button optionsBackButton({300.0f, 478.0f}, {200.0f, 54.0f}, "Back", font);
     Button changePasswordSubmitButton({300.0f, 390.0f}, {200.0f, 50.0f}, "Change Password", font);
     Button changePasswordBackButton({300.0f, 470.0f}, {200.0f, 50.0f}, "Back", font);
@@ -729,6 +823,7 @@ int main(int argc, char** argv)
     float animationTime = 0.0f;
     GameState currentState = GameState::Menu;
     GameState optionsReturnState = GameState::Menu;
+    OptionsTab activeOptionsTab = OptionsTab::Graphics;
     DisplaySettings pendingDisplaySettings = displaySettings;
     std::size_t selectedResolution = displayResolutionIndex(
         displayResolutions,
@@ -1522,11 +1617,27 @@ int main(int argc, char** argv)
         displayModeButton.setLabel(pendingDisplaySettings.fullscreen ? "Fullscreen" : "Windowed");
         const sf::Vector2u size = displayResolutions[selectedResolution];
         resolutionButton.setLabel(std::to_string(size.x) + " x " + std::to_string(size.y));
+        audioVolumeButton.setLabel(
+            std::to_string(static_cast<int>(std::lround(audioSystem.getMasterVolume() * 100.0f))) + "%");
+    };
+
+    auto styleOptionsTabs = [&]() {
+        auto styleTab = [&](Button& button, OptionsTab tab) {
+            const bool active = activeOptionsTab == tab;
+            button.shape.setFillColor(active ? sf::Color(91, 62, 35, 248) : sf::Color(58, 43, 31, 244));
+            button.shape.setOutlineColor(active ? sf::Color(239, 190, 98) : sf::Color(176, 123, 59));
+            button.text.setFillColor(active ? sf::Color(255, 244, 215) : sf::Color(246, 232, 200));
+        };
+
+        styleTab(graphicsOptionsTabButton, OptionsTab::Graphics);
+        styleTab(audioOptionsTabButton, OptionsTab::Audio);
+        styleTab(accountOptionsTabButton, OptionsTab::Account);
     };
 
     auto showOptionsScreen = [&](GameState returnState) {
         optionsReturnState = returnState;
         currentState = GameState::Options;
+        activeOptionsTab = OptionsTab::Graphics;
         pendingDisplaySettings = displaySettings;
         const sf::Vector2u activeSize{displaySettings.width, displaySettings.height};
         const auto found = std::find(displayResolutions.begin(), displayResolutions.end(), activeSize);
@@ -4225,24 +4336,36 @@ int main(int argc, char** argv)
                 }
                 else if (currentState == GameState::Options)
                 {
-                    if (displayModeButton.isClicked(clickPos))
+                    if (graphicsOptionsTabButton.isClicked(clickPos))
+                    {
+                        activeOptionsTab = OptionsTab::Graphics;
+                    }
+                    else if (audioOptionsTabButton.isClicked(clickPos))
+                    {
+                        activeOptionsTab = OptionsTab::Audio;
+                    }
+                    else if (accountOptionsTabButton.isClicked(clickPos))
+                    {
+                        activeOptionsTab = OptionsTab::Account;
+                    }
+                    else if (activeOptionsTab == OptionsTab::Graphics && displayModeButton.isClicked(clickPos))
                     {
                         pendingDisplaySettings.fullscreen = !pendingDisplaySettings.fullscreen;
                         updateOptionsLabels();
                     }
-                    else if (previousResolutionButton.isClicked(clickPos))
+                    else if (activeOptionsTab == OptionsTab::Graphics && previousResolutionButton.isClicked(clickPos))
                     {
                         selectedResolution = selectedResolution == 0
                             ? displayResolutions.size() - 1
                             : selectedResolution - 1;
                         updateOptionsLabels();
                     }
-                    else if (nextResolutionButton.isClicked(clickPos))
+                    else if (activeOptionsTab == OptionsTab::Graphics && nextResolutionButton.isClicked(clickPos))
                     {
                         selectedResolution = (selectedResolution + 1) % displayResolutions.size();
                         updateOptionsLabels();
                     }
-                    else if (applyOptionsButton.isClicked(clickPos))
+                    else if (activeOptionsTab == OptionsTab::Graphics && applyOptionsButton.isClicked(clickPos))
                     {
                         const sf::Vector2u size = displayResolutions[selectedResolution];
                         pendingDisplaySettings.width = size.x;
@@ -4259,7 +4382,30 @@ int main(int argc, char** argv)
                             saved ? "Display settings applied and saved." : "Settings applied, but could not be saved.",
                             saved ? sf::Color(120, 220, 150) : sf::Color::Red);
                     }
-                    else if (optionsReturnState == GameState::Authenticated &&
+                    else if (activeOptionsTab == OptionsTab::Audio && volumeDownButton.isClicked(clickPos))
+                    {
+                        audioSystem.setMasterVolume(audioSystem.getMasterVolume() - 0.1f);
+                        updateOptionsLabels();
+                    }
+                    else if (activeOptionsTab == OptionsTab::Audio && volumeUpButton.isClicked(clickPos))
+                    {
+                        audioSystem.setMasterVolume(audioSystem.getMasterVolume() + 0.1f);
+                        updateOptionsLabels();
+                    }
+                    else if (activeOptionsTab == OptionsTab::Audio && muteAllAudioCheckbox.isClicked(clickPos))
+                    {
+                        audioSystem.setAllMuted(!audioSystem.isAllMuted());
+                    }
+                    else if (activeOptionsTab == OptionsTab::Audio && muteMusicCheckbox.isClicked(clickPos))
+                    {
+                        audioSystem.setMusicMuted(!audioSystem.isMusicMuted());
+                    }
+                    else if (activeOptionsTab == OptionsTab::Audio && muteSoundFxCheckbox.isClicked(clickPos))
+                    {
+                        audioSystem.setSoundEffectsMuted(!audioSystem.isSoundEffectsMuted());
+                    }
+                    else if (activeOptionsTab == OptionsTab::Account &&
+                             optionsReturnState == GameState::Authenticated &&
                              changePasswordOptionButton.isClicked(clickPos))
                     {
                         showChangePasswordScreen();
@@ -5277,16 +5423,32 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Options)
         {
-            displayModeButton.update(mousePos);
-            previousResolutionButton.update(mousePos);
-            resolutionButton.update(mousePos);
-            nextResolutionButton.update(mousePos);
-            applyOptionsButton.update(mousePos);
-            if (optionsReturnState == GameState::Authenticated)
+            graphicsOptionsTabButton.update(mousePos);
+            audioOptionsTabButton.update(mousePos);
+            accountOptionsTabButton.update(mousePos);
+            if (activeOptionsTab == OptionsTab::Graphics)
+            {
+                displayModeButton.update(mousePos);
+                previousResolutionButton.update(mousePos);
+                resolutionButton.update(mousePos);
+                nextResolutionButton.update(mousePos);
+                applyOptionsButton.update(mousePos);
+            }
+            else if (activeOptionsTab == OptionsTab::Audio)
+            {
+                volumeDownButton.update(mousePos);
+                audioVolumeButton.update(mousePos);
+                volumeUpButton.update(mousePos);
+                muteAllAudioCheckbox.update(mousePos);
+                muteMusicCheckbox.update(mousePos);
+                muteSoundFxCheckbox.update(mousePos);
+            }
+            else if (optionsReturnState == GameState::Authenticated)
             {
                 changePasswordOptionButton.update(mousePos);
             }
             optionsBackButton.update(mousePos);
+            styleOptionsTabs();
         }
         else if (currentState == GameState::StoryIntro)
         {
@@ -5532,16 +5694,44 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Options)
         {
-            drawText(window, font, "Display Mode", 18, {332.0f, 148.0f}, sf::Color(220, 224, 230));
-            displayModeButton.draw(window);
-            drawText(window, font, "Resolution", 18, {350.0f, 246.0f}, sf::Color(220, 224, 230));
-            previousResolutionButton.draw(window);
-            resolutionButton.draw(window);
-            nextResolutionButton.draw(window);
-            applyOptionsButton.draw(window);
-            if (optionsReturnState == GameState::Authenticated)
+            styleOptionsTabs();
+            graphicsOptionsTabButton.draw(window);
+            audioOptionsTabButton.draw(window);
+            accountOptionsTabButton.draw(window);
+            if (activeOptionsTab == OptionsTab::Graphics)
+            {
+                drawText(window, font, "Display Mode", 18, {332.0f, 180.0f}, sf::Color(220, 224, 230));
+                displayModeButton.draw(window);
+                drawText(window, font, "Resolution", 18, {350.0f, 286.0f}, sf::Color(220, 224, 230));
+                previousResolutionButton.draw(window);
+                resolutionButton.draw(window);
+                nextResolutionButton.draw(window);
+                applyOptionsButton.draw(window);
+            }
+            else if (activeOptionsTab == OptionsTab::Audio)
+            {
+                drawText(window, font, "Volume", 18, {366.0f, 206.0f}, sf::Color(220, 224, 230));
+                volumeDownButton.draw(window);
+                audioVolumeButton.draw(window);
+                volumeUpButton.draw(window);
+                muteAllAudioCheckbox.draw(window, audioSystem.isAllMuted());
+                muteMusicCheckbox.draw(window, audioSystem.isMusicMuted());
+                muteSoundFxCheckbox.draw(window, audioSystem.isSoundEffectsMuted());
+            }
+            else if (optionsReturnState == GameState::Authenticated)
             {
                 changePasswordOptionButton.draw(window);
+            }
+            else
+            {
+                drawText(
+                    window,
+                    font,
+                    "Sign in to manage account settings.",
+                    18,
+                    {246.0f, 248.0f},
+                    sf::Color(220, 224, 230),
+                    320.0f);
             }
             optionsBackButton.draw(window);
             window.draw(messageText);
