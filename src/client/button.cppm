@@ -57,7 +57,7 @@ export struct Button
         text.setFillColor(hovered ? sf::Color(255, 244, 215) : sf::Color(246, 232, 200));
     }
 
-    bool isClicked(const sf::Vector2f& mousePos) const
+    bool isClicked(const sf::Vector2f& mousePos)
     {
         const bool clicked = shape.getGlobalBounds().contains(mousePos);
         if (clicked && buttonClickHandler)
