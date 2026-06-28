@@ -80,6 +80,7 @@ if(BAYOU_BUILD_CLIENTS)
                 src/shared/network.cppm
                 src/shared/inputbox.cppm
                 src/client/button.cppm
+                src/client/client_controls.cppm
                 src/client/client_services.cppm
                 src/client/card_editor_screen.cppm
     )
