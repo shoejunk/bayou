@@ -43,7 +43,7 @@ CPMAddPackage(
     GITHUB_REPOSITORY SFML/SFML
     GIT_TAG 3.0.0
     OPTIONS
-        "SFML_BUILD_AUDIO OFF"
+        "SFML_BUILD_AUDIO ${BAYOU_BUILD_CLIENTS}"
         "SFML_BUILD_NETWORK ON"
         "SFML_BUILD_WINDOW ${BAYOU_BUILD_CLIENTS}"
         "SFML_BUILD_GRAPHICS ${BAYOU_BUILD_CLIENTS}"
@@ -84,7 +84,7 @@ if(BAYOU_BUILD_CLIENTS)
                 src/client/card_editor_screen.cppm
     )
 
-    target_link_libraries(client PRIVATE fmt::fmt SFML::Graphics SFML::Window SFML::System SFML::Network)
+    target_link_libraries(client PRIVATE fmt::fmt SFML::Audio SFML::Graphics SFML::Window SFML::System SFML::Network)
     if(WIN32)
         target_link_libraries(client PRIVATE Crypt32)
     endif()

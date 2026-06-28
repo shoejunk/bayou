@@ -1,3 +1,4 @@
+#include <SFML/Audio.hpp>
 #include <SFML/Graphics.hpp>
 #include <SFML/Network.hpp>
 
@@ -26,6 +27,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <future>
+#include <list>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -51,6 +53,226 @@ import network;
 namespace
 {
 using namespace bayou::client;
+
+enum class AudioCue
+{
+    ButtonClick,
+    PiecePlace,
+    UnitMove,
+    UnitAttack,
+    UnitDeath
+};
+
+class AudioSystem
+{
+public:
+    AudioSystem()
+    {
+        makeEffects();
+        startMusic();
+    }
+
+    void play(AudioCue cue, float volumeScale = 1.0f)
+    {
+        trimStoppedSounds();
+        sf::SoundBuffer& buffer = effectBuffers[static_cast<std::size_t>(cue)];
+        sf::Sound& sound = activeSounds.emplace_back(buffer);
+        sound.setVolume(effectVolume(cue) * volumeScale);
+        sound.play();
+    }
+
+    void update()
+    {
+        trimStoppedSounds();
+        if (music && music->getStatus() != sf::SoundSource::Status::Playing)
+        {
+            music->play();
+        }
+    }
+
+private:
+    static constexpr unsigned int SampleRate = 44100;
+    static constexpr int EffectCount = 5;
+    std::array<sf::SoundBuffer, EffectCount> effectBuffers;
+    std::unique_ptr<sf::Music> music;
+    std::list<sf::Sound> activeSounds;
+
+    static float envelope(float t, float duration, float attack, float release)
+    {
+        if (t < attack)
+        {
+            return t / attack;
+        }
+        if (t > duration - release)
+        {
+            return std::max(0.0f, (duration - t) / release);
+        }
+        return 1.0f;
+    }
+
+    static sf::SoundBuffer bufferFromSamples(const std::vector<std::int16_t>& samples)
+    {
+        sf::SoundBuffer buffer;
+        const bool loaded = buffer.loadFromSamples(samples.data(), samples.size(), 1, SampleRate, {sf::SoundChannel::Mono});
+        (void)loaded;
+        return buffer;
+    }
+
+    static std::vector<std::int16_t> makeTone(
+        float duration,
+        float startFrequency,
+        float endFrequency,
+        float volume,
+        float noiseAmount = 0.0f)
+    {
+        const int sampleCount = static_cast<int>(duration * static_cast<float>(SampleRate));
+        std::vector<std::int16_t> samples(static_cast<std::size_t>(sampleCount));
+        std::uint32_t noise = 0x9e3779b9u;
+        float phase = 0.0f;
+
+        for (int i = 0; i < sampleCount; ++i)
+        {
+            const float t = static_cast<float>(i) / static_cast<float>(SampleRate);
+            const float p = duration > 0.0f ? t / duration : 0.0f;
+            const float frequency = startFrequency + (endFrequency - startFrequency) * p;
+            phase += 2.0f * Pi * frequency / static_cast<float>(SampleRate);
+            noise = noise * 1664525u + 1013904223u;
+            const float noiseSample = (static_cast<float>((noise >> 16) & 0xffffu) / 32767.5f) - 1.0f;
+            const float wave = std::sin(phase) * (1.0f - noiseAmount) + noiseSample * noiseAmount;
+            const float amp = wave * volume * envelope(t, duration, 0.008f, std::min(0.12f, duration * 0.42f));
+            samples[static_cast<std::size_t>(i)] =
+                static_cast<std::int16_t>(std::clamp(amp, -1.0f, 1.0f) * 32767.0f);
+        }
+        return samples;
+    }
+
+    static std::vector<std::int16_t> makeMoveSamples()
+    {
+        const float duration = 0.34f;
+        const int sampleCount = static_cast<int>(duration * static_cast<float>(SampleRate));
+        std::vector<std::int16_t> samples(static_cast<std::size_t>(sampleCount));
+        for (int i = 0; i < sampleCount; ++i)
+        {
+            const float t = static_cast<float>(i) / static_cast<float>(SampleRate);
+            const float stepPulse = std::sin(2.0f * Pi * 7.0f * t);
+            const float body = std::sin(2.0f * Pi * (92.0f + 34.0f * t) * t);
+            const float clank = std::sin(2.0f * Pi * 680.0f * t) * std::max(0.0f, stepPulse);
+            const float amp = (body * 0.42f + clank * 0.18f) * envelope(t, duration, 0.012f, 0.12f) * 0.38f;
+            samples[static_cast<std::size_t>(i)] =
+                static_cast<std::int16_t>(std::clamp(amp, -1.0f, 1.0f) * 32767.0f);
+        }
+        return samples;
+    }
+
+    static std::vector<std::int16_t> makePlaceSamples()
+    {
+        const float duration = 0.26f;
+        const int sampleCount = static_cast<int>(duration * static_cast<float>(SampleRate));
+        std::vector<std::int16_t> samples(static_cast<std::size_t>(sampleCount));
+        std::uint32_t noise = 0x85ebca6bu;
+
+        for (int i = 0; i < sampleCount; ++i)
+        {
+            const float t = static_cast<float>(i) / static_cast<float>(SampleRate);
+            const float p = duration > 0.0f ? t / duration : 0.0f;
+            noise = noise * 1664525u + 1013904223u;
+            const float noiseSample = (static_cast<float>((noise >> 16) & 0xffffu) / 32767.5f) - 1.0f;
+            const float thud = std::sin(2.0f * Pi * (92.0f - 22.0f * p) * t);
+            const float clack = std::sin(2.0f * Pi * 520.0f * t) * std::max(0.0f, 1.0f - p * 5.5f);
+            const float dust = noiseSample * std::max(0.0f, 1.0f - p * 3.2f);
+            const float amp = (thud * 0.54f + clack * 0.24f + dust * 0.12f) *
+                envelope(t, duration, 0.004f, 0.15f) * 0.46f;
+            samples[static_cast<std::size_t>(i)] =
+                static_cast<std::int16_t>(std::clamp(amp, -1.0f, 1.0f) * 32767.0f);
+        }
+
+        return samples;
+    }
+
+    void makeEffects()
+    {
+        effectBuffers[static_cast<std::size_t>(AudioCue::ButtonClick)] =
+            bufferFromSamples(makeTone(0.075f, 760.0f, 1040.0f, 0.34f));
+        sf::SoundBuffer& placeBuffer = effectBuffers[static_cast<std::size_t>(AudioCue::PiecePlace)];
+        const std::optional<std::filesystem::path> placePath = resolveAssetPath("audio/place.wav");
+        if (!placePath || !placeBuffer.loadFromFile(*placePath))
+        {
+            placeBuffer = bufferFromSamples(makePlaceSamples());
+        }
+        effectBuffers[static_cast<std::size_t>(AudioCue::UnitMove)] =
+            bufferFromSamples(makeMoveSamples());
+        sf::SoundBuffer& attackBuffer = effectBuffers[static_cast<std::size_t>(AudioCue::UnitAttack)];
+        const std::optional<std::filesystem::path> attackPath = resolveAssetPath("audio/attack.wav");
+        if (!attackPath || !attackBuffer.loadFromFile(*attackPath))
+        {
+            attackBuffer = bufferFromSamples(makeTone(0.24f, 520.0f, 92.0f, 0.58f, 0.22f));
+        }
+        sf::SoundBuffer& deathBuffer = effectBuffers[static_cast<std::size_t>(AudioCue::UnitDeath)];
+        const std::optional<std::filesystem::path> deathPath = resolveAssetPath("audio/death.wav");
+        if (!deathPath || !deathBuffer.loadFromFile(*deathPath))
+        {
+            deathBuffer = bufferFromSamples(makeTone(0.46f, 180.0f, 42.0f, 0.56f, 0.34f));
+        }
+    }
+
+    void startMusic()
+    {
+        const std::optional<std::filesystem::path> musicPath = resolveAssetPath("audio/midnight-carnival-veil.wav");
+        if (!musicPath)
+        {
+            return;
+        }
+
+        auto loadedMusic = std::make_unique<sf::Music>();
+        if (!loadedMusic->openFromFile(*musicPath))
+        {
+            return;
+        }
+
+        loadedMusic->setLooping(true);
+        loadedMusic->setVolume(22.0f);
+        loadedMusic->play();
+        music = std::move(loadedMusic);
+    }
+
+    void trimStoppedSounds()
+    {
+        for (auto sound = activeSounds.begin(); sound != activeSounds.end();)
+        {
+            if (sound->getStatus() == sf::SoundSource::Status::Stopped)
+            {
+                sound = activeSounds.erase(sound);
+            }
+            else
+            {
+                ++sound;
+            }
+        }
+    }
+
+    static float effectVolume(AudioCue cue)
+    {
+        switch (cue)
+        {
+            case AudioCue::ButtonClick: return 38.0f;
+            case AudioCue::PiecePlace: return 52.0f;
+            case AudioCue::UnitMove: return 44.0f;
+            case AudioCue::UnitAttack: return 78.0f;
+            case AudioCue::UnitDeath: return 45.0f;
+        }
+        return 50.0f;
+    }
+};
+
+AudioSystem* activeAudioSystem = nullptr;
+
+void playButtonClickSound()
+{
+    if (activeAudioSystem)
+    {
+        activeAudioSystem->play(AudioCue::ButtonClick);
+    }
+}
 
 constexpr bool EnableCoinPurchases = false;
 constexpr const char* CoinPackId = "coins_50";
@@ -483,6 +705,9 @@ int main(int argc, char** argv)
         font,
         {clientConfig().card.host, clientConfig().card.port},
         fontPath->parent_path());
+    AudioSystem audioSystem;
+    activeAudioSystem = &audioSystem;
+    setButtonClickHandler(playButtonClickSound);
 
     sf::Clock clock;
     float animationTime = 0.0f;
@@ -1933,12 +2158,26 @@ int main(int argc, char** argv)
             return;
         }
 
+        bool playedMoveSound = false;
+        bool playedPlaceSound = false;
+        bool playedAttackSound = false;
+        bool playedDeathSound = false;
+        for (const game_data::Piece& currentPiece : gameSnapshot.pieces)
+        {
+            if (!pieceByIdInSnapshot(nextSnapshot, currentPiece.id))
+            {
+                playedDeathSound = true;
+                break;
+            }
+        }
+
         const bool snapshotDescribesAttack = nextSnapshot.status.find(" hit ") != std::string::npos;
         for (const game_data::Piece& nextPiece : nextSnapshot.pieces)
         {
             const game_data::Piece* currentPiece = pieceByIdInSnapshot(gameSnapshot, nextPiece.id);
             if (!currentPiece)
             {
+                playedPlaceSound = true;
                 continue;
             }
 
@@ -1951,67 +2190,84 @@ int main(int argc, char** argv)
                     nextPiece.column,
                     animationTime,
                     0.95f};
+                playedMoveSound = true;
             }
         }
 
-        if (!snapshotDescribesAttack)
+        if (snapshotDescribesAttack)
         {
-            return;
+            for (const game_data::Piece& currentPiece : gameSnapshot.pieces)
+            {
+                const game_data::Piece* nextActor = pieceByIdInSnapshot(nextSnapshot, currentPiece.id);
+                if (!nextActor)
+                {
+                    continue;
+                }
+
+                const std::string attackStatusPrefix = currentPiece.name + " hit ";
+                if (nextSnapshot.status.rfind(attackStatusPrefix, 0) != 0)
+                {
+                    continue;
+                }
+
+                const bool actorWasUsed = nextActor->hasActed ||
+                    currentPiece.row != nextActor->row ||
+                    currentPiece.column != nextActor->column ||
+                    nextActor->disabledTurns != currentPiece.disabledTurns;
+                if (!actorWasUsed)
+                {
+                    continue;
+                }
+
+                for (const game_data::Piece& currentTarget : gameSnapshot.pieces)
+                {
+                    if (currentTarget.owner == currentPiece.owner)
+                    {
+                        continue;
+                    }
+
+                    const game_data::ActionResolution action = game_data::resolvePieceAction(
+                        gameSnapshot.pieces,
+                        gameSnapshot.holes,
+                        currentPiece,
+                        currentTarget.row,
+                        currentTarget.column);
+                    if (!action.legal || !action.attacks || action.targetId != currentTarget.id)
+                    {
+                        continue;
+                    }
+
+                    const game_data::Piece* nextTarget = pieceByIdInSnapshot(nextSnapshot, currentTarget.id);
+                    const bool targetChanged = nextTarget == nullptr ||
+                        nextTarget->health < currentTarget.health ||
+                        nextTarget->disabledTurns != currentTarget.disabledTurns;
+                    if (!targetChanged)
+                    {
+                        continue;
+                    }
+
+                    startPieceAttackAnimation(currentPiece.id, currentTarget.row, currentTarget.column);
+                    playedAttackSound = true;
+                    break;
+                }
+            }
         }
 
-        for (const game_data::Piece& currentPiece : gameSnapshot.pieces)
+        if (playedPlaceSound)
         {
-            const game_data::Piece* nextActor = pieceByIdInSnapshot(nextSnapshot, currentPiece.id);
-            if (!nextActor)
-            {
-                continue;
-            }
-
-            const std::string attackStatusPrefix = currentPiece.name + " hit ";
-            if (nextSnapshot.status.rfind(attackStatusPrefix, 0) != 0)
-            {
-                continue;
-            }
-
-            const bool actorWasUsed = nextActor->hasActed ||
-                currentPiece.row != nextActor->row ||
-                currentPiece.column != nextActor->column ||
-                nextActor->disabledTurns != currentPiece.disabledTurns;
-            if (!actorWasUsed)
-            {
-                continue;
-            }
-
-            for (const game_data::Piece& currentTarget : gameSnapshot.pieces)
-            {
-                if (currentTarget.owner == currentPiece.owner)
-                {
-                    continue;
-                }
-
-                const game_data::ActionResolution action = game_data::resolvePieceAction(
-                    gameSnapshot.pieces,
-                    gameSnapshot.holes,
-                    currentPiece,
-                    currentTarget.row,
-                    currentTarget.column);
-                if (!action.legal || !action.attacks || action.targetId != currentTarget.id)
-                {
-                    continue;
-                }
-
-                const game_data::Piece* nextTarget = pieceByIdInSnapshot(nextSnapshot, currentTarget.id);
-                const bool targetChanged = nextTarget == nullptr ||
-                    nextTarget->health < currentTarget.health ||
-                    nextTarget->disabledTurns != currentTarget.disabledTurns;
-                if (!targetChanged)
-                {
-                    continue;
-                }
-
-                startPieceAttackAnimation(currentPiece.id, currentTarget.row, currentTarget.column);
-                break;
-            }
+            audioSystem.play(AudioCue::PiecePlace);
+        }
+        if (playedMoveSound)
+        {
+            audioSystem.play(AudioCue::UnitMove);
+        }
+        if (playedAttackSound)
+        {
+            audioSystem.play(AudioCue::UnitAttack, playedDeathSound ? 0.9f : 1.0f);
+        }
+        if (playedDeathSound)
+        {
+            audioSystem.play(AudioCue::UnitDeath, playedAttackSound ? 0.5f : 1.0f);
         }
     };
 
@@ -3266,6 +3522,7 @@ int main(int argc, char** argv)
     {
         const float deltaTime = clock.restart().asSeconds();
         animationTime += deltaTime;
+        audioSystem.update();
         sf::Vector2f mousePos = window.mapPixelToCoords(sf::Mouse::getPosition(window));
 
         if (currentState == GameState::Game)

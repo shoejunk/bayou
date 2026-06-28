@@ -4,7 +4,19 @@ module;
 
 #include "client_ui.hpp"
 
+#include <functional>
+
 export module button;
+
+namespace
+{
+std::function<void()> buttonClickHandler;
+}
+
+export void setButtonClickHandler(std::function<void()> handler)
+{
+    buttonClickHandler = std::move(handler);
+}
 
 export struct Button
 {
@@ -47,7 +59,12 @@ export struct Button
 
     bool isClicked(const sf::Vector2f& mousePos) const
     {
-        return shape.getGlobalBounds().contains(mousePos);
+        const bool clicked = shape.getGlobalBounds().contains(mousePos);
+        if (clicked && buttonClickHandler)
+        {
+            buttonClickHandler();
+        }
+        return clicked;
     }
 
     void draw(sf::RenderWindow& window) const
