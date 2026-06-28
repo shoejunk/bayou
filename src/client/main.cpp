@@ -81,10 +81,10 @@ constexpr float DeckRowHeight = 42.0f;
 constexpr std::size_t VisibleDeckRows = 7;
 
 constexpr float DeckCardsX = 42.0f;
-constexpr float DeckCardsY = 244.0f;
+constexpr float DeckCardsY = 164.0f;
 constexpr float DeckCardsWidth = 324.0f;
 constexpr float DeckCardRowHeight = 40.0f;
-constexpr std::size_t VisibleDeckCardRows = 6;
+constexpr std::size_t VisibleDeckCardRows = 8;
 constexpr float PasswordIconInset = 42.0f;
 constexpr std::uint32_t AdminUsersPageSize = 6;
 constexpr float AdminUserRowY = 174.0f;
@@ -878,7 +878,7 @@ int main(int argc, char** argv)
         selectDeck(*selectedDeck);
         deckEditorMode = DeckEditorMode::EditDeck;
         layoutDeckEditorControls();
-        setMessage(messageText, "Editing deck. Save to keep changes.", sf::Color::Yellow);
+        setMessage(messageText, "", sf::Color::Yellow);
     };
 
     auto showDeckEditorDeckList = [&]() {
@@ -1627,23 +1627,23 @@ int main(int argc, char** argv)
 
         if (stats.heroCount == 0)
         {
-            stats.warnings.push_back("Warning: add at least one hero.");
+            stats.warnings.push_back("Add at least one hero.");
         }
         if (stats.heroCost > game_data::HeroCostLimit)
         {
             stats.warnings.push_back(
-                "Warning: hero cost is " + std::to_string(stats.heroCost) + "/" +
+                "Hero cost is " + std::to_string(stats.heroCost) + "/" +
                 std::to_string(game_data::HeroCostLimit) + ".");
         }
         if (stats.cardCount != game_data::DeckCardCount)
         {
             stats.warnings.push_back(
-                "Warning: use exactly " + std::to_string(game_data::DeckCardCount) +
+                "Use exactly " + std::to_string(game_data::DeckCardCount) +
                 " non-hero cards.");
         }
         if (!stats.keywordMismatchCardIndices.empty())
         {
-            stats.warnings.push_back("Warning: highlighted cards lack hero keywords.");
+            stats.warnings.push_back("Highlighted cards lack hero keywords.");
         }
         return stats;
     };
@@ -1690,13 +1690,6 @@ int main(int argc, char** argv)
         if (!collectionError.empty())
         {
             setMessage(messageText, collectionError, sf::Color::Red);
-            return;
-        }
-
-        const std::string validationError = deckValidationError(deck);
-        if (!validationError.empty())
-        {
-            setMessage(messageText, validationError, sf::Color::Red);
             return;
         }
 
@@ -3611,14 +3604,22 @@ int main(int argc, char** argv)
             playerDecks = std::move(result.decks);
             playerCoins = result.coins;
             playerCollection = std::move(result.collection);
+            const bool hadSavedDecks = !playerDecks.empty();
+            playerDecks.erase(
+                std::remove_if(playerDecks.begin(), playerDecks.end(), [&](const deck_data::Deck& deck) {
+                    return !deckValidationError(deck).empty();
+                }),
+                playerDecks.end());
             sortDecks();
             deckListOffset = 0;
             selectedDeck = playerDecks.empty() ? std::nullopt : std::optional<std::size_t>(0);
             if (result.success)
             {
                 setMessage(messageText,
-                           playerDecks.empty() ? "No decks yet. Build one in the Deck Editor."
-                                               : "Pick a deck and find a match.",
+                           playerDecks.empty()
+                               ? (hadSavedDecks ? "No playable decks. Fix one in the Deck Editor."
+                                                : "No decks yet. Build one in the Deck Editor.")
+                               : "Pick a deck and find a match.",
                            playerDecks.empty() ? sf::Color(220, 180, 120) : sf::Color(120, 220, 150));
             }
             else
@@ -4359,7 +4360,9 @@ int main(int argc, char** argv)
                         {
                             addSelectedCard();
                         }
-                        else if (deckEditorMode == DeckEditorMode::EditDeck && saveDeckButton.isClicked(clickPos))
+                        else if (deckEditorMode == DeckEditorMode::EditDeck &&
+                                 deckHasUnsavedChanges() &&
+                                 saveDeckButton.isClicked(clickPos))
                         {
                             saveCurrentDeck();
                         }
@@ -4858,6 +4861,7 @@ int main(int argc, char** argv)
                         editSelectedDeck();
                     }
                     else if (deckEditorMode == DeckEditorMode::EditDeck &&
+                             deckHasUnsavedChanges() &&
                              keyPressed->code == sf::Keyboard::Key::Enter)
                     {
                         saveCurrentDeck();
@@ -5060,7 +5064,14 @@ int main(int argc, char** argv)
                 collectionOccultFilterCheckbox.update(mousePos);
                 collectionRiffraffFilterCheckbox.update(mousePos);
                 addCardButton.update(mousePos);
-                saveDeckButton.update(mousePos);
+                if (deckHasUnsavedChanges())
+                {
+                    saveDeckButton.update(mousePos);
+                }
+                else
+                {
+                    saveDeckButton.hovered = false;
+                }
             }
             if (!deckUnsavedChangesPopupVisible && inspectedDeckEditorCardTitle)
             {

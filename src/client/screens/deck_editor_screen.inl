@@ -68,12 +68,6 @@
         drawText(window, font,
                  "Heroes " + std::to_string(stats.heroCost) + "/" + std::to_string(game_data::HeroCostLimit),
                  12, {270.0f, 135.0f}, (heroesOk && costOk) ? okColor : badColor, 96.0f);
-        float warningY = 164.0f;
-        for (const std::string& warning : stats.warnings)
-        {
-            drawText(window, font, warning, 11, {42.0f, warningY}, sf::Color(248, 190, 105), 324.0f);
-            warningY += 13.0f;
-        }
 
         const std::size_t lastDeckCard = std::min(editingDeck.cardTitles.size(), deckCardListOffset + VisibleDeckCardRows);
         for (std::size_t i = deckCardListOffset; i < lastDeckCard; ++i)
@@ -117,7 +111,7 @@
         }
         if (editingDeck.cardTitles.empty() && !deckEditorBusy())
         {
-            drawText(window, font, "No cards in this deck", 15, {108.0f, 304.0f}, sf::Color(178, 186, 202), 180.0f);
+            drawText(window, font, "No cards in this deck", 15, {108.0f, 288.0f}, sf::Color(178, 186, 202), 180.0f);
         }
         removeCardButton.draw(window);
 
@@ -173,7 +167,37 @@
                 sf::Color(178, 186, 202));
         }
         addCardButton.draw(window);
-        saveDeckButton.draw(window);
+        if (deckHasUnsavedChanges())
+        {
+            saveDeckButton.draw(window);
+        }
+        else
+        {
+            const sf::Vector2f position = saveDeckButton.shape.getPosition();
+            const sf::Vector2f size = saveDeckButton.shape.getSize();
+            sf::RectangleShape shadow(size);
+            shadow.setPosition(position + sf::Vector2f(3.0f, 4.0f));
+            shadow.setFillColor(sf::Color(0, 0, 0, 80));
+            window.draw(shadow);
+
+            sf::RectangleShape disabled(size);
+            disabled.setPosition(position);
+            disabled.setFillColor(sf::Color(56, 58, 58, 190));
+            disabled.setOutlineThickness(2.0f);
+            disabled.setOutlineColor(sf::Color(105, 108, 108, 180));
+            window.draw(disabled);
+
+            sf::RectangleShape inner({size.x - 8.0f, size.y - 8.0f});
+            inner.setPosition(position + sf::Vector2f(4.0f, 4.0f));
+            inner.setFillColor(sf::Color::Transparent);
+            inner.setOutlineThickness(1.0f);
+            inner.setOutlineColor(sf::Color(82, 86, 86, 150));
+            window.draw(inner);
+
+            sf::Text label = saveDeckButton.text;
+            label.setFillColor(sf::Color(168, 172, 172, 210));
+            window.draw(label);
+        }
 
         const bool hoveringDropTarget = dragActive && draggingLibraryCard &&
             isInsideRect(dragCurrentPos, CurrentDeckPanelX, DeckEditorPanelY, CurrentDeckPanelWidth, DeckEditorPanelHeight);
@@ -206,6 +230,17 @@
                 172.0f);
         }
 
-        window.draw(messageText);
+        if (!stats.warnings.empty())
+        {
+            sf::Text warningText(font, stats.warnings.front(), 20);
+            warningText.setFillColor(sf::Color::Red);
+            warningText.setPosition({400.0f, messageText.getPosition().y});
+            centerText(warningText, 400.0f);
+            window.draw(warningText);
+        }
+        else
+        {
+            window.draw(messageText);
+        }
     };
 

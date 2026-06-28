@@ -542,12 +542,6 @@ private:
                 return;
             }
 
-            if (const std::optional<std::string> rulesError = account_decks::deckRulesError(deck))
-            {
-                sendDeckCommandResponse(client, MessageType::DeckSaveResponse, false, *rulesError);
-                return;
-            }
-
             account_decks::saveDeck(*database, *username, originalName, deck);
             sendDeckCommandResponse(client, MessageType::DeckSaveResponse, true, "Deck saved");
             fmt::println("Saved deck '{}' for user {}", deck.name, *username);
