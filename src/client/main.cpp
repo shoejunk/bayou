@@ -60,7 +60,9 @@ enum class AudioCue
     PiecePlace,
     UnitMove,
     UnitAttack,
-    UnitDeath
+    UnitDeath,
+    Victory,
+    Defeat
 };
 
 class AudioSystem
@@ -92,7 +94,7 @@ public:
 
 private:
     static constexpr unsigned int SampleRate = 44100;
-    static constexpr int EffectCount = 5;
+    static constexpr int EffectCount = 7;
     std::array<sf::SoundBuffer, EffectCount> effectBuffers;
     std::unique_ptr<sf::Music> music;
     std::list<sf::Sound> activeSounds;
@@ -213,6 +215,18 @@ private:
         {
             deathBuffer = bufferFromSamples(makeTone(0.46f, 180.0f, 42.0f, 0.56f, 0.34f));
         }
+        sf::SoundBuffer& victoryBuffer = effectBuffers[static_cast<std::size_t>(AudioCue::Victory)];
+        const std::optional<std::filesystem::path> victoryPath = resolveAssetPath("audio/victory.wav");
+        if (!victoryPath || !victoryBuffer.loadFromFile(*victoryPath))
+        {
+            victoryBuffer = bufferFromSamples(makeTone(0.6f, 440.0f, 880.0f, 0.4f, 0.2f));
+        }
+        sf::SoundBuffer& defeatBuffer = effectBuffers[static_cast<std::size_t>(AudioCue::Defeat)];
+        const std::optional<std::filesystem::path> defeatPath = resolveAssetPath("audio/defeat.wav");
+        if (!defeatPath || !defeatBuffer.loadFromFile(*defeatPath))
+        {
+            defeatBuffer = bufferFromSamples(makeTone(0.6f, 220.0f, 80.0f, 0.4f, 0.3f));
+        }
     }
 
     void startMusic()
@@ -259,6 +273,8 @@ private:
             case AudioCue::UnitMove: return 44.0f;
             case AudioCue::UnitAttack: return 78.0f;
             case AudioCue::UnitDeath: return 45.0f;
+            case AudioCue::Victory: return 35.0f;
+            case AudioCue::Defeat: return 35.0f;
         }
         return 50.0f;
     }
@@ -784,6 +800,7 @@ int main(int argc, char** argv)
     float revealStartedAt = 0.0f;
     bool gameResultReceived = false;
     bool gameResultSuccess = false;
+    bool gameOverSoundPlayed = false;
     int gameRatingChange = 0;
     std::string gameRewardText;
     std::optional<std::size_t> draggingLibraryCard;
@@ -1322,6 +1339,7 @@ int main(int argc, char** argv)
         revealStartedAt = 0.0f;
         gameResultReceived = false;
         gameResultSuccess = false;
+        gameOverSoundPlayed = false;
         gameRatingChange = 0;
         gameRewardText.clear();
         draggingLibraryCard.reset();
@@ -1602,6 +1620,7 @@ int main(int argc, char** argv)
         gameDragActive = false;
         gameResultReceived = false;
         gameResultSuccess = false;
+        gameOverSoundPlayed = false;
         gameRatingChange = 0;
         gameRewardText.clear();
         pieceMoveAnimations.clear();
@@ -2361,6 +2380,7 @@ int main(int argc, char** argv)
         gameDragActive = false;
         gameResultReceived = false;
         gameResultSuccess = false;
+        gameOverSoundPlayed = false;
         gameRatingChange = 0;
         gameRewardText.clear();
         pieceMoveAnimations.clear();
@@ -2414,6 +2434,7 @@ int main(int argc, char** argv)
         gameDragActive = false;
         gameResultReceived = false;
         gameResultSuccess = false;
+        gameOverSoundPlayed = false;
         gameRatingChange = 0;
         gameRewardText.clear();
         pieceMoveAnimations.clear();
@@ -3311,6 +3332,16 @@ int main(int argc, char** argv)
                     {
                         gameRewardText = "Finalizing match rewards...";
                     }
+                    if (static_cast<game_data::Phase>(gameSnapshot.phase) ==
+                            game_data::Phase::GameOver &&
+                        !gameOverSoundPlayed)
+                    {
+                        gameOverSoundPlayed = true;
+                        const int me = gameSnapshot.yourPlayer;
+                        audioSystem.play(gameSnapshot.winner == me
+                            ? AudioCue::Victory
+                            : AudioCue::Defeat);
+                    }
                 }
             }
             else if (static_cast<network::MessageType>(type) == network::MessageType::GameOver)
@@ -3376,6 +3407,7 @@ int main(int argc, char** argv)
         gameDragActive = false;
         gameResultReceived = false;
         gameResultSuccess = false;
+        gameOverSoundPlayed = false;
         gameRatingChange = 0;
         gameRewardText.clear();
         pieceMoveAnimations.clear();
