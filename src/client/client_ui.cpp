@@ -12,6 +12,21 @@ void centerText(sf::Text& text, float x)
     text.setPosition({x, text.getPosition().y});
 }
 
+void centerText(sf::Text& text, sf::Vector2f center)
+{
+    const sf::FloatRect bounds = text.getLocalBounds();
+    text.setOrigin({
+        bounds.position.x + bounds.size.x / 2.0f,
+        bounds.position.y + bounds.size.y / 2.0f});
+    text.setPosition(center);
+}
+
+void centerButtonText(sf::Text& text, sf::Vector2f center)
+{
+    const float opticalOffset = std::clamp(static_cast<float>(text.getCharacterSize()) * 0.15f, 3.0f, 8.0f);
+    centerText(text, {center.x, center.y + opticalOffset});
+}
+
 void setMessage(sf::Text& text, const std::string& message, const sf::Color& color)
 {
     text.setString(message);

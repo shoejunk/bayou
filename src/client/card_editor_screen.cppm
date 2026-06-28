@@ -6,6 +6,7 @@ module;
 
 #include "card_editor_assets.hpp"
 #include "client_string.hpp"
+#include "client_ui.hpp"
 
 #include "../shared/card_data.hpp"
 
@@ -61,13 +62,6 @@ const sf::Color Accent(91, 202, 181);
 const sf::Color AccentDark(35, 112, 102);
 const sf::Color Warn(213, 102, 79);
 const sf::Color Line(132, 91, 47);
-
-void centerText(sf::Text& text, const sf::Vector2f& center)
-{
-    const sf::FloatRect bounds = text.getLocalBounds();
-    text.setOrigin({bounds.position.x + bounds.size.x / 2.0f, bounds.position.y + bounds.size.y / 2.0f});
-    text.setPosition(center);
-}
 
 void drawText(sf::RenderWindow& window, sf::Font& font, const std::string& value, unsigned int size, sf::Vector2f position, sf::Color color)
 {
@@ -200,7 +194,7 @@ public:
         shape.setOutlineThickness(2.0f);
         shape.setOutlineColor(sf::Color(181, 126, 60));
         text->setFillColor(Ink);
-        centerText(*text, {position.x + size.x / 2.0f, position.y + size.y / 2.0f - 1.0f});
+        bayou::client::centerButtonText(*text, {position.x + size.x / 2.0f, position.y + size.y / 2.0f});
     }
 
     bool contains(sf::Vector2f point) const
@@ -218,7 +212,9 @@ public:
         shape.setPosition(position);
         if (text)
         {
-            centerText(*text, {position.x + shape.getSize().x / 2.0f, position.y + shape.getSize().y / 2.0f - 1.0f});
+            bayou::client::centerButtonText(
+                *text,
+                {position.x + shape.getSize().x / 2.0f, position.y + shape.getSize().y / 2.0f});
         }
     }
 
@@ -2793,11 +2789,11 @@ private:
         const card_data::Card card = cardFromForm();
         sf::Text title(font, elideToWidth(font, card.title.empty() ? "Untitled Card" : card.title, 22, 210.0f), 22);
         title.setFillColor(Ink);
-        centerText(title, {1053.0f, 414.0f});
+        bayou::client::centerText(title, {1053.0f, 414.0f});
         window.draw(title);
         sf::Text type(font, card.type, 16);
         type.setFillColor(Accent);
-        centerText(type, {1053.0f, 445.0f});
+        bayou::client::centerText(type, {1053.0f, 445.0f});
         window.draw(type);
 
         float y = 512.0f;

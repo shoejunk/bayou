@@ -9,6 +9,8 @@
 namespace bayou::client
 {
 void centerText(sf::Text& text, float x);
+void centerText(sf::Text& text, sf::Vector2f center);
+void centerButtonText(sf::Text& text, sf::Vector2f center);
 void setMessage(sf::Text& text, const std::string& message, const sf::Color& color);
 void setMessageY(sf::Text& text, float y);
 

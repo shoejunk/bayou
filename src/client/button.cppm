@@ -2,6 +2,8 @@ module;
 
 #include <SFML/Graphics.hpp>
 
+#include "client_ui.hpp"
+
 export module button;
 
 export struct Button
@@ -99,11 +101,7 @@ private:
             text.setCharacterSize(text.getCharacterSize() - 1);
         }
 
-        const sf::FloatRect bounds = text.getLocalBounds();
-        text.setOrigin({
-            bounds.position.x + bounds.size.x / 2.0f,
-            bounds.position.y + bounds.size.y / 2.0f});
         const sf::Vector2f position = shape.getPosition();
-        text.setPosition({position.x + size.x / 2.0f, position.y + size.y / 2.0f - 1.0f});
+        bayou::client::centerButtonText(text, {position.x + size.x / 2.0f, position.y + size.y / 2.0f});
     }
 };
