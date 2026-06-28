@@ -365,6 +365,38 @@ inline ActionResolution resolvePieceAction(
                 candidate.targetId = destination->id;
             }
         }
+        else if (kind == ActionKind::Capture)
+        {
+            if (destination == nullptr || destination->owner == piece.owner ||
+                !action.canMove || !action.canAttack ||
+                !actionPatternMatches(
+                    action.pattern,
+                    deltaRow,
+                    deltaColumn,
+                    action.minRange,
+                    action.maxRange))
+            {
+                continue;
+            }
+
+            const bool jumping = static_cast<MovePattern>(action.pattern) == MovePattern::Jump;
+            if (!jumping && !actionPathClear(pieces, piece, toRow, toColumn, action.passThrough))
+            {
+                continue;
+            }
+
+            candidate.legal = true;
+            candidate.moves = true;
+            candidate.attacks = true;
+            candidate.targetId = destination->id;
+            if (!jumping && !action.passThrough)
+            {
+                const int stepRow = (deltaRow > 0) - (deltaRow < 0);
+                const int stepColumn = (deltaColumn > 0) - (deltaColumn < 0);
+                candidate.stagingRow = toRow - stepRow;
+                candidate.stagingColumn = toColumn - stepColumn;
+            }
+        }
         else
         {
             if (!actionPatternMatches(

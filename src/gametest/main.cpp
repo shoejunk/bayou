@@ -323,6 +323,25 @@ int main(int argc, char** argv)
     check(paralyzeResult.legal && paralyzeResult.attacks && paralyzeResult.statusTurns == 2,
           "status-only attacking movement is legal");
 
+    ActionProfile capture;
+    capture.kind = static_cast<std::uint8_t>(ActionKind::Capture);
+    capture.pattern = static_cast<std::uint8_t>(MovePattern::Diag);
+    capture.maxRange = 1;
+    capture.damage = 2;
+    capture.canMove = true;
+    capture.canAttack = true;
+    profilePiece.actions = {capture};
+    check(!resolvePieceAction({profilePiece}, holes, profilePiece, 2, 2).legal,
+          "capture movement cannot target an empty square");
+    const std::vector<Piece> capturePieces = {profilePiece, adjacentEnemy};
+    const ActionResolution captureResult =
+        resolvePieceAction(capturePieces, holes, capturePieces[0], 4, 4);
+    check(captureResult.legal && captureResult.moves && captureResult.attacks &&
+              captureResult.targetId == adjacentEnemy.id &&
+              captureResult.stagingRow == profilePiece.row &&
+              captureResult.stagingColumn == profilePiece.column,
+          "capture movement can move and attack only when an enemy occupies the target square");
+
     ActionProfile passThroughAttack;
     passThroughAttack.pattern = static_cast<std::uint8_t>(MovePattern::Ortho);
     passThroughAttack.minRange = 3;

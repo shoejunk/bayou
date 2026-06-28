@@ -2455,9 +2455,9 @@ private:
         y = drawInstructionBullet(window, "Pattern jump uses the fixed knight-style L shape. Pattern none is used for ranged, teleport, and tunnel actions that do not need slide geometry.", y);
         y = drawInstructionBullet(window, "Can move lets the action target an empty destination. Can attack lets it target an enemy and apply the action's damage and status turns.", y);
         y = drawInstructionBullet(window, "Minimum and maximum range are per action, so a card can mix short moves, long moves, ranged attacks, and state-specific actions.", y);
-        y = drawInstructionParagraph(window, "For blocking slide actions, every square along the path must be empty. Pass-through ignores blockers. Line of sight applies blocker checks to ranged attacks.", y + 5.0f, sf::Color(198, 210, 224));
+        y = drawInstructionParagraph(window, "For blocking slide and capture actions, every square along the path must be empty. Pass-through ignores blockers. Line of sight applies blocker checks to ranged attacks.", y + 5.0f, sf::Color(198, 210, 224));
         y += 10.0f;
-        y = drawInstructionParagraph(window, "An action with both Can move and Can attack is an attacking move. If it destroys the enemy, the mover occupies the enemy's square; otherwise it falls back according to that action's movement geometry.", y, sf::Color(225, 170, 150));
+        y = drawInstructionParagraph(window, "A capture action is both movement and attack, but can only target an enemy-occupied square. If it destroys the enemy, the mover occupies the enemy's square; otherwise it falls back according to that action's movement geometry.", y, sf::Color(225, 170, 150));
         y += 17.0f;
 
         y = drawInstructionSection(window, "5. Spell String Fields", y);
@@ -2740,9 +2740,10 @@ private:
         drawText(window, font, fmt::format("Status: {} turns", action.statusTurns), 17, {882.0f, 382.0f}, Ink);
         drawText(window, font, fmt::format("Cooldown: {} turns", action.cooldownTurns), 17, {882.0f, 420.0f}, Ink);
         drawText(window, font, "Cards reference this object by its unique name.", 15, {882.0f, 486.0f}, Muted, 336.0f);
-        drawText(window, font, "Kinds: slide, ranged, hop, teleport, tunnel", 14, {882.0f, 540.0f}, Muted, 336.0f);
-        drawText(window, font, "Patterns: none, ortho, diag, omni, jump,", 14, {882.0f, 576.0f}, Muted, 336.0f);
-        drawText(window, font, "horizontal, vertical", 14, {882.0f, 598.0f}, Muted, 336.0f);
+        drawText(window, font, "Kinds: slide, ranged, hop, teleport, tunnel,", 14, {882.0f, 540.0f}, Muted, 336.0f);
+        drawText(window, font, "capture", 14, {882.0f, 560.0f}, Muted, 336.0f);
+        drawText(window, font, "Patterns: none, ortho, diag, omni, jump,", 14, {882.0f, 590.0f}, Muted, 336.0f);
+        drawText(window, font, "horizontal, vertical", 14, {882.0f, 612.0f}, Muted, 336.0f);
     }
 
     void drawVisibleField(sf::RenderWindow& window, InputBox& field)

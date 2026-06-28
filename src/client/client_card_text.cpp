@@ -12,6 +12,7 @@ std::string actionKindName(std::uint8_t kind)
         case game_data::ActionKind::Hop: return "Hop";
         case game_data::ActionKind::Teleport: return "Teleport";
         case game_data::ActionKind::Tunnel: return "Tunnel";
+        case game_data::ActionKind::Capture: return "Capture";
         default: return "Slide";
     }
 }
