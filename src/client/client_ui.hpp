@@ -23,6 +23,21 @@ void drawText(
     sf::Vector2f position,
     sf::Color color,
     float maxWidth = 0.0f);
+void drawBeveledPlate(
+    sf::RenderWindow& window,
+    sf::Vector2f position,
+    sf::Vector2f size,
+    sf::Color fill,
+    sf::Color outline,
+    bool highlighted = false,
+    float cut = 8.0f);
+void drawTitlePlaque(
+    sf::RenderWindow& window,
+    sf::Font& font,
+    const std::string& value,
+    sf::Vector2f center,
+    sf::Vector2f size);
+void drawSeparatorRule(sf::RenderWindow& window, sf::Vector2f position, float width);
 std::vector<std::string> wrapText(sf::Font& font, const std::string& value, unsigned int size, float maxWidth);
 float drawWrappedText(
     sf::RenderWindow& window,

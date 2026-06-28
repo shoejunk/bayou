@@ -29,7 +29,7 @@ export struct Button
     {
         shape.setPosition(position);
         shape.setSize(size);
-        shape.setFillColor(sf::Color(58, 43, 31, 244));
+        shape.setFillColor(sf::Color(35, 27, 21, 244));
         shape.setOutlineThickness(2);
         shape.setOutlineColor(sf::Color(176, 123, 59));
 
@@ -52,7 +52,7 @@ export struct Button
     void update(const sf::Vector2f& mousePos)
     {
         hovered = shape.getGlobalBounds().contains(mousePos);
-        shape.setFillColor(hovered ? sf::Color(91, 62, 35, 248) : sf::Color(58, 43, 31, 244));
+        shape.setFillColor(hovered ? sf::Color(83, 50, 25, 248) : sf::Color(35, 27, 21, 244));
         shape.setOutlineColor(hovered ? sf::Color(239, 190, 98) : sf::Color(176, 123, 59));
         text.setFillColor(hovered ? sf::Color(255, 244, 215) : sf::Color(246, 232, 200));
     }
@@ -71,33 +71,27 @@ export struct Button
     {
         const sf::Vector2f position = shape.getPosition();
         const sf::Vector2f size = shape.getSize();
+        bayou::client::drawBeveledPlate(
+            window,
+            position,
+            size,
+            hovered ? sf::Color(84, 51, 25, 248) : sf::Color(31, 27, 23, 244),
+            hovered ? sf::Color(239, 190, 98) : sf::Color(176, 123, 59),
+            hovered,
+            std::clamp(size.y * 0.20f, 5.0f, 11.0f));
 
-        sf::RectangleShape shadow(size);
-        shadow.setPosition(position + sf::Vector2f(3.0f, 4.0f));
-        shadow.setFillColor(sf::Color(0, 0, 0, 110));
-        window.draw(shadow);
-        window.draw(shape);
-
-        sf::RectangleShape inner({size.x - 8.0f, size.y - 8.0f});
-        inner.setPosition(position + sf::Vector2f(4.0f, 4.0f));
-        inner.setFillColor(sf::Color::Transparent);
-        inner.setOutlineThickness(1.0f);
-        inner.setOutlineColor(hovered ? sf::Color(224, 167, 80, 180) : sf::Color(104, 75, 43, 190));
-        window.draw(inner);
-
-        sf::RectangleShape highlight({size.x - 10.0f, 1.0f});
-        highlight.setPosition(position + sf::Vector2f(5.0f, 5.0f));
-        highlight.setFillColor(sf::Color(255, 224, 154, hovered ? 105 : 55));
-        window.draw(highlight);
-
-        const float rivetRadius = size.y >= 42.0f ? 2.0f : 1.5f;
-        for (float x : {position.x + 8.0f, position.x + size.x - 8.0f})
+        if (size.x >= 120.0f && size.y >= 34.0f)
         {
-            sf::CircleShape rivet(rivetRadius);
-            rivet.setOrigin({rivetRadius, rivetRadius});
-            rivet.setPosition({x, position.y + size.y * 0.5f});
-            rivet.setFillColor(sf::Color(205, 151, 72, 190));
-            window.draw(rivet);
+            sf::RectangleShape leftPipe({10.0f, size.y * 0.34f});
+            leftPipe.setPosition({position.x - 5.0f, position.y + size.y * 0.33f});
+            leftPipe.setFillColor(sf::Color(74, 44, 22, 160));
+            leftPipe.setOutlineThickness(1.0f);
+            leftPipe.setOutlineColor(sf::Color(124, 76, 36, 160));
+            window.draw(leftPipe);
+
+            sf::RectangleShape rightPipe(leftPipe);
+            rightPipe.setPosition({position.x + size.x - 5.0f, position.y + size.y * 0.33f});
+            window.draw(rightPipe);
         }
 
         window.draw(text);

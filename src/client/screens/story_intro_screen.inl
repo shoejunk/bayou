@@ -18,7 +18,12 @@
                 "Click anywhere to start."}}
         }};
 
-        drawText(window, font, headings[static_cast<std::size_t>(storyComicPage)], 30, {44.0f, 28.0f}, sf::Color(248, 224, 172), 520.0f);
+        drawTitlePlaque(
+            window,
+            font,
+            headings[static_cast<std::size_t>(storyComicPage)],
+            {310.0f, 50.0f},
+            {520.0f, 58.0f});
         drawText(window, font, "Part " + std::to_string(storyComicPage + 1) + "/3", 16, {674.0f, 40.0f}, sf::Color(190, 198, 214), 90.0f);
 
         sf::Texture* tomArt = textures.load("cards/tinkering-tom.png");
@@ -26,24 +31,23 @@
         {
             const sf::Vector2f panelPos{42.0f + static_cast<float>(i) * 250.0f, 96.0f};
             const sf::Vector2f panelSize{216.0f, 354.0f};
-            sf::RectangleShape shadow(panelSize);
-            shadow.setPosition(panelPos + sf::Vector2f(5.0f, 6.0f));
-            shadow.setFillColor(sf::Color(0, 0, 0, 125));
-            window.draw(shadow);
+            drawBeveledPlate(
+                window,
+                panelPos,
+                panelSize,
+                sf::Color(43, 34, 24, 238),
+                sf::Color(181, 126, 60),
+                false,
+                12.0f);
 
-            sf::RectangleShape panel(panelSize);
-            panel.setPosition(panelPos);
-            panel.setFillColor(sf::Color(241, 226, 188, 238));
-            panel.setOutlineThickness(4.0f);
-            panel.setOutlineColor(sf::Color(18, 23, 24));
-            window.draw(panel);
-
-            sf::RectangleShape scene({panelSize.x - 24.0f, 190.0f});
-            scene.setPosition(panelPos + sf::Vector2f(12.0f, 14.0f));
-            scene.setFillColor(i == 0 ? sf::Color(42, 86, 89) : (i == 1 ? sf::Color(83, 67, 48) : sf::Color(45, 72, 58)));
-            scene.setOutlineThickness(2.0f);
-            scene.setOutlineColor(sf::Color(28, 31, 30));
-            window.draw(scene);
+            drawBeveledPlate(
+                window,
+                panelPos + sf::Vector2f(12.0f, 14.0f),
+                {panelSize.x - 24.0f, 190.0f},
+                i == 0 ? sf::Color(30, 65, 68) : (i == 1 ? sf::Color(74, 53, 34) : sf::Color(37, 61, 47)),
+                sf::Color(105, 75, 40),
+                false,
+                8.0f);
 
             for (int steam = 0; steam < 3; ++steam)
             {
@@ -77,19 +81,21 @@
                 window.draw(valve);
             }
 
-            sf::RectangleShape captionBox({panelSize.x - 24.0f, 112.0f});
-            captionBox.setPosition(panelPos + sf::Vector2f(12.0f, 222.0f));
-            captionBox.setFillColor(sf::Color(255, 248, 224, 238));
-            captionBox.setOutlineThickness(2.0f);
-            captionBox.setOutlineColor(sf::Color(28, 31, 30));
-            window.draw(captionBox);
+            drawBeveledPlate(
+                window,
+                panelPos + sf::Vector2f(12.0f, 222.0f),
+                {panelSize.x - 24.0f, 112.0f},
+                sf::Color(23, 20, 17, 238),
+                sf::Color(105, 75, 40),
+                false,
+                7.0f);
             drawWrappedText(
                 window,
                 font,
                 captions[static_cast<std::size_t>(storyComicPage)][static_cast<std::size_t>(i)],
                 16,
                 panelPos + sf::Vector2f(24.0f, 236.0f),
-                sf::Color(21, 25, 24),
+                sf::Color(246, 232, 200),
                 panelSize.x - 48.0f,
                 5.0f);
         }

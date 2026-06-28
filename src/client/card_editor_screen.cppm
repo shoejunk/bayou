@@ -56,10 +56,10 @@ constexpr std::size_t VisibleActionRows = 8;
 
 const sf::Color Ink(244, 234, 208);
 const sf::Color Muted(181, 166, 137);
-const sf::Color Panel(10, 22, 24, 244);
-const sf::Color PanelAlt(20, 34, 35, 246);
-const sf::Color Accent(91, 202, 181);
-const sf::Color AccentDark(35, 112, 102);
+const sf::Color Panel(9, 15, 16, 244);
+const sf::Color PanelAlt(18, 25, 25, 246);
+const sf::Color Accent(239, 190, 98);
+const sf::Color AccentDark(90, 58, 29);
 const sf::Color Warn(213, 102, 79);
 const sf::Color Line(132, 91, 47);
 
@@ -160,24 +160,7 @@ void drawText(
 
 void drawRoundedPanel(sf::RenderWindow& window, const sf::Vector2f& position, const sf::Vector2f& size, sf::Color fill, sf::Color outline = Line)
 {
-    sf::RectangleShape shadow(size);
-    shadow.setPosition(position + sf::Vector2f(4.0f, 5.0f));
-    shadow.setFillColor(sf::Color(0, 0, 0, 100));
-    window.draw(shadow);
-
-    sf::RectangleShape shape(size);
-    shape.setPosition(position);
-    shape.setFillColor(fill);
-    shape.setOutlineThickness(2.0f);
-    shape.setOutlineColor(outline);
-    window.draw(shape);
-
-    sf::RectangleShape inner({size.x - 8.0f, size.y - 8.0f});
-    inner.setPosition(position + sf::Vector2f(4.0f, 4.0f));
-    inner.setFillColor(sf::Color::Transparent);
-    inner.setOutlineThickness(1.0f);
-    inner.setOutlineColor(sf::Color(48, 119, 109, 135));
-    window.draw(inner);
+    bayou::client::drawBeveledPlate(window, position, size, fill, outline, false, 12.0f);
 }
 
 class EditorButton
@@ -221,23 +204,22 @@ public:
     void update(sf::Vector2f mouse)
     {
         const bool hovered = contains(mouse);
-        shape.setFillColor(hovered ? sf::Color(std::min(base.r + 22, 255), std::min(base.g + 22, 255), std::min(base.b + 22, 255)) : base);
+        shape.setFillColor(hovered
+            ? sf::Color(std::min(base.r + 22, 255), std::min(base.g + 22, 255), std::min(base.b + 22, 255), base.a)
+            : base);
+        isHovered = hovered;
     }
 
     void draw(sf::RenderWindow& window) const
     {
-        sf::RectangleShape shadow(shape.getSize());
-        shadow.setPosition(shape.getPosition() + sf::Vector2f(3.0f, 3.0f));
-        shadow.setFillColor(sf::Color(0, 0, 0, 90));
-        window.draw(shadow);
-        window.draw(shape);
-
-        sf::RectangleShape inner(shape.getSize() - sf::Vector2f(8.0f, 8.0f));
-        inner.setPosition(shape.getPosition() + sf::Vector2f(4.0f, 4.0f));
-        inner.setFillColor(sf::Color::Transparent);
-        inner.setOutlineThickness(1.0f);
-        inner.setOutlineColor(sf::Color(224, 171, 86, 85));
-        window.draw(inner);
+        bayou::client::drawBeveledPlate(
+            window,
+            shape.getPosition(),
+            shape.getSize(),
+            shape.getFillColor(),
+            isHovered ? sf::Color(239, 190, 98) : sf::Color(181, 126, 60),
+            isHovered,
+            std::clamp(shape.getSize().y * 0.20f, 5.0f, 10.0f));
         window.draw(*text);
     }
 
@@ -245,6 +227,7 @@ private:
     std::optional<sf::Text> text;
     sf::RectangleShape shape;
     sf::Color base = AccentDark;
+    bool isHovered = false;
 };
 
 std::string joinStrings(const std::vector<std::string>& values, const std::string& separator)
@@ -2342,12 +2325,12 @@ private:
     void drawHeader(sf::RenderWindow& window)
     {
         sf::RectangleShape bar({EditorWidth, 80.0f});
-        bar.setFillColor(sf::Color(11, 24, 26, 248));
+        bar.setFillColor(sf::Color(5, 10, 11, 236));
         window.draw(bar);
-        drawText(window, font, "Bayou Card Editor", 30, {30.0f, 22.0f}, Ink);
+        bayou::client::drawTitlePlaque(window, font, "Card Editor", {158.0f, 44.0f}, {280.0f, 54.0f});
         if (instructionsVisible)
         {
-            drawText(window, font, "Card creation reference", 15, {340.0f, 31.0f}, Muted, 500.0f);
+            drawText(window, font, "Card creation reference", 15, {356.0f, 31.0f}, Muted, 500.0f);
             instructionsBackButton.draw(window);
         }
         else
@@ -2530,12 +2513,15 @@ private:
             for (std::size_t i = actionListOffset; i < lastVisible; ++i)
             {
                 const float y = ListRowStartY + static_cast<float>(i - actionListOffset) * ListRowHeight;
-                sf::RectangleShape row({230.0f, 48.0f});
-                row.setPosition({42.0f, y});
-                row.setFillColor(selectedAction && *selectedAction == i ? sf::Color(38, 91, 84) : PanelAlt);
-                row.setOutlineThickness(1.0f);
-                row.setOutlineColor(selectedAction && *selectedAction == i ? Accent : sf::Color(91, 64, 37));
-                window.draw(row);
+                const bool selected = selectedAction && *selectedAction == i;
+                bayou::client::drawBeveledPlate(
+                    window,
+                    {42.0f, y},
+                    {230.0f, 48.0f},
+                    selected ? sf::Color(76, 49, 25, 238) : PanelAlt,
+                    selected ? Accent : sf::Color(91, 64, 37),
+                    selected,
+                    6.0f);
                 drawText(window, font, actions[i].name, 16, {54.0f, y + 7.0f}, Ink, 206.0f);
                 drawText(window, font, actions[i].kind + " / " + actions[i].pattern, 13, {54.0f, y + 29.0f}, Muted, 206.0f);
             }
@@ -2555,12 +2541,15 @@ private:
         for (std::size_t i = listOffset; i < lastVisible; ++i)
         {
             const float y = ListRowStartY + static_cast<float>(i - listOffset) * ListRowHeight;
-            sf::RectangleShape row({230.0f, 48.0f});
-            row.setPosition({42.0f, y});
-            row.setFillColor(selectedCard && *selectedCard == i ? sf::Color(38, 91, 84) : PanelAlt);
-            row.setOutlineThickness(1.0f);
-            row.setOutlineColor(selectedCard && *selectedCard == i ? Accent : sf::Color(91, 64, 37));
-            window.draw(row);
+            const bool selected = selectedCard && *selectedCard == i;
+            bayou::client::drawBeveledPlate(
+                window,
+                {42.0f, y},
+                {230.0f, 48.0f},
+                selected ? sf::Color(76, 49, 25, 238) : PanelAlt,
+                selected ? Accent : sf::Color(91, 64, 37),
+                selected,
+                6.0f);
             drawText(window, font, cards[i].title, 17, {54.0f, y + 8.0f}, Ink, 206.0f);
             drawText(window, font, cards[i].type, 13, {54.0f, y + 29.0f}, Muted);
         }

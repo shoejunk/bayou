@@ -26,12 +26,14 @@
         drawText(window, font, card->title, 24, {PiecePopupX + 22.0f, PiecePopupY + 18.0f},
                  sf::Color(248, 239, 216), PiecePopupWidth - 44.0f);
 
-        sf::RectangleShape artFrame({104.0f, 104.0f});
-        artFrame.setPosition({PiecePopupX + 22.0f, PiecePopupY + 62.0f});
-        artFrame.setFillColor(sf::Color(8, 14, 15));
-        artFrame.setOutlineThickness(1.0f);
-        artFrame.setOutlineColor(sf::Color(155, 111, 59));
-        window.draw(artFrame);
+        drawBeveledPlate(
+            window,
+            {PiecePopupX + 22.0f, PiecePopupY + 62.0f},
+            {104.0f, 104.0f},
+            sf::Color(8, 14, 15),
+            sf::Color(155, 111, 59),
+            false,
+            7.0f);
         if (sf::Texture* art = cardArtTexture(card->imagePath))
         {
             drawContainSprite(window, *art, {{PiecePopupX + 30.0f, PiecePopupY + 70.0f}, {88.0f, 88.0f}});
@@ -83,12 +85,14 @@
 
         drawText(window, font, "Details", 17, {PiecePopupTextX, PiecePopupActionHeadingY}, sf::Color::White);
 
-        sf::RectangleShape scrollBack({PiecePopupTextWidth, PiecePopupScrollHeight});
-        scrollBack.setPosition({PiecePopupTextX, PiecePopupScrollY});
-        scrollBack.setFillColor(sf::Color(8, 14, 15, 132));
-        scrollBack.setOutlineThickness(1.0f);
-        scrollBack.setOutlineColor(sf::Color(44, 108, 101, 120));
-        window.draw(scrollBack);
+        drawBeveledPlate(
+            window,
+            {PiecePopupTextX, PiecePopupScrollY},
+            {PiecePopupTextWidth, PiecePopupScrollHeight},
+            sf::Color(8, 14, 15, 132),
+            sf::Color(96, 66, 35, 150),
+            false,
+            7.0f);
 
         const sf::View previousView = window.getView();
         sf::View detailView(sf::FloatRect(

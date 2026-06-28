@@ -473,10 +473,14 @@ struct PasswordVisibilityIcon
         const sf::FloatRect hitBounds = bounds();
         if (hovered)
         {
-            sf::RectangleShape hoverFill(hitBounds.size);
-            hoverFill.setPosition(hitBounds.position);
-            hoverFill.setFillColor(sf::Color(95, 219, 196, 34));
-            window.draw(hoverFill);
+            drawBeveledPlate(
+                window,
+                hitBounds.position,
+                hitBounds.size,
+                sf::Color(60, 39, 22, 120),
+                sf::Color(239, 190, 98, 180),
+                true,
+                4.0f);
         }
 
         sf::RectangleShape divider({1.0f, hitBounds.size.y - 10.0f});
@@ -496,7 +500,7 @@ struct PasswordVisibilityIcon
             window,
             *texture,
             iconTarget,
-            hovered ? sf::Color::White : sf::Color(238, 212, 159, 232));
+            hovered ? sf::Color(255, 244, 215) : sf::Color(238, 212, 159, 232));
     }
 };
 
@@ -520,11 +524,11 @@ struct CheckboxControl
     {
         box.setPosition(position);
         box.setSize({boxSize, boxSize});
-        box.setFillColor(sf::Color(16, 23, 25, 230));
+        box.setFillColor(sf::Color(8, 13, 14, 236));
         box.setOutlineThickness(2.0f);
-        box.setOutlineColor(sf::Color(154, 112, 61));
+        box.setOutlineColor(sf::Color(154, 101, 49));
 
-        label.setFillColor(sf::Color(221, 198, 157));
+        label.setFillColor(sf::Color(246, 232, 200));
         label.setPosition({position.x + labelOffset, position.y - 1.0f});
     }
 
@@ -543,7 +547,7 @@ struct CheckboxControl
     {
         hovered = bounds().contains(mousePos);
         box.setOutlineColor(hovered ? sf::Color(239, 190, 98) : sf::Color(154, 112, 61));
-        label.setFillColor(hovered ? sf::Color(255, 244, 215) : sf::Color(221, 198, 157));
+        label.setFillColor(hovered ? sf::Color(255, 244, 215) : sf::Color(246, 232, 200));
     }
 
     bool isClicked(sf::Vector2f mousePos) const
@@ -553,7 +557,14 @@ struct CheckboxControl
 
     void draw(sf::RenderWindow& window, bool checked) const
     {
-        window.draw(box);
+        drawBeveledPlate(
+            window,
+            box.getPosition(),
+            box.getSize(),
+            checked ? sf::Color(63, 43, 24, 238) : sf::Color(8, 13, 14, 236),
+            hovered || checked ? sf::Color(239, 190, 98) : sf::Color(154, 101, 49),
+            hovered || checked,
+            4.0f);
 
         if (checked)
         {
@@ -1126,17 +1137,14 @@ int main(int argc, char** argv)
         const sf::Vector2f position{724.0f, 18.0f};
         const sf::Vector2f size{52.0f, 52.0f};
 
-        sf::RectangleShape shadow(size);
-        shadow.setPosition(position + sf::Vector2f(3.0f, 4.0f));
-        shadow.setFillColor(sf::Color(0, 0, 0, 110));
-        window.draw(shadow);
-
-        sf::RectangleShape button(size);
-        button.setPosition(position);
-        button.setFillColor(exitDesktopCloseHovered ? sf::Color(205, 35, 35, 248) : sf::Color(152, 22, 28, 244));
-        button.setOutlineThickness(2.0f);
-        button.setOutlineColor(exitDesktopCloseHovered ? sf::Color(255, 178, 178) : sf::Color(255, 92, 92));
-        window.draw(button);
+        drawBeveledPlate(
+            window,
+            position,
+            size,
+            exitDesktopCloseHovered ? sf::Color(134, 38, 28, 248) : sf::Color(75, 31, 25, 244),
+            exitDesktopCloseHovered ? sf::Color(255, 178, 120) : sf::Color(176, 92, 59),
+            exitDesktopCloseHovered,
+            10.0f);
 
         sf::RectangleShape slashA({32.0f, 6.0f});
         slashA.setOrigin({16.0f, 3.0f});
@@ -2806,19 +2814,23 @@ int main(int argc, char** argv)
     };
 
     auto drawLargeCollectionCard = [&](const card_data::Card& card, sf::Vector2f position, sf::Vector2f size) {
-        sf::RectangleShape frame(size);
-        frame.setPosition(position);
-        frame.setFillColor(sf::Color(22, 29, 32, 244));
-        frame.setOutlineThickness(3.0f);
-        frame.setOutlineColor(game_data::isHeroCard(card) ? sf::Color(232, 187, 83) : sf::Color(116, 220, 202));
-        window.draw(frame);
+        drawBeveledPlate(
+            window,
+            position,
+            size,
+            sf::Color(18, 23, 23, 244),
+            game_data::isHeroCard(card) ? sf::Color(232, 187, 83) : sf::Color(176, 123, 59),
+            game_data::isHeroCard(card),
+            12.0f);
 
-        sf::RectangleShape artFrame({size.x - 30.0f, 150.0f});
-        artFrame.setPosition({position.x + 15.0f, position.y + 16.0f});
-        artFrame.setFillColor(sf::Color(8, 14, 15));
-        artFrame.setOutlineThickness(1.0f);
-        artFrame.setOutlineColor(sf::Color(116, 86, 52));
-        window.draw(artFrame);
+        drawBeveledPlate(
+            window,
+            {position.x + 15.0f, position.y + 16.0f},
+            {size.x - 30.0f, 150.0f},
+            sf::Color(8, 14, 15),
+            sf::Color(116, 86, 52),
+            false,
+            7.0f);
         if (sf::Texture* art = cardArtTexture(card.imagePath))
         {
             drawContainSprite(window, *art, {{position.x + 20.0f, position.y + 20.0f}, {size.x - 40.0f, 142.0f}});
@@ -5711,7 +5723,7 @@ int main(int argc, char** argv)
             currentState != GameState::CardEditor &&
             currentState != GameState::Game)
         {
-            window.draw(title);
+            drawTitlePlaque(window, font, title.getString().toAnsiString(), {400.0f, 64.0f}, {360.0f, 70.0f});
         }
 
         if (currentState == GameState::Menu)
@@ -5732,12 +5744,13 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Options)
         {
+            drawPanel(window, {112.0f, 164.0f}, {576.0f, 302.0f});
             optionsTabs.draw(window);
             if (activeOptionsTab == OptionsTab::Graphics)
             {
-                drawText(window, font, "Display Mode", 18, {332.0f, 180.0f}, sf::Color(220, 224, 230));
+                drawText(window, font, "Display Mode", 18, {332.0f, 180.0f}, sf::Color(246, 232, 200));
                 displayModeButton.draw(window);
-                drawText(window, font, "Resolution", 18, {350.0f, 286.0f}, sf::Color(220, 224, 230));
+                drawText(window, font, "Resolution", 18, {350.0f, 286.0f}, sf::Color(246, 232, 200));
                 previousResolutionButton.draw(window);
                 resolutionButton.draw(window);
                 nextResolutionButton.draw(window);
@@ -5841,6 +5854,7 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Authenticated)
         {
+            drawTitlePlaque(window, font, "Steam Tactics", {400.0f, 64.0f}, {360.0f, 70.0f});
             drawText(window, font, signedInLabel(), 18, {24.0f, 20.0f}, sf::Color(246, 238, 218), 240.0f);
             drawText(window, font, "Rating: " + std::to_string(playerRating), 16, {24.0f, 48.0f}, sf::Color(151, 192, 255), 180.0f);
             drawCoinIcon({24.0f, 76.0f}, 13.0f);

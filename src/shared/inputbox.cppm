@@ -12,13 +12,13 @@ export module inputbox;
 
 export struct InputBoxStyle
 {
-    sf::Color fieldFill = sf::Color(16, 23, 25, 230);
-    sf::Color inactiveOutline = sf::Color(154, 112, 61);
-    sf::Color activeOutline = sf::Color(95, 219, 196);
-    sf::Color labelColor = sf::Color(221, 198, 157);
+    sf::Color fieldFill = sf::Color(8, 13, 14, 235);
+    sf::Color inactiveOutline = sf::Color(154, 101, 49);
+    sf::Color activeOutline = sf::Color(239, 190, 98);
+    sf::Color labelColor = sf::Color(246, 232, 200);
     sf::Color textColor = sf::Color(246, 238, 218);
-    sf::Color selectionColor = sf::Color(50, 120, 140, 160);
-    sf::Color cursorColor = sf::Color(95, 219, 196);
+    sf::Color selectionColor = sf::Color(92, 77, 49, 170);
+    sf::Color cursorColor = sf::Color(239, 190, 98);
     float outlineThickness = 2.0f;
     unsigned int labelSize = 18;
     unsigned int textSize = 20;
@@ -57,13 +57,13 @@ export struct InputBox
     static InputBoxStyle editorStyle()
     {
         InputBoxStyle style;
-        style.fieldFill = sf::Color(13, 24, 25, 242);
+        style.fieldFill = sf::Color(8, 15, 16, 242);
         style.inactiveOutline = sf::Color(116, 82, 44);
-        style.activeOutline = sf::Color(92, 202, 181);
-        style.labelColor = sf::Color(198, 174, 130);
+        style.activeOutline = sf::Color(239, 190, 98);
+        style.labelColor = sf::Color(212, 184, 135);
         style.textColor = sf::Color(244, 234, 208);
-        style.selectionColor = sf::Color(48, 126, 124, 165);
-        style.cursorColor = sf::Color(92, 202, 181);
+        style.selectionColor = sf::Color(92, 77, 49, 170);
+        style.cursorColor = sf::Color(239, 190, 98);
         style.outlineThickness = 1.0f;
         style.labelSize = 15;
         style.textSize = 18;
@@ -241,7 +241,7 @@ export struct InputBox
         {
             window.draw(*label);
         }
-        window.draw(shape);
+        drawFieldFrame(window);
         drawSelection(window);
         if (text)
         {
@@ -300,6 +300,49 @@ private:
     std::size_t displayStart = 0;
     bool draggingSelection = false;
     float rightContentInset = 0.0f;
+
+    static sf::ConvexShape cutRect(sf::Vector2f position, sf::Vector2f size, float cut)
+    {
+        cut = std::max(0.0f, std::min(cut, std::min(size.x, size.y) * 0.45f));
+        sf::ConvexShape shape(8);
+        shape.setPoint(0, {position.x + cut, position.y});
+        shape.setPoint(1, {position.x + size.x - cut, position.y});
+        shape.setPoint(2, {position.x + size.x, position.y + cut});
+        shape.setPoint(3, {position.x + size.x, position.y + size.y - cut});
+        shape.setPoint(4, {position.x + size.x - cut, position.y + size.y});
+        shape.setPoint(5, {position.x + cut, position.y + size.y});
+        shape.setPoint(6, {position.x, position.y + size.y - cut});
+        shape.setPoint(7, {position.x, position.y + cut});
+        return shape;
+    }
+
+    void drawFieldFrame(sf::RenderWindow& window) const
+    {
+        const sf::Vector2f position = shape.getPosition();
+        const sf::Vector2f size = shape.getSize();
+        const float cut = std::clamp(size.y * 0.16f, 3.0f, 7.0f);
+
+        sf::ConvexShape shadow = cutRect(position + sf::Vector2f(3.0f, 4.0f), size, cut);
+        shadow.setFillColor(sf::Color(0, 0, 0, 100));
+        window.draw(shadow);
+
+        sf::ConvexShape field = cutRect(position, size, cut);
+        field.setFillColor(style.fieldFill);
+        field.setOutlineThickness(style.outlineThickness);
+        field.setOutlineColor(active ? style.activeOutline : style.inactiveOutline);
+        window.draw(field);
+
+        sf::ConvexShape inner = cutRect(position + sf::Vector2f(4.0f, 4.0f), size - sf::Vector2f(8.0f, 8.0f), std::max(0.0f, cut - 2.0f));
+        inner.setFillColor(sf::Color::Transparent);
+        inner.setOutlineThickness(1.0f);
+        inner.setOutlineColor(active ? sf::Color(255, 218, 140, 155) : sf::Color(102, 68, 35, 120));
+        window.draw(inner);
+
+        sf::RectangleShape topGlow({std::max(0.0f, size.x - 18.0f), 1.0f});
+        topGlow.setPosition({position.x + 9.0f, position.y + 6.0f});
+        topGlow.setFillColor(sf::Color(255, 224, 154, active ? 95 : 42));
+        window.draw(topGlow);
+    }
 
     static bool shiftPressed()
     {

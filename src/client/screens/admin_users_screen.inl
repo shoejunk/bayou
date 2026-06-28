@@ -1,11 +1,11 @@
     auto drawAdminUsers = [&]() {
-        drawText(window, font, "Admin Users", 30, {24.0f, 18.0f}, sf::Color::White);
+        drawTitlePlaque(window, font, "Admin Users", {142.0f, 46.0f}, {236.0f, 52.0f});
         drawText(
             window,
             font,
             "Signed in as " + signedInLabel(),
             14,
-            {250.0f, 22.0f},
+            {310.0f, 22.0f},
             sf::Color(178, 186, 202),
             300.0f);
         drawText(
@@ -13,7 +13,7 @@
             font,
             "Users " + std::to_string(adminUsersTotalCount),
             14,
-            {250.0f, 44.0f},
+            {310.0f, 44.0f},
             sf::Color(248, 214, 112),
             150.0f);
         adminBackButton.draw(window);

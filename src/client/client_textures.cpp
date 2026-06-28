@@ -107,12 +107,17 @@ void drawBackdrop(sf::RenderWindow& window, sf::Texture* backdropTexture)
     }
 
     sf::RectangleShape wash({800.0f, 600.0f});
-    wash.setFillColor(sf::Color(5, 12, 15, 118));
+    wash.setFillColor(sf::Color(3, 8, 10, 145));
     window.draw(wash);
 
     sf::RectangleShape topShade({800.0f, 124.0f});
-    topShade.setFillColor(sf::Color(4, 9, 11, 156));
+    topShade.setFillColor(sf::Color(3, 7, 9, 188));
     window.draw(topShade);
+
+    sf::RectangleShape bottomShade({800.0f, 96.0f});
+    bottomShade.setPosition({0.0f, 504.0f});
+    bottomShade.setFillColor(sf::Color(2, 5, 6, 92));
+    window.draw(bottomShade);
 }
 
 } // namespace bayou::client

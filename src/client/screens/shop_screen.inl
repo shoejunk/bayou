@@ -1,5 +1,5 @@
     auto drawShop = [&]() {
-        drawText(window, font, "Shop", 30, {24.0f, 18.0f}, sf::Color::White);
+        drawTitlePlaque(window, font, "Shop", {112.0f, 46.0f}, {176.0f, 52.0f});
         drawText(window, font, "Signed in as " + signedInLabel(), 14, {220.0f, 24.0f}, sf::Color(178, 186, 202), 280.0f);
 
         sf::CircleShape coin(14.0f);
@@ -50,12 +50,14 @@
             }
             else
             {
-                sf::RectangleShape fallback({220.0f, 300.0f});
-                fallback.setPosition({290.0f, 144.0f});
-                fallback.setFillColor(sf::Color(22, 29, 32, 244));
-                fallback.setOutlineThickness(3.0f);
-                fallback.setOutlineColor(sf::Color(232, 187, 83));
-                window.draw(fallback);
+                drawBeveledPlate(
+                    window,
+                    {290.0f, 144.0f},
+                    {220.0f, 300.0f},
+                    sf::Color(18, 23, 23, 244),
+                    sf::Color(232, 187, 83),
+                    true,
+                    12.0f);
                 drawText(window, font, *revealedCardTitle, 22, {310.0f, 270.0f}, sf::Color(248, 239, 216), 180.0f);
             }
         }
@@ -70,16 +72,18 @@
                 window.draw(glow);
             }
 
-            sf::RectangleShape pack({190.0f, 250.0f});
-            pack.setPosition({305.0f, 152.0f});
-            pack.setFillColor(sf::Color(43, 57, 60, 245));
-            pack.setOutlineThickness(3.0f);
-            pack.setOutlineColor(sf::Color(210, 154, 74));
-            window.draw(pack);
+            drawBeveledPlate(
+                window,
+                {305.0f, 152.0f},
+                {190.0f, 250.0f},
+                sf::Color(22, 28, 28, 245),
+                sf::Color(210, 154, 74),
+                true,
+                14.0f);
 
             sf::RectangleShape band({190.0f, 54.0f});
             band.setPosition({305.0f, 252.0f});
-            band.setFillColor(sf::Color(93, 64, 39, 230));
+            band.setFillColor(sf::Color(93, 57, 28, 230));
             window.draw(band);
 
             drawText(window, font, "Mystery", 26, {345.0f, 190.0f}, sf::Color(248, 239, 216), 120.0f);

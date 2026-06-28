@@ -57,22 +57,11 @@ export struct TabStrip
     void draw(sf::RenderWindow& window) const
     {
         const float totalWidth = static_cast<float>(labels.size()) * tabSize.x;
-        sf::RectangleShape baseLine({totalWidth, 3.0f});
-        baseLine.setPosition({position.x, position.y + tabSize.y - 2.0f});
-        baseLine.setFillColor(sf::Color(177, 124, 59, 210));
+        bayou::client::drawSeparatorRule(window, {position.x + 6.0f, position.y + tabSize.y + 9.0f}, totalWidth - 12.0f);
 
         for (std::size_t i = 0; i < labels.size(); ++i)
         {
             drawTab(window, i);
-        }
-
-        window.draw(baseLine);
-        if (activeIndex < labels.size())
-        {
-            sf::RectangleShape activeCover({tabSize.x - 10.0f, 4.0f});
-            activeCover.setPosition({tabPosition(activeIndex).x + 5.0f, position.y + tabSize.y - 3.0f});
-            activeCover.setFillColor(sf::Color(50, 38, 28, 248));
-            window.draw(activeCover);
         }
     }
 
@@ -105,38 +94,23 @@ private:
         const bool active = index == activeIndex;
         const bool hovered = hoveredIndex && *hoveredIndex == index;
         const sf::Color fill = active
-            ? sf::Color(50, 38, 28, 248)
-            : hovered ? sf::Color(73, 49, 31, 242) : sf::Color(37, 31, 27, 236);
-        const sf::Color outline = active || hovered
-            ? sf::Color(239, 190, 98)
-            : sf::Color(147, 101, 54);
+            ? sf::Color(84, 51, 25, 248)
+            : hovered ? sf::Color(55, 39, 27, 242) : sf::Color(24, 23, 21, 236);
+        const sf::Color outline = active || hovered ? sf::Color(239, 190, 98) : sf::Color(147, 101, 54);
 
-        sf::ConvexShape shadow(6);
-        shadow.setPoint(0, {pos.x + 12.0f, pos.y + 7.0f});
-        shadow.setPoint(1, {pos.x + tabSize.x - 12.0f, pos.y + 7.0f});
-        shadow.setPoint(2, {pos.x + tabSize.x - 1.0f, pos.y + tabSize.y - 1.0f});
-        shadow.setPoint(3, {pos.x + tabSize.x - 1.0f, pos.y + tabSize.y + 5.0f});
-        shadow.setPoint(4, {pos.x + 1.0f, pos.y + tabSize.y + 5.0f});
-        shadow.setPoint(5, {pos.x + 1.0f, pos.y + tabSize.y - 1.0f});
-        shadow.setFillColor(sf::Color(0, 0, 0, active ? 118 : 72));
-        window.draw(shadow);
+        bayou::client::drawBeveledPlate(window, pos, tabSize, fill, outline, active || hovered, 10.0f);
 
-        sf::ConvexShape tab(6);
-        tab.setPoint(0, {pos.x + 13.0f, pos.y + 4.0f});
-        tab.setPoint(1, {pos.x + tabSize.x - 13.0f, pos.y + 4.0f});
-        tab.setPoint(2, {pos.x + tabSize.x - 4.0f, pos.y + tabSize.y - 9.0f});
-        tab.setPoint(3, {pos.x + tabSize.x - 4.0f, pos.y + tabSize.y});
-        tab.setPoint(4, {pos.x + 4.0f, pos.y + tabSize.y});
-        tab.setPoint(5, {pos.x + 4.0f, pos.y + tabSize.y - 9.0f});
-        tab.setFillColor(fill);
-        tab.setOutlineThickness(2.0f);
-        tab.setOutlineColor(outline);
-        window.draw(tab);
-
-        sf::RectangleShape highlight({tabSize.x - 34.0f, 1.0f});
-        highlight.setPosition({pos.x + 17.0f, pos.y + 10.0f});
-        highlight.setFillColor(sf::Color(255, 224, 154, active ? 110 : hovered ? 90 : 45));
-        window.draw(highlight);
+        if (active)
+        {
+            sf::ConvexShape pointer(3);
+            pointer.setPoint(0, {pos.x + tabSize.x * 0.5f - 12.0f, pos.y + tabSize.y + 2.0f});
+            pointer.setPoint(1, {pos.x + tabSize.x * 0.5f + 12.0f, pos.y + tabSize.y + 2.0f});
+            pointer.setPoint(2, {pos.x + tabSize.x * 0.5f, pos.y + tabSize.y + 18.0f});
+            pointer.setFillColor(sf::Color(239, 190, 98));
+            pointer.setOutlineThickness(1.0f);
+            pointer.setOutlineColor(sf::Color(76, 44, 20));
+            window.draw(pointer);
+        }
 
         sf::Text text(font, labels[index], active ? 19 : 18);
         text.setFillColor(active || hovered ? sf::Color(255, 244, 215) : sf::Color(221, 198, 157));
@@ -208,7 +182,7 @@ export struct SliderControl
 
     void draw(sf::RenderWindow& window) const
     {
-        const sf::Color labelColor = hovered || dragging ? sf::Color(255, 244, 215) : sf::Color(220, 224, 230);
+        const sf::Color labelColor = hovered || dragging ? sf::Color(255, 244, 215) : sf::Color(246, 232, 200);
         bayou::client::drawText(window, font, label, 18, position, labelColor);
         bayou::client::drawText(
             window,
@@ -222,24 +196,21 @@ export struct SliderControl
         const sf::Vector2f trackPos{position.x, position.y + 36.0f};
         const sf::Vector2f trackSize{size.x, 16.0f};
 
-        sf::RectangleShape shadow({trackSize.x, trackSize.y});
-        shadow.setPosition(trackPos + sf::Vector2f(2.0f, 4.0f));
-        shadow.setFillColor(sf::Color(0, 0, 0, 110));
-        window.draw(shadow);
-
-        sf::RectangleShape trough(trackSize);
-        trough.setPosition(trackPos);
-        trough.setFillColor(sf::Color(14, 22, 24, 238));
-        trough.setOutlineThickness(2.0f);
-        trough.setOutlineColor(hovered || dragging ? sf::Color(239, 190, 98) : sf::Color(122, 88, 51));
-        window.draw(trough);
+        bayou::client::drawBeveledPlate(
+            window,
+            trackPos,
+            trackSize,
+            sf::Color(8, 13, 14, 244),
+            hovered || dragging ? sf::Color(239, 190, 98) : sf::Color(122, 88, 51),
+            hovered || dragging,
+            4.0f);
 
         const float fillWidth = trackSize.x * value;
         if (fillWidth > 0.0f)
         {
             sf::RectangleShape fill({fillWidth, trackSize.y - 6.0f});
             fill.setPosition({trackPos.x + 3.0f, trackPos.y + 3.0f});
-            fill.setFillColor(sf::Color(158, 200, 216, dragging ? 235 : 205));
+            fill.setFillColor(sf::Color(74, 122, 139, dragging ? 235 : 205));
             window.draw(fill);
         }
 
@@ -253,17 +224,17 @@ export struct SliderControl
         }
 
         const float knobX = trackPos.x + trackSize.x * value;
-        sf::CircleShape knob(12.0f);
-        knob.setOrigin({12.0f, 12.0f});
+        sf::CircleShape knob(13.0f, 16);
+        knob.setOrigin({13.0f, 13.0f});
         knob.setPosition({knobX, trackPos.y + trackSize.y * 0.5f});
         knob.setFillColor(dragging ? sf::Color(255, 222, 136) : sf::Color(224, 166, 82));
         knob.setOutlineThickness(3.0f);
         knob.setOutlineColor(sf::Color(67, 44, 28));
         window.draw(knob);
 
-        sf::CircleShape cap(5.0f);
-        cap.setOrigin({5.0f, 5.0f});
-        cap.setPosition({knobX - 2.5f, trackPos.y + trackSize.y * 0.5f - 3.0f});
+        sf::CircleShape cap(6.0f, 16);
+        cap.setOrigin({6.0f, 6.0f});
+        cap.setPosition({knobX - 1.5f, trackPos.y + trackSize.y * 0.5f - 1.5f});
         cap.setFillColor(sf::Color(255, 239, 188, hovered || dragging ? 190 : 120));
         window.draw(cap);
     }

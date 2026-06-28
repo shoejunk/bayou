@@ -1,17 +1,21 @@
     auto drawGameCardFace = [&](sf::Vector2f position, const game_data::GameCard& card, bool selected, bool affordable) {
-        sf::RectangleShape rect({HandCardWidth, HandCardHeight});
-        rect.setPosition(position);
-        rect.setFillColor(selected ? sf::Color(35, 97, 92, 238) : sf::Color(20, 28, 30, 236));
-        rect.setOutlineThickness(selected ? 2.0f : 1.0f);
-        rect.setOutlineColor(selected ? sf::Color(121, 238, 207) : sf::Color(155, 111, 59));
-        window.draw(rect);
+        drawBeveledPlate(
+            window,
+            position,
+            {HandCardWidth, HandCardHeight},
+            selected ? sf::Color(76, 49, 25, 238) : sf::Color(18, 24, 24, 236),
+            selected ? sf::Color(239, 190, 98) : sf::Color(155, 111, 59),
+            selected,
+            6.0f);
 
-        sf::RectangleShape artFrame({34.0f, 34.0f});
-        artFrame.setPosition({position.x + 5.0f, position.y + 5.0f});
-        artFrame.setFillColor(sf::Color(8, 14, 15));
-        artFrame.setOutlineThickness(1.0f);
-        artFrame.setOutlineColor(sf::Color(114, 83, 47));
-        window.draw(artFrame);
+        drawBeveledPlate(
+            window,
+            {position.x + 5.0f, position.y + 5.0f},
+            {34.0f, 34.0f},
+            sf::Color(8, 14, 15),
+            sf::Color(114, 83, 47),
+            false,
+            4.0f);
         if (sf::Texture* art = cardArtTexture(card.imagePath))
         {
             drawContainSprite(window, *art, {{position.x + 7.0f, position.y + 7.0f}, {30.0f, 30.0f}},
@@ -288,12 +292,14 @@
         drawText(window, font, piece ? piece->name : card->title, 24, {PiecePopupX + 22.0f, PiecePopupY + 18.0f},
                  sf::Color(248, 239, 216), PiecePopupWidth - 44.0f);
 
-        sf::RectangleShape artFrame({104.0f, 104.0f});
-        artFrame.setPosition({PiecePopupX + 22.0f, PiecePopupY + 62.0f});
-        artFrame.setFillColor(sf::Color(8, 14, 15));
-        artFrame.setOutlineThickness(1.0f);
-        artFrame.setOutlineColor(sf::Color(155, 111, 59));
-        window.draw(artFrame);
+        drawBeveledPlate(
+            window,
+            {PiecePopupX + 22.0f, PiecePopupY + 62.0f},
+            {104.0f, 104.0f},
+            sf::Color(8, 14, 15),
+            sf::Color(155, 111, 59),
+            false,
+            7.0f);
 
         bool drewArt = false;
         if (sf::Texture* art = cardArtTexture(piece ? piece->imagePath : card->imagePath))
@@ -374,12 +380,14 @@
 
         drawText(window, font, piece ? "Details" : "Actions", 17, {PiecePopupTextX, PiecePopupActionHeadingY}, sf::Color::White);
 
-        sf::RectangleShape scrollBack({PiecePopupTextWidth, PiecePopupScrollHeight});
-        scrollBack.setPosition({PiecePopupTextX, PiecePopupScrollY});
-        scrollBack.setFillColor(sf::Color(8, 14, 15, 132));
-        scrollBack.setOutlineThickness(1.0f);
-        scrollBack.setOutlineColor(sf::Color(44, 108, 101, 120));
-        window.draw(scrollBack);
+        drawBeveledPlate(
+            window,
+            {PiecePopupTextX, PiecePopupScrollY},
+            {PiecePopupTextWidth, PiecePopupScrollHeight},
+            sf::Color(8, 14, 15, 132),
+            sf::Color(96, 66, 35, 150),
+            false,
+            7.0f);
 
         const sf::View previousView = window.getView();
         sf::View actionView(sf::FloatRect(
@@ -1075,12 +1083,14 @@
         // Game-over banner.
         if (phase == game_data::Phase::GameOver)
         {
-            sf::RectangleShape banner({420.0f, 126.0f});
-            banner.setPosition({40.0f, 210.0f});
-            banner.setFillColor(sf::Color(20, 24, 32, 235));
-            banner.setOutlineThickness(2.0f);
-            banner.setOutlineColor(gameSnapshot.winner == me ? sf::Color(120, 220, 150) : sf::Color(220, 110, 90));
-            window.draw(banner);
+            drawBeveledPlate(
+                window,
+                {40.0f, 210.0f},
+                {420.0f, 126.0f},
+                sf::Color(20, 24, 24, 235),
+                gameSnapshot.winner == me ? sf::Color(120, 220, 150) : sf::Color(220, 110, 90),
+                true,
+                12.0f);
             const std::string result = gameSnapshot.winner == me ? "Victory!" : "Defeat";
             drawText(window, font, result, 34, {60.0f, 224.0f}, gameSnapshot.winner == me ? sf::Color(140, 230, 160) : sf::Color(230, 130, 110));
             const std::string ratingText = gameResultReceived && gameResultSuccess

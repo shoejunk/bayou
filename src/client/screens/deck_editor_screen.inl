@@ -17,7 +17,7 @@
 
     auto drawDeckEditor = [&]() {
         layoutDeckEditorControls();
-        drawText(window, font, "Deck Editor", 30, {24.0f, 18.0f}, sf::Color::White);
+        drawTitlePlaque(window, font, "Deck Editor", {142.0f, 46.0f}, {236.0f, 52.0f});
         drawText(window, font, "Signed in as " + signedInLabel(), 14, {270.0f, 22.0f}, sf::Color(178, 186, 202), 360.0f);
         drawText(window, font, "Coins " + std::to_string(playerCoins), 13, {270.0f, 45.0f}, sf::Color(248, 214, 112), 160.0f);
         drawText(window, font, "Card server " + endpointText(clientConfig().card), 13, {390.0f, 45.0f}, sf::Color(148, 158, 176), 240.0f);
@@ -175,24 +175,14 @@
         {
             const sf::Vector2f position = saveDeckButton.shape.getPosition();
             const sf::Vector2f size = saveDeckButton.shape.getSize();
-            sf::RectangleShape shadow(size);
-            shadow.setPosition(position + sf::Vector2f(3.0f, 4.0f));
-            shadow.setFillColor(sf::Color(0, 0, 0, 80));
-            window.draw(shadow);
-
-            sf::RectangleShape disabled(size);
-            disabled.setPosition(position);
-            disabled.setFillColor(sf::Color(56, 58, 58, 190));
-            disabled.setOutlineThickness(2.0f);
-            disabled.setOutlineColor(sf::Color(105, 108, 108, 180));
-            window.draw(disabled);
-
-            sf::RectangleShape inner({size.x - 8.0f, size.y - 8.0f});
-            inner.setPosition(position + sf::Vector2f(4.0f, 4.0f));
-            inner.setFillColor(sf::Color::Transparent);
-            inner.setOutlineThickness(1.0f);
-            inner.setOutlineColor(sf::Color(82, 86, 86, 150));
-            window.draw(inner);
+            drawBeveledPlate(
+                window,
+                position,
+                size,
+                sf::Color(42, 41, 38, 192),
+                sf::Color(91, 86, 75, 180),
+                false,
+                std::clamp(size.y * 0.20f, 5.0f, 11.0f));
 
             sf::Text label = saveDeckButton.text;
             label.setFillColor(sf::Color(168, 172, 172, 210));
