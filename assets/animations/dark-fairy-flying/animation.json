@@ -1,0 +1,11 @@
+{
+  "baseName": "dark-fairy-flying",
+  "fps": 15,
+  "pingPong": false,
+  "frameCount": 81,
+  "frameWidth": 314,
+  "frameHeight": 309,
+  "sourceFrameCount": 81,
+  "frameStride": 1,
+  "trim": null
+}
