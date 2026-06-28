@@ -2521,19 +2521,101 @@ int main(int argc, char** argv)
     };
 
     auto pieceTokenPath = [](const game_data::Piece& piece) -> const std::string& {
+        if (piece.separateBaseArt)
+        {
+            return piece.tokenPath;
+        }
         return piece.owner == 1 ? piece.blueTokenPath : piece.redTokenPath;
     };
 
     auto pieceWalkAnimPath = [](const game_data::Piece& piece) -> const std::string& {
+        if (piece.separateBaseArt)
+        {
+            return piece.walkAnimPath;
+        }
         return piece.owner == 1 ? piece.blueWalkAnimPath : piece.redWalkAnimPath;
     };
 
     auto cardTokenPath = [](const game_data::GameCard& card, int owner) -> const std::string& {
+        if (card.separateBaseArt)
+        {
+            return card.tokenPath;
+        }
         return owner == 1 ? card.blueTokenPath : card.redTokenPath;
     };
 
     auto cardWalkAnimPath = [](const game_data::GameCard& card, int owner) -> const std::string& {
+        if (card.separateBaseArt)
+        {
+            return card.walkAnimPath;
+        }
         return owner == 1 ? card.blueWalkAnimPath : card.redWalkAnimPath;
+    };
+
+    auto pieceBasePath = [](const game_data::Piece& piece) -> const std::string& {
+        return piece.owner == 1 ? piece.pieceBaseBluePath : piece.pieceBaseRedPath;
+    };
+
+    auto cardBasePath = [](const game_data::GameCard& card, int owner) -> const std::string& {
+        return owner == 1 ? card.pieceBaseBluePath : card.pieceBaseRedPath;
+    };
+
+    auto drawPieceVisual = [&](
+        const std::string& tokenPath,
+        const std::string& walkPath,
+        const std::string& basePath,
+        bool separateBaseArt,
+        bool flipX,
+        int walkAnimFrames,
+        sf::Vector2f anchor,
+        float scale,
+        sf::Color tint,
+        int walkFrame) {
+        const sf::FloatRect target = pieceTargetRect(anchor, scale, true);
+        if (separateBaseArt)
+        {
+            if (sf::Texture* base = textures.load(basePath))
+            {
+                drawContainSprite(window, *base, target, tint);
+            }
+        }
+
+        auto drawWalkFrame = [&](int frame) {
+            if (sf::Texture* walkSheet = walkAnimTexture(walkPath))
+            {
+                const int frameCount = std::max(1, walkAnimFrames);
+                const sf::Vector2u sheetSize = walkSheet->getSize();
+                const int frameWidth = static_cast<int>(sheetSize.x / static_cast<unsigned int>(frameCount));
+                const int frameHeight = static_cast<int>(sheetSize.y);
+                if (frameWidth > 0 && frameHeight > 0)
+                {
+                    const int clampedFrame = std::clamp(frame, 0, frameCount - 1);
+                    drawTextureRectContain(window,
+                        *walkSheet,
+                        sf::IntRect({clampedFrame * frameWidth, 0}, {frameWidth, frameHeight}),
+                        target,
+                        tint,
+                        flipX);
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        if (walkFrame >= 0 && !walkPath.empty() && drawWalkFrame(walkFrame))
+        {
+            return true;
+        }
+        if (sf::Texture* token = textures.load(tokenPath))
+        {
+            drawContainSprite(window, *token, target, tint, flipX);
+            return true;
+        }
+        if (!walkPath.empty() && drawWalkFrame(0))
+        {
+            return true;
+        }
+        return false;
     };
 
     auto drawCardPiecePreview = [&](const game_data::GameCard& card,
@@ -2546,31 +2628,24 @@ int main(int argc, char** argv)
         const std::string& walkPath = cardWalkAnimPath(card, owner);
 
         bool drewPiece = false;
-        if (sf::Texture* token = textures.load(tokenPath))
+        drewPiece = drawPieceVisual(
+            tokenPath,
+            walkPath,
+            cardBasePath(card, owner),
+            card.separateBaseArt,
+            card.separateBaseArt && owner == 2,
+            card.walkAnimFrames,
+            anchor,
+            scale,
+            tint,
+            -1);
+        if (!drewPiece)
         {
-            drawContainSprite(window, *token, pieceTargetRect(anchor, scale, true), tint);
-            drewPiece = true;
-        }
-        else if (sf::Texture* walkSheet = walkAnimTexture(walkPath))
-        {
-            const int frameCount = std::max(1, card.walkAnimFrames);
-            const sf::Vector2u sheetSize = walkSheet->getSize();
-            const int frameWidth = static_cast<int>(sheetSize.x / static_cast<unsigned int>(frameCount));
-            const int frameHeight = static_cast<int>(sheetSize.y);
-            if (frameWidth > 0 && frameHeight > 0)
+            if (sf::Texture* art = cardArtTexture(card.imagePath))
             {
-                drawTextureRectContain(window,
-                    *walkSheet,
-                    sf::IntRect({0, 0}, {frameWidth, frameHeight}),
-                    pieceTargetRect(anchor, scale, true),
-                    tint);
+                drawContainSprite(window, *art, pieceTargetRect(anchor, scale, false), tint);
                 drewPiece = true;
             }
-        }
-        else if (sf::Texture* art = cardArtTexture(card.imagePath))
-        {
-            drawContainSprite(window, *art, pieceTargetRect(anchor, scale, false), tint);
-            drewPiece = true;
         }
 
         if (!drewPiece)

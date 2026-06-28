@@ -261,10 +261,14 @@ struct GameCard
     std::vector<std::string> keywords;
     std::string imagePath;
     std::string walkAnimPath;
+    std::string tokenPath;
     std::string blueTokenPath;
     std::string redTokenPath;
     std::string blueWalkAnimPath;
     std::string redWalkAnimPath;
+    std::string pieceBaseBluePath;
+    std::string pieceBaseRedPath;
+    bool separateBaseArt = false;
     int walkAnimFrames = 4;
     int cost = 1;          // steam cost (units / spells)
     int heroCost = 0;      // hero-cost budget contribution (heroes)
@@ -293,10 +297,14 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.keywords = card.keywords;
     g.imagePath = card.imagePath;
     g.walkAnimPath = cardStr(card, "WalkAnim");
+    g.tokenPath = cardStr(card, "Token");
     g.blueTokenPath = cardStr(card, "TokenBlue");
     g.redTokenPath = cardStr(card, "TokenRed");
     g.blueWalkAnimPath = cardStr(card, "WalkAnimBlue");
     g.redWalkAnimPath = cardStr(card, "WalkAnimRed");
+    g.pieceBaseBluePath = cardStr(card, "PieceBaseBlue");
+    g.pieceBaseRedPath = cardStr(card, "PieceBaseRed");
+    g.separateBaseArt = cardStr(card, "PieceArtStyle") == "separateBase";
     if (g.blueWalkAnimPath.empty() && g.redWalkAnimPath.empty())
     {
         g.blueWalkAnimPath = g.walkAnimPath;
@@ -400,10 +408,14 @@ struct Piece
     std::vector<std::string> keywords;
     std::string imagePath;
     std::string walkAnimPath;
+    std::string tokenPath;
     std::string blueTokenPath;
     std::string redTokenPath;
     std::string blueWalkAnimPath;
     std::string redWalkAnimPath;
+    std::string pieceBaseBluePath;
+    std::string pieceBaseRedPath;
+    bool separateBaseArt = false;
     int walkAnimFrames = 4;
     int maxHealth = 1;
     int health = 1;
@@ -425,6 +437,37 @@ struct Piece
     bool isHero = false;
     bool hasActed = false;
 };
+
+inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHero)
+{
+    piece.name = card.title;
+    piece.keywords = card.keywords;
+    piece.imagePath = card.imagePath;
+    piece.walkAnimPath = card.walkAnimPath;
+    piece.tokenPath = card.tokenPath;
+    piece.blueTokenPath = card.blueTokenPath;
+    piece.redTokenPath = card.redTokenPath;
+    piece.blueWalkAnimPath = card.blueWalkAnimPath;
+    piece.redWalkAnimPath = card.redWalkAnimPath;
+    piece.pieceBaseBluePath = card.pieceBaseBluePath;
+    piece.pieceBaseRedPath = card.pieceBaseRedPath;
+    piece.separateBaseArt = card.separateBaseArt;
+    piece.walkAnimFrames = card.walkAnimFrames;
+    piece.maxHealth = card.health;
+    piece.health = card.health;
+    piece.attack = card.attack;
+    piece.attackRange = card.attackRange;
+    piece.movePattern = card.movePattern;
+    piece.moveRange = card.moveRange;
+    piece.attackingMove = card.attackingMove;
+    piece.canControl = card.canControl;
+    piece.growTurnsRemaining = card.growTurns;
+    piece.actions = card.actions;
+    piece.ability = card.ability;
+    piece.abilityLabels = card.abilityLabels;
+    piece.abilityUses = card.abilityUses;
+    piece.isHero = isHero;
+}
 
 inline int disabledTurnsForDamage(int damage, int statusTurns)
 {
@@ -509,9 +552,11 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
 {
     packet << card.title << card.type;
     card_data::writeStringVector(packet, card.keywords);
-    packet << card.imagePath << card.walkAnimPath
+    packet << card.imagePath << card.walkAnimPath << card.tokenPath
            << card.blueTokenPath << card.redTokenPath
-           << card.blueWalkAnimPath << card.redWalkAnimPath << card.walkAnimFrames
+           << card.blueWalkAnimPath << card.redWalkAnimPath
+           << card.pieceBaseBluePath << card.pieceBaseRedPath << card.separateBaseArt
+           << card.walkAnimFrames
            << card.cost << card.heroCost
            << card.health << card.attack << card.attackRange
            << card.movePattern << card.moveRange << card.attackingMove
@@ -536,9 +581,11 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
     {
         return false;
     }
-    packet >> card.imagePath >> card.walkAnimPath
+    packet >> card.imagePath >> card.walkAnimPath >> card.tokenPath
            >> card.blueTokenPath >> card.redTokenPath
-           >> card.blueWalkAnimPath >> card.redWalkAnimPath >> card.walkAnimFrames
+           >> card.blueWalkAnimPath >> card.redWalkAnimPath
+           >> card.pieceBaseBluePath >> card.pieceBaseRedPath >> card.separateBaseArt
+           >> card.walkAnimFrames
            >> card.cost >> card.heroCost
            >> card.health >> card.attack >> card.attackRange
            >> card.movePattern >> card.moveRange >> card.attackingMove
@@ -573,9 +620,11 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
 {
     packet << piece.id << piece.owner << piece.row << piece.column << piece.name;
     card_data::writeStringVector(packet, piece.keywords);
-    packet << piece.imagePath << piece.walkAnimPath
+    packet << piece.imagePath << piece.walkAnimPath << piece.tokenPath
            << piece.blueTokenPath << piece.redTokenPath
-           << piece.blueWalkAnimPath << piece.redWalkAnimPath << piece.walkAnimFrames
+           << piece.blueWalkAnimPath << piece.redWalkAnimPath
+           << piece.pieceBaseBluePath << piece.pieceBaseRedPath << piece.separateBaseArt
+           << piece.walkAnimFrames
            << piece.maxHealth << piece.health << piece.attack << piece.attackRange
            << piece.movePattern << piece.moveRange << piece.attackingMove
            << piece.canControl << piece.growTurnsRemaining << piece.disabledTurns << piece.sleepTurnsRemaining
@@ -598,9 +647,11 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
     {
         return false;
     }
-    packet >> piece.imagePath >> piece.walkAnimPath
+    packet >> piece.imagePath >> piece.walkAnimPath >> piece.tokenPath
            >> piece.blueTokenPath >> piece.redTokenPath
-           >> piece.blueWalkAnimPath >> piece.redWalkAnimPath >> piece.walkAnimFrames
+           >> piece.blueWalkAnimPath >> piece.redWalkAnimPath
+           >> piece.pieceBaseBluePath >> piece.pieceBaseRedPath >> piece.separateBaseArt
+           >> piece.walkAnimFrames
            >> piece.maxHealth >> piece.health >> piece.attack >> piece.attackRange
            >> piece.movePattern >> piece.moveRange >> piece.attackingMove
            >> piece.canControl >> piece.growTurnsRemaining >> piece.disabledTurns >> piece.sleepTurnsRemaining

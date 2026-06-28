@@ -479,10 +479,14 @@ int main(int argc, char** argv)
           "referenced action object resolves into gameplay data without a legacy fallback attack");
 
     GameCard serializedCard = decodedCard;
+    serializedCard.tokenPath = "characters/test.png";
     serializedCard.blueTokenPath = "characters/blue/test.png";
     serializedCard.redTokenPath = "characters/red/test.png";
     serializedCard.blueWalkAnimPath = "animations/blue/test.png";
     serializedCard.redWalkAnimPath = "animations/red/test.png";
+    serializedCard.pieceBaseBluePath = "characters/bases/blue.png";
+    serializedCard.pieceBaseRedPath = "characters/bases/red.png";
+    serializedCard.separateBaseArt = true;
     serializedCard.walkAnimFrames = 7;
     serializedCard.ability = "transform";
     serializedCard.abilityLabels = {"Ready", "Lower"};
@@ -494,8 +498,12 @@ int main(int argc, char** argv)
               roundTrippedCard.actions.size() == 1 &&
               roundTrippedCard.actions[0].name == "Diagonal Charge" &&
               roundTrippedCard.keywords == encodedCard.keywords &&
+              roundTrippedCard.tokenPath == "characters/test.png" &&
               roundTrippedCard.blueTokenPath == "characters/blue/test.png" &&
               roundTrippedCard.redWalkAnimPath == "animations/red/test.png" &&
+              roundTrippedCard.pieceBaseBluePath == "characters/bases/blue.png" &&
+              roundTrippedCard.pieceBaseRedPath == "characters/bases/red.png" &&
+              roundTrippedCard.separateBaseArt &&
               roundTrippedCard.walkAnimFrames == 7 &&
               roundTrippedCard.abilityLabels.size() == 2 &&
               roundTrippedCard.abilityUses == 2,
@@ -504,10 +512,14 @@ int main(int argc, char** argv)
     Piece serializedPiece = profilePiece;
     serializedPiece.ability = "dig";
     serializedPiece.keywords = {"mechanical"};
+    serializedPiece.tokenPath = "characters/test.png";
     serializedPiece.blueTokenPath = "characters/blue/test.png";
     serializedPiece.redTokenPath = "characters/red/test.png";
     serializedPiece.blueWalkAnimPath = "animations/blue/test.png";
     serializedPiece.redWalkAnimPath = "animations/red/test.png";
+    serializedPiece.pieceBaseBluePath = "characters/bases/blue.png";
+    serializedPiece.pieceBaseRedPath = "characters/bases/red.png";
+    serializedPiece.separateBaseArt = true;
     serializedPiece.walkAnimFrames = 6;
     serializedPiece.abilityLabels = {"Dig"};
     serializedPiece.abilityUses = 1;
@@ -525,8 +537,12 @@ int main(int argc, char** argv)
               roundTrippedPiece.actions.size() == 1 &&
               roundTrippedPiece.actions[0].name == "Serialized Action" &&
               roundTrippedPiece.keywords == serializedPiece.keywords &&
+              roundTrippedPiece.tokenPath == "characters/test.png" &&
               roundTrippedPiece.blueTokenPath == "characters/blue/test.png" &&
               roundTrippedPiece.redWalkAnimPath == "animations/red/test.png" &&
+              roundTrippedPiece.pieceBaseBluePath == "characters/bases/blue.png" &&
+              roundTrippedPiece.pieceBaseRedPath == "characters/bases/red.png" &&
+              roundTrippedPiece.separateBaseArt &&
               roundTrippedPiece.walkAnimFrames == 6 &&
               roundTrippedPiece.ability == "dig" &&
               roundTrippedPiece.growTurnsRemaining == 2 &&

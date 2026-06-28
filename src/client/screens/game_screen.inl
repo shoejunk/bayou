@@ -307,29 +307,17 @@
         {
             if (!drewArt)
             {
-                if (sf::Texture* token = textures.load(pieceTokenPath(*piece)))
-                {
-                    drawContainSprite(window,
-                        *token,
-                        {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}});
-                    drewArt = true;
-                }
-                else if (sf::Texture* walkSheet = walkAnimTexture(pieceWalkAnimPath(*piece)))
-                {
-                    const int walkFrameCount = std::max(1, piece->walkAnimFrames);
-                    const sf::Vector2u sheetSize = walkSheet->getSize();
-                    const int frameWidth = static_cast<int>(sheetSize.x / static_cast<unsigned int>(walkFrameCount));
-                    const int frameHeight = static_cast<int>(sheetSize.y);
-                    if (frameWidth > 0 && frameHeight > 0)
-                    {
-                        drawTextureRectContain(window,
-                            *walkSheet,
-                            sf::IntRect({0, 0}, {frameWidth, frameHeight}),
-                            {{PiecePopupX + 30.0f, PiecePopupY + 68.0f}, {88.0f, 92.0f}},
-                            sf::Color::White);
-                        drewArt = true;
-                    }
-                }
+                drewArt = drawPieceVisual(
+                    pieceTokenPath(*piece),
+                    pieceWalkAnimPath(*piece),
+                    pieceBasePath(*piece),
+                    piece->separateBaseArt,
+                    piece->separateBaseArt && piece->owner == 2,
+                    piece->walkAnimFrames,
+                    {PiecePopupX + 74.0f, PiecePopupY + 160.0f},
+                    0.92f,
+                    sf::Color::White,
+                    -1);
             }
         }
 
@@ -800,66 +788,43 @@
 
             const std::string& walkPath = pieceWalkAnimPath(piece);
             const std::string& tokenPath = pieceTokenPath(piece);
-            if (isMoving && !walkPath.empty() && walkAnimTexture(walkPath) != nullptr)
-            {
-                if (sf::Texture* walkSheet = walkAnimTexture(walkPath))
-                {
-                    const int walkFrameCount = std::max(1, piece.walkAnimFrames);
-                    const sf::Vector2u sheetSize = walkSheet->getSize();
-                    const int frameWidth = static_cast<int>(
-                        sheetSize.x / static_cast<unsigned int>(walkFrameCount));
-                    const int frameHeight = static_cast<int>(sheetSize.y);
-                    if (frameWidth > 0 && frameHeight > 0)
-                    {
-                        const float loopProgress =
-                            std::fmod(walkAnimationElapsed, WalkAnimationLoopSeconds) /
-                            WalkAnimationLoopSeconds;
-                        const int frame = std::min(
-                            static_cast<int>(loopProgress * static_cast<float>(walkFrameCount)),
-                            walkFrameCount - 1);
-                        drawTextureRectContain(window,
-                            *walkSheet,
-                            sf::IntRect({frame * frameWidth, 0}, {frameWidth, frameHeight}),
-                            pieceTargetRect(anchor, pieceScale, true),
-                            pieceUnavailable
-                                ? sf::Color(150, 150, 150, 215)
-                                : sf::Color::White);
-                    }
-                }
-            }
-            else if (sf::Texture* token = textures.load(tokenPath))
-            {
-                drawContainSprite(window,
-                    *token,
-                    pieceTargetRect(anchor, pieceScale, true),
-                    pieceUnavailable ? sf::Color(150, 150, 150, 215) : sf::Color::White);
-            }
-            else if (sf::Texture* walkSheet = walkAnimTexture(walkPath))
+            const sf::Color pieceTint = pieceUnavailable
+                ? sf::Color(150, 150, 150, 215)
+                : sf::Color::White;
+            int walkFrame = -1;
+            if (isMoving)
             {
                 const int walkFrameCount = std::max(1, piece.walkAnimFrames);
-                const sf::Vector2u sheetSize = walkSheet->getSize();
-                const int frameWidth = static_cast<int>(
-                    sheetSize.x / static_cast<unsigned int>(walkFrameCount));
-                const int frameHeight = static_cast<int>(sheetSize.y);
-                if (frameWidth > 0 && frameHeight > 0)
+                const float loopProgress =
+                    std::fmod(walkAnimationElapsed, WalkAnimationLoopSeconds) /
+                    WalkAnimationLoopSeconds;
+                walkFrame = std::min(
+                    static_cast<int>(loopProgress * static_cast<float>(walkFrameCount)),
+                    walkFrameCount - 1);
+            }
+            bool drewPiece = drawPieceVisual(
+                tokenPath,
+                walkPath,
+                pieceBasePath(piece),
+                piece.separateBaseArt,
+                piece.separateBaseArt && piece.owner == 2,
+                piece.walkAnimFrames,
+                anchor,
+                pieceScale,
+                pieceTint,
+                walkFrame);
+            if (!drewPiece)
+            {
+                if (sf::Texture* art = cardArtTexture(piece.imagePath))
                 {
-                    drawTextureRectContain(window,
-                        *walkSheet,
-                        sf::IntRect({0, 0}, {frameWidth, frameHeight}),
-                        pieceTargetRect(anchor, pieceScale, true),
-                        pieceUnavailable
-                            ? sf::Color(150, 150, 150, 215)
-                            : sf::Color::White);
+                    drawContainSprite(window, *art, pieceTargetRect(anchor, pieceScale, false),
+                                      pieceUnavailable
+                                          ? sf::Color(130, 130, 130)
+                                          : sf::Color::White);
+                    drewPiece = true;
                 }
             }
-            else if (sf::Texture* art = cardArtTexture(piece.imagePath))
-            {
-                drawContainSprite(window, *art, pieceTargetRect(anchor, pieceScale, false),
-                                  pieceUnavailable
-                                      ? sf::Color(130, 130, 130)
-                                      : sf::Color::White);
-            }
-            else
+            if (!drewPiece)
             {
                 const float radius = PieceBaseWidth * 0.28f * pieceScale;
                 sf::CircleShape body(radius);
@@ -1057,34 +1022,24 @@
                 const sf::Color tint = draggedPieceDropValid
                     ? sf::Color(255, 255, 255, 220)
                     : sf::Color(220, 120, 110, 190);
-                bool drewPiece = false;
-
-                if (sf::Texture* token = textures.load(pieceTokenPath(*draggedPiece)))
+                bool drewPiece = drawPieceVisual(
+                    pieceTokenPath(*draggedPiece),
+                    pieceWalkAnimPath(*draggedPiece),
+                    pieceBasePath(*draggedPiece),
+                    draggedPiece->separateBaseArt,
+                    draggedPiece->separateBaseArt && draggedPiece->owner == 2,
+                    draggedPiece->walkAnimFrames,
+                    anchor,
+                    scale,
+                    tint,
+                    -1);
+                if (!drewPiece)
                 {
-                    drawContainSprite(window, *token, pieceTargetRect(anchor, scale, true), tint);
-                    drewPiece = true;
-                }
-                else if (sf::Texture* walkSheet = walkAnimTexture(pieceWalkAnimPath(*draggedPiece)))
-                {
-                    const int walkFrameCount = std::max(1, draggedPiece->walkAnimFrames);
-                    const sf::Vector2u sheetSize = walkSheet->getSize();
-                    const int frameWidth = static_cast<int>(
-                        sheetSize.x / static_cast<unsigned int>(walkFrameCount));
-                    const int frameHeight = static_cast<int>(sheetSize.y);
-                    if (frameWidth > 0 && frameHeight > 0)
+                    if (sf::Texture* art = cardArtTexture(draggedPiece->imagePath))
                     {
-                        drawTextureRectContain(window,
-                            *walkSheet,
-                            sf::IntRect({0, 0}, {frameWidth, frameHeight}),
-                            pieceTargetRect(anchor, scale, true),
-                            tint);
+                        drawContainSprite(window, *art, pieceTargetRect(anchor, scale, false), tint);
                         drewPiece = true;
                     }
-                }
-                else if (sf::Texture* art = cardArtTexture(draggedPiece->imagePath))
-                {
-                    drawContainSprite(window, *art, pieceTargetRect(anchor, scale, false), tint);
-                    drewPiece = true;
                 }
 
                 if (!drewPiece)
