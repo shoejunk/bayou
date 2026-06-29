@@ -389,10 +389,25 @@ void drawRow(
         selected,
         5.0f);
 
-    drawText(window, font, primary, 16, {position.x + 10.0f, position.y + 5.0f}, sf::Color(246, 238, 218), size.x - 20.0f);
+    constexpr float RowTextInset = 24.0f;
+    drawText(
+        window,
+        font,
+        primary,
+        16,
+        {position.x + RowTextInset, position.y + 5.0f},
+        sf::Color(246, 238, 218),
+        size.x - RowTextInset - 16.0f);
     if (!secondary.empty())
     {
-        drawText(window, font, secondary, 12, {position.x + 10.0f, position.y + 22.0f}, sf::Color(203, 173, 125), size.x - 20.0f);
+        drawText(
+            window,
+            font,
+            secondary,
+            12,
+            {position.x + RowTextInset, position.y + 22.0f},
+            sf::Color(203, 173, 125),
+            size.x - RowTextInset - 16.0f);
     }
 }
 

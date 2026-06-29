@@ -2522,8 +2522,8 @@ private:
                     selected ? Accent : sf::Color(91, 64, 37),
                     selected,
                     6.0f);
-                drawText(window, font, actions[i].name, 16, {54.0f, y + 7.0f}, Ink, 206.0f);
-                drawText(window, font, actions[i].kind + " / " + actions[i].pattern, 13, {54.0f, y + 29.0f}, Muted, 206.0f);
+                drawText(window, font, actions[i].name, 16, {66.0f, y + 7.0f}, Ink, 186.0f);
+                drawText(window, font, actions[i].kind + " / " + actions[i].pattern, 13, {66.0f, y + 29.0f}, Muted, 186.0f);
             }
             if (actions.size() > VisibleActionRows)
             {
@@ -2550,8 +2550,8 @@ private:
                 selected ? Accent : sf::Color(91, 64, 37),
                 selected,
                 6.0f);
-            drawText(window, font, cards[i].title, 17, {54.0f, y + 8.0f}, Ink, 206.0f);
-            drawText(window, font, cards[i].type, 13, {54.0f, y + 29.0f}, Muted);
+            drawText(window, font, cards[i].title, 17, {66.0f, y + 8.0f}, Ink, 186.0f);
+            drawText(window, font, cards[i].type, 13, {66.0f, y + 29.0f}, Muted, 186.0f);
         }
         if (cards.size() > VisibleCardRows)
         {
