@@ -25,6 +25,7 @@ module;
 
 export module card_editor_screen;
 
+import client_controls;
 import inputbox;
 import network;
 
@@ -300,7 +301,9 @@ public:
         sf::Font& screenFont,
         CardEditorEndpoint screenEndpoint = {},
         std::filesystem::path assetRoot = "assets")
-        : font(screenFont), endpoint(std::move(screenEndpoint))
+        : font(screenFont)
+        , endpoint(std::move(screenEndpoint))
+        , editorTabs({340.0f, 14.0f}, {128.0f, 44.0f}, {"Cards", "Actions"}, screenFont)
     {
         setAssetRoot(std::move(assetRoot));
         buildControls();
@@ -456,8 +459,7 @@ public:
         saveButton.update(mouse);
         saveActionButton.update(mouse);
         deleteButton.update(mouse);
-        cardTabButton.update(mouse);
-        actionTabButton.update(mouse);
+        editorTabs.update(mouse);
         if (editorMode == EditorMode::Actions)
         {
             layoutActionFields();
@@ -630,13 +632,12 @@ private:
     EditorButton saveButton;
     EditorButton saveActionButton;
     EditorButton deleteButton;
+    TabStrip editorTabs;
     EditorButton addKeywordButton;
     EditorButton addIntegerButton;
     EditorButton addStringButton;
     EditorButton addListButton;
     EditorButton addActionRefButton;
-    EditorButton cardTabButton;
-    EditorButton actionTabButton;
     std::vector<EditorButton> removeKeywordButtons;
     std::vector<EditorButton> removeIntegerButtons;
     std::vector<EditorButton> removeStringButtons;
@@ -943,8 +944,7 @@ private:
         backButton = EditorButton(font, "Back", {1124.0f, 22.0f}, {112.0f, 38.0f}, sf::Color(67, 48, 33));
         instructionsButton = EditorButton(font, "Instructions", {970.0f, 22.0f}, {142.0f, 38.0f}, AccentDark);
         instructionsBackButton = EditorButton(font, "Back to Editor", {1060.0f, 22.0f}, {176.0f, 38.0f}, AccentDark);
-        cardTabButton = EditorButton(font, "Cards", {340.0f, 22.0f}, {110.0f, 38.0f}, AccentDark);
-        actionTabButton = EditorButton(font, "Actions", {462.0f, 22.0f}, {120.0f, 38.0f}, sf::Color(67, 48, 33));
+        editorTabs.setActive(static_cast<std::size_t>(editorMode));
         newButton = EditorButton(font, "New", {42.0f, 690.0f}, {96.0f, 42.0f}, sf::Color(67, 48, 33));
         refreshButton = EditorButton(font, "Refresh", {150.0f, 690.0f}, {120.0f, 42.0f}, sf::Color(67, 48, 33));
         copyButton = EditorButton(font, "Copy Card", {42.0f, 642.0f}, {228.0f, 38.0f}, AccentDark);
@@ -2057,20 +2057,21 @@ private:
         {
             return true;
         }
-        if (cardTabButton.contains(mouse))
+        if (const std::optional<std::size_t> tabIndex = editorTabs.clickedIndex(mouse))
         {
-            editorMode = EditorMode::Cards;
+            editorTabs.setActive(*tabIndex);
+            editorMode = *tabIndex == 0 ? EditorMode::Cards : EditorMode::Actions;
             rebuildFocusOrder();
-            activateField(&titleField);
-            setStatus(fmt::format("{} cards", cards.size()), Muted);
-            return false;
-        }
-        if (actionTabButton.contains(mouse))
-        {
-            editorMode = EditorMode::Actions;
-            rebuildFocusOrder();
-            activateField(&actionNameField);
-            setStatus(fmt::format("{} actions", actions.size()), Muted);
+            if (editorMode == EditorMode::Cards)
+            {
+                activateField(&titleField);
+                setStatus(fmt::format("{} cards", cards.size()), Muted);
+            }
+            else
+            {
+                activateField(&actionNameField);
+                setStatus(fmt::format("{} actions", actions.size()), Muted);
+            }
             return false;
         }
         if (newButton.contains(mouse))
@@ -2336,8 +2337,7 @@ private:
         else
         {
             drawText(window, font, fmt::format("Card server {}", endpointText()), 15, {744.0f, 31.0f}, Muted, 214.0f);
-            cardTabButton.draw(window);
-            actionTabButton.draw(window);
+            editorTabs.draw(window);
             instructionsButton.draw(window);
             backButton.draw(window);
         }
