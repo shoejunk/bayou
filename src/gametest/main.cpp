@@ -306,6 +306,27 @@ int main(int argc, char** argv)
     check(pieceAbilityAvailable(profilePiece), "negative dig uses mean unlimited ability uses");
     profilePiece.abilityUses = 0;
     check(!pieceAbilityAvailable(profilePiece), "zero dig uses means the ability is spent");
+    profilePiece.ability = "summon";
+    profilePiece.summonTitle = "Test Unit";
+    profilePiece.owner = 1;
+    profilePiece.row = 3;
+    profilePiece.column = 3;
+    profilePiece.growTurnsRemaining = 0;
+    profilePiece.disabledTurns = 0;
+    check(pieceAbilityAvailable({profilePiece}, profilePiece),
+          "summon ability is available when player 1 has an empty square to the right");
+    Piece summonBlocker = profilePiece;
+    summonBlocker.id = 42;
+    summonBlocker.column = 4;
+    check(!pieceAbilityAvailable({profilePiece, summonBlocker}, profilePiece),
+          "summon ability is unavailable when the front square is occupied");
+    profilePiece.owner = 2;
+    profilePiece.column = 3;
+    summonBlocker.column = 2;
+    check(!pieceAbilityAvailable({profilePiece, summonBlocker}, profilePiece),
+          "summon ability checks the left square for player 2");
+    profilePiece.owner = 1;
+    profilePiece.ability.clear();
 
     ActionProfile paralyze;
     paralyze.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
@@ -510,6 +531,7 @@ int main(int argc, char** argv)
     serializedCard.walkAnimFrames = 7;
     serializedCard.idleAnimFrames = 5;
     serializedCard.ability = "transform";
+    serializedCard.summonTitle = "Serialized Summon";
     serializedCard.abilityLabels = {"Ready", "Lower"};
     serializedCard.abilityUses = 2;
     sf::Packet cardPacket;
@@ -528,12 +550,14 @@ int main(int argc, char** argv)
               roundTrippedCard.separateBaseArt &&
               roundTrippedCard.walkAnimFrames == 7 &&
               roundTrippedCard.idleAnimFrames == 5 &&
+              roundTrippedCard.summonTitle == "Serialized Summon" &&
               roundTrippedCard.abilityLabels.size() == 2 &&
               roundTrippedCard.abilityUses == 2,
           "extended game card fields survive network serialization");
 
     Piece serializedPiece = profilePiece;
     serializedPiece.ability = "dig";
+    serializedPiece.summonTitle = "Serialized Summon";
     serializedPiece.keywords = {"mechanical"};
     serializedPiece.tokenPath = "characters/test.png";
     serializedPiece.blueTokenPath = "characters/blue/test.png";
@@ -572,6 +596,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.walkAnimFrames == 6 &&
               roundTrippedPiece.idleAnimFrames == 4 &&
               roundTrippedPiece.ability == "dig" &&
+              roundTrippedPiece.summonTitle == "Serialized Summon" &&
               roundTrippedPiece.growTurnsRemaining == 2 &&
               roundTrippedPiece.disabledTurns == 1 &&
               roundTrippedPiece.sleepTurnsRemaining == 1,

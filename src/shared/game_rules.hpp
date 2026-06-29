@@ -492,7 +492,22 @@ inline std::string pieceAbilityLabel(const Piece& piece)
     {
         return "Dig";
     }
+    if (piece.ability == "summon")
+    {
+        return "Summon";
+    }
     return "Use Ability";
+}
+
+inline std::pair<int, int> summonDestination(const Piece& piece)
+{
+    return {piece.row, piece.column + (piece.owner == 1 ? 1 : -1)};
+}
+
+inline bool pieceSummonDestinationFree(const std::vector<Piece>& pieces, const Piece& piece)
+{
+    const auto [row, column] = summonDestination(piece);
+    return inBounds(row, column) && findPieceAt(pieces, row, column) == nullptr;
 }
 
 inline bool pieceAbilityAvailable(const Piece& piece)
@@ -504,6 +519,23 @@ inline bool pieceAbilityAvailable(const Piece& piece)
     if (piece.ability == "dig")
     {
         return piece.abilityUses != 0;
+    }
+    if (piece.ability == "summon")
+    {
+        return !piece.summonTitle.empty();
+    }
+    return true;
+}
+
+inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece& piece)
+{
+    if (!pieceAbilityAvailable(piece))
+    {
+        return false;
+    }
+    if (piece.ability == "summon")
+    {
+        return pieceSummonDestinationFree(pieces, piece);
     }
     return true;
 }

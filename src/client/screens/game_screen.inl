@@ -911,7 +911,7 @@
         if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
         {
             if (selectedPiece && (sandboxMode || (selectedPiece->owner == me && !selectedPiece->hasActed)) &&
-                game_data::pieceAbilityAvailable(*selectedPiece))
+                game_data::pieceAbilityAvailable(gameSnapshot.pieces, *selectedPiece))
             {
                 abilityButton.setLabel(game_data::pieceAbilityLabel(*selectedPiece));
                 abilityButton.draw(window);

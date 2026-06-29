@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../shared/card_database.hpp"
 #include "../shared/card_data.hpp"
 #include "../shared/game_data.hpp"
 
@@ -8,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <exception>
 #include <random>
 #include <string>
 #include <vector>
@@ -30,6 +32,7 @@ public:
     explicit GameEngine(unsigned int seed)
         : rng(seed)
     {
+        loadSummonCatalog();
         players[0].number = 1;
         players[1].number = 2;
         initializeControl();
@@ -58,6 +61,7 @@ public:
         for (const card_data::Card& card : cards)
         {
             GameCard resolved = toGameCard(card);
+            rememberSummonCard(resolved);
             if (isHeroCard(card))
             {
                 if (static_cast<int>(player.heroesToPlace.size()) < MaxHeroes)
@@ -218,12 +222,14 @@ public:
 
         Piece* piece = pieceById(pieceId);
         if (piece == nullptr || piece->owner != playerNumber || piece->hasActed ||
-            !pieceAbilityAvailable(*piece))
+            !pieceAbilityAvailable(pieces, *piece))
         {
             return;
         }
 
         const std::string abilityLabel = pieceAbilityLabel(*piece);
+        const std::string actingPieceName = piece->name;
+        const int actingPieceId = piece->id;
         if (piece->ability == "dig")
         {
             if (piece->abilityUses == 0)
@@ -247,13 +253,35 @@ public:
             piece->actionState = (piece->actionState + 1) % stateCount;
             piece->hidden = piece->ability == "dematerialize" && piece->actionState != 0;
         }
+        else if (piece->ability == "summon")
+        {
+            const GameCard* summonCard = summonCardByTitle(piece->summonTitle);
+            if (summonCard == nullptr || summonCard->type != "Unit")
+            {
+                setStatusFor(playerNumber, "That summon does not name a valid unit.");
+                return;
+            }
+            const auto [row, column] = summonDestination(*piece);
+            if (!pieceSummonDestinationFree(pieces, *piece))
+            {
+                setStatusFor(playerNumber, "That summon needs an empty space in front.");
+                return;
+            }
+            spawnPiece(playerNumber, *summonCard, row, column, false);
+            pieces.back().hasActed = true;
+        }
         else
         {
             return;
         }
 
-        piece->hasActed = true;
-        advanceTurn(fmt::format("{} used {}.", piece->name, abilityLabel));
+        Piece* actingPiece = pieceById(actingPieceId);
+        if (actingPiece == nullptr)
+        {
+            return;
+        }
+        actingPiece->hasActed = true;
+        advanceTurn(fmt::format("{} used {}.", actingPieceName, abilityLabel));
     }
 
     void endTurn(int playerNumber)
@@ -331,6 +359,7 @@ private:
     std::array<std::uint8_t, BoardSquares> holes{};
     std::vector<Piece> pieces;
     std::array<EnginePlayer, 2> players{};
+    std::vector<GameCard> summonCatalog;
     int nextPieceId = 1;
     std::string status = "Waiting for both decks...";
 
@@ -409,6 +438,44 @@ private:
         pieces.erase(
             std::remove_if(pieces.begin(), pieces.end(), [id](const Piece& p) { return p.id == id; }),
             pieces.end());
+    }
+
+    void rememberSummonCard(const GameCard& card)
+    {
+        const auto found = std::find_if(
+            summonCatalog.begin(),
+            summonCatalog.end(),
+            [&](const GameCard& existing) { return existing.title == card.title; });
+        if (found == summonCatalog.end())
+        {
+            summonCatalog.push_back(card);
+            return;
+        }
+        *found = card;
+    }
+
+    void loadSummonCatalog()
+    {
+        try
+        {
+            for (const card_data::Card& card : card_database::loadCardsFromFile("cards.db"))
+            {
+                rememberSummonCard(toGameCard(card));
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Could not load summon catalog from cards.db: {}", error.what());
+        }
+    }
+
+    const GameCard* summonCardByTitle(const std::string& title) const
+    {
+        const auto found = std::find_if(
+            summonCatalog.begin(),
+            summonCatalog.end(),
+            [&](const GameCard& card) { return card.title == title; });
+        return found == summonCatalog.end() ? nullptr : &*found;
     }
 
     void performPieceAction(int playerNumber, int pieceId, int toRow, int toColumn)

@@ -2453,7 +2453,8 @@ private:
         y = drawInstructionSection(window, "6. Rarity, Keywords, and String Lists", y);
         y = drawInstructionBullet(window, "Rarity: add a String Field named rarity with value common, rare, or legendary. Missing or unknown values count as common. Shop selection odds are 70% common, 25% rare, and 5% legendary; cards within a rarity are equally likely.", y);
         y = drawInstructionBullet(window, "Keywords: free-form labels shown in card details. The current game engine does not attach rules to them.", y);
-        y = drawInstructionBullet(window, "ability: transform, dematerialize, or dig. Transform-style abilities switch action states; dig creates a tunnel hole on the piece's square.", y);
+        y = drawInstructionBullet(window, "ability: transform, dematerialize, dig, or summon. Transform-style abilities switch action states; dig creates a tunnel hole; summon creates the unit named by the summon string field in the space in front.", y);
+        y = drawInstructionBullet(window, "summon: exact Unit card title created by a summon ability. Player 1 summons to the right; Player 2 summons to the left.", y);
         y = drawInstructionBullet(window, "Cards store ordered references to reusable action objects. Use the Actions section on the card form to choose them.", y);
         y = drawInstructionBullet(window, "abilityLabels is an ordered String List containing the button label for each action state.", y);
         y = drawInstructionBullet(window, "Other String Lists are free-form named lists shown in card details.", y);

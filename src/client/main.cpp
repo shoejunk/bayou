@@ -3190,12 +3190,15 @@ int main(int argc, char** argv)
 
         game_data::Snapshot next = gameSnapshot;
         game_data::Piece* piece = pieceByIdInSnapshotMutable(next, pieceId);
-        if (!piece || !game_data::pieceAbilityAvailable(*piece))
+        if (!piece || !game_data::pieceAbilityAvailable(next.pieces, *piece))
         {
             return;
         }
 
         const std::string abilityLabel = game_data::pieceAbilityLabel(*piece);
+        const std::string pieceName = piece->name;
+        const int pieceOwner = piece->owner;
+        const int actingPieceId = piece->id;
         if (piece->ability == "dig")
         {
             if (piece->abilityUses == 0)
@@ -3220,13 +3223,39 @@ int main(int argc, char** argv)
             piece->actionState = (piece->actionState + 1) % stateCount;
             piece->hidden = piece->ability == "dematerialize" && piece->actionState != 0;
         }
+        else if (piece->ability == "summon")
+        {
+            const auto found = std::find_if(
+                next.hand.begin(),
+                next.hand.end(),
+                [&](const game_data::GameCard& card) {
+                    return card.title == piece->summonTitle && card.type == "Unit";
+                });
+            if (found == next.hand.end())
+            {
+                next.status = "That summon does not name a valid unit.";
+                commitSandboxSnapshot(std::move(next));
+                return;
+            }
+            const auto [row, column] = game_data::summonDestination(*piece);
+            if (!game_data::pieceSummonDestinationFree(next.pieces, *piece))
+            {
+                next.status = "That summon needs an empty space in front.";
+                commitSandboxSnapshot(std::move(next));
+                return;
+            }
+            spawnSandboxPiece(next, nextSandboxPieceId, pieceOwner, *found, row, column, false);
+        }
         else
         {
             return;
         }
 
-        piece->hasActed = false;
-        next.status = piece->name + " used " + abilityLabel + ".";
+        if (game_data::Piece* actingPiece = pieceByIdInSnapshotMutable(next, actingPieceId))
+        {
+            actingPiece->hasActed = false;
+        }
+        next.status = pieceName + " used " + abilityLabel + ".";
         commitSandboxSnapshot(std::move(next));
     };
 
@@ -4769,7 +4798,7 @@ int main(int argc, char** argv)
                     {
                         if (const game_data::Piece* piece = gamePieceById(*selectedPieceId);
                             piece && (sandboxMode || (piece->owner == gameSnapshot.yourPlayer && !piece->hasActed)) &&
-                            game_data::pieceAbilityAvailable(*piece))
+                            game_data::pieceAbilityAvailable(gameSnapshot.pieces, *piece))
                         {
                             pendingHandClickIndex.reset();
                             sendUseAbility(piece->id);
@@ -5707,7 +5736,7 @@ int main(int argc, char** argv)
                 {
                     if (const game_data::Piece* piece = gamePieceById(*selectedPieceId);
                         piece && (sandboxMode || (piece->owner == gameSnapshot.yourPlayer && !piece->hasActed)) &&
-                        game_data::pieceAbilityAvailable(*piece))
+                        game_data::pieceAbilityAvailable(gameSnapshot.pieces, *piece))
                     {
                         abilityButton.update(mousePos);
                     }

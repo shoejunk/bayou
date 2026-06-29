@@ -13,7 +13,8 @@
 --   str   target    enemy | ally | none (spells)
 --   int   canControl 0 prevents a piece from claiming/influencing squares
 --   int   growTurns owner turns before a summoned piece can act
---   str   ability   transform | dematerialize | dig
+--   str   ability   transform | dematerialize | dig | summon
+--   str   summon   unit card title created by the summon ability
 --   int   abilityUses limited uses for abilities such as dig; negative means unlimited
 --   ref   actions   ordered references in card_actions to reusable action records
 --   list  abilityLabels labels indexed by the active action state
@@ -363,7 +364,9 @@ INSERT INTO card_integer_values (title, key, value) VALUES
   ('Professor Glumpkin', 'move', 1);
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Professor Glumpkin', 'movement', 'omni'),
-  ('Professor Glumpkin', 'detail', 'Moves or attacks one square in any direction.');
+  ('Professor Glumpkin', 'ability', 'summon'),
+  ('Professor Glumpkin', 'summon', 'Gentle Bot'),
+  ('Professor Glumpkin', 'detail', 'Moves or attacks one square in any direction. Summons a Gentle Bot into the space in front.');
 INSERT INTO card_keywords (title, keyword) VALUES ('Professor Glumpkin', 'occult');
 
 INSERT INTO cards (title, type, image_path) VALUES ('River Dweller', 'Unit', 'cards/river-dweller.png');

@@ -44,7 +44,7 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
         {
             continue;
         }
-        if (pieceAbilityAvailable(piece))
+        if (pieceAbilityAvailable(pieces, piece))
         {
             actions.push_back({AiActionKind::UseAbility, piece.id});
         }
