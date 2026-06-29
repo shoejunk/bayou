@@ -2697,14 +2697,17 @@ int main(int argc, char** argv)
     auto drawPieceVisual = [&](
         const std::string& tokenPath,
         const std::string& walkPath,
+        const std::string& idlePath,
         const std::string& basePath,
         bool separateBaseArt,
         bool flipX,
         int walkAnimFrames,
+        int idleAnimFrames,
         sf::Vector2f anchor,
         float scale,
         sf::Color tint,
-        int walkFrame) {
+        int walkFrame,
+        int idleFrame) {
         const sf::FloatRect target = pieceTargetRect(anchor, scale, true);
         if (separateBaseArt)
         {
@@ -2714,18 +2717,18 @@ int main(int argc, char** argv)
             }
         }
 
-        auto drawWalkFrame = [&](int frame) {
-            if (sf::Texture* walkSheet = walkAnimTexture(walkPath))
+        auto drawAnimFrame = [&](const std::string& sheetPath, int frameCountValue, int frame) {
+            if (sf::Texture* sheet = walkAnimTexture(sheetPath))
             {
-                const int frameCount = std::max(1, walkAnimFrames);
-                const sf::Vector2u sheetSize = walkSheet->getSize();
+                const int frameCount = std::max(1, frameCountValue);
+                const sf::Vector2u sheetSize = sheet->getSize();
                 const int frameWidth = static_cast<int>(sheetSize.x / static_cast<unsigned int>(frameCount));
                 const int frameHeight = static_cast<int>(sheetSize.y);
                 if (frameWidth > 0 && frameHeight > 0)
                 {
                     const int clampedFrame = std::clamp(frame, 0, frameCount - 1);
                     drawTextureRectContain(window,
-                        *walkSheet,
+                        *sheet,
                         sf::IntRect({clampedFrame * frameWidth, 0}, {frameWidth, frameHeight}),
                         target,
                         tint,
@@ -2736,7 +2739,11 @@ int main(int argc, char** argv)
             return false;
         };
 
-        if (walkFrame >= 0 && !walkPath.empty() && drawWalkFrame(walkFrame))
+        if (walkFrame >= 0 && !walkPath.empty() && drawAnimFrame(walkPath, walkAnimFrames, walkFrame))
+        {
+            return true;
+        }
+        if (idleFrame >= 0 && !idlePath.empty() && drawAnimFrame(idlePath, idleAnimFrames, idleFrame))
         {
             return true;
         }
@@ -2745,7 +2752,7 @@ int main(int argc, char** argv)
             drawContainSprite(window, *token, target, tint, flipX);
             return true;
         }
-        if (!walkPath.empty() && drawWalkFrame(0))
+        if (!walkPath.empty() && drawAnimFrame(walkPath, walkAnimFrames, 0))
         {
             return true;
         }
@@ -2765,13 +2772,16 @@ int main(int argc, char** argv)
         drewPiece = drawPieceVisual(
             tokenPath,
             walkPath,
+            "",
             cardBasePath(card, owner),
             card.separateBaseArt,
             card.separateBaseArt && owner == 2,
             card.walkAnimFrames,
+            1,
             anchor,
             scale,
             tint,
+            -1,
             -1);
         if (!drewPiece)
         {

@@ -503,10 +503,12 @@ int main(int argc, char** argv)
     serializedCard.redTokenPath = "characters/red/test.png";
     serializedCard.blueWalkAnimPath = "animations/blue/test.png";
     serializedCard.redWalkAnimPath = "animations/red/test.png";
+    serializedCard.idleAnimPath = "animations/idle/test.png";
     serializedCard.pieceBaseBluePath = "characters/bases/blue.png";
     serializedCard.pieceBaseRedPath = "characters/bases/red.png";
     serializedCard.separateBaseArt = true;
     serializedCard.walkAnimFrames = 7;
+    serializedCard.idleAnimFrames = 5;
     serializedCard.ability = "transform";
     serializedCard.abilityLabels = {"Ready", "Lower"};
     serializedCard.abilityUses = 2;
@@ -520,10 +522,12 @@ int main(int argc, char** argv)
               roundTrippedCard.tokenPath == "characters/test.png" &&
               roundTrippedCard.blueTokenPath == "characters/blue/test.png" &&
               roundTrippedCard.redWalkAnimPath == "animations/red/test.png" &&
+              roundTrippedCard.idleAnimPath == "animations/idle/test.png" &&
               roundTrippedCard.pieceBaseBluePath == "characters/bases/blue.png" &&
               roundTrippedCard.pieceBaseRedPath == "characters/bases/red.png" &&
               roundTrippedCard.separateBaseArt &&
               roundTrippedCard.walkAnimFrames == 7 &&
+              roundTrippedCard.idleAnimFrames == 5 &&
               roundTrippedCard.abilityLabels.size() == 2 &&
               roundTrippedCard.abilityUses == 2,
           "extended game card fields survive network serialization");
@@ -536,10 +540,12 @@ int main(int argc, char** argv)
     serializedPiece.redTokenPath = "characters/red/test.png";
     serializedPiece.blueWalkAnimPath = "animations/blue/test.png";
     serializedPiece.redWalkAnimPath = "animations/red/test.png";
+    serializedPiece.idleAnimPath = "animations/idle/test.png";
     serializedPiece.pieceBaseBluePath = "characters/bases/blue.png";
     serializedPiece.pieceBaseRedPath = "characters/bases/red.png";
     serializedPiece.separateBaseArt = true;
     serializedPiece.walkAnimFrames = 6;
+    serializedPiece.idleAnimFrames = 4;
     serializedPiece.abilityLabels = {"Dig"};
     serializedPiece.abilityUses = 1;
     serializedPiece.growTurnsRemaining = 2;
@@ -559,10 +565,12 @@ int main(int argc, char** argv)
               roundTrippedPiece.tokenPath == "characters/test.png" &&
               roundTrippedPiece.blueTokenPath == "characters/blue/test.png" &&
               roundTrippedPiece.redWalkAnimPath == "animations/red/test.png" &&
+              roundTrippedPiece.idleAnimPath == "animations/idle/test.png" &&
               roundTrippedPiece.pieceBaseBluePath == "characters/bases/blue.png" &&
               roundTrippedPiece.pieceBaseRedPath == "characters/bases/red.png" &&
               roundTrippedPiece.separateBaseArt &&
               roundTrippedPiece.walkAnimFrames == 6 &&
+              roundTrippedPiece.idleAnimFrames == 4 &&
               roundTrippedPiece.ability == "dig" &&
               roundTrippedPiece.growTurnsRemaining == 2 &&
               roundTrippedPiece.disabledTurns == 1 &&

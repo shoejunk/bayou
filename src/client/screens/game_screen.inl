@@ -316,13 +316,16 @@
                 drewArt = drawPieceVisual(
                     pieceTokenPath(*piece),
                     pieceWalkAnimPath(*piece),
+                    "",
                     pieceBasePath(*piece),
                     piece->separateBaseArt,
                     piece->separateBaseArt && piece->owner == 2,
                     piece->walkAnimFrames,
+                    1,
                     {PiecePopupX + 74.0f, PiecePopupY + 160.0f},
                     0.92f,
                     sf::Color::White,
+                    -1,
                     -1);
             }
         }
@@ -800,6 +803,7 @@
                 ? sf::Color(150, 150, 150, 215)
                 : sf::Color::White;
             int walkFrame = -1;
+            int idleFrame = -1;
             if (isMoving)
             {
                 const int walkFrameCount = std::max(1, piece.walkAnimFrames);
@@ -810,17 +814,30 @@
                     static_cast<int>(loopProgress * static_cast<float>(walkFrameCount)),
                     walkFrameCount - 1);
             }
+            else if (!piece.idleAnimPath.empty())
+            {
+                const int idleFrameCount = std::max(1, piece.idleAnimFrames);
+                const float loopProgress =
+                    std::fmod(animationTime, WalkAnimationLoopSeconds) /
+                    WalkAnimationLoopSeconds;
+                idleFrame = std::min(
+                    static_cast<int>(loopProgress * static_cast<float>(idleFrameCount)),
+                    idleFrameCount - 1);
+            }
             bool drewPiece = drawPieceVisual(
                 tokenPath,
                 walkPath,
+                piece.idleAnimPath,
                 pieceBasePath(piece),
                 piece.separateBaseArt,
                 piece.separateBaseArt && piece.owner == 2,
                 piece.walkAnimFrames,
+                piece.idleAnimFrames,
                 anchor,
                 pieceScale,
                 pieceTint,
-                walkFrame);
+                walkFrame,
+                idleFrame);
             if (!drewPiece)
             {
                 if (sf::Texture* art = cardArtTexture(piece.imagePath))
@@ -1033,13 +1050,16 @@
                 bool drewPiece = drawPieceVisual(
                     pieceTokenPath(*draggedPiece),
                     pieceWalkAnimPath(*draggedPiece),
+                    "",
                     pieceBasePath(*draggedPiece),
                     draggedPiece->separateBaseArt,
                     draggedPiece->separateBaseArt && draggedPiece->owner == 2,
                     draggedPiece->walkAnimFrames,
+                    1,
                     anchor,
                     scale,
                     tint,
+                    -1,
                     -1);
                 if (!drewPiece)
                 {

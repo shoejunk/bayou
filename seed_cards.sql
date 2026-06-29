@@ -288,6 +288,16 @@ INSERT INTO card_string_values (title, key, value) VALUES
   ('Gentle Bot', 'detail', 'Gentle Bot moves one square in any direction and cannot attack.');
 INSERT INTO card_keywords (title, keyword) VALUES ('Gentle Bot', 'mechanical');
 
+INSERT INTO cards (title, type, image_path) VALUES ('Gloom Fairy', 'Unit', 'cards/gloom-fairy.png');
+INSERT INTO card_integer_values (title, key, value) VALUES
+  ('Gloom Fairy', 'cost', 90), ('Gloom Fairy', 'health', 1),
+  ('Gloom Fairy', 'attack', 1), ('Gloom Fairy', 'range', 1),
+  ('Gloom Fairy', 'move', 7);
+INSERT INTO card_string_values (title, key, value) VALUES
+  ('Gloom Fairy', 'movement', 'omni'),
+  ('Gloom Fairy', 'detail', 'Flutters up to seven squares in any direction and deals one damage.');
+INSERT INTO card_keywords (title, keyword) VALUES ('Gloom Fairy', 'occult');
+
 INSERT INTO cards (title, type, image_path) VALUES ('Hired Gun', 'Unit', 'cards/hired-gun.png');
 INSERT INTO card_integer_values (title, key, value) VALUES
   ('Hired Gun', 'cost', 120), ('Hired Gun', 'health', 2),
@@ -465,6 +475,12 @@ INSERT INTO card_string_values (title, key, value) VALUES
   ('Elias Tiberion', 'PieceBaseRed', 'characters/bases/piece-base-red.png'),
   ('Gentle Bot', 'WalkAnimBlue', 'animations/blue/gentleBot-walk.png'),
   ('Gentle Bot', 'WalkAnimRed', 'animations/red/gentleBot-walk.png'),
+  ('Gloom Fairy', 'Token', 'characters/gloomFairy.png'),
+  ('Gloom Fairy', 'WalkAnim', 'animations/GT_animation_gloomFairy_idle.png'),
+  ('Gloom Fairy', 'IdleAnim', 'animations/GT_animation_gloomFairy_idle.png'),
+  ('Gloom Fairy', 'PieceArtStyle', 'separateBase'),
+  ('Gloom Fairy', 'PieceBaseBlue', 'characters/bases/piece-base-blue.png'),
+  ('Gloom Fairy', 'PieceBaseRed', 'characters/bases/piece-base-red.png'),
   ('Hired Gun', 'TokenBlue', 'characters/blue/hiredGun.png'),
   ('Hired Gun', 'TokenRed', 'characters/red/hiredGun.png'),
   ('Hired Gun', 'WalkAnimBlue', 'animations/blue/hiredGun-walk.png'),
@@ -523,6 +539,8 @@ INSERT INTO card_integer_values (title, key, value) VALUES
   ('Automatick', 'WalkAnimFrames', 7),
   ('Bramble Drone', 'WalkAnimFrames', 8),
   ('Gentle Bot', 'WalkAnimFrames', 4),
+  ('Gloom Fairy', 'WalkAnimFrames', 12),
+  ('Gloom Fairy', 'IdleAnimFrames', 12),
   ('Hop Bot', 'WalkAnimFrames', 6),
   ('Patrol Bot', 'WalkAnimFrames', 6),
   ('Rustbucket', 'WalkAnimFrames', 5),
