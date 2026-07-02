@@ -938,6 +938,7 @@ int main(int argc, char** argv)
     int gameRatingChange = 0;
     std::string gameRewardText;
     std::optional<std::size_t> draggingLibraryCard;
+    std::optional<std::size_t> draggingDeckCard;
     sf::Vector2f dragStartPos;
     sf::Vector2f dragCurrentPos;
     bool dragActive = false;
@@ -1264,6 +1265,7 @@ int main(int argc, char** argv)
         selectedDeckCard.reset();
         selectedLibraryCard.reset();
         draggingLibraryCard.reset();
+        draggingDeckCard.reset();
         dragActive = false;
         deckNameInput.setActive(false);
         clampListOffset(deckListOffset, playerDecks.size(), VisibleDeckRows);
@@ -1309,8 +1311,29 @@ int main(int argc, char** argv)
         return static_cast<int>(std::count(editingDeck.cardTitles.begin(), editingDeck.cardTitles.end(), title));
     };
 
+    // Deck rows show one entry per card title; copies are conveyed by the X/Y count.
+    auto deckUniqueTitles = [&]() {
+        std::vector<std::string> unique;
+        for (const std::string& title : editingDeck.cardTitles)
+        {
+            if (std::find(unique.begin(), unique.end(), title) == unique.end())
+            {
+                unique.push_back(title);
+            }
+        }
+        return unique;
+    };
+
     auto cardMatchesCollectionFilters = [&](const card_data::Card& card) {
         if (game_data::isTokenCard(card))
+        {
+            return false;
+        }
+
+        // Hide cards that can no longer be added: the deck already holds either
+        // the per-card limit or every owned copy.
+        const int copyLimit = game_data::isHeroCard(card) ? game_data::MaxHeroCopies : game_data::MaxCardCopies;
+        if (deckCopies(card.title) >= std::min(copyLimit, ownedCopies(card.title)))
         {
             return false;
         }
@@ -1489,6 +1512,7 @@ int main(int argc, char** argv)
         gameRatingChange = 0;
         gameRewardText.clear();
         draggingLibraryCard.reset();
+        draggingDeckCard.reset();
         dragActive = false;
         inspectedPieceId.reset();
         inspectedHandIndex.reset();
@@ -1514,6 +1538,7 @@ int main(int argc, char** argv)
         resetForm(usernameInput, passwordInput, confirmInput, messageText);
         deckNameInput.clear();
         draggingLibraryCard.reset();
+        draggingDeckCard.reset();
         dragActive = false;
         clearFocus();
     };
@@ -1605,6 +1630,7 @@ int main(int argc, char** argv)
         lastDeckEditorClickedCardTitle.reset();
         inspectedDeckEditorCardScroll = 0.0f;
         draggingLibraryCard.reset();
+        draggingDeckCard.reset();
         dragActive = false;
         deckCardListOffset = 0;
         libraryOffset = 0;
@@ -1625,6 +1651,7 @@ int main(int argc, char** argv)
         lastDeckEditorClickedCardTitle.reset();
         inspectedDeckEditorCardScroll = 0.0f;
         draggingLibraryCard.reset();
+        draggingDeckCard.reset();
         dragActive = false;
         deckNameInput.clear();
         loadAdminUsersScreen();
@@ -1901,6 +1928,7 @@ int main(int argc, char** argv)
         lastDeckEditorClickedCardTitle.reset();
         inspectedDeckEditorCardScroll = 0.0f;
         draggingLibraryCard.reset();
+        draggingDeckCard.reset();
         dragActive = false;
         deckListOffset = 0;
         deckCardListOffset = 0;
@@ -2014,7 +2042,7 @@ int main(int argc, char** argv)
         int heroCount = 0;
         int heroCost = 0;
         std::vector<std::string> heroKeywords;
-        std::vector<std::size_t> keywordMismatchCardIndices;
+        std::vector<std::string> keywordMismatchTitles;
         std::vector<std::string> warnings;
     };
 
@@ -2064,9 +2092,9 @@ int main(int argc, char** argv)
             }
         }
 
-        for (std::size_t i = 0; i < editingDeck.cardTitles.size(); ++i)
+        for (const std::string& title : editingDeck.cardTitles)
         {
-            const card_data::Card* card = cardByTitle(editingDeck.cardTitles[i]);
+            const card_data::Card* card = cardByTitle(title);
             if (!card || game_data::isHeroCard(*card))
             {
                 continue;
@@ -2078,9 +2106,11 @@ int main(int argc, char** argv)
                 [&](const std::string& keyword) {
                     return !keyword.empty() && !heroHasKeyword(keyword);
                 });
-            if (missingHeroKeyword)
+            if (missingHeroKeyword &&
+                std::find(stats.keywordMismatchTitles.begin(), stats.keywordMismatchTitles.end(), title) ==
+                    stats.keywordMismatchTitles.end())
             {
-                stats.keywordMismatchCardIndices.push_back(i);
+                stats.keywordMismatchTitles.push_back(title);
             }
         }
 
@@ -2100,7 +2130,7 @@ int main(int argc, char** argv)
                 "Use exactly " + std::to_string(game_data::DeckCardCount) +
                 " non-hero cards.");
         }
-        if (!stats.keywordMismatchCardIndices.empty())
+        if (!stats.keywordMismatchTitles.empty())
         {
             stats.warnings.push_back("Highlighted cards lack hero keywords.");
         }
@@ -2193,7 +2223,8 @@ int main(int argc, char** argv)
             return;
         }
 
-        const std::string& title = filteredCardLibrary[libraryIndex].title;
+        // Copy: applyCollectionFilters below rebuilds filteredCardLibrary.
+        const std::string title = filteredCardLibrary[libraryIndex].title;
         if (game_data::isTokenCard(filteredCardLibrary[libraryIndex]))
         {
             setMessage(messageText, title + " is a token and cannot be added to a deck", sf::Color::Red);
@@ -2218,12 +2249,19 @@ int main(int argc, char** argv)
         }
 
         editingDeck.cardTitles.push_back(title);
-        selectedDeckCard = editingDeck.cardTitles.size() - 1;
-        clampListOffset(deckCardListOffset, editingDeck.cardTitles.size(), VisibleDeckCardRows);
+        const std::vector<std::string> deckTitles = deckUniqueTitles();
+        const auto added = std::find(deckTitles.begin(), deckTitles.end(), title);
+        selectedDeckCard = static_cast<std::size_t>(std::distance(deckTitles.begin(), added));
+        clampListOffset(deckCardListOffset, deckTitles.size(), VisibleDeckCardRows);
         if (*selectedDeckCard >= deckCardListOffset + VisibleDeckCardRows)
         {
             deckCardListOffset = *selectedDeckCard - VisibleDeckCardRows + 1;
         }
+        else if (*selectedDeckCard < deckCardListOffset)
+        {
+            deckCardListOffset = *selectedDeckCard;
+        }
+        applyCollectionFilters();
         setMessage(messageText, message, sf::Color::Yellow);
     };
 
@@ -2237,24 +2275,39 @@ int main(int argc, char** argv)
         addLibraryCardToDeck(*selectedLibraryCard, "Card added. Save to keep changes.");
     };
 
+    auto removeDeckCardAt = [&](std::size_t uniqueIndex, const std::string& message) {
+        const std::vector<std::string> deckTitles = deckUniqueTitles();
+        if (uniqueIndex >= deckTitles.size())
+        {
+            return;
+        }
+
+        const std::string title = deckTitles[uniqueIndex];
+        const auto lastCopy = std::find(editingDeck.cardTitles.rbegin(), editingDeck.cardTitles.rend(), title);
+        editingDeck.cardTitles.erase(std::next(lastCopy).base());
+
+        const std::size_t uniqueCount = deckUniqueTitles().size();
+        if (uniqueCount == 0)
+        {
+            selectedDeckCard.reset();
+        }
+        else if (selectedDeckCard && *selectedDeckCard >= uniqueCount)
+        {
+            selectedDeckCard = uniqueCount - 1;
+        }
+        clampListOffset(deckCardListOffset, uniqueCount, VisibleDeckCardRows);
+        applyCollectionFilters();
+        setMessage(messageText, message, sf::Color::Yellow);
+    };
+
     auto removeSelectedCard = [&]() {
-        if (!selectedDeckCard || *selectedDeckCard >= editingDeck.cardTitles.size())
+        if (!selectedDeckCard || *selectedDeckCard >= deckUniqueTitles().size())
         {
             setMessage(messageText, "Select a card in the deck first", sf::Color::Red);
             return;
         }
 
-        editingDeck.cardTitles.erase(editingDeck.cardTitles.begin() + static_cast<std::ptrdiff_t>(*selectedDeckCard));
-        if (editingDeck.cardTitles.empty())
-        {
-            selectedDeckCard.reset();
-        }
-        else if (*selectedDeckCard >= editingDeck.cardTitles.size())
-        {
-            selectedDeckCard = editingDeck.cardTitles.size() - 1;
-        }
-        clampListOffset(deckCardListOffset, editingDeck.cardTitles.size(), VisibleDeckCardRows);
-        setMessage(messageText, "Card removed. Save to keep changes.", sf::Color::Yellow);
+        removeDeckCardAt(*selectedDeckCard, "Card removed. Save to keep changes.");
     };
 
     auto deckHasUnsavedChanges = [&]() {
@@ -3029,6 +3082,7 @@ int main(int argc, char** argv)
         inspectedDeckEditorCardScroll = 0.0f;
         lastDeckEditorClickedCardTitle.reset();
         draggingLibraryCard.reset();
+        draggingDeckCard.reset();
         dragActive = false;
         clearFocus();
         return true;
@@ -4341,9 +4395,9 @@ int main(int argc, char** argv)
                 if (result.success)
                 {
                     cardLibrary = std::move(result.cards);
-                    applyCollectionFilters();
                     playerDecks = {result.deck};
                     editingDeck = result.deck;
+                    applyCollectionFilters();
                     activeDeckOriginalName = result.deck.name;
                     deckNameInput.setContent(result.deck.name);
                     selectedDeckCard.reset();
@@ -5001,6 +5055,7 @@ int main(int argc, char** argv)
                 else if (currentState == GameState::DeckEditor)
                 {
                     draggingLibraryCard.reset();
+                    draggingDeckCard.reset();
                     dragActive = false;
 
                     if (inspectedDeckEditorCardTitle)
@@ -5034,6 +5089,7 @@ int main(int argc, char** argv)
                         if (deckEditorMode == DeckEditorMode::DeckList && newDeckButton.isClicked(clickPos))
                         {
                             createNewDeck();
+                            applyCollectionFilters();
                             setMessage(messageText, "Editing a new deck. Save to store it.", sf::Color::Yellow);
                         }
                         else if (deckEditorMode == DeckEditorMode::DeckList && refreshDeckButton.isClicked(clickPos))
@@ -5043,6 +5099,7 @@ int main(int argc, char** argv)
                         else if (deckEditorMode == DeckEditorMode::DeckList && editDeckButton.isClicked(clickPos))
                         {
                             editSelectedDeck();
+                            applyCollectionFilters();
                         }
                         else if (deckEditorMode == DeckEditorMode::DeckList && deleteDeckButton.isClicked(clickPos))
                         {
@@ -5132,6 +5189,7 @@ int main(int argc, char** argv)
                                 {
                                     lastDeckEditorClickedCardTitle.reset();
                                     editSelectedDeck();
+                                    applyCollectionFilters();
                                 }
                             }
                             else
@@ -5142,6 +5200,7 @@ int main(int argc, char** argv)
                         }
                         else if (deckEditorMode == DeckEditorMode::EditDeck)
                         {
+                            const std::vector<std::string> deckTitles = deckUniqueTitles();
                             if (const std::optional<std::size_t> cardIndex = rowIndexAt(
                                      clickPos,
                                      DeckCardsX,
@@ -5150,11 +5209,17 @@ int main(int argc, char** argv)
                                      DeckCardRowHeight,
                                      VisibleDeckCardRows,
                                      deckCardListOffset,
-                                     editingDeck.cardTitles.size()))
+                                     deckTitles.size()))
                             {
                                 clearFocus();
                                 selectedDeckCard = *cardIndex;
-                                showDeckEditorCardPopupIfDoubleClick(editingDeck.cardTitles[*cardIndex], clickPos);
+                                if (!showDeckEditorCardPopupIfDoubleClick(deckTitles[*cardIndex], clickPos))
+                                {
+                                    draggingDeckCard = *cardIndex;
+                                    dragStartPos = clickPos;
+                                    dragCurrentPos = clickPos;
+                                    dragActive = false;
+                                }
                             }
                             else if (const std::optional<std::size_t> libraryIndex = rowIndexAt(
                                      clickPos,
@@ -5267,7 +5332,8 @@ int main(int argc, char** argv)
 
             if (const auto* mouseMoved = event->getIf<sf::Event::MouseMoved>();
                 mouseMoved && currentState == GameState::DeckEditor &&
-                deckEditorMode == DeckEditorMode::EditDeck && !deckUnsavedChangesPopupVisible && draggingLibraryCard)
+                deckEditorMode == DeckEditorMode::EditDeck && !deckUnsavedChangesPopupVisible &&
+                (draggingLibraryCard || draggingDeckCard))
             {
                 dragCurrentPos = window.mapPixelToCoords(mouseMoved->position);
                 const sf::Vector2f delta = dragCurrentPos - dragStartPos;
@@ -5308,8 +5374,15 @@ int main(int argc, char** argv)
                 {
                     addLibraryCardToDeck(*draggingLibraryCard, "Card dropped into deck. Save to keep changes.");
                 }
+                else if (deckEditorMode == DeckEditorMode::EditDeck && !deckUnsavedChangesPopupVisible &&
+                         draggingDeckCard && dragActive &&
+                         isInsideRect(releasePos, LibraryPanelX, DeckEditorPanelY, LibraryPanelWidth, DeckEditorPanelHeight))
+                {
+                    removeDeckCardAt(*draggingDeckCard, "Card removed. Save to keep changes.");
+                }
 
                 draggingLibraryCard.reset();
+                draggingDeckCard.reset();
                 dragActive = false;
             }
 
@@ -5354,7 +5427,7 @@ int main(int argc, char** argv)
                          deckEditorMode == DeckEditorMode::EditDeck &&
                          isInsideRect(wheelPos, DeckCardsX, DeckCardsY, DeckCardsWidth, DeckCardRowHeight * VisibleDeckCardRows))
                 {
-                    scrollList(deckCardListOffset, editingDeck.cardTitles.size(), VisibleDeckCardRows, wheel->delta);
+                    scrollList(deckCardListOffset, deckUniqueTitles().size(), VisibleDeckCardRows, wheel->delta);
                 }
                 else if (!inspectedDeckEditorCardTitle &&
                          deckEditorMode == DeckEditorMode::EditDeck &&

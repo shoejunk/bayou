@@ -78,17 +78,20 @@
                  "Heroes " + std::to_string(stats.heroCost) + "/" + std::to_string(game_data::HeroCostLimit),
                  12, {270.0f, 135.0f}, (heroesOk && costOk) ? okColor : badColor, 96.0f);
 
-        const std::size_t lastDeckCard = std::min(editingDeck.cardTitles.size(), deckCardListOffset + VisibleDeckCardRows);
+        const std::vector<std::string> deckTitles = deckUniqueTitles();
+        const std::size_t lastDeckCard = std::min(deckTitles.size(), deckCardListOffset + VisibleDeckCardRows);
         for (std::size_t i = deckCardListOffset; i < lastDeckCard; ++i)
         {
             const float y = DeckCardsY + static_cast<float>(i - deckCardListOffset) * DeckCardRowHeight;
-            const card_data::Card* card = cardByTitle(editingDeck.cardTitles[i]);
+            const card_data::Card* card = cardByTitle(deckTitles[i]);
             std::string secondary;
             if (card)
             {
-                const std::string copies = "  " + std::to_string(deckCopies(editingDeck.cardTitles[i])) +
-                    "/" + std::to_string(ownedCopies(editingDeck.cardTitles[i]));
-                secondary = game_data::isHeroCard(*card)
+                const bool heroRow = game_data::isHeroCard(*card);
+                const int copyLimit = heroRow ? game_data::MaxHeroCopies : game_data::MaxCardCopies;
+                const std::string copies = "  " + std::to_string(deckCopies(deckTitles[i])) +
+                    "/" + std::to_string(copyLimit);
+                secondary = heroRow
                     ? "Hero  cost " + std::to_string(game_data::cardInt(*card, "heroCost", 0)) + copies
                     : card->type + "  " + std::to_string(game_data::cardInt(*card, "cost", 0)) + " steam" + copies;
             }
@@ -97,13 +100,13 @@
                 font,
                 {DeckCardsX, y},
                 {DeckCardsWidth, DeckCardRowHeight - 4.0f},
-                editingDeck.cardTitles[i],
+                deckTitles[i],
                 secondary,
                 selectedDeckCard && *selectedDeckCard == i);
             if (std::find(
-                    stats.keywordMismatchCardIndices.begin(),
-                    stats.keywordMismatchCardIndices.end(),
-                    i) != stats.keywordMismatchCardIndices.end())
+                    stats.keywordMismatchTitles.begin(),
+                    stats.keywordMismatchTitles.end(),
+                    deckTitles[i]) != stats.keywordMismatchTitles.end())
             {
                 sf::RectangleShape warningStripe({4.0f, DeckCardRowHeight - 4.0f});
                 warningStripe.setPosition({DeckCardsX, y});
@@ -213,7 +216,28 @@
             window.draw(dropTarget);
         }
 
+        const bool hoveringRemoveTarget = dragActive && draggingDeckCard &&
+            isInsideRect(dragCurrentPos, LibraryPanelX, DeckEditorPanelY, LibraryPanelWidth, DeckEditorPanelHeight);
+        if (hoveringRemoveTarget)
+        {
+            sf::RectangleShape removeTarget({LibraryPanelWidth, DeckEditorPanelHeight});
+            removeTarget.setPosition({LibraryPanelX, DeckEditorPanelY});
+            removeTarget.setFillColor(sf::Color(140, 80, 70, 45));
+            removeTarget.setOutlineThickness(3.0f);
+            removeTarget.setOutlineColor(sf::Color(224, 130, 110));
+            window.draw(removeTarget);
+        }
+
+        std::optional<std::string> draggedTitle;
         if (dragActive && draggingLibraryCard && *draggingLibraryCard < filteredCardLibrary.size())
+        {
+            draggedTitle = filteredCardLibrary[*draggingLibraryCard].title;
+        }
+        else if (dragActive && draggingDeckCard && *draggingDeckCard < deckTitles.size())
+        {
+            draggedTitle = deckTitles[*draggingDeckCard];
+        }
+        if (draggedTitle)
         {
             const sf::Vector2f ghostPosition{dragCurrentPos.x - 96.0f, dragCurrentPos.y - 15.0f};
             sf::RectangleShape ghost({192.0f, 30.0f});
@@ -225,7 +249,7 @@
             drawText(
                 window,
                 font,
-                filteredCardLibrary[*draggingLibraryCard].title,
+                *draggedTitle,
                 15,
                 {ghostPosition.x + 10.0f, ghostPosition.y + 6.0f},
                 sf::Color::White,
