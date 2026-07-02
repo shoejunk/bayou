@@ -9,10 +9,14 @@
 #include <cstdint>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace
 {
-std::vector<std::string> loadDeckCards(SQLite::Database& database, std::int64_t deckId)
+std::vector<std::string> loadDeckCards(
+    SQLite::Database& database,
+    std::int64_t deckId,
+    const std::unordered_set<std::string>& tokenTitles)
 {
     std::vector<std::string> cardTitles;
     SQLite::Statement query(
@@ -22,7 +26,11 @@ std::vector<std::string> loadDeckCards(SQLite::Database& database, std::int64_t 
 
     while (query.executeStep())
     {
-        cardTitles.push_back(query.getColumn(0).getString());
+        const std::string title = query.getColumn(0).getString();
+        if (tokenTitles.find(title) == tokenTitles.end())
+        {
+            cardTitles.push_back(title);
+        }
     }
 
     return cardTitles;
@@ -50,6 +58,19 @@ std::optional<std::int64_t> findDeckId(SQLite::Database& database, const std::st
     }
 
     return query.getColumn(0).getInt64();
+}
+
+std::unordered_set<std::string> tokenCardTitles()
+{
+    std::unordered_set<std::string> titles;
+    for (const card_data::Card& card : card_database::loadCardsFromFile("cards.db"))
+    {
+        if (game_data::isTokenCard(card))
+        {
+            titles.insert(card.title);
+        }
+    }
+    return titles;
 }
 
 void saveDeckRows(SQLite::Database& database, const std::string& username, const std::string& originalName, const deck_data::Deck& deck)
@@ -100,6 +121,7 @@ namespace account_decks
 std::vector<deck_data::Deck> loadDecks(SQLite::Database& database, const std::string& username)
 {
     std::vector<deck_data::Deck> decks;
+    const std::unordered_set<std::string> tokenTitles = tokenCardTitles();
     SQLite::Statement query(
         database,
         "SELECT id, name FROM decks WHERE username = ? ORDER BY name");
@@ -110,7 +132,7 @@ std::vector<deck_data::Deck> loadDecks(SQLite::Database& database, const std::st
         const std::int64_t deckId = query.getColumn(0).getInt64();
         deck_data::Deck deck;
         deck.name = query.getColumn(1).getString();
-        deck.cardTitles = loadDeckCards(database, deckId);
+        deck.cardTitles = loadDeckCards(database, deckId, tokenTitles);
         decks.push_back(deck);
     }
 
@@ -120,6 +142,7 @@ std::vector<deck_data::Deck> loadDecks(SQLite::Database& database, const std::st
 std::vector<account_data::CollectionCard> loadCollection(SQLite::Database& database, const std::string& username)
 {
     std::vector<account_data::CollectionCard> collection;
+    const std::unordered_set<std::string> tokenTitles = tokenCardTitles();
     SQLite::Statement query(
         database,
         "SELECT card_title, copies FROM card_collections WHERE username = ? AND copies > 0 ORDER BY card_title");
@@ -127,7 +150,11 @@ std::vector<account_data::CollectionCard> loadCollection(SQLite::Database& datab
 
     while (query.executeStep())
     {
-        collection.push_back({query.getColumn(0).getString(), query.getColumn(1).getInt()});
+        const std::string title = query.getColumn(0).getString();
+        if (tokenTitles.find(title) == tokenTitles.end())
+        {
+            collection.push_back({title, query.getColumn(1).getInt()});
+        }
     }
 
     return collection;
@@ -135,7 +162,8 @@ std::vector<account_data::CollectionCard> loadCollection(SQLite::Database& datab
 
 void addCollectionCopies(SQLite::Database& database, const std::string& username, const std::string& cardTitle, int copies)
 {
-    if (cardTitle.empty() || copies <= 0)
+    const std::unordered_set<std::string> tokenTitles = tokenCardTitles();
+    if (cardTitle.empty() || copies <= 0 || tokenTitles.find(cardTitle) != tokenTitles.end())
     {
         return;
     }
@@ -285,6 +313,43 @@ void ensureStarterInventory(SQLite::Database& database, const std::string& usern
     if (loadDecks(database, username).empty())
     {
         saveDeckRows(database, username, "", starterDeck);
+    }
+    transaction.commit();
+}
+
+void purgeTokenCards(SQLite::Database& database)
+{
+    std::unordered_set<std::string> tokenTitles;
+    try
+    {
+        tokenTitles = tokenCardTitles();
+    }
+    catch (...)
+    {
+        return;
+    }
+    if (tokenTitles.empty())
+    {
+        return;
+    }
+
+    SQLite::Transaction transaction(database);
+    SQLite::Statement deleteCollection(database, "DELETE FROM card_collections WHERE card_title = ?");
+    SQLite::Statement deleteDeckCards(database, "DELETE FROM deck_cards WHERE card_title = ?");
+    SQLite::Statement deleteStarterCards(database, "DELETE FROM starter_deck_cards WHERE card_title = ?");
+    for (const std::string& title : tokenTitles)
+    {
+        deleteCollection.reset();
+        deleteCollection.bind(1, title);
+        deleteCollection.exec();
+
+        deleteDeckCards.reset();
+        deleteDeckCards.bind(1, title);
+        deleteDeckCards.exec();
+
+        deleteStarterCards.reset();
+        deleteStarterCards.bind(1, title);
+        deleteStarterCards.exec();
     }
     transaction.commit();
 }

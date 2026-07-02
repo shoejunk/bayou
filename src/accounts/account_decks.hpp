@@ -25,5 +25,6 @@ bool deleteDeck(SQLite::Database& database, const std::string& username, const s
 std::optional<deck_data::Deck> loadStarterDeckOverride(SQLite::Database& database);
 void saveStarterDeckOverride(SQLite::Database& database, const deck_data::Deck& deck);
 void ensureStarterInventory(SQLite::Database& database, const std::string& username);
+void purgeTokenCards(SQLite::Database& database);
 
 } // namespace account_decks

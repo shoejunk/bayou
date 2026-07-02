@@ -30,6 +30,27 @@ constexpr int MaxHeroes = 4;
 constexpr int HeroCostLimit = 100;
 constexpr int DamageDisabledTurns = 1;
 
+inline std::string cardRarity(const card_data::Card& card)
+{
+    for (const card_data::KeyStringPair& item : card.stringValues)
+    {
+        if (item.key == "rarity")
+        {
+            if (item.value == "rare" || item.value == "legendary" || item.value == "token")
+            {
+                return item.value;
+            }
+            break;
+        }
+    }
+    return "common";
+}
+
+inline bool isTokenCard(const card_data::Card& card)
+{
+    return cardRarity(card) == "token";
+}
+
 inline std::optional<std::string> deckRulesError(const std::vector<card_data::Card>& cards)
 {
     int cardCount = 0;
@@ -42,6 +63,10 @@ inline std::optional<std::string> deckRulesError(const std::vector<card_data::Ca
         if (card.title.empty())
         {
             return "Deck contains a card with no title";
+        }
+        if (isTokenCard(card))
+        {
+            return "Token card cannot be in a deck: " + card.title;
         }
 
         const bool isHero = card.type == "Hero";

@@ -135,9 +135,9 @@ const std::vector<std::string>& bayouGangDeckTitles()
         "Bramble Drone",
         "Bramble Drone",
         "Delving Daphodilus",
-        "Gentle Bot",
+        "Patrol Bot",
         "Hop Bot",
-        "Gentle Bot",
+        "Sentroid",
     };
     return titles;
 }
@@ -186,14 +186,14 @@ std::vector<card_data::Card> makeStarterDeck()
     for (const std::string& title : fallbackStarterNonHeroes())
     {
         if (const card_data::Card* card = findCardByTitle(library, title);
-            card != nullptr && !game_data::isHeroCard(*card))
+            card != nullptr && !game_data::isHeroCard(*card) && !game_data::isTokenCard(*card))
         {
             orderedTitles.push_back(title);
         }
     }
     for (const card_data::Card& card : library)
     {
-        if (!game_data::isHeroCard(card) &&
+        if (!game_data::isHeroCard(card) && !game_data::isTokenCard(card) &&
             std::find(orderedTitles.begin(), orderedTitles.end(), card.title) == orderedTitles.end())
         {
             orderedTitles.push_back(card.title);

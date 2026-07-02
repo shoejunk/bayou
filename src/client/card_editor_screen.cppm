@@ -2451,7 +2451,7 @@ private:
         y += 17.0f;
 
         y = drawInstructionSection(window, "6. Rarity, Keywords, and String Lists", y);
-        y = drawInstructionBullet(window, "Rarity: add a String Field named rarity with value common, rare, or legendary. Missing or unknown values count as common. Shop selection odds are 70% common, 25% rare, and 5% legendary; cards within a rarity are equally likely.", y);
+        y = drawInstructionBullet(window, "Rarity: add a String Field named rarity with value common, rare, legendary, or token. Missing or unknown values count as common. Token cards cannot appear in collections or decks. Shop selection odds are 70% common, 25% rare, and 5% legendary; cards within a rarity are equally likely.", y);
         y = drawInstructionBullet(window, "Keywords: free-form labels shown in card details. The current game engine does not attach rules to them.", y);
         y = drawInstructionBullet(window, "ability: transform, dematerialize, dig, or summon. Transform-style abilities switch action states; dig creates a tunnel hole; summon creates the unit named by the summon string field in the space in front.", y);
         y = drawInstructionBullet(window, "summon: exact Unit card title created by a summon ability. Player 1 summons to the right; Player 2 summons to the left.", y);

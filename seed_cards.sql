@@ -612,7 +612,7 @@ INSERT INTO card_string_values (title, key, value) VALUES
 INSERT INTO card_string_values (title, key, value) VALUES
   ('Automatick', 'rarity', 'common'),
   ('Bramble Drone', 'rarity', 'common'),
-  ('Gentle Bot', 'rarity', 'common'),
+  ('Gentle Bot', 'rarity', 'token'),
   ('Hop Bot', 'rarity', 'common'),
   ('Patrol Bot', 'rarity', 'common'),
   ('Scarlett Glumpkin', 'rarity', 'common'),

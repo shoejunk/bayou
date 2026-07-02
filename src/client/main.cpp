@@ -1310,6 +1310,11 @@ int main(int argc, char** argv)
     };
 
     auto cardMatchesCollectionFilters = [&](const card_data::Card& card) {
+        if (game_data::isTokenCard(card))
+        {
+            return false;
+        }
+
         bool typeMatches = false;
         if (game_data::isHeroCard(card))
         {
@@ -2189,6 +2194,12 @@ int main(int argc, char** argv)
         }
 
         const std::string& title = filteredCardLibrary[libraryIndex].title;
+        if (game_data::isTokenCard(filteredCardLibrary[libraryIndex]))
+        {
+            setMessage(messageText, title + " is a token and cannot be added to a deck", sf::Color::Red);
+            return;
+        }
+
         const bool isHero = game_data::isHeroCard(filteredCardLibrary[libraryIndex]);
         const int copyLimit = isHero ? game_data::MaxHeroCopies : game_data::MaxCardCopies;
         if (deckCopies(title) >= copyLimit)

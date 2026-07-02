@@ -52,17 +52,16 @@ bool isHiddenCardDetailKey(const std::string& key)
 
 std::string cardRarity(const card_data::Card& card)
 {
-    const std::string rarity = game_data::cardStr(card, "rarity", "common");
-    if (rarity == "rare" || rarity == "legendary")
-    {
-        return rarity;
-    }
-    return "common";
+    return game_data::cardRarity(card);
 }
 
 std::string cardRarityLabel(const card_data::Card& card)
 {
     const std::string rarity = cardRarity(card);
+    if (rarity == "token")
+    {
+        return "Token";
+    }
     if (rarity == "legendary")
     {
         return "Legendary";
@@ -77,6 +76,10 @@ std::string cardRarityLabel(const card_data::Card& card)
 sf::Color cardRarityColor(const card_data::Card& card)
 {
     const std::string rarity = cardRarity(card);
+    if (rarity == "token")
+    {
+        return sf::Color(143, 220, 205);
+    }
     if (rarity == "legendary")
     {
         return sf::Color(248, 214, 112);

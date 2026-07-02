@@ -209,6 +209,7 @@ private:
             "DELETE FROM ranked_matches "
             "WHERE player_one = OLD.username OR player_two = OLD.username; "
             "END");
+        account_decks::purgeTokenCards(*database);
     }
 
     void handleClient(std::unique_ptr<sf::TcpSocket> client)
@@ -561,6 +562,12 @@ private:
             if (!username)
             {
                 sendDeckCommandResponse(client, MessageType::DeckSaveResponse, false, "Authentication required");
+                return;
+            }
+
+            if (const std::optional<std::string> rulesError = account_decks::deckRulesError(deck))
+            {
+                sendDeckCommandResponse(client, MessageType::DeckSaveResponse, false, *rulesError);
                 return;
             }
 

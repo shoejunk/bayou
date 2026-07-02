@@ -40,15 +40,6 @@ int shopRarityWeight(const std::string& rarity)
     return 70;
 }
 
-std::string normalizedRarity(const std::string& rarity)
-{
-    if (rarity == "rare" || rarity == "legendary")
-    {
-        return rarity;
-    }
-    return "common";
-}
-
 const std::vector<std::string>& fallbackStarterNonHeroes()
 {
     static const std::vector<std::string> titles = {
@@ -100,6 +91,10 @@ std::vector<std::string> loadCardTitlesFromCardsDb(const std::string& typeFilter
     for (const card_data::Card& card : loadCardsFromCardsDb(
              "Could not read cards.db while building account inventory"))
     {
+        if (game_data::isTokenCard(card))
+        {
+            continue;
+        }
         if (typeFilter.empty() || card.type == typeFilter)
         {
             titles.push_back(card.title);
@@ -113,7 +108,7 @@ std::vector<std::string> loadNonHeroCardTitles()
     std::vector<std::string> titles;
     for (const card_data::Card& card : loadCardsFromCardsDb("Could not read non-hero cards from cards.db"))
     {
-        if (card.type != "Hero")
+        if (card.type != "Hero" && !game_data::isTokenCard(card))
         {
             titles.push_back(card.title);
         }
@@ -226,9 +221,14 @@ std::vector<ShopCardEntry> loadShopCards()
     std::vector<ShopCardEntry> cards;
     for (const card_data::Card& card : loadCardsFromCardsDb("Could not read shop cards from cards.db"))
     {
+        const std::string rarity = game_data::cardRarity(card);
+        if (rarity == "token")
+        {
+            continue;
+        }
         cards.push_back({
             card.title,
-            normalizedRarity(game_data::cardStr(card, "rarity", "common"))});
+            rarity});
     }
 
     if (!cards.empty())
