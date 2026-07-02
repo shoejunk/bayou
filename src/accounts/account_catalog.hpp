@@ -8,6 +8,8 @@
 
 namespace account_catalog
 {
+inline constexpr const char* StarterDeckName = "Starter Deck";
+
 struct ShopCardEntry
 {
     std::string title;

@@ -224,6 +224,44 @@ bool deleteDeck(SQLite::Database& database, const std::string& username, const s
     return true;
 }
 
+std::optional<deck_data::Deck> loadStarterDeckOverride(SQLite::Database& database)
+{
+    deck_data::Deck deck;
+    deck.name = account_catalog::StarterDeckName;
+    SQLite::Statement query(
+        database,
+        "SELECT card_title FROM starter_deck_cards ORDER BY card_index");
+    while (query.executeStep())
+    {
+        deck.cardTitles.push_back(query.getColumn(0).getString());
+    }
+
+    if (deck.cardTitles.empty())
+    {
+        return std::nullopt;
+    }
+
+    return deck;
+}
+
+void saveStarterDeckOverride(SQLite::Database& database, const deck_data::Deck& deck)
+{
+    SQLite::Transaction transaction(database);
+    database.exec("DELETE FROM starter_deck_cards");
+
+    SQLite::Statement insert(
+        database,
+        "INSERT INTO starter_deck_cards (card_index, card_title) VALUES (?, ?)");
+    for (std::size_t i = 0; i < deck.cardTitles.size(); ++i)
+    {
+        insert.reset();
+        insert.bind(1, static_cast<int>(i));
+        insert.bind(2, deck.cardTitles[i]);
+        insert.exec();
+    }
+    transaction.commit();
+}
+
 void ensureStarterInventory(SQLite::Database& database, const std::string& username)
 {
     if (!collectionIsEmpty(database, username))
@@ -232,8 +270,14 @@ void ensureStarterInventory(SQLite::Database& database, const std::string& usern
     }
 
     SQLite::Transaction transaction(database);
-    const deck_data::Deck starterDeck = account_catalog::makeStarterDeck();
-    for (const std::string& title : account_catalog::starterCollectionTitles(starterDeck))
+    const std::optional<deck_data::Deck> storedStarter = loadStarterDeckOverride(database);
+    const deck_data::Deck starterDeck = storedStarter ? *storedStarter : account_catalog::makeStarterDeck();
+    // An admin-defined starter deck is the player's entire starting collection;
+    // the built-in fallback also grants its extra collection titles.
+    const std::vector<std::string> collectionTitles = storedStarter
+        ? starterDeck.cardTitles
+        : account_catalog::starterCollectionTitles(starterDeck);
+    for (const std::string& title : collectionTitles)
     {
         addCollectionCopies(database, username, title, 1);
     }

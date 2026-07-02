@@ -17,10 +17,19 @@
 
     auto drawDeckEditor = [&]() {
         layoutDeckEditorControls();
-        drawTitlePlaque(window, font, "Deck Editor", {142.0f, 46.0f}, {236.0f, 52.0f});
-        drawText(window, font, "Signed in as " + signedInLabel(), 14, {270.0f, 22.0f}, sf::Color(178, 186, 202), 360.0f);
-        drawText(window, font, "Coins " + std::to_string(playerCoins), 13, {270.0f, 45.0f}, sf::Color(248, 214, 112), 160.0f);
-        drawText(window, font, "Card server " + endpointText(clientConfig().card), 13, {390.0f, 45.0f}, sf::Color(148, 158, 176), 240.0f);
+        if (starterDeckMode)
+        {
+            adminTabs.draw(window);
+            drawText(window, font, "Signed in as " + signedInLabel(), 14, {344.0f, 22.0f}, sf::Color(178, 186, 202), 300.0f);
+            drawText(window, font, "New accounts start with this deck", 13, {344.0f, 45.0f}, sf::Color(248, 214, 112), 300.0f);
+        }
+        else
+        {
+            drawTitlePlaque(window, font, "Deck Editor", {142.0f, 46.0f}, {236.0f, 52.0f});
+            drawText(window, font, "Signed in as " + signedInLabel(), 14, {270.0f, 22.0f}, sf::Color(178, 186, 202), 360.0f);
+            drawText(window, font, "Coins " + std::to_string(playerCoins), 13, {270.0f, 45.0f}, sf::Color(248, 214, 112), 160.0f);
+            drawText(window, font, "Card server " + endpointText(clientConfig().card), 13, {390.0f, 45.0f}, sf::Color(148, 158, 176), 240.0f);
+        }
         deckBackButton.draw(window);
 
         if (deckEditorMode == DeckEditorMode::DeckList)
@@ -116,10 +125,11 @@
         removeCardButton.draw(window);
 
         drawPanel(window, {LibraryPanelX, DeckEditorPanelY}, {LibraryPanelWidth, DeckEditorPanelHeight});
-        drawText(window, font, "Collection", 22, {430.0f, 107.0f}, sf::Color::White);
+        drawText(window, font, starterDeckMode ? "All Cards" : "Collection", 22, {430.0f, 107.0f}, sf::Color::White);
+        const std::string libraryCountSuffix = starterDeckMode ? " card types" : " owned card types";
         const std::string collectionCountText = filteredCardLibrary.size() == cardLibrary.size()
-            ? std::to_string(cardLibrary.size()) + " owned card types"
-            : std::to_string(filteredCardLibrary.size()) + "/" + std::to_string(cardLibrary.size()) + " owned card types";
+            ? std::to_string(cardLibrary.size()) + libraryCountSuffix
+            : std::to_string(filteredCardLibrary.size()) + "/" + std::to_string(cardLibrary.size()) + libraryCountSuffix;
         drawText(
             window,
             font,
@@ -142,11 +152,13 @@
         {
             const float y = LibraryY + static_cast<float>(i - libraryOffset) * LibraryRowHeight;
             const card_data::Card& libCard = filteredCardLibrary[i];
+            const std::string ownedSuffix = starterDeckMode
+                ? std::string()
+                : "  owned " + std::to_string(ownedCopies(libCard.title));
             const std::string secondary = game_data::isHeroCard(libCard)
-                ? "Hero  hc " + std::to_string(game_data::cardInt(libCard, "heroCost", 0)) +
-                    "  owned " + std::to_string(ownedCopies(libCard.title))
+                ? "Hero  hc " + std::to_string(game_data::cardInt(libCard, "heroCost", 0)) + ownedSuffix
                 : libCard.type + "  " + std::to_string(game_data::cardInt(libCard, "cost", 0)) +
-                    " steam  owned " + std::to_string(ownedCopies(libCard.title));
+                    " steam" + ownedSuffix;
             drawRow(
                 window,
                 font,
@@ -161,7 +173,7 @@
             drawText(
                 window,
                 font,
-                cardLibrary.empty() ? "No owned cards" : "No matching cards",
+                cardLibrary.empty() ? (starterDeckMode ? "No cards" : "No owned cards") : "No matching cards",
                 16,
                 {514.0f, 330.0f},
                 sf::Color(178, 186, 202));

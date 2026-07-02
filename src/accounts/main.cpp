@@ -155,6 +155,11 @@ private:
             "FOREIGN KEY(deck_id) REFERENCES decks(id) ON DELETE CASCADE"
             ")");
         database->exec(
+            "CREATE TABLE IF NOT EXISTS starter_deck_cards ("
+            "card_index INTEGER PRIMARY KEY NOT NULL,"
+            "card_title TEXT NOT NULL"
+            ")");
+        database->exec(
             "CREATE TABLE IF NOT EXISTS card_collections ("
             "username TEXT NOT NULL,"
             "card_title TEXT NOT NULL,"
@@ -346,6 +351,30 @@ private:
                     std::string accessToken, targetUsername;
                     packet >> accessToken >> targetUsername;
                     handleAdminUserDelete(*client, accessToken, targetUsername);
+                    break;
+                }
+                case MessageType::AdminStarterDeckRequest:
+                {
+                    std::string accessToken;
+                    packet >> accessToken;
+                    handleAdminStarterDeck(*client, accessToken);
+                    break;
+                }
+                case MessageType::AdminStarterDeckSaveRequest:
+                {
+                    std::string accessToken;
+                    deck_data::Deck deck;
+                    packet >> accessToken;
+                    if (!packet || !deck_data::readDeck(packet, deck))
+                    {
+                        sendDeckCommandResponse(
+                            *client,
+                            MessageType::AdminStarterDeckSaveResponse,
+                            false,
+                            "Invalid starter deck payload");
+                        break;
+                    }
+                    handleAdminStarterDeckSave(*client, accessToken, deck);
                     break;
                 }
                 case MessageType::ChangePasswordRequest:
@@ -1245,6 +1274,74 @@ private:
         }
 
         [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleAdminStarterDeck(sf::TcpSocket& client, const std::string& accessToken)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::AdminStarterDeckResponse);
+
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username || !isAdmin(*username))
+            {
+                response << false << std::string("Admin access required");
+                deck_data::writeDeck(response, {});
+            }
+            else
+            {
+                const deck_data::Deck starterDeck =
+                    account_decks::loadStarterDeckOverride(*database)
+                        .value_or(account_catalog::makeStarterDeck());
+                response << true << std::string("Starter deck loaded");
+                deck_data::writeDeck(response, starterDeck);
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while loading starter deck: {}", error.what());
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::AdminStarterDeckResponse);
+            response << false << std::string("Database error while loading starter deck");
+            deck_data::writeDeck(response, {});
+        }
+
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleAdminStarterDeckSave(sf::TcpSocket& client, const std::string& accessToken, const deck_data::Deck& deck)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username || !isAdmin(*username))
+            {
+                sendDeckCommandResponse(client, MessageType::AdminStarterDeckSaveResponse, false, "Admin access required");
+                return;
+            }
+
+            deck_data::Deck starterDeck = deck;
+            starterDeck.name = account_catalog::StarterDeckName;
+            // The starter deck is granted to every new account, so it must always
+            // be a playable deck; reject rule violations instead of storing them.
+            if (const std::optional<std::string> rulesError = account_decks::deckRulesError(starterDeck))
+            {
+                sendDeckCommandResponse(client, MessageType::AdminStarterDeckSaveResponse, false, *rulesError);
+                return;
+            }
+
+            account_decks::saveStarterDeckOverride(*database, starterDeck);
+            sendDeckCommandResponse(client, MessageType::AdminStarterDeckSaveResponse, true, "Starter deck saved");
+            fmt::println("{} updated the starter deck ({} cards)", *username, starterDeck.cardTitles.size());
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while saving starter deck: {}", error.what());
+            sendDeckCommandResponse(client, MessageType::AdminStarterDeckSaveResponse, false, "Database error while saving starter deck");
+        }
     }
 
     void handleLogin(

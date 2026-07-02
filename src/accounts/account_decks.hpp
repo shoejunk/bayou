@@ -22,6 +22,8 @@ std::optional<std::string> deckCollectionError(
 std::optional<std::string> deckRulesError(const deck_data::Deck& deck);
 void saveDeck(SQLite::Database& database, const std::string& username, const std::string& originalName, const deck_data::Deck& deck);
 bool deleteDeck(SQLite::Database& database, const std::string& username, const std::string& deckName);
+std::optional<deck_data::Deck> loadStarterDeckOverride(SQLite::Database& database);
+void saveStarterDeckOverride(SQLite::Database& database, const deck_data::Deck& deck);
 void ensureStarterInventory(SQLite::Database& database, const std::string& username);
 
 } // namespace account_decks

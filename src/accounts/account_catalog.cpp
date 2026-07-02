@@ -11,7 +11,6 @@
 namespace
 {
 constexpr int StarterNonHeroKinds = game_data::DeckCardCount / game_data::MaxCardCopies;
-constexpr const char* StarterDeckName = "Starter Deck";
 constexpr const char* PreferredStarterHero = "Steam Baron";
 constexpr const char* StarterDeckHeroTitles[] = {"Tinkering Tom", "Scarlett Glumpkin", "Elias Tiberion"};
 constexpr const char* StarterDeckNonHeroTitles[] = {
@@ -290,7 +289,7 @@ std::string chooseShopCard(const std::vector<ShopCardEntry>& cards, std::mt19937
 deck_data::Deck makeStarterDeck()
 {
     deck_data::Deck deck;
-    deck.name = StarterDeckName;
+    deck.name = account_catalog::StarterDeckName;
     for (const std::string& hero : starterHeroTitles())
     {
         deck.cardTitles.push_back(hero);

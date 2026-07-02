@@ -103,6 +103,14 @@ struct ShopLoadResult
     std::vector<account_data::CollectionCard> collection;
 };
 
+struct StarterDeckLoadResult
+{
+    bool success = false;
+    std::string message;
+    std::vector<card_data::Card> cards;
+    deck_data::Deck deck;
+};
+
 struct AdminUsersLoadResult
 {
     bool success = false;
@@ -863,6 +871,95 @@ AdminUserDeleteResult deleteAdminUser(
 
     sendDisconnect(socket);
     return {success, message, targetUsername};
+}
+
+DeckCommandResult saveStarterDeckToAccount(const std::string& accessToken, const deck_data::Deck& deck)
+{
+    sf::TcpSocket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {false, "Failed to connect to account server " + endpointText(clientConfig().account), deck.name, deck};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::AdminStarterDeckSaveRequest);
+    request << accessToken;
+    deck_data::writeDeck(request, deck);
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send starter deck save request", deck.name, deck};
+    }
+
+    DeckCommandResult result = readDeckCommandResponse(
+        socket,
+        network::MessageType::AdminStarterDeckSaveResponse,
+        "No starter deck save response from account server",
+        deck.name,
+        deck);
+    sendDisconnect(socket);
+    return result;
+}
+
+StarterDeckLoadResult fetchAdminStarterDeck(const std::string& accessToken)
+{
+    sf::TcpSocket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::AdminStarterDeckRequest);
+    request << accessToken;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send starter deck request"};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No starter deck response from account server"};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    deck_data::Deck deck;
+    response >> responseType >> success >> message;
+    if (!response ||
+        static_cast<network::MessageType>(responseType) != network::MessageType::AdminStarterDeckResponse ||
+        !deck_data::readDeck(response, deck))
+    {
+        socket.disconnect();
+        return {false, "Unexpected starter deck response"};
+    }
+
+    sendDisconnect(socket);
+    return {success, message, {}, std::move(deck)};
+}
+
+StarterDeckLoadResult loadStarterDeckEditorData(const std::string& accessToken)
+{
+    CardListResult cardResult = fetchCards();
+    if (!cardResult.success)
+    {
+        return {false, cardResult.message};
+    }
+
+    StarterDeckLoadResult deckResult = fetchAdminStarterDeck(accessToken);
+    if (!deckResult.success)
+    {
+        return {false, deckResult.message};
+    }
+
+    deckResult.cards = std::move(cardResult.cards);
+    deckResult.message =
+        "Loaded starter deck and " + std::to_string(deckResult.cards.size()) + " cards";
+    return deckResult;
 }
 
 DeckEditorLoadResult loadDeckEditorData(const std::string& accessToken)
