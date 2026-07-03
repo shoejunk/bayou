@@ -110,9 +110,12 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
                 }
             }
         }
-        for (int handIndex = 0; handIndex < static_cast<int>(player.hand.size()); ++handIndex)
+        if (player.discardsThisTurn < MaxDiscardsPerTurn)
         {
-            actions.push_back({AiActionKind::DiscardCard, 0, handIndex});
+            for (int handIndex = 0; handIndex < static_cast<int>(player.hand.size()); ++handIndex)
+            {
+                actions.push_back({AiActionKind::DiscardCard, 0, handIndex});
+            }
         }
     }
 

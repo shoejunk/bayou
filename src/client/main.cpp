@@ -624,7 +624,11 @@ constexpr float HandCardWidth = 88.0f;
 constexpr float HandCardHeight = 78.0f;
 constexpr float HandGap = 6.0f;
 constexpr float HandStartX = 28.0f;
-constexpr std::size_t VisibleGameHandCards = 8;
+constexpr std::size_t VisibleGameHandCards = 7;
+constexpr float TrashCanX = 712.0f;
+constexpr float TrashCanY = 516.0f;
+constexpr float TrashCanSize = 68.0f;
+constexpr float TrashCanDropPadding = 14.0f;
 constexpr float PiecePopupX = 150.0f;
 constexpr float PiecePopupY = 92.0f;
 constexpr float PiecePopupWidth = 500.0f;
@@ -1019,7 +1023,7 @@ int main(int argc, char** argv)
     Button leaveGameButton({684.0f, 14.0f}, {100.0f, 36.0f}, "Leave", font);
     Button closePiecePopupButton({PiecePopupX + 358.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
     Button discardCardButton({PiecePopupX + 22.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {220.0f, 38.0f},
-                             "Discard (+" + std::to_string(game_data::DiscardSteamGain) + " steam)", font);
+                             "Discard to deck bottom", font);
 
     auto clearFocus = [&]() {
         usernameInput.setActive(false);
@@ -3105,6 +3109,15 @@ int main(int argc, char** argv)
         return std::nullopt;
     };
 
+    auto isDiscardTrashCanAtPixel = [&](sf::Vector2f point) {
+        return isInsideRect(
+            point,
+            TrashCanX - TrashCanDropPadding,
+            TrashCanY - TrashCanDropPadding,
+            TrashCanSize + TrashCanDropPadding * 2.0f,
+            TrashCanSize + TrashCanDropPadding * 2.0f);
+    };
+
     auto gamePieceAtPixel = [&](sf::Vector2f point) -> const game_data::Piece* {
         const std::optional<std::pair<int, int>> square = squareAtPixel(point);
         if (!square)
@@ -3553,11 +3566,27 @@ int main(int argc, char** argv)
         sendGamePacket(packet);
     };
 
+    auto playerCanDiscardThisTurn = [&]() {
+        if (!haveSnapshot || sandboxMode ||
+            static_cast<game_data::Phase>(gameSnapshot.phase) != game_data::Phase::Playing)
+        {
+            return false;
+        }
+        const int me = gameSnapshot.yourPlayer;
+        if (me < 1 || me > 2 || gameSnapshot.activePlayer != me)
+        {
+            return false;
+        }
+        const game_data::PlayerSnapshot& mine = gameSnapshot.players[static_cast<std::size_t>(me - 1)];
+        return mine.discardsThisTurn < game_data::MaxDiscardsPerTurn && !gameSnapshot.hand.empty();
+    };
+
+    auto canDiscardHandCard = [&](std::size_t handIndex) {
+        return playerCanDiscardThisTurn() && handIndex < gameSnapshot.hand.size();
+    };
+
     auto canDiscardInspectedHandCard = [&]() {
-        return !sandboxMode && haveSnapshot && inspectedHandIndex &&
-            *inspectedHandIndex < gameSnapshot.hand.size() &&
-            static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::Playing &&
-            gameSnapshot.activePlayer == gameSnapshot.yourPlayer;
+        return inspectedHandIndex && canDiscardHandCard(*inspectedHandIndex);
     };
 
     auto handleHandCardClick = [&](std::size_t handIndex) {
@@ -3687,6 +3716,23 @@ int main(int argc, char** argv)
         {
             resetGameDrag();
             return false;
+        }
+
+        if (gameDragKind == GameDragKind::HandCard && draggingHandIndex &&
+            *draggingHandIndex < gameSnapshot.hand.size() &&
+            isDiscardTrashCanAtPixel(releasePos))
+        {
+            if (canDiscardHandCard(*draggingHandIndex))
+            {
+                sendDiscardCard(static_cast<int>(*draggingHandIndex));
+                selectedHandIndex.reset();
+                selectedPieceId.reset();
+                inspectedHandIndex.reset();
+                inspectedPieceId.reset();
+                pendingHandClickIndex.reset();
+            }
+            resetGameDrag();
+            return true;
         }
 
         const std::optional<std::pair<int, int>> square = squareAtPixel(releasePos);

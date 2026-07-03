@@ -116,7 +116,7 @@ inline std::optional<std::string> deckRulesError(const std::vector<card_data::Ca
 // Hand / steam tuning.
 constexpr int StartingHandSize = 4;
 constexpr int MaxHandSize = 4;
-constexpr int DiscardSteamGain = 10;  // steam gained by discarding a card (ends the turn)
+constexpr int MaxDiscardsPerTurn = 1;
 
 enum class Phase : std::uint8_t
 {
@@ -574,6 +574,7 @@ struct PlayerSnapshot
     int heroesToPlace = 0;
     int heroesAlive = 0;
     int drawPileCount = 0;
+    int discardsThisTurn = 0;
 };
 
 // The full view of the game tailored to one recipient (their hand is included,
@@ -725,13 +726,15 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
 inline void writePlayerSnapshot(sf::Packet& packet, const PlayerSnapshot& player)
 {
     packet << player.steam << player.controlledSquares << player.handCount
-           << player.heroesToPlace << player.heroesAlive << player.drawPileCount;
+           << player.heroesToPlace << player.heroesAlive << player.drawPileCount
+           << player.discardsThisTurn;
 }
 
 inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 {
     packet >> player.steam >> player.controlledSquares >> player.handCount
-           >> player.heroesToPlace >> player.heroesAlive >> player.drawPileCount;
+           >> player.heroesToPlace >> player.heroesAlive >> player.drawPileCount
+           >> player.discardsThisTurn;
     return static_cast<bool>(packet);
 }
 

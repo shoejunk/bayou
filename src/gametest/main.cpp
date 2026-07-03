@@ -893,6 +893,31 @@ int main(int argc, char** argv)
     // Player 1's extra piece should have expanded or maintained its territory.
     check(s1.players[0].controlledSquares >= p1ControlBefore, "player 1 territory did not shrink after deploying");
 
+    if (s2.activePlayer == 2 && !s2.hand.empty())
+    {
+        const int p2SteamBeforeDiscard = s2.players[1].steam;
+        const int p2HandBeforeDiscard = s2.players[1].handCount;
+        const int p2DrawPileBeforeDiscard = s2.players[1].drawPileCount;
+
+        sendDiscardCard(p2, 0);
+        settle(p1, p2, s1, s2, 800);
+        check(s2.activePlayer == 2, "discarding a card does not end the turn");
+        check(s2.players[1].steam == p2SteamBeforeDiscard, "discarding a card grants no steam");
+        check(s2.players[1].handCount == p2HandBeforeDiscard - 1,
+              "discarding removes the card from hand");
+        check(s2.players[1].drawPileCount == p2DrawPileBeforeDiscard + 1,
+              "discarded card returns to the draw pile");
+        check(s2.players[1].discardsThisTurn == 1, "discard count is tracked for the active turn");
+
+        const int p2HandAfterDiscard = s2.players[1].handCount;
+        const int p2DrawPileAfterDiscard = s2.players[1].drawPileCount;
+        sendDiscardCard(p2, 0);
+        settle(p1, p2, s1, s2, 800);
+        check(s2.players[1].handCount == p2HandAfterDiscard &&
+                  s2.players[1].drawPileCount == p2DrawPileAfterDiscard,
+              "a second discard in the same turn is rejected");
+    }
+
     // --- resignation / win condition --------------------------------------
     fmt::println("Disconnecting player 1 to test win-by-default...");
     if (pnumA == 1)

@@ -26,6 +26,7 @@ public:
         std::vector<GameCard> hand;
         std::vector<GameCard> heroesToPlace;
         int steam = 0;
+        int discardsThisTurn = 0;
         bool deckSubmitted = false;
     };
 
@@ -179,8 +180,7 @@ public:
         advanceTurn(fmt::format("Player {} played {}.", playerNumber, card.title));
     }
 
-    // Discarding sends the card to the bottom of the draw pile, grants steam, and
-    // counts as the turn's action (it ends the turn like any other play).
+    // Discarding sends the card to the bottom of the draw pile without ending the turn.
     void discardCard(int playerNumber, int handIndex)
     {
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
@@ -193,14 +193,18 @@ public:
         {
             return;
         }
+        if (player.discardsThisTurn >= MaxDiscardsPerTurn)
+        {
+            setStatusFor(playerNumber, "You can discard only one card each turn.");
+            return;
+        }
 
         const GameCard card = player.hand[static_cast<std::size_t>(handIndex)];
         player.hand.erase(player.hand.begin() + handIndex);
         // The draw pile is drawn from the back, so the front is the bottom of the deck.
         player.drawPile.insert(player.drawPile.begin(), card);
-        player.steam += DiscardSteamGain;
-        advanceTurn(fmt::format(
-            "Player {} discarded {} for {} steam.", playerNumber, card.title, DiscardSteamGain));
+        ++player.discardsThisTurn;
+        status = fmt::format("Player {} discarded {} to the bottom of the deck.", playerNumber, card.title);
     }
 
     void movePiece(int playerNumber, int pieceId, int toRow, int toColumn)
@@ -334,6 +338,7 @@ public:
             view.heroesToPlace = static_cast<int>(player.heroesToPlace.size());
             view.heroesAlive = heroesAlive(p + 1);
             view.drawPileCount = static_cast<int>(player.drawPile.size());
+            view.discardsThisTurn = player.discardsThisTurn;
         }
 
         return snapshot;
@@ -636,6 +641,7 @@ private:
     void startTurn(int playerNumber)
     {
         EnginePlayer& player = playerRef(playerNumber);
+        player.discardsThisTurn = 0;
         player.steam += controlledCount(playerNumber);
         drawCard(player);
 

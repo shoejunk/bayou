@@ -247,6 +247,47 @@
         return std::max(0.0f, popupActionContentHeight(descriptions) - PiecePopupScrollHeight);
     };
 
+    auto drawDiscardTrashCan = [&](bool available, bool draggingCard, bool hovered) {
+        if (draggingCard)
+        {
+            const sf::Color highlight = available
+                ? (hovered ? sf::Color(248, 214, 112, 88) : sf::Color(143, 220, 205, 52))
+                : sf::Color(210, 105, 90, 46);
+            const sf::Color outline = available
+                ? (hovered ? sf::Color(248, 214, 112, 230) : sf::Color(143, 220, 205, 180))
+                : sf::Color(210, 105, 90, 150);
+
+            sf::CircleShape glow(TrashCanSize * 0.58f);
+            glow.setOrigin({TrashCanSize * 0.58f, TrashCanSize * 0.58f});
+            glow.setPosition({TrashCanX + TrashCanSize * 0.5f, TrashCanY + TrashCanSize * 0.5f});
+            glow.setFillColor(highlight);
+            glow.setOutlineThickness(hovered ? 3.0f : 2.0f);
+            glow.setOutlineColor(outline);
+            window.draw(glow);
+        }
+
+        if (sf::Texture* trashCan = textures.load("ui/trash-can.png"))
+        {
+            const sf::Color iconTint = available
+                ? sf::Color::White
+                : sf::Color(112, 108, 102, 190);
+            drawContainSprite(
+                window,
+                *trashCan,
+                {{TrashCanX + 5.0f, TrashCanY + 4.0f}, {TrashCanSize - 10.0f, TrashCanSize - 8.0f}},
+                iconTint);
+        }
+        else
+        {
+            sf::RectangleShape bin({TrashCanSize - 24.0f, TrashCanSize - 20.0f});
+            bin.setPosition({TrashCanX + 12.0f, TrashCanY + 16.0f});
+            bin.setFillColor(available ? sf::Color(52, 64, 65) : sf::Color(54, 52, 50));
+            bin.setOutlineThickness(2.0f);
+            bin.setOutlineColor(draggingCard ? sf::Color(248, 214, 112) : sf::Color(86, 78, 70));
+            window.draw(bin);
+        }
+    };
+
     auto drawPiecePopup = [&]() {
         if (!inspectedPieceId && !inspectedHandIndex)
         {
@@ -895,14 +936,12 @@
         // Compact game readout.
         const game_data::PlayerSnapshot& mine = gameSnapshot.players[static_cast<std::size_t>(me - 1)];
         const int activePlayer = std::clamp(gameSnapshot.activePlayer, 1, 2);
-        const game_data::PlayerSnapshot& activePlayerSnapshot =
-            gameSnapshot.players[static_cast<std::size_t>(activePlayer - 1)];
         const std::string activePlayerName = storyMode
             ? "Tinkering Tom"
             : (sandboxMode
             ? "Player " + std::to_string(activePlayer)
             : (activePlayer == me ? loggedInUsername : "Opponent"));
-        const std::string steamText = storyMode ? "story" : (sandboxMode ? "free" : std::to_string(activePlayerSnapshot.steam));
+        const std::string steamText = storyMode ? "story" : (sandboxMode ? "free" : std::to_string(mine.steam));
         drawText(window, font, "Turn: " + activePlayerName, 16, {BoardOriginX, GameLabelY},
                  ownerColor(activePlayer), 240.0f);
         drawText(window, font, "Steam: " + steamText, 16, {282.0f, GameLabelY},
@@ -927,6 +966,18 @@
             }
         }
         leaveGameButton.draw(window);
+
+        if (phase == game_data::Phase::Playing && !storyMode)
+        {
+            const bool draggingHandCard =
+                gameDragActive &&
+                gameDragKind == GameDragKind::HandCard &&
+                draggingHandIndex;
+            const bool draggingHandOverTrash =
+                draggingHandCard &&
+                isDiscardTrashCanAtPixel(gameDragCurrentPos);
+            drawDiscardTrashCan(playerCanDiscardThisTurn(), draggingHandCard, draggingHandOverTrash);
+        }
 
         if (storyMode)
         {
@@ -1007,7 +1058,9 @@
                 *draggingHandIndex < gameSnapshot.hand.size())
             {
                 const game_data::GameCard& draggedCard = gameSnapshot.hand[*draggingHandIndex];
-                if (draggedCard.type == "Unit" || draggedCard.type == "Hero")
+                const bool draggingHandOverTrash =
+                    canDiscardHandCard(*draggingHandIndex) && isDiscardTrashCanAtPixel(gameDragCurrentPos);
+                if ((draggedCard.type == "Unit" || draggedCard.type == "Hero") && !draggingHandOverTrash)
                 {
                     sf::Vector2f anchor = gameDragCurrentPos;
                     float scale = 1.0f;

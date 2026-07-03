@@ -540,7 +540,8 @@ public:
                 applyAiAction(engine, AiPlayerNumber, action);
                 if (engine.phase() == Phase::Playing &&
                     engine.currentPlayer() == beforePlayer &&
-                    action.kind != AiActionKind::EndTurn)
+                    action.kind != AiActionKind::EndTurn &&
+                    action.kind != AiActionKind::DiscardCard)
                 {
                     engine.endTurn(AiPlayerNumber);
                 }
