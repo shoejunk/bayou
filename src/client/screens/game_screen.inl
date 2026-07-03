@@ -1156,16 +1156,53 @@
         // Game-over banner.
         if (phase == game_data::Phase::GameOver)
         {
+            const bool victory = gameSnapshot.winner == me;
+            const sf::Color accent = victory ? sf::Color(146, 232, 166) : sf::Color(233, 128, 106);
+            const sf::Color accentDeep = victory ? sf::Color(28, 74, 44) : sf::Color(84, 32, 24);
+
+            // Dim the battlefield so the result reads as a modal.
+            sf::RectangleShape overlay({800.0f, 600.0f});
+            overlay.setFillColor(sf::Color(5, 8, 9, 170));
+            window.draw(overlay);
+
+            // Soft halo in the result color behind the plaque.
+            for (const float radius : {225.0f, 175.0f, 130.0f})
+            {
+                sf::CircleShape halo(radius);
+                halo.setOrigin({radius, radius});
+                halo.setPosition({400.0f, 285.0f});
+                halo.setFillColor(sf::Color(accent.r, accent.g, accent.b, 12));
+                window.draw(halo);
+            }
+
+            const sf::Vector2f panelPosition{244.0f, 200.0f};
+            const sf::Vector2f panelSize{312.0f, 190.0f};
+            drawPanel(window, panelPosition, panelSize);
+
+            // Header plate straddles the panel's top edge and carries the result color.
             drawBeveledPlate(
                 window,
-                {40.0f, 210.0f},
-                {420.0f, 126.0f},
-                sf::Color(20, 24, 24, 235),
-                gameSnapshot.winner == me ? sf::Color(120, 220, 150) : sf::Color(220, 110, 90),
+                {270.0f, 174.0f},
+                {260.0f, 58.0f},
+                victory ? sf::Color(17, 34, 24, 250) : sf::Color(38, 19, 16, 250),
+                accent,
                 true,
-                12.0f);
-            const std::string result = gameSnapshot.winner == me ? "Victory!" : "Defeat";
-            drawText(window, font, result, 34, {60.0f, 224.0f}, gameSnapshot.winner == me ? sf::Color(140, 230, 160) : sf::Color(230, 130, 110));
+                14.0f);
+
+            const std::string result = victory ? "Victory!" : "Defeat";
+            sf::Text titleShadow(font, result, 40);
+            titleShadow.setFillColor(sf::Color(0, 0, 0, 190));
+            centerText(titleShadow, {402.0f, 206.0f});
+            window.draw(titleShadow);
+            sf::Text titleText(font, result, 40);
+            titleText.setFillColor(accent);
+            titleText.setOutlineThickness(1.5f);
+            titleText.setOutlineColor(accentDeep);
+            centerText(titleText, {400.0f, 203.0f});
+            window.draw(titleText);
+
+            drawSeparatorRule(window, {310.0f, 248.0f}, 180.0f);
+
             const std::string ratingText = gameResultReceived && gameResultSuccess
                 ? "Rating " +
                     std::string(gameRatingChange >= 0 ? "+" : "") +
@@ -1173,19 +1210,27 @@
                 : (gameResultReceived
                     ? "Rating update unavailable"
                     : "Rating update pending...");
-            drawText(
-                window,
-                font,
-                ratingText,
-                18,
-                {60.0f, 264.0f},
-                sf::Color(151, 192, 255),
-                360.0f);
+            sf::Text ratingLine(font, elideToWidth(font, ratingText, 18, panelSize.x - 40.0f), 18);
+            ratingLine.setFillColor(sf::Color(151, 192, 255));
+            centerText(ratingLine, {400.0f, 278.0f});
+            window.draw(ratingLine);
+
             if (!gameRewardText.empty())
             {
-                drawText(window, font, gameRewardText, 16, {60.0f, 288.0f}, sf::Color(248, 214, 112), 360.0f);
+                sf::Text rewardLine(
+                    font, elideToWidth(font, gameRewardText, 16, panelSize.x - 40.0f), 16);
+                rewardLine.setFillColor(sf::Color(248, 214, 112));
+                centerText(rewardLine, {400.0f, 308.0f});
+                window.draw(rewardLine);
             }
-            drawText(window, font, "Press Leave to return.", 14, {60.0f, 314.0f}, sf::Color(200, 206, 220));
+
+            sf::Text hintLine(font, "Press Leave to return.", 13);
+            hintLine.setFillColor(sf::Color(172, 178, 190));
+            centerText(hintLine, {400.0f, 352.0f});
+            window.draw(hintLine);
+
+            // Keep the Leave button bright above the dimmed battlefield.
+            leaveGameButton.draw(window);
         }
 
         drawPiecePopup();
