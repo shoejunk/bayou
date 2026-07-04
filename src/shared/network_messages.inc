@@ -89,8 +89,7 @@ enum class MessageType : std::uint8_t
     AdminStarterDeckRequest,
     AdminStarterDeckResponse,
     AdminStarterDeckSaveRequest,
-    AdminStarterDeckSaveResponse,
-    CollectSteam
+    AdminStarterDeckSaveResponse
 };
 
 struct CreateAccountRequest

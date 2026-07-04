@@ -1035,9 +1035,8 @@ int main(int argc, char** argv)
     std::vector<DematerializeGhost> dematerializeGhosts;
 
     Button findMatchButton({300.0f, 458.0f}, {200.0f, 52.0f}, "Find Match", font);
-    Button abilityButton({392.0f, GameActionButtonY}, {94.0f, 36.0f}, "Use Ability", font);
-    Button collectSteamButton({494.0f, GameActionButtonY}, {118.0f, 36.0f}, "Collect Steam", font);
-    Button endTurnButton({620.0f, GameActionButtonY}, {52.0f, 36.0f}, "Pass", font);
+    Button abilityButton({392.0f, GameActionButtonY}, {138.0f, 36.0f}, "Use Ability", font);
+    Button endTurnButton({540.0f, GameActionButtonY}, {132.0f, 36.0f}, "Pass Turn", font);
     Button sandboxPlayerButton({532.0f, GameActionButtonY}, {48.0f, 36.0f}, "P1", font);
     Button sandboxAdvanceTurnButton({588.0f, GameActionButtonY}, {88.0f, 36.0f}, "Advance", font);
     Button leaveGameButton({684.0f, 14.0f}, {100.0f, 36.0f}, "Leave", font);
@@ -3630,16 +3629,6 @@ int main(int argc, char** argv)
         sendGamePacket(packet);
     };
 
-    auto sendCollectSteam = [&]() {
-        if (sandboxMode)
-        {
-            return;
-        }
-        sf::Packet packet;
-        packet << static_cast<std::uint8_t>(network::MessageType::CollectSteam);
-        sendGamePacket(packet);
-    };
-
     auto sendDiscardCard = [&](int handIndex) {
         if (sandboxMode)
         {
@@ -5160,17 +5149,6 @@ int main(int argc, char** argv)
                              static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::Playing &&
                              !sandboxMode &&
                              gameSnapshot.activePlayer == gameSnapshot.yourPlayer &&
-                             collectSteamButton.isClicked(clickPos))
-                    {
-                        pendingHandClickIndex.reset();
-                        sendCollectSteam();
-                        selectedPieceId.reset();
-                        selectedHandIndex.reset();
-                    }
-                    else if (haveSnapshot &&
-                             static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::Playing &&
-                             !sandboxMode &&
-                             gameSnapshot.activePlayer == gameSnapshot.yourPlayer &&
                              endTurnButton.isClicked(clickPos))
                     {
                         pendingHandClickIndex.reset();
@@ -6127,7 +6105,6 @@ int main(int argc, char** argv)
                 }
                 else
                 {
-                    collectSteamButton.update(mousePos);
                     endTurnButton.update(mousePos);
                 }
                 leaveGameButton.update(mousePos);

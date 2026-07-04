@@ -541,8 +541,7 @@ public:
                 if (engine.phase() == Phase::Playing &&
                     engine.currentPlayer() == beforePlayer &&
                     action.kind != AiActionKind::EndTurn &&
-                    action.kind != AiActionKind::DiscardCard &&
-                    action.kind != AiActionKind::CollectSteam)
+                    action.kind != AiActionKind::DiscardCard)
                 {
                     engine.endTurn(AiPlayerNumber);
                 }
@@ -857,9 +856,6 @@ private:
             }
             case MessageType::EndTurn:
                 engine.endTurn(playerNumber);
-                return true;
-            case MessageType::CollectSteam:
-                engine.collectSteam(playerNumber);
                 return true;
             case MessageType::Disconnect:
                 engine.resign(playerNumber);

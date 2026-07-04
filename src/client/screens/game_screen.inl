@@ -1044,7 +1044,6 @@
             }
             else
             {
-                collectSteamButton.draw(window);
                 endTurnButton.draw(window);
             }
         }
