@@ -652,6 +652,118 @@ int main(int argc, char** argv)
     check(ranking::matchmakingRange(std::chrono::seconds(30)) == 640,
           "matchmaking reaches +/- 640 after 30 seconds");
 
+    // --- dematerialized piece interception ---------------------------------
+    std::array<std::uint8_t, BoardSquares> flatBoard{};
+    Piece charger;
+    charger.id = 30;
+    charger.owner = 1;
+    charger.row = 3;
+    charger.column = 1;
+    ActionProfile chargeAttack;
+    chargeAttack.pattern = static_cast<std::uint8_t>(MovePattern::Ortho);
+    chargeAttack.maxRange = 6;
+    chargeAttack.damage = 2;
+    chargeAttack.canMove = true;
+    chargeAttack.canAttack = true;
+    charger.actions = {chargeAttack};
+
+    Piece lurker;
+    lurker.id = 31;
+    lurker.owner = 2;
+    lurker.row = 3;
+    lurker.column = 4;
+    lurker.hidden = true;
+    lurker.actionState = 1;
+    lurker.health = 5;
+
+    const std::vector<Piece> hiddenPieces = {charger, lurker};
+    check(piecesVisibleTo(hiddenPieces, 1).size() == 1 &&
+              piecesVisibleTo(hiddenPieces, 2).size() == 2,
+          "hidden pieces are filtered from the opponent's view but not their owner's");
+    check(resolvePieceActionThroughHidden(hiddenPieces, flatBoard, hiddenPieces[0], 3, 6)
+              .action.legal,
+          "moves through a hidden piece resolve as if the square were empty");
+
+    const PieceActionOutcome hiddenStrike =
+        resolvePieceActionThroughHidden(hiddenPieces, flatBoard, hiddenPieces[0], 3, 6);
+    check(hiddenStrike.action.legal && hiddenStrike.action.attacks &&
+              hiddenStrike.action.targetId == lurker.id &&
+              hiddenStrike.revealedPieceId == lurker.id &&
+              hiddenStrike.destinationRow == 3 && hiddenStrike.destinationColumn == 4 &&
+              hiddenStrike.action.stagingRow == 3 && hiddenStrike.action.stagingColumn == 3,
+          "attacking move through a hidden piece strikes it and stages just short of it");
+
+    Piece walker = charger;
+    walker.actions[0].damage = 0;
+    walker.actions[0].canAttack = false;
+    const std::vector<Piece> walkerPieces = {walker, lurker};
+    const PieceActionOutcome hiddenBump =
+        resolvePieceActionThroughHidden(walkerPieces, flatBoard, walkerPieces[0], 3, 6);
+    check(hiddenBump.action.legal && !hiddenBump.action.attacks && hiddenBump.action.moves &&
+              hiddenBump.revealedPieceId == lurker.id &&
+              hiddenBump.destinationRow == 3 && hiddenBump.destinationColumn == 3,
+          "non-attacking move halts just short of a hidden piece without damage");
+
+    Piece hopper;
+    hopper.id = 32;
+    hopper.owner = 1;
+    hopper.row = 3;
+    hopper.column = 3;
+    ActionProfile vault;
+    vault.kind = static_cast<std::uint8_t>(ActionKind::Hop);
+    vault.damage = 1;
+    vault.canMove = true;
+    vault.canAttack = true;
+    hopper.actions = {vault};
+    Piece pivot;
+    pivot.id = 33;
+    pivot.owner = 2;
+    pivot.row = 3;
+    pivot.column = 4;
+    Piece landingLurker = lurker;
+    landingLurker.id = 34;
+    landingLurker.row = 3;
+    landingLurker.column = 5;
+    const std::vector<Piece> hopHiddenPieces = {hopper, pivot, landingLurker};
+    const PieceActionOutcome hopBlocked =
+        resolvePieceActionThroughHidden(hopHiddenPieces, flatBoard, hopHiddenPieces[0], 3, 5);
+    check(hopBlocked.action.legal && !hopBlocked.action.attacks && !hopBlocked.action.moves &&
+              hopBlocked.revealedPieceId == landingLurker.id &&
+              hopBlocked.destinationRow == 3 && hopBlocked.destinationColumn == 3,
+          "hop onto a hidden landing square fails without damaging the hopped piece");
+
+    Piece knight;
+    knight.id = 35;
+    knight.owner = 1;
+    knight.row = 3;
+    knight.column = 3;
+    ActionProfile knightMove;
+    knightMove.pattern = static_cast<std::uint8_t>(MovePattern::Jump);
+    knightMove.minRange = 1;
+    knightMove.maxRange = 2;
+    knightMove.damage = 1;
+    knightMove.canMove = true;
+    knightMove.canAttack = true;
+    knight.actions = {knightMove};
+    Piece jumpLurker = lurker;
+    jumpLurker.id = 36;
+    jumpLurker.row = 4;
+    jumpLurker.column = 5;
+    const std::vector<Piece> jumpPieces = {knight, jumpLurker};
+    const PieceActionOutcome jumpStrike =
+        resolvePieceActionThroughHidden(jumpPieces, flatBoard, jumpPieces[0], 4, 5);
+    check(jumpStrike.action.legal && jumpStrike.action.attacks && jumpStrike.action.moves &&
+              jumpStrike.action.targetId == jumpLurker.id &&
+              jumpStrike.destinationRow == 4 && jumpStrike.destinationColumn == 5 &&
+              jumpStrike.action.stagingRow == 3 && jumpStrike.action.stagingColumn == 3,
+          "attacking jump onto a hidden piece strikes it and stays put unless it dies");
+
+    Piece revealedPiece = lurker;
+    materializeRevealedPiece(revealedPiece);
+    check(!revealedPiece.hidden && revealedPiece.actionState == 0 &&
+              revealedPiece.disabledTurns >= HiddenRevealStunTurns,
+          "revealed pieces materialize into action state zero, stunned");
+
     if (argc == 2 && std::string(argv[1]) == "--movement-only")
     {
         return failures == 0 ? 0 : 1;

@@ -275,7 +275,8 @@ inline ActionResolution resolvePieceAction(
     const std::array<std::uint8_t, BoardSquares>& holes,
     const Piece& piece,
     int toRow,
-    int toColumn)
+    int toColumn,
+    bool attackingMovesOnly = false)
 {
     ActionResolution best;
     if (!inBounds(toRow, toColumn) || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
@@ -436,7 +437,8 @@ inline ActionResolution resolvePieceAction(
             }
         }
 
-        if (!candidate.legal || (candidate.moves && piece.sleepTurnsRemaining > 0))
+        if (!candidate.legal || (candidate.moves && piece.sleepTurnsRemaining > 0) ||
+            (attackingMovesOnly && !(candidate.moves && candidate.attacks)))
         {
             continue;
         }
@@ -474,6 +476,144 @@ inline bool isLegalPieceAttack(
 {
     const ActionResolution action = resolvePieceAction(pieces, holes, piece, toRow, toColumn);
     return action.legal && action.attacks;
+}
+
+// ---- dematerialized (hidden) piece handling --------------------------------
+
+// Turns a revealed dematerialized piece spends stunned.
+constexpr int HiddenRevealStunTurns = 1;
+
+// The board as one player sees it: opposing dematerialized pieces are absent.
+inline std::vector<Piece> piecesVisibleTo(const std::vector<Piece>& pieces, int playerNumber)
+{
+    std::vector<Piece> visible;
+    visible.reserve(pieces.size());
+    for (const Piece& piece : pieces)
+    {
+        if (!piece.hidden || piece.owner == playerNumber)
+        {
+            visible.push_back(piece);
+        }
+    }
+    return visible;
+}
+
+// A piece action resolved against the acting player's view of the board, then
+// adjusted for any hidden enemy piece it would actually run into:
+//  - an attacking move that reaches the hidden piece strikes it instead,
+//  - any other movement halts short of it without dealing damage,
+//  - a hop whose landing square is occupied fails entirely (no pivot damage).
+// In every collision the hidden piece is identified so the caller can
+// materialize and stun it.
+struct PieceActionOutcome
+{
+    ActionResolution action;
+    int destinationRow = 0;
+    int destinationColumn = 0;
+    int revealedPieceId = 0;  // hidden piece struck or bumped into (0 = none)
+};
+
+inline PieceActionOutcome resolvePieceActionThroughHidden(
+    const std::vector<Piece>& pieces,
+    const std::array<std::uint8_t, BoardSquares>& holes,
+    const Piece& piece,
+    int toRow,
+    int toColumn)
+{
+    PieceActionOutcome outcome;
+    outcome.destinationRow = toRow;
+    outcome.destinationColumn = toColumn;
+
+    const std::vector<Piece> visible = piecesVisibleTo(pieces, piece.owner);
+    outcome.action = resolvePieceAction(visible, holes, piece, toRow, toColumn);
+    if (!outcome.action.legal || !outcome.action.moves)
+    {
+        return outcome;
+    }
+
+    auto hiddenEnemyAt = [&](int row, int column) -> const Piece* {
+        const Piece* occupant = findPieceAt(pieces, row, column);
+        return occupant != nullptr && occupant->hidden && occupant->owner != piece.owner
+            ? occupant
+            : nullptr;
+    };
+
+    const ActionProfile& profile =
+        piece.actions[static_cast<std::size_t>(outcome.action.actionIndex)];
+    const ActionKind kind = static_cast<ActionKind>(profile.kind);
+    const bool jumping = static_cast<MovePattern>(profile.pattern) == MovePattern::Jump;
+    const bool walksPath = (kind == ActionKind::Slide || kind == ActionKind::Capture) &&
+        !jumping && !profile.passThrough;
+
+    const Piece* hiddenBlocker = nullptr;
+    int stopRow = piece.row;
+    int stopColumn = piece.column;
+    if (walksPath)
+    {
+        const int deltaRow = toRow - piece.row;
+        const int deltaColumn = toColumn - piece.column;
+        const int stepRow = (deltaRow > 0) - (deltaRow < 0);
+        const int stepColumn = (deltaColumn > 0) - (deltaColumn < 0);
+        int row = piece.row;
+        int column = piece.column;
+        while (row != toRow || column != toColumn)
+        {
+            row += stepRow;
+            column += stepColumn;
+            hiddenBlocker = hiddenEnemyAt(row, column);
+            if (hiddenBlocker != nullptr)
+            {
+                break;
+            }
+            stopRow = row;
+            stopColumn = column;
+        }
+    }
+    else
+    {
+        // Jumps, hops, teleports, tunnels, and pass-through moves only collide
+        // at the destination square; a failed one leaves the piece in place.
+        hiddenBlocker = hiddenEnemyAt(toRow, toColumn);
+    }
+
+    if (hiddenBlocker == nullptr)
+    {
+        return outcome;
+    }
+
+    outcome.revealedPieceId = hiddenBlocker->id;
+
+    // An attacking move that can reach the hidden square strikes the piece as
+    // if it had been visible (damage, staging, and status apply normally).
+    const ActionResolution strike = resolvePieceAction(
+        pieces, holes, piece, hiddenBlocker->row, hiddenBlocker->column, true);
+    if (strike.legal && strike.attacks && strike.moves &&
+        strike.targetId == hiddenBlocker->id)
+    {
+        outcome.action = strike;
+        outcome.destinationRow = hiddenBlocker->row;
+        outcome.destinationColumn = hiddenBlocker->column;
+        return outcome;
+    }
+
+    // Otherwise the mover bumps into it harmlessly and stops short.
+    outcome.action.attacks = false;
+    outcome.action.targetId = 0;
+    outcome.action.damage = 0;
+    outcome.action.statusTurns = 0;
+    outcome.action.moves = stopRow != piece.row || stopColumn != piece.column;
+    outcome.destinationRow = stopRow;
+    outcome.destinationColumn = stopColumn;
+    return outcome;
+}
+
+// Materializes a piece that was struck or bumped into while dematerialized and
+// stuns it. Damage-based status (if any) is applied separately by the attack.
+inline void materializeRevealedPiece(Piece& piece)
+{
+    piece.hidden = false;
+    piece.actionState = 0;
+    applyDamageStatus(piece, 0, HiddenRevealStunTurns);
 }
 
 inline std::string pieceAbilityLabel(const Piece& piece)

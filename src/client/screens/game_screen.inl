@@ -502,7 +502,7 @@
         bool draggedPieceDropValid = false;
         if (draggedPiece && draggedPieceSquare)
         {
-            const game_data::ActionResolution action = game_data::resolvePieceAction(
+            const game_data::PieceActionOutcome outcome = game_data::resolvePieceActionThroughHidden(
                 gameSnapshot.pieces,
                 gameSnapshot.holes,
                 *draggedPiece,
@@ -513,7 +513,7 @@
                  (gameSnapshot.activePlayer == me &&
                   draggedPiece->owner == me &&
                   !draggedPiece->hasActed)) &&
-                action.legal;
+                outcome.action.legal;
         }
         const std::optional<std::size_t> actingHandIndex =
             gameDragKind == GameDragKind::HandCard && draggingHandIndex ? draggingHandIndex : selectedHandIndex;
@@ -565,13 +565,18 @@
         {
             if (actingPiece && (sandboxMode || !actingPiece->hasActed))
             {
+                // Highlight against the acting piece's view of the board:
+                // dematerialized enemies read as open squares (never as
+                // attack targets), so nothing betrays where they hide.
+                const std::vector<game_data::Piece> visiblePieces =
+                    game_data::piecesVisibleTo(gameSnapshot.pieces, actingPiece->owner);
                 for (int r = 0; r < game_data::BoardSize; ++r)
                 {
                     for (int c = 0; c < game_data::BoardSize; ++c)
                     {
                         const std::size_t idx = static_cast<std::size_t>(game_data::squareIndex(r, c));
                         const game_data::ActionResolution action = game_data::resolvePieceAction(
-                            gameSnapshot.pieces, gameSnapshot.holes, *actingPiece, r, c);
+                            visiblePieces, gameSnapshot.holes, *actingPiece, r, c);
                         if (action.legal)
                         {
                             highlight[idx] = action.attacks ? 2 : 1;
@@ -840,9 +845,25 @@
 
             const std::string& walkPath = pieceWalkAnimPath(piece);
             const std::string& tokenPath = pieceTokenPath(piece);
-            const sf::Color pieceTint = pieceUnavailable
+            sf::Color pieceTint = pieceUnavailable
                 ? sf::Color(150, 150, 150, 215)
                 : sf::Color::White;
+            if (piece.hidden)
+            {
+                // Dematerialized: only its owner is sent this piece, so make
+                // the hidden state obvious — a pulsing glow and a ghostly body.
+                const float pulse = 0.5f + 0.5f * std::sin(animationTime * 3.2f);
+                const float glowRadius = (17.0f + 4.0f * pulse) * pieceScale;
+                sf::CircleShape glow(glowRadius);
+                glow.setOrigin({glowRadius, glowRadius});
+                glow.setScale({1.35f, 0.62f});
+                glow.setPosition({anchor.x, anchor.y - 4.0f * pieceScale});
+                glow.setFillColor(sf::Color(
+                    140, 222, 255,
+                    static_cast<std::uint8_t>(58.0f + 52.0f * pulse)));
+                window.draw(glow);
+                pieceTint.a = 132;
+            }
             int walkFrame = -1;
             int idleFrame = -1;
             if (isMoving)
@@ -883,10 +904,11 @@
             {
                 if (sf::Texture* art = cardArtTexture(piece.imagePath))
                 {
-                    drawContainSprite(window, *art, pieceTargetRect(anchor, pieceScale, false),
-                                      pieceUnavailable
-                                          ? sf::Color(130, 130, 130)
-                                          : sf::Color::White);
+                    sf::Color artTint = pieceUnavailable
+                        ? sf::Color(130, 130, 130)
+                        : sf::Color::White;
+                    artTint.a = pieceTint.a;
+                    drawContainSprite(window, *art, pieceTargetRect(anchor, pieceScale, false), artTint);
                     drewPiece = true;
                 }
             }
@@ -895,6 +917,7 @@
                 const float radius = PieceBaseWidth * 0.28f * pieceScale;
                 sf::CircleShape body(radius);
                 body.setPosition({anchor.x - radius, anchor.y - radius * 2.0f});
+                color.a = pieceTint.a;
                 body.setFillColor(color);
                 window.draw(body);
             }
@@ -931,6 +954,64 @@
             const unsigned int healthSize = static_cast<unsigned int>(std::clamp(12.0f * pieceScale, 10.0f, 17.0f));
             drawText(window, font, std::to_string(piece.health), healthSize,
                      {anchor.x - 5.0f * pieceScale, anchor.y - 21.0f * pieceScale}, sf::Color(248, 239, 216));
+        }
+
+        // An enemy piece that just dematerialized blinks in place for a few
+        // seconds, then is not drawn at all — wherever it moves stays secret.
+        for (auto ghost = dematerializeGhosts.begin(); ghost != dematerializeGhosts.end();)
+        {
+            const float elapsed = animationTime - ghost->startTime;
+            if (elapsed >= DematerializeBlinkSeconds)
+            {
+                ghost = dematerializeGhosts.erase(ghost);
+                continue;
+            }
+            const bool blinkOn =
+                std::fmod(elapsed, DematerializeBlinkPeriodSeconds) <
+                DematerializeBlinkPeriodSeconds * 0.6f;
+            if (blinkOn)
+            {
+                const game_data::Piece& ghostPiece = ghost->piece;
+                const BoardCellMetrics cell = boardCellMetrics(ghostPiece.row, ghostPiece.column);
+                const sf::Vector2f anchor = boardCellAnchor(cell);
+                const float scale = cell.depthScale;
+                const auto alpha = static_cast<std::uint8_t>(
+                    std::clamp(220.0f * (1.0f - elapsed / DematerializeBlinkSeconds), 0.0f, 220.0f));
+                const sf::Color tint(255, 255, 255, alpha);
+                bool drewGhost = drawPieceVisual(
+                    pieceTokenPath(ghostPiece),
+                    pieceWalkAnimPath(ghostPiece),
+                    "",
+                    pieceBasePath(ghostPiece),
+                    ghostPiece.separateBaseArt,
+                    ghostPiece.separateBaseArt && ghostPiece.owner == 2,
+                    ghostPiece.walkAnimFrames,
+                    1,
+                    anchor,
+                    scale,
+                    tint,
+                    -1,
+                    -1);
+                if (!drewGhost)
+                {
+                    if (sf::Texture* art = cardArtTexture(ghostPiece.imagePath))
+                    {
+                        drawContainSprite(window, *art, pieceTargetRect(anchor, scale, false), tint);
+                        drewGhost = true;
+                    }
+                }
+                if (!drewGhost)
+                {
+                    const float radius = PieceBaseWidth * 0.28f * scale;
+                    sf::CircleShape body(radius);
+                    body.setPosition({anchor.x - radius, anchor.y - radius * 2.0f});
+                    sf::Color bodyColor = ownerColor(ghostPiece.owner);
+                    bodyColor.a = alpha;
+                    body.setFillColor(bodyColor);
+                    window.draw(body);
+                }
+            }
+            ++ghost;
         }
 
         // Compact game readout.

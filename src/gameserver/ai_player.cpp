@@ -39,6 +39,10 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
 
     const std::vector<Piece>& pieces = engine.boardPieces();
     const std::array<std::uint8_t, BoardSquares>& holes = engine.boardHoles();
+    // Plan against the board this player can see: dematerialized enemy
+    // pieces neither block nor present targets (the engine adjudicates any
+    // collision when the action executes).
+    const std::vector<Piece> visiblePieces = piecesVisibleTo(pieces, playerNumber);
     for (const Piece& piece : pieces)
     {
         if (piece.owner != playerNumber || piece.hasActed || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
@@ -53,7 +57,7 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
         {
             for (int column = 0; column < BoardSize; ++column)
             {
-                const ActionResolution resolution = resolvePieceAction(pieces, holes, piece, row, column);
+                const ActionResolution resolution = resolvePieceAction(visiblePieces, holes, piece, row, column);
                 if (!resolution.legal)
                 {
                     continue;
@@ -100,7 +104,7 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
                 }
                 else
                 {
-                    for (const Piece& target : pieces)
+                    for (const Piece& target : visiblePieces)
                     {
                         if ((card.effect == "damage" && target.owner != playerNumber) ||
                             (card.effect == "heal" && target.owner == playerNumber && target.health < target.maxHealth))

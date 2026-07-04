@@ -508,18 +508,26 @@ private:
             return;
         }
 
-        const ActionResolution action = resolvePieceAction(pieces, holes, *piece, toRow, toColumn);
+        // Resolve against the acting player's view of the board so hidden
+        // enemy pieces do not block or betray their squares; a collision with
+        // one is adjusted into a strike or a harmless bump below.
+        const PieceActionOutcome outcome =
+            resolvePieceActionThroughHidden(pieces, holes, *piece, toRow, toColumn);
+        const ActionResolution& action = outcome.action;
         if (!action.legal)
         {
             setStatusFor(playerNumber, "That piece cannot act there.");
             return;
         }
+        const int destinationRow = outcome.destinationRow;
+        const int destinationColumn = outcome.destinationColumn;
 
         const int attackerId = piece->id;
         const std::string attackerName = piece->name;
         std::string targetName;
         bool targetDestroyed = false;
         bool targetAtDestination = false;
+        bool targetWasHidden = false;
         int victimOwner = 0;
 
         if (action.attacks)
@@ -531,7 +539,8 @@ private:
             }
 
             targetName = target->name;
-            targetAtDestination = target->row == toRow && target->column == toColumn;
+            targetAtDestination = target->row == destinationRow && target->column == destinationColumn;
+            targetWasHidden = target->hidden;
             victimOwner = target->owner;
             target->health -= action.damage;
             applyDamageStatus(*target, action.damage, action.statusTurns);
@@ -539,6 +548,17 @@ private:
             {
                 targetDestroyed = true;
                 removePiece(target->id);
+            }
+        }
+
+        // A hidden piece that was struck or bumped into materializes stunned.
+        std::string revealedName;
+        if (outcome.revealedPieceId != 0)
+        {
+            if (Piece* revealed = pieceById(outcome.revealedPieceId))
+            {
+                revealedName = revealed->name;
+                materializeRevealedPiece(*revealed);
             }
         }
 
@@ -552,8 +572,8 @@ private:
         {
             if (!action.attacks || !targetAtDestination || targetDestroyed)
             {
-                survivingAttacker->row = toRow;
-                survivingAttacker->column = toColumn;
+                survivingAttacker->row = destinationRow;
+                survivingAttacker->column = destinationColumn;
             }
             else
             {
@@ -578,8 +598,9 @@ private:
         {
             const int effectiveDisabledTurns = disabledTurnsForDamage(action.damage, action.statusTurns);
             std::string result = fmt::format(
-                "{} hit {} for {}",
+                "{} hit {}{} for {}",
                 attackerName,
+                targetWasHidden ? "a hidden " : "",
                 targetName,
                 action.damage);
             if (!targetDestroyed && effectiveDisabledTurns > 0)
@@ -587,7 +608,18 @@ private:
                 result += fmt::format(" and disabled it for {} turn(s)", effectiveDisabledTurns);
             }
             result += targetDestroyed ? " and destroyed it!" : ".";
+            if (targetWasHidden && !targetDestroyed)
+            {
+                result += " It materialized!";
+            }
             advanceTurn(result);
+        }
+        else if (!revealedName.empty())
+        {
+            advanceTurn(fmt::format(
+                "{} bumped into a hidden {}! It materialized, stunned.",
+                attackerName,
+                revealedName));
         }
         else
         {

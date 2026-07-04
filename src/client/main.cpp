@@ -62,6 +62,7 @@ enum class AudioCue
     UnitMove,
     UnitAttack,
     UnitDeath,
+    Dematerialize,
     Victory,
     Defeat
 };
@@ -173,7 +174,7 @@ public:
 
 private:
     static constexpr unsigned int SampleRate = 44100;
-    static constexpr int EffectCount = 7;
+    static constexpr int EffectCount = 8;
     std::array<sf::SoundBuffer, EffectCount> effectBuffers;
     std::unique_ptr<sf::Music> music;
     std::list<sf::Sound> activeSounds;
@@ -300,6 +301,15 @@ private:
         {
             deathBuffer = bufferFromSamples(makeTone(0.46f, 180.0f, 42.0f, 0.56f, 0.34f));
         }
+        sf::SoundBuffer& dematerializeBuffer =
+            effectBuffers[static_cast<std::size_t>(AudioCue::Dematerialize)];
+        const std::optional<std::filesystem::path> dematerializePath =
+            resolveAssetPath("audio/dematerialize.wav");
+        if (!dematerializePath || !dematerializeBuffer.loadFromFile(*dematerializePath))
+        {
+            // Airy descending shimmer for a piece fading out of sight.
+            dematerializeBuffer = bufferFromSamples(makeTone(0.55f, 940.0f, 180.0f, 0.42f, 0.45f));
+        }
         sf::SoundBuffer& victoryBuffer = effectBuffers[static_cast<std::size_t>(AudioCue::Victory)];
         const std::optional<std::filesystem::path> victoryPath = resolveAssetPath("audio/victory.wav");
         if (!victoryPath || !victoryBuffer.loadFromFile(*victoryPath))
@@ -375,6 +385,7 @@ private:
             case AudioCue::UnitMove: return 44.0f;
             case AudioCue::UnitAttack: return 78.0f;
             case AudioCue::UnitDeath: return 45.0f;
+            case AudioCue::Dematerialize: return 50.0f;
             case AudioCue::Victory: return 35.0f;
             case AudioCue::Defeat: return 35.0f;
         }
@@ -1014,6 +1025,14 @@ int main(int argc, char** argv)
         float duration = AttackAnimationDurationSeconds;
     };
     std::unordered_map<int, PieceAttackAnimation> pieceAttackAnimations;
+    // An opposing piece that just dematerialized: it blinks in place for a few
+    // seconds, then is not drawn at all until it materializes again.
+    struct DematerializeGhost
+    {
+        game_data::Piece piece;
+        float startTime = 0.0f;
+    };
+    std::vector<DematerializeGhost> dematerializeGhosts;
 
     Button findMatchButton({300.0f, 458.0f}, {200.0f, 52.0f}, "Find Match", font);
     Button abilityButton({392.0f, GameActionButtonY}, {94.0f, 36.0f}, "Use Ability", font);
@@ -1870,6 +1889,7 @@ int main(int argc, char** argv)
         gameRewardText.clear();
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
+        dematerializeGhosts.clear();
 
         // Submit our deck, then switch the socket to non-blocking polling.
         if (activeGameSocket)
@@ -2488,16 +2508,38 @@ int main(int argc, char** argv)
             return;
         }
 
+        // A ghost is stale once its piece is visible again (it materialized).
+        dematerializeGhosts.erase(
+            std::remove_if(
+                dematerializeGhosts.begin(),
+                dematerializeGhosts.end(),
+                [&](const DematerializeGhost& ghost) {
+                    return pieceByIdInSnapshot(nextSnapshot, ghost.piece.id) != nullptr;
+                }),
+            dematerializeGhosts.end());
+
         bool playedMoveSound = false;
         bool playedPlaceSound = false;
         bool playedAttackSound = false;
         bool playedDeathSound = false;
+        bool playedDematerializeSound = false;
         for (const game_data::Piece& currentPiece : gameSnapshot.pieces)
         {
-            if (!pieceByIdInSnapshot(nextSnapshot, currentPiece.id))
+            if (pieceByIdInSnapshot(nextSnapshot, currentPiece.id))
+            {
+                continue;
+            }
+            // A piece that vanished because it dematerialized (rather than
+            // died) blinks in place for a moment before disappearing.
+            if (nextSnapshot.status.find(currentPiece.name + " used Dematerialize") !=
+                std::string::npos)
+            {
+                dematerializeGhosts.push_back({currentPiece, animationTime});
+                playedDematerializeSound = true;
+            }
+            else
             {
                 playedDeathSound = true;
-                break;
             }
         }
 
@@ -2599,6 +2641,10 @@ int main(int argc, char** argv)
         {
             audioSystem.play(AudioCue::UnitDeath, playedAttackSound ? 0.5f : 1.0f);
         }
+        if (playedDematerializeSound)
+        {
+            audioSystem.play(AudioCue::Dematerialize);
+        }
     };
 
     auto squareAtPixel = [&](sf::Vector2f point) -> std::optional<std::pair<int, int>> {
@@ -2696,6 +2742,7 @@ int main(int argc, char** argv)
         gameRewardText.clear();
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
+        dematerializeGhosts.clear();
 
         game_data::Snapshot snapshot;
         snapshot.phase = static_cast<std::uint8_t>(game_data::Phase::Playing);
@@ -2750,6 +2797,7 @@ int main(int argc, char** argv)
         gameRewardText.clear();
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
+        dematerializeGhosts.clear();
 
         game_data::Snapshot snapshot;
         snapshot.phase = static_cast<std::uint8_t>(game_data::Phase::Playing);
@@ -3290,20 +3338,24 @@ int main(int argc, char** argv)
             return;
         }
 
-        const game_data::ActionResolution action =
-            game_data::resolvePieceAction(next.pieces, next.holes, *piece, row, column);
+        const game_data::PieceActionOutcome outcome =
+            game_data::resolvePieceActionThroughHidden(next.pieces, next.holes, *piece, row, column);
+        const game_data::ActionResolution& action = outcome.action;
         if (!action.legal)
         {
             next.status = "That piece cannot act there.";
             commitSandboxSnapshot(std::move(next));
             return;
         }
+        const int destinationRow = outcome.destinationRow;
+        const int destinationColumn = outcome.destinationColumn;
 
         const int attackerId = piece->id;
         const std::string attackerName = piece->name;
         std::string targetName;
         bool targetDestroyed = false;
         bool targetAtDestination = false;
+        bool targetWasHidden = false;
 
         if (action.attacks)
         {
@@ -3313,7 +3365,8 @@ int main(int argc, char** argv)
                 return;
             }
             targetName = target->name;
-            targetAtDestination = target->row == row && target->column == column;
+            targetAtDestination = target->row == destinationRow && target->column == destinationColumn;
+            targetWasHidden = target->hidden;
             startPieceAttackAnimation(attackerId, target->row, target->column);
             target->health -= action.damage;
             game_data::applyDamageStatus(*target, action.damage, action.statusTurns);
@@ -3321,6 +3374,16 @@ int main(int argc, char** argv)
             {
                 targetDestroyed = true;
                 removePieceFromSnapshot(next, target->id);
+            }
+        }
+
+        std::string revealedName;
+        if (outcome.revealedPieceId != 0)
+        {
+            if (game_data::Piece* revealed = pieceByIdInSnapshotMutable(next, outcome.revealedPieceId))
+            {
+                revealedName = revealed->name;
+                game_data::materializeRevealedPiece(*revealed);
             }
         }
 
@@ -3334,8 +3397,8 @@ int main(int argc, char** argv)
         {
             if (!action.attacks || !targetAtDestination || targetDestroyed)
             {
-                acting->row = row;
-                acting->column = column;
+                acting->row = destinationRow;
+                acting->column = destinationColumn;
             }
             else
             {
@@ -3350,12 +3413,22 @@ int main(int argc, char** argv)
         {
             const int effectiveDisabledTurns =
                 game_data::disabledTurnsForDamage(action.damage, action.statusTurns);
-            next.status = attackerName + " hit " + targetName + " for " + std::to_string(action.damage);
+            next.status = attackerName + " hit " + (targetWasHidden ? "a hidden " : "") +
+                targetName + " for " + std::to_string(action.damage);
             if (!targetDestroyed && effectiveDisabledTurns > 0)
             {
                 next.status += " and disabled it for " + std::to_string(effectiveDisabledTurns) + " turn(s)";
             }
             next.status += targetDestroyed ? " and destroyed it." : ".";
+            if (targetWasHidden && !targetDestroyed)
+            {
+                next.status += " It materialized!";
+            }
+        }
+        else if (!revealedName.empty())
+        {
+            next.status = attackerName + " bumped into a hidden " + revealedName +
+                "! It materialized, stunned.";
         }
         else
         {
@@ -3774,9 +3847,9 @@ int main(int argc, char** argv)
         {
             if (const game_data::Piece* piece = gamePieceById(*draggingPieceId))
             {
-                const game_data::ActionResolution action = game_data::resolvePieceAction(
+                const game_data::PieceActionOutcome outcome = game_data::resolvePieceActionThroughHidden(
                     gameSnapshot.pieces, gameSnapshot.holes, *piece, row, column);
-                if (action.legal)
+                if (outcome.action.legal)
                 {
                     sendMovePiece(piece->id, row, column);
                 }
@@ -3894,6 +3967,7 @@ int main(int argc, char** argv)
         gameRewardText.clear();
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
+        dematerializeGhosts.clear();
         sandboxMode = false;
         storyMode = false;
         storyStage = StoryStage::None;
@@ -3978,9 +4052,9 @@ int main(int argc, char** argv)
             {
                 if (clicked && clicked->owner != (sandboxMode ? selected->owner : me))
                 {
-                    const game_data::ActionResolution action = game_data::resolvePieceAction(
+                    const game_data::PieceActionOutcome outcome = game_data::resolvePieceActionThroughHidden(
                         gameSnapshot.pieces, gameSnapshot.holes, *selected, row, column);
-                    if (action.legal)
+                    if (outcome.action.legal)
                     {
                         sendMovePiece(selected->id, row, column);
                     }
@@ -3992,9 +4066,9 @@ int main(int argc, char** argv)
                     selectedPieceId = (!sandboxMode && clicked->hasActed) ? std::nullopt : std::optional<int>(clicked->id);
                     return;
                 }
-                const game_data::ActionResolution action = game_data::resolvePieceAction(
+                const game_data::PieceActionOutcome outcome = game_data::resolvePieceActionThroughHidden(
                     gameSnapshot.pieces, gameSnapshot.holes, *selected, row, column);
-                if (action.legal)
+                if (outcome.action.legal)
                 {
                     sendMovePiece(selected->id, row, column);
                 }
