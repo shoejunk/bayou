@@ -1025,6 +1025,19 @@ int main(int argc, char** argv)
         float duration = AttackAnimationDurationSeconds;
     };
     std::unordered_map<int, PieceAttackAnimation> pieceAttackAnimations;
+    struct PieceReactionAnimation
+    {
+        float startTime = 0.0f;
+        float duration = PieceReactionAnimationDurationSeconds;
+    };
+    std::unordered_map<int, PieceReactionAnimation> pieceDamagedAnimations;
+    struct PieceKilledAnimation
+    {
+        game_data::Piece piece;
+        float startTime = 0.0f;
+        float duration = PieceReactionAnimationDurationSeconds;
+    };
+    std::vector<PieceKilledAnimation> pieceKilledAnimations;
     // An opposing piece that just dematerialized: it blinks in place for a few
     // seconds, then is not drawn at all until it materializes again.
     struct DematerializeGhost
@@ -1888,6 +1901,8 @@ int main(int argc, char** argv)
         gameRewardText.clear();
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
+        pieceDamagedAnimations.clear();
+        pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
 
         // Submit our deck, then switch the socket to non-blocking polling.
@@ -2475,6 +2490,20 @@ int main(int argc, char** argv)
             AttackAnimationDurationSeconds};
     };
 
+    auto startPieceDamagedAnimation = [&](const game_data::Piece& piece) {
+        if (!piece.damagedAnimPath.empty())
+        {
+            pieceDamagedAnimations[piece.id] = {animationTime, PieceReactionAnimationDurationSeconds};
+        }
+    };
+
+    auto startPieceKilledAnimation = [&](const game_data::Piece& piece) {
+        if (!piece.killedAnimPath.empty())
+        {
+            pieceKilledAnimations.push_back({piece, animationTime, PieceReactionAnimationDurationSeconds});
+        }
+    };
+
     auto updatePieceMoveAnimations = [&](const game_data::Snapshot& nextSnapshot) {
         std::vector<int> staleAnimations;
         for (auto& [pieceId, animation] : pieceMoveAnimations)
@@ -2500,6 +2529,19 @@ int main(int argc, char** argv)
         for (int pieceId : staleAnimations)
         {
             pieceAttackAnimations.erase(pieceId);
+        }
+
+        staleAnimations.clear();
+        for (auto& [pieceId, animation] : pieceDamagedAnimations)
+        {
+            if (!pieceByIdInSnapshot(nextSnapshot, pieceId))
+            {
+                staleAnimations.push_back(pieceId);
+            }
+        }
+        for (int pieceId : staleAnimations)
+        {
+            pieceDamagedAnimations.erase(pieceId);
         }
 
         if (!haveSnapshot)
@@ -2539,6 +2581,7 @@ int main(int argc, char** argv)
             else
             {
                 playedDeathSound = true;
+                startPieceKilledAnimation(currentPiece);
             }
         }
 
@@ -2562,6 +2605,10 @@ int main(int argc, char** argv)
                     animationTime,
                     0.95f};
                 playedMoveSound = true;
+            }
+            if (nextPiece.health < currentPiece->health)
+            {
+                startPieceDamagedAnimation(nextPiece);
             }
         }
 
@@ -2741,6 +2788,8 @@ int main(int argc, char** argv)
         gameRewardText.clear();
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
+        pieceDamagedAnimations.clear();
+        pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
 
         game_data::Snapshot snapshot;
@@ -2796,6 +2845,8 @@ int main(int argc, char** argv)
         gameRewardText.clear();
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
+        pieceDamagedAnimations.clear();
+        pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
 
         game_data::Snapshot snapshot;
@@ -3956,6 +4007,8 @@ int main(int argc, char** argv)
         gameRewardText.clear();
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
+        pieceDamagedAnimations.clear();
+        pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
         sandboxMode = false;
         storyMode = false;

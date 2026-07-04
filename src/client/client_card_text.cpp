@@ -42,9 +42,12 @@ bool isHiddenCardDetailKey(const std::string& key)
     return key == "cost" || key == "heroCost" || key == "health" || key == "attack" ||
         key == "range" || key == "move" || key == "attackingMove" || key == "power" ||
         key == "canControl" || key == "growTurns" || key == "abilityUses" ||
-        key == "WalkAnimFrames" || key == "IdleAnimFrames" || key == "rarity" || key == "effect" || key == "target" ||
+        key == "WalkAnimFrames" || key == "IdleAnimFrames" ||
+        key == "AttackAnimFrames" || key == "DamagedAnimFrames" || key == "KilledAnimFrames" ||
+        key == "rarity" || key == "effect" || key == "target" ||
         key == "movement" || key == "WalkAnim" || key == "WalkAnimBlue" ||
-        key == "WalkAnimRed" || key == "IdleAnim" || key == "Token" ||
+        key == "WalkAnimRed" || key == "IdleAnim" ||
+        key == "AttackAnim" || key == "DamagedAnim" || key == "KilledAnim" || key == "Token" ||
         key == "TokenBlue" || key == "TokenRed";
 }
 

@@ -26,6 +26,7 @@ constexpr float PieceBaseHeight = 100.0f;
 constexpr float PieceWalkBaseHeight = 108.0f;
 constexpr float WalkAnimationLoopSeconds = 1.0f;
 constexpr float AttackAnimationDurationSeconds = 0.42f;
+constexpr float PieceReactionAnimationDurationSeconds = 0.55f;
 constexpr float DematerializeBlinkSeconds = 3.0f;
 constexpr float DematerializeBlinkPeriodSeconds = 0.5f;
 constexpr float AttackLungePixels = 18.0f;

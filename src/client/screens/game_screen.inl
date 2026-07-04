@@ -866,6 +866,9 @@
             }
             int walkFrame = -1;
             int idleFrame = -1;
+            const std::string* reactionPath = nullptr;
+            int reactionFrames = 1;
+            int reactionFrame = -1;
             if (isMoving)
             {
                 const int walkFrameCount = std::max(1, piece.walkAnimFrames);
@@ -886,20 +889,46 @@
                     static_cast<int>(loopProgress * static_cast<float>(idleFrameCount)),
                     idleFrameCount - 1);
             }
+            if (attackAnimationProgress >= 0.0f && !piece.attackAnimPath.empty())
+            {
+                reactionPath = &piece.attackAnimPath;
+                reactionFrames = std::max(1, piece.attackAnimFrames);
+                reactionFrame = std::min(
+                    static_cast<int>(attackAnimationProgress * static_cast<float>(reactionFrames)),
+                    reactionFrames - 1);
+            }
+            else if (const auto animation = pieceDamagedAnimations.find(piece.id);
+                     animation != pieceDamagedAnimations.end())
+            {
+                const float elapsed = std::max(0.0f, animationTime - animation->second.startTime);
+                const float progress = std::min(elapsed / animation->second.duration, 1.0f);
+                if (progress < 1.0f && !piece.damagedAnimPath.empty())
+                {
+                    reactionPath = &piece.damagedAnimPath;
+                    reactionFrames = std::max(1, piece.damagedAnimFrames);
+                    reactionFrame = std::min(
+                        static_cast<int>(progress * static_cast<float>(reactionFrames)),
+                        reactionFrames - 1);
+                }
+                else
+                {
+                    pieceDamagedAnimations.erase(piece.id);
+                }
+            }
             bool drewPiece = drawPieceVisual(
                 tokenPath,
-                walkPath,
+                reactionPath ? *reactionPath : walkPath,
                 piece.idleAnimPath,
                 pieceBasePath(piece),
                 piece.separateBaseArt,
                 piece.separateBaseArt && piece.owner == 2,
-                piece.walkAnimFrames,
+                reactionPath ? reactionFrames : piece.walkAnimFrames,
                 piece.idleAnimFrames,
                 anchor,
                 pieceScale,
                 pieceTint,
-                walkFrame,
-                idleFrame);
+                reactionPath ? reactionFrame : walkFrame,
+                reactionPath ? -1 : idleFrame);
             if (!drewPiece)
             {
                 if (sf::Texture* art = cardArtTexture(piece.imagePath))
@@ -954,6 +983,49 @@
             const unsigned int healthSize = static_cast<unsigned int>(std::clamp(12.0f * pieceScale, 10.0f, 17.0f));
             drawText(window, font, std::to_string(piece.health), healthSize,
                      {anchor.x - 5.0f * pieceScale, anchor.y - 21.0f * pieceScale}, sf::Color(248, 239, 216));
+        }
+
+        for (auto animation = pieceKilledAnimations.begin(); animation != pieceKilledAnimations.end();)
+        {
+            const float elapsed = std::max(0.0f, animationTime - animation->startTime);
+            const float progress = std::min(elapsed / animation->duration, 1.0f);
+            if (progress >= 1.0f)
+            {
+                animation = pieceKilledAnimations.erase(animation);
+                continue;
+            }
+
+            const game_data::Piece& killedPiece = animation->piece;
+            const BoardCellMetrics cell = boardCellMetrics(killedPiece.row, killedPiece.column);
+            const sf::Vector2f anchor = boardCellAnchor(cell);
+            const int killedFrameCount = std::max(1, killedPiece.killedAnimFrames);
+            const int killedFrame = std::min(
+                static_cast<int>(progress * static_cast<float>(killedFrameCount)),
+                killedFrameCount - 1);
+            sf::Color tint = sf::Color::White;
+            tint.a = static_cast<std::uint8_t>(std::clamp(255.0f * (1.0f - progress * 0.35f), 0.0f, 255.0f));
+            bool drewKilledPiece = drawPieceVisual(
+                pieceTokenPath(killedPiece),
+                killedPiece.killedAnimPath,
+                "",
+                pieceBasePath(killedPiece),
+                killedPiece.separateBaseArt,
+                killedPiece.separateBaseArt && killedPiece.owner == 2,
+                killedPiece.killedAnimFrames,
+                1,
+                anchor,
+                cell.depthScale,
+                tint,
+                killedFrame,
+                -1);
+            if (!drewKilledPiece)
+            {
+                if (sf::Texture* art = cardArtTexture(killedPiece.imagePath))
+                {
+                    drawContainSprite(window, *art, pieceTargetRect(anchor, cell.depthScale, false), tint);
+                }
+            }
+            ++animation;
         }
 
         // An enemy piece that just dematerialized blinks in place for a few

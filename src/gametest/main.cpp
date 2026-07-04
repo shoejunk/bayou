@@ -525,11 +525,17 @@ int main(int argc, char** argv)
     serializedCard.blueWalkAnimPath = "animations/blue/test.png";
     serializedCard.redWalkAnimPath = "animations/red/test.png";
     serializedCard.idleAnimPath = "animations/idle/test.png";
+    serializedCard.attackAnimPath = "animations/attack/test.png";
+    serializedCard.damagedAnimPath = "animations/damaged/test.png";
+    serializedCard.killedAnimPath = "animations/killed/test.png";
     serializedCard.pieceBaseBluePath = "characters/bases/blue.png";
     serializedCard.pieceBaseRedPath = "characters/bases/red.png";
     serializedCard.separateBaseArt = true;
     serializedCard.walkAnimFrames = 7;
     serializedCard.idleAnimFrames = 5;
+    serializedCard.attackAnimFrames = 6;
+    serializedCard.damagedAnimFrames = 8;
+    serializedCard.killedAnimFrames = 9;
     serializedCard.ability = "transform";
     serializedCard.summonTitle = "Serialized Summon";
     serializedCard.abilityLabels = {"Ready", "Lower"};
@@ -545,11 +551,17 @@ int main(int argc, char** argv)
               roundTrippedCard.blueTokenPath == "characters/blue/test.png" &&
               roundTrippedCard.redWalkAnimPath == "animations/red/test.png" &&
               roundTrippedCard.idleAnimPath == "animations/idle/test.png" &&
+              roundTrippedCard.attackAnimPath == "animations/attack/test.png" &&
+              roundTrippedCard.damagedAnimPath == "animations/damaged/test.png" &&
+              roundTrippedCard.killedAnimPath == "animations/killed/test.png" &&
               roundTrippedCard.pieceBaseBluePath == "characters/bases/blue.png" &&
               roundTrippedCard.pieceBaseRedPath == "characters/bases/red.png" &&
               roundTrippedCard.separateBaseArt &&
               roundTrippedCard.walkAnimFrames == 7 &&
               roundTrippedCard.idleAnimFrames == 5 &&
+              roundTrippedCard.attackAnimFrames == 6 &&
+              roundTrippedCard.damagedAnimFrames == 8 &&
+              roundTrippedCard.killedAnimFrames == 9 &&
               roundTrippedCard.summonTitle == "Serialized Summon" &&
               roundTrippedCard.abilityLabels.size() == 2 &&
               roundTrippedCard.abilityUses == 2,
@@ -565,11 +577,17 @@ int main(int argc, char** argv)
     serializedPiece.blueWalkAnimPath = "animations/blue/test.png";
     serializedPiece.redWalkAnimPath = "animations/red/test.png";
     serializedPiece.idleAnimPath = "animations/idle/test.png";
+    serializedPiece.attackAnimPath = "animations/attack/test.png";
+    serializedPiece.damagedAnimPath = "animations/damaged/test.png";
+    serializedPiece.killedAnimPath = "animations/killed/test.png";
     serializedPiece.pieceBaseBluePath = "characters/bases/blue.png";
     serializedPiece.pieceBaseRedPath = "characters/bases/red.png";
     serializedPiece.separateBaseArt = true;
     serializedPiece.walkAnimFrames = 6;
     serializedPiece.idleAnimFrames = 4;
+    serializedPiece.attackAnimFrames = 5;
+    serializedPiece.damagedAnimFrames = 7;
+    serializedPiece.killedAnimFrames = 8;
     serializedPiece.abilityLabels = {"Dig"};
     serializedPiece.abilityUses = 1;
     serializedPiece.growTurnsRemaining = 2;
@@ -590,11 +608,17 @@ int main(int argc, char** argv)
               roundTrippedPiece.blueTokenPath == "characters/blue/test.png" &&
               roundTrippedPiece.redWalkAnimPath == "animations/red/test.png" &&
               roundTrippedPiece.idleAnimPath == "animations/idle/test.png" &&
+              roundTrippedPiece.attackAnimPath == "animations/attack/test.png" &&
+              roundTrippedPiece.damagedAnimPath == "animations/damaged/test.png" &&
+              roundTrippedPiece.killedAnimPath == "animations/killed/test.png" &&
               roundTrippedPiece.pieceBaseBluePath == "characters/bases/blue.png" &&
               roundTrippedPiece.pieceBaseRedPath == "characters/bases/red.png" &&
               roundTrippedPiece.separateBaseArt &&
               roundTrippedPiece.walkAnimFrames == 6 &&
               roundTrippedPiece.idleAnimFrames == 4 &&
+              roundTrippedPiece.attackAnimFrames == 5 &&
+              roundTrippedPiece.damagedAnimFrames == 7 &&
+              roundTrippedPiece.killedAnimFrames == 8 &&
               roundTrippedPiece.ability == "dig" &&
               roundTrippedPiece.summonTitle == "Serialized Summon" &&
               roundTrippedPiece.growTurnsRemaining == 2 &&
