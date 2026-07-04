@@ -110,6 +110,7 @@ std::string joinStrings(const std::vector<std::string>& values, const std::strin
 
 std::string actionDescription(const game_data::ActionProfile& action, std::size_t index)
 {
+    (void)index;
     std::vector<std::string> parts;
     if (action.state != 0)
     {
@@ -118,13 +119,21 @@ std::string actionDescription(const game_data::ActionProfile& action, std::size_
     parts.push_back(actionKindName(action.kind));
     parts.push_back(actionPatternName(action));
     parts.push_back(actionRangeText(action));
-    if (action.canMove)
+    if (action.canMove && action.canAttack)
     {
-        parts.push_back("moves");
+        parts.push_back("attack move");
+    }
+    else if (action.canMove)
+    {
+        parts.push_back("move");
+    }
+    else if (action.canAttack)
+    {
+        parts.push_back("attack");
     }
     if (action.canAttack)
     {
-        parts.push_back("attacks for " + std::to_string(action.damage));
+        parts.push_back("damage: " + std::to_string(action.damage));
     }
     if (action.statusTurns > 0)
     {
@@ -132,7 +141,7 @@ std::string actionDescription(const game_data::ActionProfile& action, std::size_
     }
     if (action.cooldownTurns > 0)
     {
-        parts.push_back("cooldown " + std::to_string(action.cooldownTurns));
+        parts.push_back("cooldown: " + std::to_string(action.cooldownTurns));
     }
     if (action.passThrough)
     {
@@ -143,10 +152,7 @@ std::string actionDescription(const game_data::ActionProfile& action, std::size_
         parts.push_back("line of sight");
     }
 
-    const std::string label = action.name.empty()
-        ? "Action " + std::to_string(index + 1)
-        : action.name;
-    return label + ": " + joinStrings(parts, ", ");
+    return joinStrings(parts, ", ");
 }
 
 DetailRows deckEditorCardDetails(const card_data::Card& card)
@@ -180,7 +186,6 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
         {
             details.push_back({actionDescription(gameCard.actions[i], i), sf::Color(143, 220, 205)});
         }
-        details.push_back({"Territory: occupied square + adjacent influence", sf::Color(198, 180, 142)});
     }
     else
     {
@@ -190,11 +195,6 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
                            sf::Color(224, 210, 176)});
         details.push_back({"Target: " + game_data::cardStr(card, "target", "none"),
                            sf::Color(143, 220, 205)});
-    }
-
-    if (!card.keywords.empty())
-    {
-        details.push_back({"Keywords: " + joinStrings(card.keywords, ", "), sf::Color(210, 216, 228)});
     }
 
     for (const card_data::KeyIntPair& item : card.integerValues)

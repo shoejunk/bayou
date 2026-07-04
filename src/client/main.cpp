@@ -649,6 +649,8 @@ constexpr float PiecePopupTextWidth = PiecePopupWidth - 48.0f;
 constexpr float PiecePopupActionHeadingY = PiecePopupY + 186.0f;
 constexpr float PiecePopupScrollY = PiecePopupActionHeadingY + 26.0f;
 constexpr float PiecePopupScrollHeight = PiecePopupHeight - (PiecePopupScrollY - PiecePopupY) - 66.0f;
+constexpr float PiecePopupScrollTextXInset = 24.0f;
+constexpr float PiecePopupScrollTextYInset = 14.0f;
 constexpr float PieceDoubleClickSeconds = 0.38f;
 constexpr float DeckCardDoubleClickSeconds = 0.38f;
 constexpr float GameDragStartDistanceSquared = 36.0f;
@@ -3154,10 +3156,11 @@ int main(int argc, char** argv)
         for (const auto& [description, color] : details)
         {
             (void)color;
-            height += static_cast<float>(wrapText(font, description, 14, PiecePopupTextWidth - 24.0f).size()) * 18.0f;
+            height += static_cast<float>(
+                wrapText(font, description, 14, PiecePopupTextWidth - PiecePopupScrollTextXInset * 2.0f).size()) * 18.0f;
             height += 8.0f;
         }
-        return height;
+        return height + PiecePopupScrollTextYInset;
     };
 
     auto deckEditorCardDetailsMaxScroll = [&](const std::vector<std::pair<std::string, sf::Color>>& details) {

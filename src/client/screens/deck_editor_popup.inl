@@ -42,7 +42,7 @@
         float y = PiecePopupY + 66.0f;
         const float statX = PiecePopupX + 146.0f;
         const bool hero = game_data::isHeroCard(*card);
-        drawText(window, font, "Type: " + card->type + "   Location: Collection", 15, {statX, y},
+        drawText(window, font, "Type: " + card->type, 15, {statX, y},
                  hero ? sf::Color(248, 214, 112) : sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
         y += 24.0f;
         drawText(window, font, "Owned: " + std::to_string(ownedCopies(card->title)), 14, {statX, y},
@@ -64,9 +64,12 @@
             const game_data::GameCard gameCard = game_data::toGameCard(*card);
             drawText(window, font, "Health: " + std::to_string(gameCard.health),
                      14, {statX, y}, sf::Color(224, 210, 176));
-            y += 22.0f;
-            drawText(window, font, "Actions: " + std::to_string(gameCard.actions.size()),
-                     14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+            if (!card->keywords.empty())
+            {
+                y += 22.0f;
+                drawText(window, font, "Keywords: " + joinStrings(card->keywords, ", "),
+                         14, {statX, y}, sf::Color(198, 180, 142), PiecePopupWidth - 174.0f);
+            }
         }
         else
         {
@@ -103,10 +106,17 @@
             {PiecePopupTextWidth / 800.0f, PiecePopupScrollHeight / 600.0f}));
         window.setView(detailView);
 
-        y = PiecePopupScrollY + 8.0f;
+        y = PiecePopupScrollY + PiecePopupScrollTextYInset;
         for (const auto& [description, color] : details)
         {
-            y = drawWrappedText(window, font, description, 14, {PiecePopupTextX + 8.0f, y}, color, PiecePopupTextWidth - 24.0f);
+            y = drawWrappedText(
+                window,
+                font,
+                description,
+                14,
+                {PiecePopupTextX + PiecePopupScrollTextXInset, y},
+                color,
+                PiecePopupTextWidth - PiecePopupScrollTextXInset * 2.0f);
             y += 8.0f;
         }
 

@@ -52,44 +52,8 @@
         drawText(window, font, line3, 11, {position.x + 6.0f, position.y + 65.0f}, sf::Color(143, 220, 205), HandCardWidth - 12.0f);
     };
 
-    auto readinessDescription = [&](const game_data::Piece& piece) {
-        const game_data::Phase phase = static_cast<game_data::Phase>(gameSnapshot.phase);
-        if (sandboxMode)
-        {
-            return std::string("Status: sandbox ready");
-        }
-        if (phase == game_data::Phase::HeroPlacement)
-        {
-            return std::string("Status: waiting for hero placement");
-        }
-        if (phase == game_data::Phase::GameOver)
-        {
-            return std::string("Status: game over");
-        }
-        if (gameSnapshot.activePlayer != piece.owner)
-        {
-            return "Status: waiting for Player " + std::to_string(piece.owner);
-        }
-        if (piece.hasActed)
-        {
-            return std::string("Status: acted this turn");
-        }
-        if (piece.sleepTurnsRemaining > 0)
-        {
-            return std::string("Status: sleeping, cannot move");
-        }
-        return std::string("Status: ready");
-    };
-
     auto piecePopupActionDescriptions = [&](const game_data::Piece& piece) {
         std::vector<std::pair<std::string, sf::Color>> descriptions;
-        descriptions.push_back({"Position: row " + std::to_string(piece.row + 1) +
-                                    ", column " + std::to_string(piece.column + 1),
-                                sf::Color(190, 198, 214)});
-        descriptions.push_back({
-            std::string("Territory: ") +
-                (piece.canControl ? "controls occupied square + adjacent influence" : "no control"),
-            sf::Color(198, 180, 142)});
         if (piece.growTurnsRemaining > 0)
         {
             descriptions.push_back({"Growing: " + std::to_string(piece.growTurnsRemaining) + " turns",
@@ -128,19 +92,6 @@
                 actionDescription(piece.actions[i], i),
                 piece.actions[i].state == piece.actionState ? sf::Color(143, 220, 205) : sf::Color(190, 198, 214)});
         }
-        if (piece.isHero)
-        {
-            descriptions.push_back({sandboxMode ? "Hero: sandbox rules" : "Hero: defeat all enemy heroes to win",
-                                    sf::Color(225, 170, 150)});
-            if (!piece.keywords.empty())
-            {
-                descriptions.push_back({"Keywords: " + joinStrings(piece.keywords, ", "), sf::Color(198, 180, 142)});
-            }
-        }
-        else if (!piece.keywords.empty())
-        {
-            descriptions.push_back({"Keywords: " + joinStrings(piece.keywords, ", "), sf::Color(198, 180, 142)});
-        }
         return descriptions;
     };
 
@@ -173,48 +124,7 @@
 
     auto cardPopupActionDescriptions = [&](const game_data::GameCard& card) {
         std::vector<std::pair<std::string, sf::Color>> descriptions;
-        const int me = gameSnapshot.yourPlayer;
-        const game_data::Phase phase = static_cast<game_data::Phase>(gameSnapshot.phase);
-        const bool yourTurn = sandboxMode ||
-            (phase == game_data::Phase::Playing && gameSnapshot.activePlayer == me);
-        const bool affordable = sandboxMode || card.cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].steam;
-        const std::vector<std::string> missingKeywords =
-            sandboxMode ? std::vector<std::string>{} : game_data::missingHeroKeywords(gameSnapshot.pieces, me, card);
-
-        if (phase == game_data::Phase::GameOver)
-        {
-            descriptions.push_back({"Status: game over", sf::Color(210, 216, 228)});
-        }
-        else if (!yourTurn)
-        {
-            descriptions.push_back({"Status: playable on your battle turn", sf::Color(210, 216, 228)});
-        }
-        else if (!affordable)
-        {
-            descriptions.push_back({"Status: not enough steam", sf::Color(225, 170, 150)});
-        }
-        else if (!missingKeywords.empty())
-        {
-            descriptions.push_back({
-                "Status: requires " + joinStrings(missingKeywords, ", "),
-                sf::Color(225, 170, 150)});
-        }
-        else
-        {
-            descriptions.push_back({
-                sandboxMode
-                    ? "Status: playable now, free in sandbox"
-                    : "Status: playable now, ends turn",
-                sf::Color(120, 220, 150)});
-        }
-
         descriptions.push_back({cardPlayDescription(card), sf::Color(210, 216, 228)});
-        if (!card.keywords.empty())
-        {
-            descriptions.push_back({
-                "Required keywords: " + joinStrings(card.keywords, ", "),
-                sf::Color(198, 180, 142)});
-        }
         if (card.type == "Unit" || card.type == "Hero")
         {
             if (card.actions.empty())
@@ -225,9 +135,6 @@
             {
                 descriptions.push_back({actionDescription(card.actions[i], i), sf::Color(143, 220, 205)});
             }
-            descriptions.push_back({
-                "Territory: occupied square + adjacent influence",
-                sf::Color(198, 180, 142)});
         }
         return descriptions;
     };
@@ -237,10 +144,11 @@
         for (const auto& [description, color] : descriptions)
         {
             (void)color;
-            height += static_cast<float>(wrapText(font, description, 14, PiecePopupTextWidth - 24.0f).size()) * 18.0f;
+            height += static_cast<float>(
+                wrapText(font, description, 14, PiecePopupTextWidth - PiecePopupScrollTextXInset * 2.0f).size()) * 18.0f;
             height += 8.0f;
         }
-        return height;
+        return height + PiecePopupScrollTextYInset;
     };
 
     auto popupMaxScroll = [&](const std::vector<std::pair<std::string, sf::Color>>& descriptions) {
@@ -375,24 +283,22 @@
         const float statX = PiecePopupX + 146.0f;
         if (piece)
         {
-            const std::string ownerLabel = piece->owner == gameSnapshot.yourPlayer ? "Yours" : "Opponent";
             const std::string typeLabel = piece->isHero ? "Hero" : "Unit";
-            drawText(window, font, "Type: " + typeLabel + "   Owner: " + ownerLabel +
-                         " (P" + std::to_string(piece->owner) + ")",
+            drawText(window, font, "Type: " + typeLabel,
                      15, {statX, y}, ownerColor(piece->owner), PiecePopupWidth - 174.0f);
-            y += 22.0f;
-            drawText(window, font, readinessDescription(*piece), 14, {statX, y}, sf::Color(210, 216, 228),
-                     PiecePopupWidth - 174.0f);
             y += 22.0f;
             drawText(window, font, "Health: " + std::to_string(piece->health) + "/" + std::to_string(piece->maxHealth),
                      14, {statX, y}, sf::Color(224, 210, 176));
-            y += 22.0f;
-            drawText(window, font, "Actions: " + std::to_string(piece->actions.size()),
-                     14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+            if (!piece->keywords.empty())
+            {
+                y += 22.0f;
+                drawText(window, font, "Keywords: " + joinStrings(piece->keywords, ", "),
+                         14, {statX, y}, sf::Color(198, 180, 142), PiecePopupWidth - 174.0f);
+            }
         }
         else
         {
-            drawText(window, font, "Type: " + card->type + "   Location: Hand", 15, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+            drawText(window, font, "Type: " + card->type, 15, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
             y += 24.0f;
             if (card->type == "Hero")
             {
@@ -406,9 +312,12 @@
             if (card->type == "Unit" || card->type == "Hero")
             {
                 drawText(window, font, "Health: " + std::to_string(card->health), 14, {statX, y}, sf::Color(224, 210, 176));
-                y += 22.0f;
-                drawText(window, font, "Actions: " + std::to_string(card->actions.size()),
-                         14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+                if (!card->keywords.empty())
+                {
+                    y += 22.0f;
+                    drawText(window, font, "Keywords: " + joinStrings(card->keywords, ", "),
+                             14, {statX, y}, sf::Color(198, 180, 142), PiecePopupWidth - 174.0f);
+                }
             }
             else
             {
@@ -442,10 +351,17 @@
             {PiecePopupTextWidth / 800.0f, PiecePopupScrollHeight / 600.0f}));
         window.setView(actionView);
 
-        y = PiecePopupScrollY + 8.0f;
+        y = PiecePopupScrollY + PiecePopupScrollTextYInset;
         for (const auto& [description, color] : actionDescriptions)
         {
-            y = drawWrappedText(window, font, description, 14, {PiecePopupTextX + 8.0f, y}, color, PiecePopupTextWidth - 24.0f);
+            y = drawWrappedText(
+                window,
+                font,
+                description,
+                14,
+                {PiecePopupTextX + PiecePopupScrollTextXInset, y},
+                color,
+                PiecePopupTextWidth - PiecePopupScrollTextXInset * 2.0f);
             y += 8.0f;
         }
 
