@@ -944,8 +944,9 @@
         const std::string steamText = storyMode ? "story" : (sandboxMode ? "free" : std::to_string(mine.steam));
         drawText(window, font, "Turn: " + activePlayerName, 16, {BoardOriginX, GameLabelY},
                  ownerColor(activePlayer), 240.0f);
-        drawText(window, font, "Steam: " + steamText, 16, {282.0f, GameLabelY},
-                 sf::Color(150, 210, 235), 100.0f);
+        const std::string controlText = storyMode ? "story" : std::to_string(mine.controlledSquares);
+        drawText(window, font, "Steam: " + steamText + "  Control: " + controlText, 16, {282.0f, GameLabelY},
+                 sf::Color(150, 210, 235), 180.0f);
 
         if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
         {
@@ -962,6 +963,7 @@
             }
             else
             {
+                collectSteamButton.draw(window);
                 endTurnButton.draw(window);
             }
         }

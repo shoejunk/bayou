@@ -214,6 +214,13 @@ void sendEndTurn(sf::TcpSocket& socket)
     send(socket, packet);
 }
 
+void sendCollectSteam(sf::TcpSocket& socket)
+{
+    sf::Packet packet;
+    packet << static_cast<std::uint8_t>(MessageType::CollectSteam);
+    send(socket, packet);
+}
+
 void sendDiscardCard(sf::TcpSocket& socket, int handIndex)
 {
     sf::Packet packet;
@@ -841,10 +848,20 @@ int main(int argc, char** argv)
         }
     }
     check(visibleToPlayer2 == 4, "both placements are revealed when setup finishes");
-    check(s1.players[0].steam == s1.players[0].controlledSquares, "player 1 steam equals controlled squares");
+    check(s1.players[0].steam == 0, "player 1 starts play without automatic steam");
     check(s1.players[0].handCount >= StartingHandSize, "player 1 drew an opening hand");
 
     const int p1ControlBefore = s1.players[0].controlledSquares;
+    sendCollectSteam(p1);
+    settle(p1, p2, s1, s2, 800);
+    check(s1.players[0].steam == p1ControlBefore, "collecting grants one steam per controlled square");
+    check(s1.activePlayer == 2, "collecting steam immediately ended player 1's turn");
+    check(s2.players[1].steam == 0, "player 2 did not gain automatic steam on turn start");
+
+    sendEndTurn(p2);
+    settle(p1, p2, s1, s2, 800);
+    check(s1.activePlayer == 1, "passing returns the turn to player 1");
+
     const int p1SteamBefore = s1.players[0].steam;
     const int p1PiecesBefore = static_cast<int>(s1.pieces.size());
 
@@ -887,7 +904,7 @@ int main(int argc, char** argv)
         check(s1.players[0].steam == p1SteamBefore - 1, "deploying spent steam");
         check(s1.activePlayer == 2, "playing a card immediately ended player 1's turn");
         check(s2.activePlayer == 2, "turn passed to player 2 after player 1 played a card");
-        check(s2.players[1].steam == s2.players[1].controlledSquares, "player 2 gained steam on its turn");
+        check(s2.players[1].steam == 0, "player 2 still has no automatic turn-start steam");
     }
 
     // Player 1's extra piece should have expanded or maintained its territory.

@@ -23,6 +23,7 @@ int actionPriority(const AiAction& action)
         case AiActionKind::UseAbility: return 500;
         case AiActionKind::MovePiece: return 300;
         case AiActionKind::DiscardCard: return 100;
+        case AiActionKind::CollectSteam: return 50;
         case AiActionKind::EndTurn: return 0;
     }
     return 0;
@@ -119,6 +120,7 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
         }
     }
 
+    actions.push_back({AiActionKind::CollectSteam});
     actions.push_back({AiActionKind::EndTurn});
     std::stable_sort(actions.begin(), actions.end(), [](const AiAction& left, const AiAction& right) {
         return actionPriority(left) > actionPriority(right);
@@ -150,6 +152,9 @@ void applyAiAction(GameEngine& engine, int playerNumber, const AiAction& action)
             break;
         case AiActionKind::DiscardCard:
             engine.discardCard(playerNumber, action.handIndex);
+            break;
+        case AiActionKind::CollectSteam:
+            engine.collectSteam(playerNumber);
             break;
         case AiActionKind::EndTurn:
             engine.endTurn(playerNumber);

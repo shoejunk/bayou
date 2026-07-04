@@ -9,7 +9,8 @@ enum class AiActionKind
     AttackPiece,
     UseAbility,
     PlayCard,
-    DiscardCard
+    DiscardCard,
+    CollectSteam
 };
 
 struct AiAction

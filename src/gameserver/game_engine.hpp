@@ -298,6 +298,18 @@ public:
         advanceTurn(fmt::format("Player {} passed.", playerNumber));
     }
 
+    void collectSteam(int playerNumber)
+    {
+        if (phaseValue != Phase::Playing || playerNumber != activePlayer)
+        {
+            return;
+        }
+
+        const int collected = controlledCount(playerNumber);
+        playerRef(playerNumber).steam += collected;
+        advanceTurn(fmt::format("Player {} collected {} steam.", playerNumber, collected));
+    }
+
     // Builds the view tailored to one player (their hand only).
     Snapshot snapshotFor(int playerNumber) const
     {
@@ -642,7 +654,6 @@ private:
     {
         EnginePlayer& player = playerRef(playerNumber);
         player.discardsThisTurn = 0;
-        player.steam += controlledCount(playerNumber);
         drawCard(player);
 
         for (Piece& piece : pieces)
@@ -663,7 +674,7 @@ private:
             }
         }
 
-        status = fmt::format("Player {}'s turn. +{} steam.", playerNumber, controlledCount(playerNumber));
+        status = fmt::format("Player {}'s turn.", playerNumber);
     }
 
     void drawCard(EnginePlayer& player)
