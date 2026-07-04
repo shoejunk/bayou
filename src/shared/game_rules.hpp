@@ -483,6 +483,13 @@ inline bool isLegalPieceAttack(
 // Turns a revealed dematerialized piece spends stunned.
 constexpr int HiddenRevealStunTurns = 1;
 
+// Dematerialized pieces exert no control: the shared control map would
+// otherwise betray a hidden piece's position as territory flips to its owner.
+inline bool pieceExertsControl(const Piece& piece)
+{
+    return piece.canControl && !piece.hidden;
+}
+
 // The board as one player sees it: opposing dematerialized pieces are absent.
 inline std::vector<Piece> piecesVisibleTo(const std::vector<Piece>& pieces, int playerNumber)
 {

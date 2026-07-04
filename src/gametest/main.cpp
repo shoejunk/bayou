@@ -758,6 +758,13 @@ int main(int argc, char** argv)
               jumpStrike.action.stagingRow == 3 && jumpStrike.action.stagingColumn == 3,
           "attacking jump onto a hidden piece strikes it and stays put unless it dies");
 
+    check(!pieceExertsControl(lurker),
+          "dematerialized pieces exert no square control");
+    Piece materializedLurker = lurker;
+    materializedLurker.hidden = false;
+    check(pieceExertsControl(materializedLurker),
+          "materialized pieces control squares normally");
+
     Piece revealedPiece = lurker;
     materializeRevealedPiece(revealedPiece);
     check(!revealedPiece.hidden && revealedPiece.actionState == 0 &&

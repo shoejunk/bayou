@@ -822,7 +822,7 @@ private:
                 const std::size_t index = static_cast<std::size_t>(squareIndex(row, column));
                 if (const Piece* occupant = pieceAt(row, column))
                 {
-                    if (occupant->canControl)
+                    if (pieceExertsControl(*occupant))
                     {
                         next[index] = static_cast<std::uint8_t>(occupant->owner);
                     }
@@ -846,7 +846,7 @@ private:
                         {
                             continue;
                         }
-                        if (!neighbor->canControl)
+                        if (!pieceExertsControl(*neighbor))
                         {
                             continue;
                         }

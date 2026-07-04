@@ -92,7 +92,7 @@ void recomputeSandboxControl(game_data::Snapshot& snapshot)
             const std::size_t index = static_cast<std::size_t>(game_data::squareIndex(row, column));
             if (const game_data::Piece* occupant = pieceAtInSnapshot(snapshot, row, column))
             {
-                if (occupant->canControl)
+                if (game_data::pieceExertsControl(*occupant))
                 {
                     next[index] = static_cast<std::uint8_t>(occupant->owner);
                 }
@@ -112,7 +112,7 @@ void recomputeSandboxControl(game_data::Snapshot& snapshot)
                     const game_data::Piece* neighbor = game_data::inBounds(row + dr, column + dc)
                         ? pieceAtInSnapshot(snapshot, row + dr, column + dc)
                         : nullptr;
-                    if (!neighbor || !neighbor->canControl)
+                    if (!neighbor || !game_data::pieceExertsControl(*neighbor))
                     {
                         continue;
                     }
