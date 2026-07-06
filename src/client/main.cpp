@@ -753,7 +753,7 @@ int main(int argc, char** argv)
     sf::Texture* hidePasswordTexture = textures.load("ui/password-eye-off.png");
     sf::Texture* rememberCheckTexture = textures.load("ui/remember-checkmark.png");
 
-    sf::Text title(font, "Steam Tactics", 48);
+    sf::Text title(font, "Gloomthorn", 48);
     title.setFillColor(sf::Color(248, 224, 172));
     title.setPosition({400.0f, 45.0f});
     centerText(title, 400.0f);
@@ -1570,7 +1570,7 @@ int main(int argc, char** argv)
         draggingHandIndex.reset();
         draggingPieceId.reset();
         gameDragActive = false;
-        title.setString("Steam Tactics");
+        title.setString("Gloomthorn");
         centerText(title, 400.0f);
         setMessageY(messageText, 450.0f);
         resetForm(usernameInput, passwordInput, confirmInput, messageText);
@@ -1821,7 +1821,7 @@ int main(int argc, char** argv)
 
     auto leaveOptionsScreen = [&]() {
         currentState = optionsReturnState;
-        title.setString(optionsReturnState == GameState::Authenticated ? "" : "Steam Tactics");
+        title.setString(optionsReturnState == GameState::Authenticated ? "" : "Gloomthorn");
         centerText(title, 400.0f);
         setMessageY(messageText, optionsReturnState == GameState::Authenticated ? 500.0f : 450.0f);
         setMessage(messageText, "", sf::Color::White);
@@ -4199,7 +4199,7 @@ int main(int argc, char** argv)
                         clearRememberToken();
                     }
                     currentState = GameState::Menu;
-                    title.setString("Steam Tactics");
+                    title.setString("Gloomthorn");
                     centerText(title, 400.0f);
                 }
                 setMessage(messageText, result.message, sf::Color::Red);
@@ -4477,7 +4477,7 @@ int main(int argc, char** argv)
                 else
                 {
                     currentState = GameState::Menu;
-                    title.setString("Steam Tactics");
+                    title.setString("Gloomthorn");
                     centerText(title, 400.0f);
                     setMessageY(messageText, 450.0f);
                     setMessage(messageText, result.message, sf::Color::Red);
@@ -6306,7 +6306,7 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Authenticated)
         {
-            drawTitlePlaque(window, font, "Steam Tactics", {400.0f, 64.0f}, {360.0f, 70.0f});
+            drawTitlePlaque(window, font, "Gloomthorn", {400.0f, 64.0f}, {360.0f, 70.0f});
             drawText(window, font, signedInLabel(), 18, {24.0f, 20.0f}, sf::Color(246, 238, 218), 240.0f);
             drawText(window, font, "Rating: " + std::to_string(playerRating), 16, {24.0f, 48.0f}, sf::Color(151, 192, 255), 180.0f);
             drawCoinIcon({24.0f, 76.0f}, 13.0f);

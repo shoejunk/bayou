@@ -312,7 +312,7 @@ bool saveRememberToken(const std::string& token)
     DATA_BLOB protectedData{};
     if (!CryptProtectData(
             &plaintext,
-            L"Steam Tactics remembered login",
+            L"Gloomthorn remembered login",
             nullptr,
             nullptr,
             nullptr,

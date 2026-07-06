@@ -124,11 +124,11 @@ void createDisplayWindow(
         mode = matchingMode != fullscreenModes.end() ? *matchingMode : desktopMode;
         settings.width = mode.size.x;
         settings.height = mode.size.y;
-        window.create(mode, "Steam Tactics", sf::State::Fullscreen);
+        window.create(mode, "Gloomthorn", sf::State::Fullscreen);
     }
     else
     {
-        window.create(mode, "Steam Tactics", sf::Style::Titlebar | sf::Style::Close, sf::State::Windowed);
+        window.create(mode, "Gloomthorn", sf::Style::Titlebar | sf::Style::Close, sf::State::Windowed);
     }
     window.setFramerateLimit(60);
     applyLogicalView(window);
