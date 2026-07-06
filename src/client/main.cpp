@@ -428,8 +428,8 @@ constexpr float DeckEditorPanelHeight = 400.0f;
 constexpr float DeckListX = 244.0f;
 constexpr float DeckListY = 194.0f;
 constexpr float DeckListWidth = 312.0f;
-constexpr float DeckRowHeight = 42.0f;
-constexpr std::size_t VisibleDeckRows = 7;
+constexpr float DeckRowHeight = 52.0f;
+constexpr std::size_t VisibleDeckRows = 5;
 
 constexpr float DeckCardsX = 42.0f;
 constexpr float DeckCardsY = 164.0f;
