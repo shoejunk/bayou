@@ -395,7 +395,7 @@ void drawRow(
         font,
         primary,
         16,
-        {position.x + RowTextInset, position.y + 5.0f},
+        {position.x + RowTextInset, position.y + 7.0f},
         sf::Color(246, 238, 218),
         size.x - RowTextInset - 16.0f);
     if (!secondary.empty())
@@ -405,7 +405,7 @@ void drawRow(
             font,
             secondary,
             12,
-            {position.x + RowTextInset, position.y + 22.0f},
+            {position.x + RowTextInset, position.y + 25.0f},
             sf::Color(203, 173, 125),
             size.x - RowTextInset - 16.0f);
     }
