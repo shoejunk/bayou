@@ -141,6 +141,8 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
             src/gameserver/main.cpp
             src/gameserver/ai_deck.cpp
             src/gameserver/ai_player.cpp
+            src/accounts/account_catalog.cpp
+            src/accounts/account_decks.cpp
             src/shared/card_database.cpp
     )
 

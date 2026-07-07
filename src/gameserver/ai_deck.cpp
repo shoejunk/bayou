@@ -1,18 +1,24 @@
 #include "ai_deck.hpp"
 
+#include "../accounts/account_catalog.hpp"
+#include "../accounts/account_decks.hpp"
 #include "../shared/card_database.hpp"
+#include "../shared/deck_data.hpp"
 #include "../shared/game_data.hpp"
 
+#include <SQLiteCpp/SQLiteCpp.h>
 #include <fmt/core.h>
 
 #include <algorithm>
 #include <exception>
+#include <optional>
 #include <string>
 
 namespace
 {
 constexpr int StarterNonHeroKinds = game_data::DeckCardCount / game_data::MaxCardCopies;
 constexpr const char* PreferredStarterHero = "Steam Baron";
+constexpr const char* AccountDatabasePath = "accounts.db";
 
 std::vector<card_data::Card> loadCardsFromCardsDb()
 {
@@ -37,9 +43,9 @@ const std::vector<std::string>& fallbackStarterNonHeroes()
         "Automaton Knight",
         "Dredger",
         "Spark Drone",
-        "Smoke Bomb",
-        "Cannon Blast",
-        "Repair Kit",
+        "Sentroid",
+        "Patrol Bot",
+        "Rustbucket",
         "Overpressure",
         "Gearwright",
         "Brass Medic",
@@ -52,6 +58,29 @@ const std::vector<std::string>& fallbackStarterNonHeroes()
         "Mudslide",
     };
     return titles;
+}
+
+std::optional<deck_data::Deck> loadStarterDeckOverride()
+{
+    try
+    {
+        SQLite::Database database(AccountDatabasePath, SQLite::OPEN_READONLY);
+        return account_decks::loadStarterDeckOverride(database);
+    }
+    catch (const std::exception& error)
+    {
+        fmt::println("Could not load AI starter deck override from {}: {}", AccountDatabasePath, error.what());
+    }
+    return std::nullopt;
+}
+
+std::vector<std::string> starterDeckTitles()
+{
+    if (const std::optional<deck_data::Deck> storedStarter = loadStarterDeckOverride())
+    {
+        return storedStarter->cardTitles;
+    }
+    return account_catalog::makeStarterDeck().cardTitles;
 }
 
 card_data::Card makeFallbackUnit(
@@ -91,9 +120,9 @@ std::vector<card_data::Card> fallbackStarterDeck()
         makeFallbackUnit("Automaton Knight", 30, 9, 4, 1, 1, "jump"),
         makeFallbackUnit("Dredger", 50, 16, 6, 1, 1, "omni"),
         makeFallbackUnit("Spark Drone", 20, 4, 3, 2, 2, "omni"),
-        makeFallbackUnit("Gearwright", 20, 5, 2, 1, 2, "omni"),
-        makeFallbackUnit("Brass Medic", 30, 7, 2, 1, 2, "diag"),
-        makeFallbackUnit("Boiler Imp", 10, 3, 3, 1, 2, "omni"),
+        makeFallbackUnit("Sentroid", 30, 8, 3, 1, 1, "ortho"),
+        makeFallbackUnit("Patrol Bot", 20, 6, 2, 1, 2, "omni"),
+        makeFallbackUnit("Rustbucket", 10, 5, 2, 1, 1, "ortho"),
     };
     for (const card_data::Card& unit : units)
     {
@@ -111,35 +140,30 @@ const card_data::Card* findCardByTitle(const std::vector<card_data::Card>& cards
     return found == cards.end() ? nullptr : &*found;
 }
 
-// Card titles copied from the "Bayou Gang" deck (account database, decks.id 16).
-const std::vector<std::string>& bayouGangDeckTitles()
+std::vector<card_data::Card> resolveDeckTitles(
+    const std::vector<card_data::Card>& library,
+    const std::vector<std::string>& titles,
+    const std::string& context)
 {
-    static const std::vector<std::string> titles = {
-        "Automatick",
-        "Automatick",
-        "Choking Blossom",
-        "Choking Blossom",
-        "Elias Tiberion",
-        "Hired Gun",
-        "Hired Gun",
-        "Rustbucket",
-        "Scarlett Glumpkin",
-        "Stingy",
-        "Stingy",
-        "Sweetykins",
-        "Sweetykins",
-        "Telematron",
-        "Telematron",
-        "Tinkering Tom",
-        "Rustbucket",
-        "Bramble Drone",
-        "Bramble Drone",
-        "Delving Daphodilus",
-        "Patrol Bot",
-        "Hop Bot",
-        "Sentroid",
-    };
-    return titles;
+    std::vector<card_data::Card> deck;
+    deck.reserve(titles.size());
+    for (const std::string& title : titles)
+    {
+        const card_data::Card* card = findCardByTitle(library, title);
+        if (card == nullptr)
+        {
+            fmt::println("AI starter deck {} references missing card '{}'", context, title);
+            return {};
+        }
+        deck.push_back(*card);
+    }
+
+    if (const std::optional<std::string> error = game_data::deckRulesError(deck))
+    {
+        fmt::println("AI starter deck {} failed deck rules validation: {}", context, *error);
+        return {};
+    }
+    return deck;
 }
 }
 
@@ -153,19 +177,13 @@ std::vector<card_data::Card> makeStarterDeck()
         return fallbackStarterDeck();
     }
 
-    std::vector<card_data::Card> bayouGangDeck;
-    for (const std::string& title : bayouGangDeckTitles())
+    std::vector<card_data::Card> configuredStarterDeck =
+        resolveDeckTitles(library, starterDeckTitles(), "configuration");
+    if (!configuredStarterDeck.empty())
     {
-        if (const card_data::Card* card = findCardByTitle(library, title))
-        {
-            bayouGangDeck.push_back(*card);
-        }
+        return configuredStarterDeck;
     }
-    if (!game_data::deckRulesError(bayouGangDeck))
-    {
-        return bayouGangDeck;
-    }
-    fmt::println("Bayou Gang AI deck failed deck rules validation, falling back");
+    fmt::println("AI starter deck configuration failed, falling back");
 
     std::vector<card_data::Card> deck;
     const card_data::Card* hero = findCardByTitle(library, PreferredStarterHero);
