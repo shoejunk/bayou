@@ -67,6 +67,41 @@ enum class AudioCue
     Defeat
 };
 
+constexpr std::size_t MinimumPasswordLength = 7;
+constexpr std::size_t MaximumPasswordLength = 128;
+constexpr const char* PasswordRequirementMessage =
+    "Password needs 7-128 chars, upper, lower, number, special";
+constexpr const char* NewPasswordRequirementMessage =
+    "New password needs 7-128 chars, upper, lower, number, special";
+constexpr const char* PasswordRequirementHintLineOne =
+    "Use a minimum of 7 characters.";
+constexpr const char* PasswordRequirementHintLineTwo =
+    "Include uppercase, lowercase, number, and special.";
+
+bool isValidNewPassword(const std::string& password)
+{
+    if (password.size() < MinimumPasswordLength ||
+        password.size() > MaximumPasswordLength)
+    {
+        return false;
+    }
+
+    bool hasLowercase = false;
+    bool hasUppercase = false;
+    bool hasDigit = false;
+    bool hasSpecial = false;
+
+    for (unsigned char ch : password)
+    {
+        hasLowercase = hasLowercase || std::islower(ch) != 0;
+        hasUppercase = hasUppercase || std::isupper(ch) != 0;
+        hasDigit = hasDigit || std::isdigit(ch) != 0;
+        hasSpecial = hasSpecial || std::ispunct(ch) != 0;
+    }
+
+    return hasLowercase && hasUppercase && hasDigit && hasSpecial;
+}
+
 class AudioSystem
 {
 public:
@@ -784,7 +819,7 @@ int main(int argc, char** argv)
 
     CheckboxControl rememberMeCheckbox({300.0f, 286.0f}, "Remember me", font, rememberCheckTexture);
     Button loginSubmitButton({300.0f, 342.0f}, {200.0f, 50.0f}, "Login", font);
-    Button createSubmitButton({300.0f, 380.0f}, {200.0f, 50.0f}, "Create Account", font);
+    Button createSubmitButton({300.0f, 410.0f}, {200.0f, 50.0f}, "Create Account", font);
     Button backButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Back", font);
     Button exitDesktopButton({20.0f, 520.0f}, {200.0f, 45.0f}, "Exit to Desktop", font);
     Button cancelMatchmakingButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Cancel", font);
@@ -2027,9 +2062,9 @@ int main(int argc, char** argv)
         {
             setMessage(messageText, "Username and password cannot be empty", sf::Color::Red);
         }
-        else if (passwordInput.getContent().size() < 15 || passwordInput.getContent().size() > 128)
+        else if (!isValidNewPassword(passwordInput.getContent()))
         {
-            setMessage(messageText, "Password must be 15-128 characters", sf::Color::Red);
+            setMessage(messageText, PasswordRequirementMessage, sf::Color::Red);
         }
         else if (passwordInput.getContent() != confirmInput.getContent())
         {
@@ -2046,9 +2081,9 @@ int main(int argc, char** argv)
         {
             setMessage(messageText, "Current and new passwords cannot be empty", sf::Color::Red);
         }
-        else if (newPasswordInput.getContent().size() < 15 || newPasswordInput.getContent().size() > 128)
+        else if (!isValidNewPassword(newPasswordInput.getContent()))
         {
-            setMessage(messageText, "New password must be 15-128 characters", sf::Color::Red);
+            setMessage(messageText, NewPasswordRequirementMessage, sf::Color::Red);
         }
         else if (newPasswordInput.getContent() != confirmNewPasswordInput.getContent())
         {
@@ -2068,6 +2103,19 @@ int main(int argc, char** argv)
                 currentPasswordInput.getContent(),
                 newPasswordInput.getContent());
         }
+    };
+
+    auto drawPasswordRequirementHint = [&](float firstLineY) {
+        auto drawCenteredHintLine = [&](const char* value, float y) {
+            sf::Text hint(font, value, 14);
+            hint.setFillColor(sf::Color(190, 198, 214));
+            hint.setPosition({400.0f, y});
+            centerText(hint, 400.0f);
+            window.draw(hint);
+        };
+
+        drawCenteredHintLine(PasswordRequirementHintLineOne, firstLineY);
+        drawCenteredHintLine(PasswordRequirementHintLineTwo, firstLineY + 20.0f);
     };
 
     auto cardByTitle = [&](const std::string& title) -> const card_data::Card* {
@@ -6244,6 +6292,7 @@ int main(int argc, char** argv)
             currentPasswordInput.draw(window);
             newPasswordInput.draw(window);
             confirmNewPasswordInput.draw(window);
+            drawPasswordRequirementHint(358.0f);
             currentPasswordVisibilityIcon.draw(window, changePasswordsVisible);
             newPasswordVisibilityIcon.draw(window, changePasswordsVisible);
             confirmNewPasswordVisibilityIcon.draw(window, changePasswordsVisible);
@@ -6298,6 +6347,7 @@ int main(int argc, char** argv)
             usernameInput.draw(window);
             passwordInput.draw(window);
             confirmInput.draw(window);
+            drawPasswordRequirementHint(348.0f);
             passwordVisibilityIcon.draw(window, passwordVisible);
             confirmVisibilityIcon.draw(window, passwordVisible);
             createSubmitButton.draw(window);

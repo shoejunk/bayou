@@ -467,7 +467,8 @@ private:
 
         if (!account_security::isValidNewPassword(password))
         {
-            response << false << std::string("Password must be 15-128 characters");
+            response << false << std::string(
+                "Password must be 7-128 chars with uppercase, lowercase, number, and special char");
             [[maybe_unused]] auto result = client.send(response);
             return;
         }
@@ -1023,7 +1024,10 @@ private:
         }
         if (!account_security::isValidNewPassword(newPassword))
         {
-            sendChangePasswordResponse(client, false, "New password must be 15-128 characters");
+            sendChangePasswordResponse(
+                client,
+                false,
+                "New password must be 7-128 chars with uppercase, lowercase, number, and special char");
             return;
         }
 

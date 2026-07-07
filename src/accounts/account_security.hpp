@@ -5,7 +5,7 @@
 
 namespace account_security
 {
-inline constexpr std::size_t MinimumPasswordLength = 15;
+inline constexpr std::size_t MinimumPasswordLength = 7;
 inline constexpr std::size_t MaximumPasswordLength = 128;
 inline constexpr std::size_t MinimumUsernameLength = 3;
 inline constexpr std::size_t MaximumUsernameLength = 32;

@@ -55,8 +55,26 @@ bool isValidUsername(const std::string& username)
 
 bool isValidNewPassword(const std::string& password)
 {
-    return password.size() >= MinimumPasswordLength &&
-           password.size() <= MaximumPasswordLength;
+    if (password.size() < MinimumPasswordLength ||
+        password.size() > MaximumPasswordLength)
+    {
+        return false;
+    }
+
+    bool hasLowercase = false;
+    bool hasUppercase = false;
+    bool hasDigit = false;
+    bool hasSpecial = false;
+
+    for (unsigned char ch : password)
+    {
+        hasLowercase = hasLowercase || std::islower(ch) != 0;
+        hasUppercase = hasUppercase || std::isupper(ch) != 0;
+        hasDigit = hasDigit || std::isdigit(ch) != 0;
+        hasSpecial = hasSpecial || std::ispunct(ch) != 0;
+    }
+
+    return hasLowercase && hasUppercase && hasDigit && hasSpecial;
 }
 
 std::string hashPassword(const std::string& password)

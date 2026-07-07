@@ -1,12 +1,22 @@
 import os
 import sqlite3
+import string
 
 from argon2 import PasswordHasher
 from argon2.low_level import Type
 
 password = os.environ.get("BAYOU_SEED_PASSWORD", "")
-if not 15 <= len(password) <= 128:
-    raise SystemExit("Set BAYOU_SEED_PASSWORD to a 15-128 character development password.")
+if (
+    not 7 <= len(password) <= 128
+    or not any(ch.islower() for ch in password)
+    or not any(ch.isupper() for ch in password)
+    or not any(ch.isdigit() for ch in password)
+    or not any(ch in string.punctuation for ch in password)
+):
+    raise SystemExit(
+        "Set BAYOU_SEED_PASSWORD to a 7-128 character development password with "
+        "uppercase, lowercase, number, and special character."
+    )
 
 admin_username = os.environ.get("BAYOU_SEED_ADMIN_USERNAME", "").strip()
 password_hasher = PasswordHasher(
