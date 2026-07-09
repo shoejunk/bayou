@@ -145,10 +145,10 @@
         collectionUnitFilterCheckbox.draw(window, collectionTypeFilterChecked[1]);
         collectionSpellFilterCheckbox.draw(window, collectionTypeFilterChecked[2]);
         drawText(window, font, "Keywords", 12, {430.0f, 199.0f}, sf::Color(248, 214, 112));
-        collectionBioFilterCheckbox.draw(window, collectionKeywordFilterChecked[0]);
-        collectionMechanicalFilterCheckbox.draw(window, collectionKeywordFilterChecked[1]);
-        collectionOccultFilterCheckbox.draw(window, collectionKeywordFilterChecked[2]);
-        collectionRiffraffFilterCheckbox.draw(window, collectionKeywordFilterChecked[3]);
+        for (std::size_t i = 0; i < collectionKeywordFilterCheckboxes.size(); ++i)
+        {
+            collectionKeywordFilterCheckboxes[i].draw(window, collectionKeywordFilterChecked[i]);
+        }
 
         const std::size_t lastCard = std::min(filteredCardLibrary.size(), libraryOffset + VisibleLibraryRows);
         for (std::size_t i = libraryOffset; i < lastCard; ++i)
@@ -269,4 +269,3 @@
             window.draw(messageText);
         }
     };
-

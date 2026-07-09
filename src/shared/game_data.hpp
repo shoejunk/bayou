@@ -29,6 +29,13 @@ constexpr int MinHeroes = 1;
 constexpr int MaxHeroes = 4;
 constexpr int HeroCostLimit = 100;
 constexpr int DamageDisabledTurns = 1;
+constexpr std::array<const char*, 6> CardKeywordLabels = {
+    "bio",
+    "mechanical",
+    "occult",
+    "riffraff",
+    "corrupt",
+    "fey"};
 
 inline std::string cardRarity(const card_data::Card& card)
 {

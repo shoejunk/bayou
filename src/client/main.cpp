@@ -482,7 +482,6 @@ constexpr float LibraryWidth = 326.0f;
 constexpr float LibraryRowHeight = 52.0f;
 constexpr std::size_t VisibleLibraryRows = 4;
 constexpr std::array<const char*, 3> CollectionTypeLabels = {"Heroes", "Units", "Spells"};
-constexpr std::array<const char*, 4> CollectionKeywordLabels = {"bio", "mechanical", "occult", "riffraff"};
 
 struct PasswordVisibilityIcon
 {
@@ -861,10 +860,19 @@ int main(int argc, char** argv)
     CheckboxControl collectionHeroFilterCheckbox({430.0f, 172.0f}, "Heroes", font, rememberCheckTexture, 13, 16.0f, 22.0f);
     CheckboxControl collectionUnitFilterCheckbox({560.0f, 172.0f}, "Units", font, rememberCheckTexture, 13, 16.0f, 22.0f);
     CheckboxControl collectionSpellFilterCheckbox({690.0f, 172.0f}, "Spells", font, rememberCheckTexture, 13, 16.0f, 22.0f);
-    CheckboxControl collectionBioFilterCheckbox({430.0f, 217.0f}, "bio", font, rememberCheckTexture, 13, 16.0f, 22.0f);
-    CheckboxControl collectionMechanicalFilterCheckbox({560.0f, 217.0f}, "mechanical", font, rememberCheckTexture, 13, 16.0f, 22.0f);
-    CheckboxControl collectionOccultFilterCheckbox({430.0f, 241.0f}, "occult", font, rememberCheckTexture, 13, 16.0f, 22.0f);
-    CheckboxControl collectionRiffraffFilterCheckbox({560.0f, 241.0f}, "riffraff", font, rememberCheckTexture, 13, 16.0f, 22.0f);
+    std::vector<CheckboxControl> collectionKeywordFilterCheckboxes;
+    collectionKeywordFilterCheckboxes.reserve(game_data::CardKeywordLabels.size());
+    for (std::size_t i = 0; i < game_data::CardKeywordLabels.size(); ++i)
+    {
+        collectionKeywordFilterCheckboxes.emplace_back(
+            sf::Vector2f{430.0f + static_cast<float>(i % 3) * 105.0f, 217.0f + static_cast<float>(i / 3) * 24.0f},
+            game_data::CardKeywordLabels[i],
+            font,
+            rememberCheckTexture,
+            13,
+            16.0f,
+            22.0f);
+    }
     Button addCardButton({574.0f, 508.0f}, {88.0f, 38.0f}, "Add", font);
     Button saveDeckButton({668.0f, 508.0f}, {108.0f, 38.0f}, "Save", font);
     Button shopBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
@@ -958,7 +966,11 @@ int main(int argc, char** argv)
     std::vector<card_data::Card> filteredCardLibrary;
     std::vector<card_data::Card> allCardLibrary;
     std::array<bool, CollectionTypeLabels.size()> collectionTypeFilterChecked = {true, true, true};
-    std::array<bool, CollectionKeywordLabels.size()> collectionKeywordFilterChecked = {true, true, true, true};
+    std::array<bool, game_data::CardKeywordLabels.size()> collectionKeywordFilterChecked = [] {
+        std::array<bool, game_data::CardKeywordLabels.size()> checked{};
+        checked.fill(true);
+        return checked;
+    }();
     std::vector<deck_data::Deck> playerDecks;
     std::vector<account_data::CollectionCard> playerCollection;
     std::vector<network::AdminUserSummary> adminUsers;
@@ -1443,9 +1455,9 @@ int main(int argc, char** argv)
         for (const std::string& keyword : card.keywords)
         {
             const std::string normalizedKeyword = lowerKey(keyword);
-            for (std::size_t i = 0; i < CollectionKeywordLabels.size(); ++i)
+            for (std::size_t i = 0; i < game_data::CardKeywordLabels.size(); ++i)
             {
-                if (collectionKeywordFilterChecked[i] && normalizedKeyword == CollectionKeywordLabels[i])
+                if (collectionKeywordFilterChecked[i] && normalizedKeyword == game_data::CardKeywordLabels[i])
                 {
                     return true;
                 }
@@ -1518,6 +1530,19 @@ int main(int argc, char** argv)
         collectionKeywordFilterChecked[index] = !collectionKeywordFilterChecked[index];
         libraryOffset = 0;
         applyCollectionFilters();
+    };
+
+    auto clickCollectionKeywordFilter = [&](sf::Vector2f clickPos) {
+        for (std::size_t i = 0; i < collectionKeywordFilterCheckboxes.size(); ++i)
+        {
+            if (collectionKeywordFilterCheckboxes[i].isClicked(clickPos))
+            {
+                clearFocus();
+                toggleCollectionKeywordFilter(i);
+                return true;
+            }
+        }
+        return false;
     };
 
     auto startRequest = [&](network::MessageType requestType, network::MessageType expectedResponseType) {
@@ -5348,25 +5373,8 @@ int main(int argc, char** argv)
                             clearFocus();
                             toggleCollectionTypeFilter(2);
                         }
-                        else if (deckEditorMode == DeckEditorMode::EditDeck && collectionBioFilterCheckbox.isClicked(clickPos))
+                        else if (deckEditorMode == DeckEditorMode::EditDeck && clickCollectionKeywordFilter(clickPos))
                         {
-                            clearFocus();
-                            toggleCollectionKeywordFilter(0);
-                        }
-                        else if (deckEditorMode == DeckEditorMode::EditDeck && collectionMechanicalFilterCheckbox.isClicked(clickPos))
-                        {
-                            clearFocus();
-                            toggleCollectionKeywordFilter(1);
-                        }
-                        else if (deckEditorMode == DeckEditorMode::EditDeck && collectionOccultFilterCheckbox.isClicked(clickPos))
-                        {
-                            clearFocus();
-                            toggleCollectionKeywordFilter(2);
-                        }
-                        else if (deckEditorMode == DeckEditorMode::EditDeck && collectionRiffraffFilterCheckbox.isClicked(clickPos))
-                        {
-                            clearFocus();
-                            toggleCollectionKeywordFilter(3);
                         }
                         else if (deckEditorMode == DeckEditorMode::EditDeck && addCardButton.isClicked(clickPos))
                         {
@@ -6135,10 +6143,10 @@ int main(int argc, char** argv)
                 collectionHeroFilterCheckbox.update(mousePos);
                 collectionUnitFilterCheckbox.update(mousePos);
                 collectionSpellFilterCheckbox.update(mousePos);
-                collectionBioFilterCheckbox.update(mousePos);
-                collectionMechanicalFilterCheckbox.update(mousePos);
-                collectionOccultFilterCheckbox.update(mousePos);
-                collectionRiffraffFilterCheckbox.update(mousePos);
+                for (CheckboxControl& checkbox : collectionKeywordFilterCheckboxes)
+                {
+                    checkbox.update(mousePos);
+                }
                 addCardButton.update(mousePos);
                 if (deckHasUnsavedChanges())
                 {
