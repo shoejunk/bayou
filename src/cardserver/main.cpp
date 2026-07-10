@@ -4,6 +4,7 @@
 
 #include "../shared/card_data.hpp"
 #include "../shared/card_database.hpp"
+#include "../shared/listener_retry.hpp"
 #include "../shared/network.hpp"
 #include "../shared/socket_timeout.hpp"
 
@@ -122,14 +123,18 @@ public:
             return;
         }
 
-        if (listener->listen(port) != sf::Socket::Status::Done)
+        if (!listener_retry::listenWithRetry(*listener, port))
         {
-            fmt::println("Failed to listen on port {}", port);
             return;
         }
 
         listening = true;
         fmt::println("Card server listening on port {}", port);
+    }
+
+    bool isListening() const
+    {
+        return listening;
     }
 
     void run()
@@ -731,6 +736,10 @@ int main()
     fmt::println("Starting Card Server...");
 
     CardServer server(CardServerPort);
+    if (!server.isListening())
+    {
+        return 1;
+    }
     server.run();
 
     return 0;

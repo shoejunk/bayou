@@ -13,6 +13,7 @@
 #include <thread>
 #include <vector>
 
+#include "../shared/listener_retry.hpp"
 #include "../shared/network.hpp"
 #include "../shared/ranking.hpp"
 #include "../shared/socket_timeout.hpp"
@@ -23,8 +24,6 @@ namespace
 {
 constexpr unsigned short AccountServerPort = 55000;
 constexpr unsigned short GameServerPort = 55002;
-constexpr auto ListenerRetryInterval = std::chrono::milliseconds(250);
-constexpr auto ListenerRetryTimeout = std::chrono::seconds(5);
 constexpr auto InitialRequestTimeout = std::chrono::seconds(2);
 
 struct RankedPlayer
@@ -195,27 +194,19 @@ public:
           nextMatchId(std::uniform_int_distribution<int>(
               1, std::numeric_limits<int>::max())(rng))
     {
-        const auto retryDeadline =
-            std::chrono::steady_clock::now() + ListenerRetryTimeout;
-        while (listener->listen(port) != sf::Socket::Status::Done)
+        if (!listener_retry::listenWithRetry(*listener, port))
         {
-            if (std::chrono::steady_clock::now() >= retryDeadline)
-            {
-                fmt::println(
-                    "Failed to listen on port {} after {} seconds",
-                    port,
-                    ListenerRetryTimeout.count());
-                return;
-            }
-            fmt::println(
-                "Port {} is temporarily unavailable; retrying...",
-                port);
-            std::this_thread::sleep_for(ListenerRetryInterval);
+            return;
         }
 
         listener->setBlocking(false);
         listening = true;
         fmt::println("Matchmaking server listening on port {}", port);
+    }
+
+    bool isListening() const
+    {
+        return listening;
     }
 
     void run()
@@ -484,6 +475,10 @@ int main()
     fmt::println("Starting Matchmaking Server...");
 
     MatchmakingServer server(55001);
+    if (!server.isListening())
+    {
+        return 1;
+    }
     server.run();
 
     return 0;

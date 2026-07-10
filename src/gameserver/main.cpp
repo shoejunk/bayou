@@ -33,6 +33,7 @@
 #include "../shared/card_database.hpp"
 #include "../shared/game_data.hpp"
 
+#include "../shared/listener_retry.hpp"
 #include "../shared/network.hpp"
 #include "../shared/socket_timeout.hpp"
 
@@ -343,14 +344,18 @@ public:
     explicit GameServerCoordinator(unsigned short port)
         : listener(std::make_unique<sf::TcpListener>())
     {
-        if (listener->listen(port) != sf::Socket::Status::Done)
+        if (!listener_retry::listenWithRetry(*listener, port))
         {
-            fmt::println("Failed to listen on port {}", port);
             return;
         }
 
         listening = true;
         fmt::println("Game server coordinator listening on port {}", port);
+    }
+
+    bool isListening() const
+    {
+        return listening;
     }
 
     void run()
@@ -466,7 +471,7 @@ public:
     {
         loadCardLibrary();
 
-        if (listener->listen(port) != sf::Socket::Status::Done)
+        if (!listener_retry::listenWithRetry(*listener, port))
         {
             fmt::println("Game {} failed to listen on port {}", matchId, port);
             return;
@@ -474,6 +479,11 @@ public:
 
         listening = true;
         fmt::println("Game {} listening on port {}", matchId, port);
+    }
+
+    bool isListening() const
+    {
+        return listening;
     }
 
     void run()
@@ -1010,6 +1020,10 @@ int main(int argc, char* argv[])
         const int matchId = std::stoi(argv[2]);
         const unsigned short port = static_cast<unsigned short>(std::stoi(argv[3]));
         GameProcess game(matchId, port, argv[4], argv[5], argv[6]);
+        if (!game.isListening())
+        {
+            return 1;
+        }
         game.run();
         return 0;
     }
@@ -1019,6 +1033,10 @@ int main(int argc, char* argv[])
         const int matchId = std::stoi(argv[2]);
         const unsigned short port = static_cast<unsigned short>(std::stoi(argv[3]));
         GameProcess game(matchId, port, argv[4], AiOpponentName, "", true, argv[5]);
+        if (!game.isListening())
+        {
+            return 1;
+        }
         game.run();
         return 0;
     }
@@ -1026,6 +1044,10 @@ int main(int argc, char* argv[])
     fmt::println("Starting Game Server Coordinator...");
 
     GameServerCoordinator coordinator(GameServerPort);
+    if (!coordinator.isListening())
+    {
+        return 1;
+    }
     coordinator.run();
 
     return 0;
