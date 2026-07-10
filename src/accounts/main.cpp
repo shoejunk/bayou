@@ -950,7 +950,11 @@ private:
         response << static_cast<uint8_t>(MessageType::AdminUserListResponse);
 
         const std::uint32_t safePageSize = std::clamp<std::uint32_t>(pageSize == 0 ? 25 : pageSize, 1, 100);
-        const std::uint32_t safePage = page;
+        // Clamp the page so page * pageSize can neither overflow uint32 nor the
+        // int the SQL OFFSET is bound as.
+        const std::uint32_t safePage = std::min(
+            page,
+            static_cast<std::uint32_t>(std::numeric_limits<int>::max()) / safePageSize);
         const std::string like = "%" + search + "%";
 
         try

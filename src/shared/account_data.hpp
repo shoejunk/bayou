@@ -8,6 +8,10 @@
 
 namespace account_data
 {
+// Upper bound on a serialized collection's entry count, checked before
+// reserving so a crafted packet cannot trigger a huge allocation.
+constexpr std::uint32_t MaxSerializedCollectionCards = 65536;
+
 struct CollectionCard
 {
     std::string title;
@@ -35,7 +39,7 @@ inline bool readCollection(sf::Packet& packet, std::vector<CollectionCard>& coll
 {
     std::uint32_t count = 0;
     packet >> count;
-    if (!packet)
+    if (!packet || count > MaxSerializedCollectionCards)
     {
         return false;
     }

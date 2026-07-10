@@ -8,6 +8,10 @@
 
 namespace deck_data
 {
+// Upper bound on a serialized deck's card count, checked before reserving so a
+// crafted packet cannot trigger a huge allocation.
+constexpr std::uint32_t MaxSerializedDeckCards = 256;
+
 struct Deck
 {
     std::string name;
@@ -28,7 +32,7 @@ inline bool readDeck(sf::Packet& packet, Deck& deck)
 {
     std::uint32_t cardCount = 0;
     packet >> deck.name >> cardCount;
-    if (!packet)
+    if (!packet || cardCount > MaxSerializedDeckCards)
     {
         return false;
     }

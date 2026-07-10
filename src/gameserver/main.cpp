@@ -11,11 +11,13 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <exception>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #ifdef _WIN32
@@ -26,7 +28,9 @@
 #include <unistd.h>
 #endif
 
+#include "../shared/account_data.hpp"
 #include "../shared/card_data.hpp"
+#include "../shared/card_database.hpp"
 #include "../shared/game_data.hpp"
 
 #include "../shared/network.hpp"
@@ -39,8 +43,12 @@ namespace
 {
 constexpr unsigned short GameServerPort = 55002;
 constexpr unsigned short FirstGamePort = 56000;
+constexpr unsigned short LastGamePort = 59999;
 constexpr unsigned short AccountServerPort = 55000;
 constexpr auto InitialRequestTimeout = std::chrono::seconds(2);
+// A deck is 20 non-hero cards plus up to 4 heroes; anything past this bound is
+// rejected before allocating, so a crafted count cannot exhaust memory.
+constexpr std::uint32_t MaxDeckPacketCards = 64;
 constexpr int AiPlayerNumber = 2;
 constexpr const char* AiOpponentName = "Bayou Automaton";
 
@@ -49,6 +57,7 @@ struct JoinedPlayer
     std::unique_ptr<sf::TcpSocket> socket;
     int playerNumber = 0;
     std::string username;
+    std::string accessToken;
     int rating = 0;
 };
 
@@ -107,6 +116,48 @@ bool loadRankedPlayer(const std::string& accessToken, std::string& username, int
     return response &&
         static_cast<MessageType>(type) == MessageType::RankedPlayerResponse &&
         success;
+}
+
+// Fetches the authoritative card collection for the account behind accessToken
+// from the account server; a submitted deck may only use cards it contains.
+bool loadPlayerCollection(
+    const std::string& accessToken,
+    std::vector<account_data::CollectionCard>& collection)
+{
+    sf::TcpSocket socket;
+    if (socket.connect(sf::IpAddress::LocalHost, AccountServerPort) != sf::Socket::Status::Done)
+    {
+        return false;
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(MessageType::AccountStateRequest) << accessToken;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        return false;
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        return false;
+    }
+
+    std::uint8_t type = 0;
+    bool success = false;
+    std::string message;
+    account_data::AccountState state;
+    response >> type >> success >> message;
+    if (!response ||
+        static_cast<MessageType>(type) != MessageType::AccountStateResponse ||
+        !success ||
+        !account_data::readAccountState(response, state))
+    {
+        return false;
+    }
+
+    collection = std::move(state.collection);
+    return true;
 }
 
 MatchResult submitRankedResult(int matchId, const std::string& resultToken, int winner)
@@ -362,7 +413,14 @@ private:
             return;
         }
 
-        const unsigned short port = nextGamePort++;
+        // Stay inside [FirstGamePort, LastGamePort] so a long-lived coordinator
+        // never overflows into port 0 or the well-known service ports. A
+        // recycled port that is still held by a running match simply fails to
+        // listen in the child process, like any other in-use port.
+        const unsigned short port = nextGamePort;
+        nextGamePort = port >= LastGamePort
+            ? FirstGamePort
+            : static_cast<unsigned short>(port + 1);
         const bool started = spawnGameProcess(
             matchId,
             port,
@@ -406,6 +464,8 @@ public:
           listener(std::make_unique<sf::TcpListener>()),
           aiOpponent(aiOpponent)
     {
+        loadCardLibrary();
+
         if (listener->listen(port) != sf::Socket::Status::Done)
         {
             fmt::println("Game {} failed to listen on port {}", matchId, port);
@@ -450,7 +510,7 @@ public:
             static_cast<unsigned int>(std::chrono::steady_clock::now().time_since_epoch().count());
         GameEngine engine(seed);
 
-        if (!receiveDeck(*playerOne->socket, engine, playerOne->playerNumber))
+        if (!receiveDeck(*playerOne, engine))
         {
             fmt::println("Game {} did not receive player {}'s deck", matchId, playerOne->playerNumber);
             engine.resign(playerOne->playerNumber);
@@ -458,7 +518,7 @@ public:
             finishRankedMatch(engine, *playerOne, *playerTwo);
             return;
         }
-        if (!receiveDeck(*playerTwo->socket, engine, playerTwo->playerNumber))
+        if (!receiveDeck(*playerTwo, engine))
         {
             fmt::println("Game {} did not receive player {}'s deck", matchId, playerTwo->playerNumber);
             engine.resign(playerTwo->playerNumber);
@@ -493,7 +553,7 @@ public:
             static_cast<unsigned int>(std::chrono::steady_clock::now().time_since_epoch().count());
         GameEngine engine(seed);
 
-        if (!receiveDeck(*human->socket, engine, human->playerNumber))
+        if (!receiveDeck(*human, engine))
         {
             fmt::println("AI game {} did not receive player's deck", matchId);
             engine.resign(human->playerNumber);
@@ -604,6 +664,9 @@ private:
     std::string resultToken;
     std::string aiAccessToken;
     std::unique_ptr<sf::TcpListener> listener;
+    // Authoritative card definitions keyed by title, loaded from this server's
+    // own cards.db; submitted decks are resolved against these stats.
+    std::unordered_map<std::string, card_data::Card> cardLibrary;
     bool listening = false;
     bool aiOpponent = false;
 
@@ -645,7 +708,7 @@ private:
         }
 
         fmt::println("{} joined game {} as player {}", username, matchId, playerNumber);
-        return JoinedPlayer{std::move(client), playerNumber, username, rating};
+        return JoinedPlayer{std::move(client), playerNumber, username, accessToken, rating};
     }
 
     void sendGameReady(sf::TcpSocket& client, int playerNumber)
@@ -658,10 +721,15 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    bool receiveDeck(sf::TcpSocket& client, GameEngine& engine, int playerNumber)
+    // The client's deck submission is trusted only for its card titles. Every
+    // title is re-resolved against this process's own cards.db load and checked
+    // against the player's account collection, so a modified client can neither
+    // forge card stats nor field cards it does not own.
+    bool receiveDeck(JoinedPlayer& player, GameEngine& engine)
     {
+        const int playerNumber = player.playerNumber;
         sf::Packet packet;
-        if (client.receive(packet) != sf::Socket::Status::Done)
+        if (player.socket->receive(packet) != sf::Socket::Status::Done)
         {
             return false;
         }
@@ -669,7 +737,9 @@ private:
         uint8_t msgType = 0;
         std::uint32_t count = 0;
         packet >> msgType >> count;
-        if (!packet || static_cast<MessageType>(msgType) != MessageType::SubmitDeck)
+        if (!packet ||
+            static_cast<MessageType>(msgType) != MessageType::SubmitDeck ||
+            count > MaxDeckPacketCards)
         {
             return false;
         }
@@ -678,12 +748,23 @@ private:
         cards.reserve(count);
         for (std::uint32_t i = 0; i < count; ++i)
         {
-            card_data::Card card;
-            if (!card_data::readCard(packet, card))
+            card_data::Card submitted;
+            if (!card_data::readCard(packet, submitted))
             {
                 return false;
             }
-            cards.push_back(card);
+
+            const auto found = cardLibrary.find(submitted.title);
+            if (found == cardLibrary.end())
+            {
+                fmt::println(
+                    "Game {} rejected deck for player {}: unknown card {}",
+                    matchId,
+                    playerNumber,
+                    submitted.title);
+                return false;
+            }
+            cards.push_back(found->second);
         }
 
         if (const std::optional<std::string> error = game_data::deckRulesError(cards))
@@ -696,9 +777,65 @@ private:
             return false;
         }
 
+        if (const std::optional<std::string> error = deckOwnershipError(player, cards))
+        {
+            fmt::println(
+                "Game {} rejected deck for player {}: {}",
+                matchId,
+                playerNumber,
+                *error);
+            return false;
+        }
+
         engine.submitDeck(playerNumber, cards);
         fmt::println("Game {} received deck for player {} ({} cards)", matchId, playerNumber, count);
         return true;
+    }
+
+    std::optional<std::string> deckOwnershipError(
+        const JoinedPlayer& player,
+        const std::vector<card_data::Card>& cards) const
+    {
+        std::vector<account_data::CollectionCard> collection;
+        if (!loadPlayerCollection(player.accessToken, collection))
+        {
+            return "could not load the player's card collection";
+        }
+
+        std::unordered_map<std::string, int> owned;
+        for (const account_data::CollectionCard& card : collection)
+        {
+            owned[card.title] = card.copies;
+        }
+
+        std::unordered_map<std::string, int> used;
+        for (const card_data::Card& card : cards)
+        {
+            if (++used[card.title] > owned[card.title])
+            {
+                return "deck uses more copies of " + card.title + " than the collection holds";
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    void loadCardLibrary()
+    {
+        try
+        {
+            for (card_data::Card& card : card_database::loadCardsFromFile("cards.db"))
+            {
+                std::string title = card.title;
+                cardLibrary.emplace(std::move(title), std::move(card));
+            }
+        }
+        catch (const std::exception& error)
+        {
+            // Fail closed: with an empty library every submitted deck is
+            // rejected rather than falling back to client-supplied stats.
+            fmt::println("Game {} could not load cards.db: {}", matchId, error.what());
+        }
     }
 
     void sendSnapshot(sf::TcpSocket& client, const GameEngine& engine, int playerNumber)

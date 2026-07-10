@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "../shared/card_data.hpp"
+#include "../shared/deck_data.hpp"
 #include "../shared/game_data.hpp"
 #include "../shared/ranking.hpp"
 
@@ -39,65 +40,6 @@ void check(bool condition, const std::string& label)
     }
 }
 
-card_data::Card makeCard(
-    const std::string& title,
-    const std::string& type,
-    std::vector<card_data::KeyIntPair> ints,
-    std::vector<card_data::KeyStringPair> strings = {},
-    std::vector<card_data::Action> actions = {})
-{
-    card_data::Card card;
-    card.title = title;
-    card.type = type;
-    card.integerValues = std::move(ints);
-    card.stringValues = std::move(strings);
-    for (const card_data::Action& action : actions)
-    {
-        card.actionNames.push_back(action.name);
-    }
-    card.actions = std::move(actions);
-    return card;
-}
-
-card_data::Action makeAction(
-    const std::string& name,
-    const std::string& pattern,
-    int maxRange,
-    int damage)
-{
-    card_data::Action action;
-    action.name = name;
-    action.pattern = pattern;
-    action.maxRange = maxRange;
-    action.damage = damage;
-    action.canMove = true;
-    action.canAttack = damage > 0;
-    return action;
-}
-
-std::vector<card_data::Card> makeTestDeck()
-{
-    std::vector<card_data::Card> deck;
-    // Two heroes (hero cost 40 + 20 = 60, within the limit of 100).
-    deck.push_back(makeCard("Gear Knight", "Hero",
-        {{"heroCost", 40}, {"health", 18}},
-        {},
-        {makeAction("Gear Knight Jump", "jump", 2, 6)}));
-    deck.push_back(makeCard("Cog Tinker", "Hero",
-        {{"heroCost", 20}, {"health", 9}},
-        {},
-        {makeAction("Cog Tinker Step", "omni", 1, 3)}));
-    // Twenty cheap units: two copies each of ten cards.
-    for (int i = 0; i < 20; ++i)
-    {
-        deck.push_back(makeCard("Test Unit " + std::to_string(i / 2), "Unit",
-            {{"cost", 1}, {"health", 4}},
-            {},
-            {makeAction("Test Unit Step", "ortho", 1, 2)}));
-    }
-    return deck;
-}
-
 bool connectWithRetry(sf::TcpSocket& socket, unsigned short port, int attempts)
 {
     const std::optional<sf::IpAddress> address = sf::IpAddress::resolve(Host);
@@ -116,7 +58,7 @@ bool connectWithRetry(sf::TcpSocket& socket, unsigned short port, int attempts)
     return false;
 }
 
-std::string loginForTest(const std::string& username, const std::string& password)
+std::string tryLogin(const std::string& username, const std::string& password)
 {
     sf::TcpSocket socket;
     if (!connectWithRetry(socket, AccountPort, 20))
@@ -151,6 +93,107 @@ std::string loginForTest(const std::string& username, const std::string& passwor
         success
         ? accessToken
         : std::string();
+}
+
+bool createAccountForTest(const std::string& username, const std::string& password)
+{
+    sf::TcpSocket socket;
+    if (!connectWithRetry(socket, AccountPort, 20))
+    {
+        return false;
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(MessageType::CreateAccount)
+            << username << password;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        return false;
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        return false;
+    }
+
+    std::uint8_t type = 0;
+    bool success = false;
+    std::string message;
+    response >> type >> success >> message;
+    return response &&
+        static_cast<MessageType>(type) == MessageType::CreateAccountResponse &&
+        success;
+}
+
+// Logs the test account in, creating it first when it does not exist yet so
+// the test can run against a fresh accounts database.
+std::string loginForTest(const std::string& username, const std::string& password)
+{
+    const std::string token = tryLogin(username, password);
+    if (!token.empty())
+    {
+        return token;
+    }
+    if (!createAccountForTest(username, password))
+    {
+        return {};
+    }
+    return tryLogin(username, password);
+}
+
+// Fetches the account's saved decks and returns the first one as title-only
+// cards; the game server resolves each title against its own cards.db, so the
+// titles are all a legitimate client needs to submit.
+std::vector<card_data::Card> fetchDeckCards(const std::string& accessToken)
+{
+    sf::TcpSocket socket;
+    if (!connectWithRetry(socket, AccountPort, 20))
+    {
+        return {};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(MessageType::DeckListRequest) << accessToken;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        return {};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        return {};
+    }
+
+    std::uint8_t type = 0;
+    bool success = false;
+    std::string message;
+    std::uint32_t deckCount = 0;
+    response >> type >> success >> message >> deckCount;
+    if (!response ||
+        static_cast<MessageType>(type) != MessageType::DeckListResponse ||
+        !success ||
+        deckCount == 0)
+    {
+        return {};
+    }
+
+    deck_data::Deck deck;
+    if (!deck_data::readDeck(response, deck))
+    {
+        return {};
+    }
+
+    std::vector<card_data::Card> cards;
+    cards.reserve(deck.cardTitles.size());
+    for (const std::string& title : deck.cardTitles)
+    {
+        card_data::Card card;
+        card.title = title;
+        cards.push_back(card);
+    }
+    return cards;
 }
 
 void send(sf::TcpSocket& socket, sf::Packet& packet)
@@ -914,8 +957,18 @@ int main(int argc, char** argv)
         }
         send(socket, packet);
     };
-    submitDeck(p1, makeTestDeck());
-    submitDeck(p2, makeTestDeck());
+    // The game server only accepts decks whose titles resolve against its
+    // cards.db and that the account actually owns, so submit each player's
+    // saved starter deck.
+    const std::vector<card_data::Card> deck1 = fetchDeckCards(pnumA == 1 ? tokenA : tokenB);
+    const std::vector<card_data::Card> deck2 = fetchDeckCards(pnumA == 1 ? tokenB : tokenA);
+    check(!deck1.empty() && !deck2.empty(), "fetched saved decks for both players");
+    if (deck1.empty() || deck2.empty())
+    {
+        return 1;
+    }
+    submitDeck(p1, deck1);
+    submitDeck(p2, deck2);
 
     gameA.setBlocking(false);
     gameB.setBlocking(false);
@@ -924,12 +977,18 @@ int main(int argc, char** argv)
     Snapshot s2;
     settle(p1, p2, s1, s2, 1000);
     check(s1.phase == static_cast<std::uint8_t>(Phase::HeroPlacement), "phase is HeroPlacement after decks");
-    check(s1.players[0].heroesToPlace == 2, "player 1 has 2 heroes to place");
-    check(s1.players[1].heroesToPlace == 2, "player 2 has 2 heroes to place");
-    check(s1.hand.size() == 2, "player 1 sees hero cards in hand during placement");
-    check(s2.hand.size() == 2, "player 2 sees hero cards in hand during placement");
-    check(s1.hand.size() == 2 && s1.hand[0].type == "Hero" && s1.hand[1].type == "Hero",
-          "placement hand contains only heroes");
+    const int heroCount1 = s1.players[0].heroesToPlace;
+    const int heroCount2 = s1.players[1].heroesToPlace;
+    check(heroCount1 >= MinHeroes && heroCount1 <= MaxHeroes, "player 1 hero count obeys the deck rules");
+    check(heroCount2 >= MinHeroes && heroCount2 <= MaxHeroes, "player 2 hero count obeys the deck rules");
+    check(static_cast<int>(s1.hand.size()) == heroCount1, "player 1 sees hero cards in hand during placement");
+    check(static_cast<int>(s2.hand.size()) == heroCount2, "player 2 sees hero cards in hand during placement");
+    bool placementHandAllHeroes = !s1.hand.empty();
+    for (const GameCard& card : s1.hand)
+    {
+        placementHandAllHeroes = placementHandAllHeroes && card.type == "Hero";
+    }
+    check(placementHandAllHeroes, "placement hand contains only heroes");
 
     // Normal turn actions cannot start or mutate the placement hand.
     sendEndTurn(p1);
@@ -937,31 +996,49 @@ int main(int argc, char** argv)
     sendDiscardCard(p1, 0);
     settle(p1, p2, s1, s2, 400);
     check(s1.phase == static_cast<std::uint8_t>(Phase::HeroPlacement), "turn actions cannot end hero placement");
-    check(s1.players[0].heroesToPlace == 2 && s1.hand.size() == 2,
+    check(s1.players[0].heroesToPlace == heroCount1 && static_cast<int>(s1.hand.size()) == heroCount1,
           "heroes cannot be played or discarded during placement");
 
     // --- hero placement ----------------------------------------------------
     // Player 1 home column 0 middle rows; player 2 home column 7 middle rows.
-    sendPlaceHero(p1, 2, 0, 1);
+    const auto p1Home = homeSquares(1);
+    const auto p2Home = homeSquares(2);
+    const int firstPlacementIndex = heroCount1 > 1 ? 1 : 0;
+    const std::string firstPlacedTitle =
+        s1.hand[static_cast<std::size_t>(firstPlacementIndex)].title;
+    sendPlaceHero(p1, p1Home[0].first, p1Home[0].second, firstPlacementIndex);
     settle(p1, p2, s1, s2, 400);
-    const Piece* firstPlacedHero = findPieceAt(s1.pieces, 2, 0);
-    check(firstPlacedHero && firstPlacedHero->name == "Cog Tinker",
+    const Piece* firstPlacedHero = findPieceAt(s1.pieces, p1Home[0].first, p1Home[0].second);
+    check(firstPlacedHero && firstPlacedHero->name == firstPlacedTitle,
           "placing a hero uses the selected hand index");
-    check(findPieceAt(s2.pieces, 2, 0) == nullptr,
+    check(findPieceAt(s2.pieces, p1Home[0].first, p1Home[0].second) == nullptr,
           "opponent cannot see a hero placed during setup");
-    check(s1.hand.size() == 1 && s1.hand[0].title == "Gear Knight",
+    check(static_cast<int>(s1.hand.size()) == heroCount1 - 1,
           "placed hero is removed from the placement hand");
-    sendPlaceHero(p1, 3, 0);
-    sendPlaceHero(p2, 2, 7);
+    for (int i = 1; i < heroCount1; ++i)
+    {
+        const auto& [row, column] = p1Home[static_cast<std::size_t>(i)];
+        sendPlaceHero(p1, row, column);
+    }
+    sendPlaceHero(p2, p2Home[0].first, p2Home[0].second);
     settle(p1, p2, s1, s2, 400);
-    check(findPieceAt(s1.pieces, 2, 7) == nullptr,
+    check(findPieceAt(s1.pieces, p2Home[0].first, p2Home[0].second) == nullptr,
           "player 1 cannot see player 2's placement before setup finishes");
-    check(findPieceAt(s2.pieces, 2, 0) == nullptr &&
-          findPieceAt(s2.pieces, 3, 0) == nullptr,
+    bool opponentSeesP1Setup = false;
+    for (int i = 0; i < heroCount1; ++i)
+    {
+        const auto& [row, column] = p1Home[static_cast<std::size_t>(i)];
+        opponentSeesP1Setup = opponentSeesP1Setup || findPieceAt(s2.pieces, row, column) != nullptr;
+    }
+    check(!opponentSeesP1Setup,
           "player 2 cannot see player 1's completed placement while still placing");
-    check(findPieceAt(s2.pieces, 2, 7) != nullptr,
+    check(findPieceAt(s2.pieces, p2Home[0].first, p2Home[0].second) != nullptr,
           "players can see their own placed heroes during setup");
-    sendPlaceHero(p2, 3, 7);
+    for (int i = 1; i < heroCount2; ++i)
+    {
+        const auto& [row, column] = p2Home[static_cast<std::size_t>(i)];
+        sendPlaceHero(p2, row, column);
+    }
     settle(p1, p2, s1, s2, 1000);
 
     check(s1.phase == static_cast<std::uint8_t>(Phase::Playing), "phase advanced to Playing after all heroes placed");
@@ -974,7 +1051,7 @@ int main(int argc, char** argv)
         if (piece.isHero && piece.owner == 1) ++p1Heroes;
         if (piece.isHero && piece.owner == 2) ++p2Heroes;
     }
-    check(p1Heroes == 2 && p2Heroes == 2, "four heroes on the board");
+    check(p1Heroes == heroCount1 && p2Heroes == heroCount2, "all heroes are on the board");
     int visibleToPlayer2 = 0;
     for (const Piece& piece : s2.pieces)
     {
@@ -983,16 +1060,43 @@ int main(int argc, char** argv)
             ++visibleToPlayer2;
         }
     }
-    check(visibleToPlayer2 == 4, "both placements are revealed when setup finishes");
+    check(visibleToPlayer2 == heroCount1 + heroCount2, "both placements are revealed when setup finishes");
     check(s1.players[0].steam == s1.players[0].controlledSquares, "player 1 steam equals controlled squares");
     check(s1.players[0].handCount >= StartingHandSize, "player 1 drew an opening hand");
+
+    // --- player 1 deploys a unit ------------------------------------------
+    // Steam accrues every turn, so pass turns until the cheapest unit in
+    // player 1's hand is affordable.
+    int unitIndex = -1;
+    int unitCost = 0;
+    for (int attempt = 0; attempt < 20; ++attempt)
+    {
+        unitIndex = -1;
+        for (std::size_t i = 0; i < s1.hand.size(); ++i)
+        {
+            if (s1.hand[i].type == "Unit" && (unitIndex < 0 || s1.hand[i].cost < unitCost))
+            {
+                unitIndex = static_cast<int>(i);
+                unitCost = s1.hand[i].cost;
+            }
+        }
+        if (unitIndex >= 0 && unitCost <= s1.players[0].steam)
+        {
+            break;
+        }
+        sendEndTurn(p1);
+        settle(p1, p2, s1, s2, 400);
+        sendEndTurn(p2);
+        settle(p1, p2, s1, s2, 400);
+    }
+    const bool unitAffordable = unitIndex >= 0 && unitCost <= s1.players[0].steam;
+    check(unitAffordable, "player 1 has an affordable unit card in hand");
 
     const int p1ControlBefore = s1.players[0].controlledSquares;
     const int p1SteamBefore = s1.players[0].steam;
     const int p1PiecesBefore = static_cast<int>(s1.pieces.size());
 
-    // --- player 1 deploys a unit ------------------------------------------
-    // Brass Pawn (cost 1) onto an empty controlled square. Find one.
+    // An empty controlled square to deploy the unit onto. Find one.
     int deployRow = -1;
     int deployCol = -1;
     for (int r = 0; r < BoardSize && deployRow < 0; ++r)
@@ -1010,27 +1114,17 @@ int main(int argc, char** argv)
     }
     check(deployRow >= 0, "found an empty controlled square to deploy onto");
 
-    // Find a Brass Pawn (Unit) in hand.
-    int pawnIndex = -1;
-    for (std::size_t i = 0; i < s1.hand.size(); ++i)
+    if (deployRow >= 0 && unitAffordable)
     {
-        if (s1.hand[i].type == "Unit")
-        {
-            pawnIndex = static_cast<int>(i);
-            break;
-        }
-    }
-    check(pawnIndex >= 0, "player 1 has a unit card in hand");
-
-    if (deployRow >= 0 && pawnIndex >= 0)
-    {
-        sendPlayCard(p1, pawnIndex, deployRow, deployCol);
+        const int p2SteamBefore = s2.players[1].steam;
+        sendPlayCard(p1, unitIndex, deployRow, deployCol);
         settle(p1, p2, s1, s2, 800);
         check(static_cast<int>(s1.pieces.size()) == p1PiecesBefore + 1, "deploying a unit added a piece");
-        check(s1.players[0].steam == p1SteamBefore - 1, "deploying spent steam");
+        check(s1.players[0].steam == p1SteamBefore - unitCost, "deploying spent steam");
         check(s1.activePlayer == 2, "playing a card immediately ended player 1's turn");
         check(s2.activePlayer == 2, "turn passed to player 2 after player 1 played a card");
-        check(s2.players[1].steam == s2.players[1].controlledSquares, "player 2 gained steam on its turn");
+        check(s2.players[1].steam == p2SteamBefore + s2.players[1].controlledSquares,
+              "player 2 gained steam on its turn");
     }
 
     // Player 1's extra piece should have expanded or maintained its territory.

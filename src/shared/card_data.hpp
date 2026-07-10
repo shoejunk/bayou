@@ -8,6 +8,10 @@
 
 namespace card_data
 {
+// Upper bound on any serialized list count, checked before reserving so a
+// crafted packet cannot trigger a huge allocation.
+constexpr std::uint32_t MaxSerializedItems = 4096;
+
 struct KeyIntPair
 {
     std::string key;
@@ -69,7 +73,7 @@ inline bool readStringVector(sf::Packet& packet, std::vector<std::string>& value
 {
     std::uint32_t count = 0;
     packet >> count;
-    if (!packet)
+    if (!packet || count > MaxSerializedItems)
     {
         return false;
     }
@@ -157,6 +161,10 @@ inline bool readCard(sf::Packet& packet, Card& card)
 
     std::uint32_t integerCount = 0;
     packet >> integerCount;
+    if (!packet || integerCount > MaxSerializedItems)
+    {
+        return false;
+    }
     card.integerValues.clear();
     card.integerValues.reserve(integerCount);
     for (std::uint32_t i = 0; i < integerCount; ++i)
@@ -172,6 +180,10 @@ inline bool readCard(sf::Packet& packet, Card& card)
 
     std::uint32_t stringCount = 0;
     packet >> stringCount;
+    if (!packet || stringCount > MaxSerializedItems)
+    {
+        return false;
+    }
     card.stringValues.clear();
     card.stringValues.reserve(stringCount);
     for (std::uint32_t i = 0; i < stringCount; ++i)
@@ -187,6 +199,10 @@ inline bool readCard(sf::Packet& packet, Card& card)
 
     std::uint32_t listCount = 0;
     packet >> listCount;
+    if (!packet || listCount > MaxSerializedItems)
+    {
+        return false;
+    }
     card.stringLists.clear();
     card.stringLists.reserve(listCount);
     for (std::uint32_t i = 0; i < listCount; ++i)
@@ -207,6 +223,10 @@ inline bool readCard(sf::Packet& packet, Card& card)
 
     std::uint32_t actionCount = 0;
     packet >> actionCount;
+    if (!packet || actionCount > MaxSerializedItems)
+    {
+        return false;
+    }
     card.actions.clear();
     card.actions.reserve(actionCount);
     for (std::uint32_t i = 0; i < actionCount; ++i)
