@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SFML/Network.hpp>
+#include "tls_socket.hpp"
 #include <fmt/core.h>
 
 #include <chrono>
@@ -11,7 +12,7 @@ namespace listener_retry
 // Binding right after a restart can race the old process releasing the port,
 // so retry briefly before giving up.
 inline bool listenWithRetry(
-    sf::TcpListener& listener,
+    bayou::tls::Listener& listener,
     unsigned short port,
     std::chrono::milliseconds timeout = std::chrono::seconds(5),
     std::chrono::milliseconds retryInterval = std::chrono::milliseconds(250))

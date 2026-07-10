@@ -1,6 +1,7 @@
 module;
 
 #include <SFML/Network.hpp>
+#include "tls_socket.hpp"
 
 #include "client_config.hpp"
 #include "deck_collection.hpp"
@@ -28,7 +29,7 @@ struct ServerResult
 {
     bool success = false;
     std::string message;
-    std::shared_ptr<sf::TcpSocket> gameSocket;
+    std::shared_ptr<bayou::tls::Socket> gameSocket;
     std::string username;
     std::string accessToken;
     std::string rememberToken;
@@ -144,7 +145,7 @@ struct AdminUserDeleteResult
 };
 
 
-void sendDisconnect(sf::TcpSocket& socket)
+void sendDisconnect(bayou::tls::Socket& socket)
 {
     sf::Packet disconnectPacket;
     disconnectPacket << static_cast<std::uint8_t>(network::MessageType::Disconnect);
@@ -152,7 +153,7 @@ void sendDisconnect(sf::TcpSocket& socket)
     socket.disconnect();
 }
 
-void sendSubmitDeck(sf::TcpSocket& socket, const std::vector<card_data::Card>& cards)
+void sendSubmitDeck(bayou::tls::Socket& socket, const std::vector<card_data::Card>& cards)
 {
     sf::Packet packet;
     packet << static_cast<std::uint8_t>(network::MessageType::SubmitDeck);
@@ -171,7 +172,7 @@ ServerResult sendAccountRequest(
     const std::string& password,
     bool rememberMe = false)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
@@ -236,7 +237,7 @@ ServerResult sendAccountRequest(
 
 ServerResult sendRememberLogin(const std::string& token)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Could not restore saved login; account server is unavailable"};
@@ -288,7 +289,7 @@ void revokeLoginTokens(const std::string& rememberToken, const std::string& acce
         return;
     }
 
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return;
@@ -307,7 +308,7 @@ void revokeLoginTokens(const std::string& rememberToken, const std::string& acce
 
 CardListResult fetchCards()
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().card))
     {
         return {false, "Failed to connect to card server " + endpointText(clientConfig().card)};
@@ -358,7 +359,7 @@ CardListResult fetchCards()
 
 DeckListResult fetchDecks(const std::string& accessToken)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
@@ -410,7 +411,7 @@ DeckListResult fetchDecks(const std::string& accessToken)
 
 AccountStateResult fetchAccountState(const std::string& accessToken)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
@@ -460,7 +461,7 @@ AccountStateResult fetchAccountState(const std::string& accessToken)
 }
 
 DeckCommandResult readDeckCommandResponse(
-    sf::TcpSocket& socket,
+    bayou::tls::Socket& socket,
     network::MessageType expectedResponseType,
     const std::string& fallbackMessage,
     const std::string& originalName,
@@ -489,7 +490,7 @@ DeckCommandResult saveDeckToAccount(
     const std::string& originalName,
     const deck_data::Deck& deck)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Failed to connect to account server " + endpointText(clientConfig().account), originalName, deck};
@@ -520,7 +521,7 @@ DeckCommandResult deleteDeckFromAccount(const std::string& accessToken, const st
     deck_data::Deck deck;
     deck.name = deckName;
 
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Failed to connect to account server " + endpointText(clientConfig().account), deckName, deck};
@@ -550,7 +551,7 @@ AccountCommandResult sendCoinCommand(
     network::MessageType expectedResponseType,
     const std::string& accessToken)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
@@ -589,7 +590,7 @@ AccountCommandResult sendCoinCommand(
 
 AccountCommandResult purchaseRandomCard(const std::string& accessToken)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
@@ -632,7 +633,7 @@ AccountCommandResult changePassword(
     const std::string& currentPassword,
     const std::string& newPassword)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
@@ -692,7 +693,7 @@ AdminUsersLoadResult loadAdminUsers(
     std::uint32_t page,
     std::uint32_t pageSize)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
@@ -751,7 +752,7 @@ AdminUserPrivilegeResult updateAdminUserPrivilege(
     const std::string& targetUsername,
     bool makeAdmin)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
@@ -794,7 +795,7 @@ AdminUserGoldResult updateAdminUserGold(
     const std::string& targetUsername,
     int amount)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Failed to connect to account server " + endpointText(clientConfig().account), targetUsername};
@@ -836,7 +837,7 @@ AdminUserDeleteResult deleteAdminUser(
     const std::string& accessToken,
     const std::string& targetUsername)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Failed to connect to account server " + endpointText(clientConfig().account), targetUsername};
@@ -875,7 +876,7 @@ AdminUserDeleteResult deleteAdminUser(
 
 DeckCommandResult saveStarterDeckToAccount(const std::string& accessToken, const deck_data::Deck& deck)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Failed to connect to account server " + endpointText(clientConfig().account), deck.name, deck};
@@ -903,7 +904,7 @@ DeckCommandResult saveStarterDeckToAccount(const std::string& accessToken, const
 
 StarterDeckLoadResult fetchAdminStarterDeck(const std::string& accessToken)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().account))
     {
         return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
@@ -1034,7 +1035,7 @@ ServerResult joinGameServer(
         return {false, "Game server did not assign a game"};
     }
 
-    auto socket = std::make_shared<sf::TcpSocket>();
+    auto socket = std::make_shared<bayou::tls::Socket>();
     bool connected = false;
     for (int attempt = 0; attempt < 30; ++attempt)
     {
@@ -1092,7 +1093,7 @@ ServerResult joinMatchmaking(
     const std::string& accessToken,
     std::shared_ptr<MatchmakingCancelState> cancelState)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectToEndpoint(socket, clientConfig().matchmaking))
     {
         return {false, "Failed to connect to matchmaking " + endpointText(clientConfig().matchmaking)};

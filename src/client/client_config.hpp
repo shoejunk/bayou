@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SFML/Network.hpp>
+#include "tls_socket.hpp"
 
 #include <filesystem>
 #include <optional>
@@ -51,6 +52,6 @@ std::string assetRelativePath(const std::string& value);
 std::optional<std::filesystem::path> resolveAssetPath(const std::string& value);
 std::string endpointText(const ServerEndpoint& endpoint);
 
-bool connectToHostPort(sf::TcpSocket& socket, const std::string& host, unsigned short port);
-bool connectToEndpoint(sf::TcpSocket& socket, const ServerEndpoint& endpoint);
+bool connectToHostPort(bayou::tls::Socket& socket, const std::string& host, unsigned short port);
+bool connectToEndpoint(bayou::tls::Socket& socket, const ServerEndpoint& endpoint);
 }

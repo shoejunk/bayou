@@ -1,6 +1,7 @@
 #pragma once
 
 #include <SFML/Network.hpp>
+#include "tls_socket.hpp"
 
 #include <chrono>
 #include <thread>
@@ -8,7 +9,7 @@
 namespace socket_timeout
 {
 inline sf::Socket::Status receivePacket(
-    sf::TcpSocket& socket,
+    bayou::tls::Socket& socket,
     sf::Packet& packet,
     std::chrono::milliseconds timeout,
     std::chrono::milliseconds pollInterval = std::chrono::milliseconds(25))

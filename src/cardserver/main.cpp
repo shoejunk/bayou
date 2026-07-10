@@ -1,4 +1,5 @@
 #include <SFML/Network.hpp>
+#include "tls_socket.hpp"
 #include <SQLiteCpp/SQLiteCpp.h>
 #include <fmt/core.h>
 
@@ -109,7 +110,7 @@ class CardServer
 {
 public:
     explicit CardServer(unsigned short port)
-        : listener(std::make_unique<sf::TcpListener>())
+        : listener(std::make_unique<bayou::tls::Listener>())
     {
         try
         {
@@ -147,7 +148,7 @@ public:
         running = true;
         while (running)
         {
-            auto client = std::make_unique<sf::TcpSocket>();
+            auto client = std::make_unique<bayou::tls::Socket>();
             if (listener->accept(*client) == sf::Socket::Status::Done)
             {
                 handleClient(*client);
@@ -156,7 +157,7 @@ public:
     }
 
 private:
-    std::unique_ptr<sf::TcpListener> listener;
+    std::unique_ptr<bayou::tls::Listener> listener;
     std::unique_ptr<SQLite::Database> database;
     std::atomic<bool> running{false};
     bool listening = false;
@@ -225,7 +226,7 @@ private:
         migrateLegacyActions();
     }
 
-    void handleClient(sf::TcpSocket& client)
+    void handleClient(bayou::tls::Socket& client)
     {
         sf::Packet request;
         if (socket_timeout::receivePacket(client, request, InitialRequestTimeout) != sf::Socket::Status::Done)
@@ -270,7 +271,7 @@ private:
         }
     }
 
-    void handleListCards(sf::TcpSocket& client)
+    void handleListCards(bayou::tls::Socket& client)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::CardListResponse);
@@ -290,7 +291,7 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    void handleUpsertCard(sf::TcpSocket& client, sf::Packet& request)
+    void handleUpsertCard(bayou::tls::Socket& client, sf::Packet& request)
     {
         card_data::Card card;
         if (!card_data::readCard(request, card))
@@ -316,7 +317,7 @@ private:
         }
     }
 
-    void handleUpdateCard(sf::TcpSocket& client, sf::Packet& request)
+    void handleUpdateCard(bayou::tls::Socket& client, sf::Packet& request)
     {
         std::string originalTitle;
         card_data::Card card;
@@ -350,7 +351,7 @@ private:
         }
     }
 
-    void handleDeleteCard(sf::TcpSocket& client, sf::Packet& request)
+    void handleDeleteCard(bayou::tls::Socket& client, sf::Packet& request)
     {
         std::string title;
         request >> title;
@@ -377,7 +378,7 @@ private:
         }
     }
 
-    void handleListActions(sf::TcpSocket& client)
+    void handleListActions(bayou::tls::Socket& client)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::ActionListResponse);
@@ -394,7 +395,7 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    void handleUpsertAction(sf::TcpSocket& client, sf::Packet& request)
+    void handleUpsertAction(bayou::tls::Socket& client, sf::Packet& request)
     {
         card_data::Action action;
         if (!card_data::readAction(request, action) || action.name.empty())
@@ -413,7 +414,7 @@ private:
         }
     }
 
-    void handleUpdateAction(sf::TcpSocket& client, sf::Packet& request)
+    void handleUpdateAction(bayou::tls::Socket& client, sf::Packet& request)
     {
         std::string originalName;
         card_data::Action action;
@@ -434,7 +435,7 @@ private:
         }
     }
 
-    void handleDeleteAction(sf::TcpSocket& client, sf::Packet& request)
+    void handleDeleteAction(bayou::tls::Socket& client, sf::Packet& request)
     {
         std::string name;
         request >> name;
@@ -464,12 +465,12 @@ private:
         }
     }
 
-    void sendUpsertResponse(sf::TcpSocket& client, bool success, const std::string& message)
+    void sendUpsertResponse(bayou::tls::Socket& client, bool success, const std::string& message)
     {
         sendCommandResponse(client, MessageType::CardUpsertResponse, success, message);
     }
 
-    void sendCommandResponse(sf::TcpSocket& client, MessageType responseType, bool success, const std::string& message)
+    void sendCommandResponse(bayou::tls::Socket& client, MessageType responseType, bool success, const std::string& message)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(responseType);

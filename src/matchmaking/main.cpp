@@ -1,4 +1,5 @@
 #include <SFML/Network.hpp>
+#include "tls_socket.hpp"
 #include <fmt/core.h>
 
 #include <algorithm>
@@ -28,7 +29,7 @@ constexpr auto InitialRequestTimeout = std::chrono::seconds(2);
 
 struct RankedPlayer
 {
-    std::unique_ptr<sf::TcpSocket> socket;
+    std::unique_ptr<bayou::tls::Socket> socket;
     std::string accessToken;
     std::string username;
     int rating = 0;
@@ -45,7 +46,7 @@ struct RegisteredMatch
 
 bool loadRankedPlayer(const std::string& accessToken, std::string& username, int& rating)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (socket.connect(sf::IpAddress::LocalHost, AccountServerPort) != sf::Socket::Status::Done)
     {
         return false;
@@ -78,7 +79,7 @@ RegisteredMatch registerMatch(
     const std::string& playerOneToken,
     const std::string& playerTwoToken)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (socket.connect(sf::IpAddress::LocalHost, AccountServerPort) != sf::Socket::Status::Done)
     {
         return {};
@@ -111,7 +112,7 @@ RegisteredMatch registerMatch(
     return match;
 }
 
-unsigned short readGameSessionResponse(sf::TcpSocket& socket, int matchId)
+unsigned short readGameSessionResponse(bayou::tls::Socket& socket, int matchId)
 {
     sf::Packet response;
     if (socket.receive(response) != sf::Socket::Status::Done)
@@ -140,7 +141,7 @@ unsigned short readGameSessionResponse(sf::TcpSocket& socket, int matchId)
 
 unsigned short requestGameSession(int matchId, const RegisteredMatch& match)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (socket.connect(sf::IpAddress::LocalHost, GameServerPort) != sf::Socket::Status::Done)
     {
         fmt::println("Failed to connect to game server for match {}", matchId);
@@ -165,7 +166,7 @@ unsigned short requestAiGameSession(
     const std::string& playerOne,
     const std::string& playerOneToken)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (socket.connect(sf::IpAddress::LocalHost, GameServerPort) != sf::Socket::Status::Done)
     {
         fmt::println("Failed to connect to game server for AI match {}", matchId);
@@ -190,7 +191,7 @@ class MatchmakingServer
 {
 public:
     explicit MatchmakingServer(unsigned short port)
-        : listener(std::make_unique<sf::TcpListener>()),
+        : listener(std::make_unique<bayou::tls::Listener>()),
           nextMatchId(std::uniform_int_distribution<int>(
               1, std::numeric_limits<int>::max())(rng))
     {
@@ -237,7 +238,7 @@ public:
     }
 
 private:
-    std::unique_ptr<sf::TcpListener> listener;
+    std::unique_ptr<bayou::tls::Listener> listener;
     std::vector<RankedPlayer> waitingPlayers;
     std::mt19937 rng{std::random_device{}()};
     std::atomic<bool> running{false};
@@ -248,7 +249,7 @@ private:
     {
         while (true)
         {
-            auto client = std::make_unique<sf::TcpSocket>();
+            auto client = std::make_unique<bayou::tls::Socket>();
             if (listener->accept(*client) != sf::Socket::Status::Done)
             {
                 return;
@@ -437,7 +438,7 @@ private:
     }
 
     static void sendMatchFound(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         int matchId,
         int playerNumber,
         unsigned short gamePort)
@@ -449,7 +450,7 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    static void sendCancelConfirmed(sf::TcpSocket& client)
+    static void sendCancelConfirmed(bayou::tls::Socket& client)
     {
         client.setBlocking(true);
         sf::Packet response;
@@ -459,7 +460,7 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    static void sendMatchmakingFailed(sf::TcpSocket& client, const std::string& message)
+    static void sendMatchmakingFailed(bayou::tls::Socket& client, const std::string& message)
     {
         client.setBlocking(true);
         sf::Packet response;

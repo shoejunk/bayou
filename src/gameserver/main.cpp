@@ -1,4 +1,5 @@
 #include <SFML/Network.hpp>
+#include "tls_socket.hpp"
 #include <fmt/core.h>
 
 #include "ai_deck.hpp"
@@ -55,7 +56,7 @@ constexpr const char* AiOpponentName = "Bayou Automaton";
 
 struct JoinedPlayer
 {
-    std::unique_ptr<sf::TcpSocket> socket;
+    std::unique_ptr<bayou::tls::Socket> socket;
     int playerNumber = 0;
     std::string username;
     std::string accessToken;
@@ -91,7 +92,7 @@ std::string executablePath()
 
 bool loadRankedPlayer(const std::string& accessToken, std::string& username, int& rating)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (socket.connect(sf::IpAddress::LocalHost, AccountServerPort) != sf::Socket::Status::Done)
     {
         return false;
@@ -125,7 +126,7 @@ bool loadPlayerCollection(
     const std::string& accessToken,
     std::vector<account_data::CollectionCard>& collection)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (socket.connect(sf::IpAddress::LocalHost, AccountServerPort) != sf::Socket::Status::Done)
     {
         return false;
@@ -163,7 +164,7 @@ bool loadPlayerCollection(
 
 MatchResult submitRankedResult(int matchId, const std::string& resultToken, int winner)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (socket.connect(sf::IpAddress::LocalHost, AccountServerPort) != sf::Socket::Status::Done)
     {
         return {};
@@ -226,7 +227,7 @@ AiMatchResult submitAiResult(int matchId, const std::string& accessToken, bool h
         return {};
     }
 
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (socket.connect(sf::IpAddress::LocalHost, AccountServerPort) != sf::Socket::Status::Done)
     {
         return {};
@@ -342,7 +343,7 @@ class GameServerCoordinator
 {
 public:
     explicit GameServerCoordinator(unsigned short port)
-        : listener(std::make_unique<sf::TcpListener>())
+        : listener(std::make_unique<bayou::tls::Listener>())
     {
         if (!listener_retry::listenWithRetry(*listener, port))
         {
@@ -368,7 +369,7 @@ public:
         running = true;
         while (running)
         {
-            auto client = std::make_unique<sf::TcpSocket>();
+            auto client = std::make_unique<bayou::tls::Socket>();
             if (listener->accept(*client) == sf::Socket::Status::Done)
             {
                 handleClient(*client);
@@ -377,12 +378,12 @@ public:
     }
 
 private:
-    std::unique_ptr<sf::TcpListener> listener;
+    std::unique_ptr<bayou::tls::Listener> listener;
     std::atomic<bool> running{false};
     bool listening = false;
     unsigned short nextGamePort = FirstGamePort;
 
-    void handleClient(sf::TcpSocket& client)
+    void handleClient(bayou::tls::Socket& client)
     {
         sf::Packet packet;
         if (socket_timeout::receivePacket(client, packet, InitialRequestTimeout) != sf::Socket::Status::Done)
@@ -466,7 +467,7 @@ public:
           playerUsernames{std::move(playerOne), std::move(playerTwo)},
           resultToken(std::move(resultToken)),
           aiAccessToken(std::move(aiAccessToken)),
-          listener(std::make_unique<sf::TcpListener>()),
+          listener(std::make_unique<bayou::tls::Listener>()),
           aiOpponent(aiOpponent)
     {
         loadCardLibrary();
@@ -673,7 +674,7 @@ private:
     std::array<std::string, 2> playerUsernames;
     std::string resultToken;
     std::string aiAccessToken;
-    std::unique_ptr<sf::TcpListener> listener;
+    std::unique_ptr<bayou::tls::Listener> listener;
     // Authoritative card definitions keyed by title, loaded from this server's
     // own cards.db; submitted decks are resolved against these stats.
     std::unordered_map<std::string, card_data::Card> cardLibrary;
@@ -682,7 +683,7 @@ private:
 
     std::optional<JoinedPlayer> acceptPlayer()
     {
-        auto client = std::make_unique<sf::TcpSocket>();
+        auto client = std::make_unique<bayou::tls::Socket>();
         if (listener->accept(*client) != sf::Socket::Status::Done)
         {
             return std::nullopt;
@@ -721,7 +722,7 @@ private:
         return JoinedPlayer{std::move(client), playerNumber, username, accessToken, rating};
     }
 
-    void sendGameReady(sf::TcpSocket& client, int playerNumber)
+    void sendGameReady(bayou::tls::Socket& client, int playerNumber)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::GameReady);
@@ -848,7 +849,7 @@ private:
         }
     }
 
-    void sendSnapshot(sf::TcpSocket& client, const GameEngine& engine, int playerNumber)
+    void sendSnapshot(bayou::tls::Socket& client, const GameEngine& engine, int playerNumber)
     {
         sf::Packet packet;
         packet << static_cast<uint8_t>(MessageType::GameStateUpdate);

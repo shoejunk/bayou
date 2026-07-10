@@ -49,6 +49,39 @@ CPMAddPackage(
         "SFML_BUILD_GRAPHICS ${BAYOU_BUILD_CLIENTS}"
 )
 
+CPMAddPackage(
+    NAME asio_source
+    GITHUB_REPOSITORY chriskohlhoff/asio
+    GIT_TAG asio-1-30-2
+    DOWNLOAD_ONLY YES
+)
+
+set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+CPMAddPackage(
+    NAME MbedTLS
+    GITHUB_REPOSITORY Mbed-TLS/mbedtls
+    GIT_TAG mbedtls-3.6.6
+)
+
+add_library(bayou_transport
+    src/shared/tls_socket.cpp
+)
+target_include_directories(bayou_transport
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/shared"
+        "${asio_source_SOURCE_DIR}/asio/include"
+)
+target_compile_definitions(bayou_transport PUBLIC ASIO_STANDALONE ASIO_NO_DEPRECATED)
+target_compile_definitions(
+    bayou_transport
+    PRIVATE
+        $<$<CONFIG:Debug>:BAYOU_DEVELOPMENT_TLS_DEFAULTS>
+        $<$<PLATFORM_ID:Windows>:_WIN32_WINNT=0x0A00>
+)
+target_link_libraries(bayou_transport PUBLIC SFML::Network MbedTLS::mbedtls)
+
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
     set(SODIUM_DISABLE_TESTS ON CACHE BOOL "" FORCE)
     CPMAddPackage(
@@ -85,7 +118,7 @@ if(BAYOU_BUILD_CLIENTS)
                 src/client/card_editor_screen.cppm
     )
 
-    target_link_libraries(client PRIVATE fmt::fmt SFML::Audio SFML::Graphics SFML::Window SFML::System SFML::Network)
+    target_link_libraries(client PRIVATE fmt::fmt SFML::Audio SFML::Graphics SFML::Window SFML::System SFML::Network bayou_transport)
     if(WIN32)
         target_link_libraries(client PRIVATE Crypt32)
     endif()
@@ -115,7 +148,7 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
             src/shared/card_database.cpp
     )
 
-    target_link_libraries(accounts PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network sodium)
+    target_link_libraries(accounts PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network sodium bayou_transport)
     install(TARGETS accounts RUNTIME DESTINATION bin)
 endif()
 
@@ -128,7 +161,7 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_MATCHMAKING)
             src/matchmaking/main.cpp
     )
 
-    target_link_libraries(matchmaking PRIVATE fmt::fmt SFML::System SFML::Network)
+    target_link_libraries(matchmaking PRIVATE fmt::fmt SFML::System SFML::Network bayou_transport)
     install(TARGETS matchmaking RUNTIME DESTINATION bin)
 endif()
 
@@ -146,7 +179,7 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
             src/shared/card_database.cpp
     )
 
-    target_link_libraries(gameserver PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network)
+    target_link_libraries(gameserver PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network bayou_transport)
     install(TARGETS gameserver RUNTIME DESTINATION bin)
 endif()
 
@@ -159,7 +192,7 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
             src/gametest/main.cpp
     )
 
-    target_link_libraries(gametest PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network)
+    target_link_libraries(gametest PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network bayou_transport)
 endif()
 
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_CARDSERVER)
@@ -172,7 +205,7 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_CARDSERVER)
             src/shared/card_database.cpp
     )
 
-    target_link_libraries(cardserver PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network)
+    target_link_libraries(cardserver PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network bayou_transport)
 
     install(TARGETS cardserver RUNTIME DESTINATION bin)
 endif()

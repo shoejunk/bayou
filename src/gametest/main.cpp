@@ -3,6 +3,7 @@
 // Requires the matchmaking server (55001) and game server coordinator (55002)
 // to be running.
 #include <SFML/Network.hpp>
+#include "tls_socket.hpp"
 #include <fmt/core.h>
 
 #include <chrono>
@@ -40,7 +41,7 @@ void check(bool condition, const std::string& label)
     }
 }
 
-bool connectWithRetry(sf::TcpSocket& socket, unsigned short port, int attempts)
+bool connectWithRetry(bayou::tls::Socket& socket, unsigned short port, int attempts)
 {
     const std::optional<sf::IpAddress> address = sf::IpAddress::resolve(Host);
     if (!address)
@@ -60,7 +61,7 @@ bool connectWithRetry(sf::TcpSocket& socket, unsigned short port, int attempts)
 
 std::string tryLogin(const std::string& username, const std::string& password)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectWithRetry(socket, AccountPort, 20))
     {
         return {};
@@ -97,7 +98,7 @@ std::string tryLogin(const std::string& username, const std::string& password)
 
 bool createAccountForTest(const std::string& username, const std::string& password)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectWithRetry(socket, AccountPort, 20))
     {
         return false;
@@ -147,7 +148,7 @@ std::string loginForTest(const std::string& username, const std::string& passwor
 // titles are all a legitimate client needs to submit.
 std::vector<card_data::Card> fetchDeckCards(const std::string& accessToken)
 {
-    sf::TcpSocket socket;
+    bayou::tls::Socket socket;
     if (!connectWithRetry(socket, AccountPort, 20))
     {
         return {};
@@ -196,13 +197,13 @@ std::vector<card_data::Card> fetchDeckCards(const std::string& accessToken)
     return cards;
 }
 
-void send(sf::TcpSocket& socket, sf::Packet& packet)
+void send(bayou::tls::Socket& socket, sf::Packet& packet)
 {
     [[maybe_unused]] auto result = socket.send(packet);
 }
 
 // Drains all pending packets, keeping the most recent snapshot.
-bool pumpSnapshot(sf::TcpSocket& socket, Snapshot& latest)
+bool pumpSnapshot(bayou::tls::Socket& socket, Snapshot& latest)
 {
     bool updated = false;
     sf::Packet packet;
@@ -225,7 +226,7 @@ bool pumpSnapshot(sf::TcpSocket& socket, Snapshot& latest)
 }
 
 // Polls both sockets for up to timeoutMs, returning the latest snapshots.
-void settle(sf::TcpSocket& a, sf::TcpSocket& b, Snapshot& sa, Snapshot& sb, int timeoutMs = 800)
+void settle(bayou::tls::Socket& a, bayou::tls::Socket& b, Snapshot& sa, Snapshot& sb, int timeoutMs = 800)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
     while (std::chrono::steady_clock::now() < deadline)
@@ -236,28 +237,28 @@ void settle(sf::TcpSocket& a, sf::TcpSocket& b, Snapshot& sa, Snapshot& sb, int 
     }
 }
 
-void sendPlaceHero(sf::TcpSocket& socket, int row, int column, int heroIndex = 0)
+void sendPlaceHero(bayou::tls::Socket& socket, int row, int column, int heroIndex = 0)
 {
     sf::Packet packet;
     packet << static_cast<std::uint8_t>(MessageType::PlaceHero) << heroIndex << row << column;
     send(socket, packet);
 }
 
-void sendPlayCard(sf::TcpSocket& socket, int handIndex, int row, int column)
+void sendPlayCard(bayou::tls::Socket& socket, int handIndex, int row, int column)
 {
     sf::Packet packet;
     packet << static_cast<std::uint8_t>(MessageType::PlayCard) << handIndex << row << column;
     send(socket, packet);
 }
 
-void sendEndTurn(sf::TcpSocket& socket)
+void sendEndTurn(bayou::tls::Socket& socket)
 {
     sf::Packet packet;
     packet << static_cast<std::uint8_t>(MessageType::EndTurn);
     send(socket, packet);
 }
 
-void sendDiscardCard(sf::TcpSocket& socket, int handIndex)
+void sendDiscardCard(bayou::tls::Socket& socket, int handIndex)
 {
     sf::Packet packet;
     packet << static_cast<std::uint8_t>(MessageType::DiscardCard) << handIndex;
@@ -855,8 +856,8 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    sf::TcpSocket mmA;
-    sf::TcpSocket mmB;
+    bayou::tls::Socket mmA;
+    bayou::tls::Socket mmB;
     if (!connectWithRetry(mmA, MatchmakingPort, 20))
     {
         fmt::println("Could not reach matchmaking server on {}. Is it running?", MatchmakingPort);
@@ -877,7 +878,7 @@ int main(int argc, char** argv)
     joinB << static_cast<std::uint8_t>(MessageType::JoinMatchmaking) << tokenB;
     send(mmB, joinB);
 
-    auto readMatch = [](sf::TcpSocket& socket, int& matchId, int& playerNumber, unsigned short& gamePort) -> bool {
+    auto readMatch = [](bayou::tls::Socket& socket, int& matchId, int& playerNumber, unsigned short& gamePort) -> bool {
         sf::Packet packet;
         if (socket.receive(packet) != sf::Socket::Status::Done)
         {
@@ -910,20 +911,20 @@ int main(int argc, char** argv)
     }
 
     // --- join game ---------------------------------------------------------
-    sf::TcpSocket gameA;
-    sf::TcpSocket gameB;
+    bayou::tls::Socket gameA;
+    bayou::tls::Socket gameB;
     check(connectWithRetry(gameA, portA, 40), "player A connected to game");
     check(connectWithRetry(gameB, portB, 40), "player B connected to game");
 
     // The game process only sends GameReady once both players have joined, so
     // send both JoinGame messages before blocking on either response.
-    auto sendJoin = [](sf::TcpSocket& socket, int matchId, int playerNumber, const std::string& token) {
+    auto sendJoin = [](bayou::tls::Socket& socket, int matchId, int playerNumber, const std::string& token) {
         sf::Packet join;
         join << static_cast<std::uint8_t>(MessageType::JoinGame)
              << matchId << playerNumber << token;
         send(socket, join);
     };
-    auto readReady = [](sf::TcpSocket& socket) -> bool {
+    auto readReady = [](bayou::tls::Socket& socket) -> bool {
         sf::Packet response;
         if (socket.receive(response) != sf::Socket::Status::Done)
         {
@@ -943,11 +944,11 @@ int main(int argc, char** argv)
     check(readReady(gameB), "player B game ready");
 
     // Determine which socket is player 1 / player 2.
-    sf::TcpSocket& p1 = (pnumA == 1) ? gameA : gameB;
-    sf::TcpSocket& p2 = (pnumA == 1) ? gameB : gameA;
+    bayou::tls::Socket& p1 = (pnumA == 1) ? gameA : gameB;
+    bayou::tls::Socket& p2 = (pnumA == 1) ? gameB : gameA;
 
     // --- submit decks ------------------------------------------------------
-    auto submitDeck = [](sf::TcpSocket& socket, const std::vector<card_data::Card>& deck) {
+    auto submitDeck = [](bayou::tls::Socket& socket, const std::vector<card_data::Card>& deck) {
         sf::Packet packet;
         packet << static_cast<std::uint8_t>(MessageType::SubmitDeck);
         packet << static_cast<std::uint32_t>(deck.size());

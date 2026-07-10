@@ -2,6 +2,7 @@ module;
 
 #include <SFML/Graphics.hpp>
 #include <SFML/Network.hpp>
+#include "tls_socket.hpp"
 #include <fmt/core.h>
 
 #include "card_editor_assets.hpp"
@@ -647,19 +648,20 @@ private:
         return fmt::format("{}:{}", endpoint.host, endpoint.port);
     }
 
-    bool connectToServer(sf::TcpSocket& socket) const
+    bool connectToServer(bayou::tls::Socket& socket) const
     {
         const std::optional<sf::IpAddress> address = sf::IpAddress::resolve(endpoint.host);
         if (!address)
         {
             return false;
         }
+        socket.setServerName(endpoint.host);
         return socket.connect(*address, endpoint.port) == sf::Socket::Status::Done;
     }
 
     CardListResult fetchCardsFromServer() const
     {
-        sf::TcpSocket socket;
+        bayou::tls::Socket socket;
         if (!connectToServer(socket))
         {
             return {false, "Failed to connect to card server " + endpointText()};
@@ -711,7 +713,7 @@ private:
 
     ActionListResult fetchActionsFromServer() const
     {
-        sf::TcpSocket socket;
+        bayou::tls::Socket socket;
         if (!connectToServer(socket))
         {
             return {false, "Failed to connect to card server " + endpointText()};
@@ -759,7 +761,7 @@ private:
         return {success, message, std::move(loadedActions)};
     }
 
-    CommandResult readCommandResponse(sf::TcpSocket& socket, network::MessageType expectedResponseType, const std::string& action) const
+    CommandResult readCommandResponse(bayou::tls::Socket& socket, network::MessageType expectedResponseType, const std::string& action) const
     {
         sf::Packet response;
         if (socket.receive(response) != sf::Socket::Status::Done)
@@ -783,7 +785,7 @@ private:
         card_data::Card card = inputCard;
         normalizeCardImagePath(card);
 
-        sf::TcpSocket socket;
+        bayou::tls::Socket socket;
         if (!connectToServer(socket))
         {
             return {false, "Failed to connect to card server " + endpointText()};
@@ -808,7 +810,7 @@ private:
         card_data::Card card = inputCard;
         normalizeCardImagePath(card);
 
-        sf::TcpSocket socket;
+        bayou::tls::Socket socket;
         if (!connectToServer(socket))
         {
             return {false, "Failed to connect to card server " + endpointText()};
@@ -831,7 +833,7 @@ private:
 
     CommandResult deleteCardFromServer(const std::string& title) const
     {
-        sf::TcpSocket socket;
+        bayou::tls::Socket socket;
         if (!connectToServer(socket))
         {
             return {false, "Failed to connect to card server " + endpointText()};
@@ -853,7 +855,7 @@ private:
 
     CommandResult saveActionToServer(const card_data::Action& action) const
     {
-        sf::TcpSocket socket;
+        bayou::tls::Socket socket;
         if (!connectToServer(socket))
         {
             return {false, "Failed to connect to card server " + endpointText()};
@@ -873,7 +875,7 @@ private:
 
     CommandResult updateActionOnServer(const std::string& originalName, const card_data::Action& action) const
     {
-        sf::TcpSocket socket;
+        bayou::tls::Socket socket;
         if (!connectToServer(socket))
         {
             return {false, "Failed to connect to card server " + endpointText()};
@@ -893,7 +895,7 @@ private:
 
     CommandResult deleteActionFromServer(const std::string& name) const
     {
-        sf::TcpSocket socket;
+        bayou::tls::Socket socket;
         if (!connectToServer(socket))
         {
             return {false, "Failed to connect to card server " + endpointText()};

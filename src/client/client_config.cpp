@@ -553,7 +553,7 @@ std::string endpointText(const ServerEndpoint& endpoint)
     return endpoint.host + ":" + std::to_string(endpoint.port);
 }
 
-bool connectToHostPort(sf::TcpSocket& socket, const std::string& host, unsigned short port)
+bool connectToHostPort(bayou::tls::Socket& socket, const std::string& host, unsigned short port)
 {
     const std::optional<sf::IpAddress> address = sf::IpAddress::resolve(host);
     if (!address)
@@ -561,10 +561,11 @@ bool connectToHostPort(sf::TcpSocket& socket, const std::string& host, unsigned 
         return false;
     }
 
+    socket.setServerName(host);
     return socket.connect(*address, port) == sf::Socket::Status::Done;
 }
 
-bool connectToEndpoint(sf::TcpSocket& socket, const ServerEndpoint& endpoint)
+bool connectToEndpoint(bayou::tls::Socket& socket, const ServerEndpoint& endpoint)
 {
     return connectToHostPort(socket, endpoint.host, endpoint.port);
 }

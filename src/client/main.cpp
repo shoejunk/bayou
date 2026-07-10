@@ -1,6 +1,7 @@
 #include <SFML/Audio.hpp>
 #include <SFML/Graphics.hpp>
 #include <SFML/Network.hpp>
+#include "tls_socket.hpp"
 
 #include "client_board_layout.hpp"
 #include "client_card_text.hpp"
@@ -944,7 +945,7 @@ int main(int argc, char** argv)
     int coinPurchaseStartingCoins = 0;
     float nextCoinPurchasePollAt = 0.0f;
     float coinPurchasePollDeadline = 0.0f;
-    std::shared_ptr<sf::TcpSocket> activeGameSocket;
+    std::shared_ptr<bayou::tls::Socket> activeGameSocket;
     std::string loggedInUsername;
     std::string activeAccessToken;
     std::string activeRememberToken;
@@ -1926,7 +1927,7 @@ int main(int argc, char** argv)
         returnToMenu();
     };
 
-    auto showGameScreen = [&](std::shared_ptr<sf::TcpSocket> gameSocket) {
+    auto showGameScreen = [&](std::shared_ptr<bayou::tls::Socket> gameSocket) {
         activeGameSocket = std::move(gameSocket);
         currentState = GameState::Game;
         title.setString("");

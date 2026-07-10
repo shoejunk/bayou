@@ -1,4 +1,5 @@
 #include <SFML/Network.hpp>
+#include "tls_socket.hpp"
 #include <SQLiteCpp/SQLiteCpp.h>
 #include <fmt/core.h>
 #include <sodium.h>
@@ -47,7 +48,7 @@ class AccountServer
 {
 public:
     AccountServer(unsigned short port)
-        : listener(std::make_unique<sf::TcpListener>())
+        : listener(std::make_unique<bayou::tls::Listener>())
     {
         if (sodium_init() < 0)
         {
@@ -90,7 +91,7 @@ public:
         running = true;
         while (running)
         {
-            auto client = std::make_unique<sf::TcpSocket>();
+            auto client = std::make_unique<bayou::tls::Socket>();
             if (listener->accept(*client) == sf::Socket::Status::Done)
             {
                 auto address = client->getRemoteAddress();
@@ -112,7 +113,7 @@ public:
     }
 
 private:
-    std::unique_ptr<sf::TcpListener> listener;
+    std::unique_ptr<bayou::tls::Listener> listener;
     std::unique_ptr<SQLite::Database> database;
     std::mutex databaseMutex;
     account_rate_limiter::AccountRateLimiter loginRateLimiter;
@@ -217,7 +218,7 @@ private:
         account_decks::purgeTokenCards(*database);
     }
 
-    void handleClient(std::unique_ptr<sf::TcpSocket> client)
+    void handleClient(std::unique_ptr<bayou::tls::Socket> client)
     {
         sf::Packet packet;
         const std::string remoteAddress = client->getRemoteAddress()
@@ -446,7 +447,7 @@ private:
     }
 
     void handleCreateAccount(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         const std::string& username,
         const std::string& password,
         const std::string& remoteAddress)
@@ -512,7 +513,7 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    void handleListDecks(sf::TcpSocket& client, const std::string& accessToken)
+    void handleListDecks(bayou::tls::Socket& client, const std::string& accessToken)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::DeckListResponse);
@@ -550,7 +551,7 @@ private:
     }
 
     void handleSaveDeck(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         const std::string& accessToken,
         const std::string& originalName,
         const deck_data::Deck& deck)
@@ -595,7 +596,7 @@ private:
         }
     }
 
-    void handleDeleteDeck(sf::TcpSocket& client, const std::string& accessToken, const std::string& deckName)
+    void handleDeleteDeck(bayou::tls::Socket& client, const std::string& accessToken, const std::string& deckName)
     {
         if (deckName.empty())
         {
@@ -629,7 +630,7 @@ private:
         }
     }
 
-    void handleAccountState(sf::TcpSocket& client, const std::string& accessToken)
+    void handleAccountState(bayou::tls::Socket& client, const std::string& accessToken)
     {
         try
         {
@@ -659,7 +660,7 @@ private:
         }
     }
 
-    void handleRankedPlayerRequest(sf::TcpSocket& client, const std::string& accessToken)
+    void handleRankedPlayerRequest(bayou::tls::Socket& client, const std::string& accessToken)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::RankedPlayerResponse);
@@ -690,7 +691,7 @@ private:
     }
 
     void handleRegisterRankedMatch(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         int matchId,
         const std::string& playerOneToken,
         const std::string& playerTwoToken)
@@ -737,7 +738,7 @@ private:
     }
 
     void handleSubmitRankedResult(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         int matchId,
         const std::string& resultToken,
         int winner)
@@ -843,7 +844,7 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    void handleSubmitAiResult(sf::TcpSocket& client, const std::string& accessToken, bool humanWon)
+    void handleSubmitAiResult(bayou::tls::Socket& client, const std::string& accessToken, bool humanWon)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::SubmitAiResultResponse);
@@ -882,7 +883,7 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    void handleWinReward(sf::TcpSocket& client, const std::string& accessToken)
+    void handleWinReward(bayou::tls::Socket& client, const std::string& accessToken)
     {
         (void)accessToken;
         sendCoinResponse(
@@ -893,7 +894,7 @@ private:
             0);
     }
 
-    void handleShopPurchase(sf::TcpSocket& client, const std::string& accessToken)
+    void handleShopPurchase(bayou::tls::Socket& client, const std::string& accessToken)
     {
         try
         {
@@ -945,7 +946,7 @@ private:
     }
 
     void handleAdminUserList(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         const std::string& accessToken,
         const std::string& search,
         std::uint32_t page,
@@ -1020,7 +1021,7 @@ private:
     }
 
     void handleChangePassword(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         const std::string& accessToken,
         const std::string& currentPassword,
         const std::string& newPassword,
@@ -1116,7 +1117,7 @@ private:
     }
 
     void handleAdminUserPrivilege(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         const std::string& accessToken,
         const std::string& targetUsername,
         bool makeAdmin)
@@ -1176,7 +1177,7 @@ private:
     }
 
     void handleAdminUserGold(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         const std::string& accessToken,
         const std::string& targetUsername,
         int amount)
@@ -1247,7 +1248,7 @@ private:
     }
 
     void handleAdminUserDelete(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         const std::string& accessToken,
         const std::string& targetUsername)
     {
@@ -1296,7 +1297,7 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    void handleAdminStarterDeck(sf::TcpSocket& client, const std::string& accessToken)
+    void handleAdminStarterDeck(bayou::tls::Socket& client, const std::string& accessToken)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::AdminStarterDeckResponse);
@@ -1331,7 +1332,7 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    void handleAdminStarterDeckSave(sf::TcpSocket& client, const std::string& accessToken, const deck_data::Deck& deck)
+    void handleAdminStarterDeckSave(bayou::tls::Socket& client, const std::string& accessToken, const deck_data::Deck& deck)
     {
         try
         {
@@ -1365,7 +1366,7 @@ private:
     }
 
     void handleLogin(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         const std::string& username,
         const std::string& password,
         bool rememberMe,
@@ -1453,7 +1454,7 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    void handleRememberLogin(sf::TcpSocket& client, const std::string& token)
+    void handleRememberLogin(bayou::tls::Socket& client, const std::string& token)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::RememberLoginResponse);
@@ -1499,7 +1500,7 @@ private:
     }
 
     void handleRevokeRememberToken(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         const std::string& rememberToken,
         const std::string& accessToken)
     {
@@ -1541,7 +1542,7 @@ private:
     }
 
     void sendDeckCommandResponse(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         MessageType responseType,
         bool success,
         const std::string& message)
@@ -1553,7 +1554,7 @@ private:
     }
 
     void sendAccountStateResponse(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         bool success,
         const std::string& message,
         int coins,
@@ -1570,7 +1571,7 @@ private:
     }
 
     void sendCoinResponse(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         MessageType responseType,
         bool success,
         const std::string& message,
@@ -1583,7 +1584,7 @@ private:
     }
 
     void sendShopPurchaseResponse(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         bool success,
         const std::string& message,
         int coins,
@@ -1643,7 +1644,7 @@ private:
     }
 
     static void sendChangePasswordResponse(
-        sf::TcpSocket& client,
+        bayou::tls::Socket& client,
         bool success,
         const std::string& message)
     {
