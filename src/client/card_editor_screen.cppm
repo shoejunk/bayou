@@ -257,35 +257,6 @@ std::string uniqueCopyName(const std::string& sourceName, const std::set<std::st
     }
 }
 
-std::string integerPairsToText(const std::vector<card_data::KeyIntPair>& values)
-{
-    std::vector<std::string> parts;
-    for (const card_data::KeyIntPair& item : values)
-    {
-        parts.push_back(fmt::format("{}={}", item.key, item.value));
-    }
-    return joinStrings(parts, "; ");
-}
-
-std::string stringPairsToText(const std::vector<card_data::KeyStringPair>& values)
-{
-    std::vector<std::string> parts;
-    for (const card_data::KeyStringPair& item : values)
-    {
-        parts.push_back(fmt::format("{}={}", item.key, item.value));
-    }
-    return joinStrings(parts, "; ");
-}
-
-std::string stringListsToText(const std::vector<card_data::KeyStringList>& values)
-{
-    std::vector<std::string> parts;
-    for (const card_data::KeyStringList& item : values)
-    {
-        parts.push_back(fmt::format("{}={}", item.key, joinStrings(item.values, ",")));
-    }
-    return joinStrings(parts, "; ");
-}
 }
 
 export struct CardEditorEndpoint
@@ -2755,7 +2726,6 @@ private:
     void drawPreviewPanel(sf::RenderWindow& window)
     {
         drawRoundedPanel(window, {PreviewPanelX, PreviewPanelY}, {PreviewPanelWidth, PanelHeight}, Panel);
-        drawText(window, font, "Preview", 22, {882.0f, 124.0f}, Ink);
         drawRoundedPanel(window, {938.0f, 160.0f}, {230.0f, 322.0f}, sf::Color(27, 39, 38), AccentDark);
         if (hasPreviewImage)
         {
@@ -2787,21 +2757,21 @@ private:
         bayou::client::centerText(type, {1053.0f, 445.0f});
         window.draw(type);
 
-        float y = 512.0f;
+        int cost = 0;
+        for (const card_data::KeyIntPair& pair : card.integerValues)
+        {
+            if (pair.key == "cost")
+            {
+                cost = pair.value;
+                break;
+            }
+        }
+
+        float y = 480.0f;
+        drawText(window, font, fmt::format("Cost: {}", cost), 16, {882.0f, y}, Ink);
+        y += 54.0f;
         drawText(window, font, "Keywords", 15, {882.0f, y}, Muted);
         drawText(window, font, joinStrings(card.keywords, ", "), 16, {882.0f, y + 22.0f}, Ink, 336.0f);
-        y += 54.0f;
-        drawText(window, font, "Integer Fields", 15, {882.0f, y}, Muted);
-        drawText(window, font, integerPairsToText(card.integerValues), 16, {882.0f, y + 22.0f}, Ink, 336.0f);
-        y += 54.0f;
-        drawText(window, font, "String Fields", 15, {882.0f, y}, Muted);
-        drawText(window, font, stringPairsToText(card.stringValues), 16, {882.0f, y + 22.0f}, Ink, 336.0f);
-        y += 54.0f;
-        drawText(window, font, "String Lists", 15, {882.0f, y}, Muted);
-        drawText(window, font, stringListsToText(card.stringLists), 16, {882.0f, y + 22.0f}, Ink, 336.0f);
-        y += 54.0f;
-        drawText(window, font, "Actions", 15, {882.0f, y}, Muted);
-        drawText(window, font, joinStrings(card.actionNames, ", "), 16, {882.0f, y + 22.0f}, Ink, 336.0f);
     }
 
     void setStatus(const std::string& message, sf::Color color)
