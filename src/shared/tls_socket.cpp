@@ -12,12 +12,20 @@
 #include <array>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string_view>
 #include <thread>
 #include <vector>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <Windows.h>
+#endif
 
 namespace bayou::tls
 {
@@ -27,14 +35,34 @@ constexpr std::uint32_t MaxPacketBytes = 16U * 1024U * 1024U;
 constexpr std::size_t FrameHeaderBytes = sizeof(std::uint32_t);
 
 #ifdef BAYOU_DEVELOPMENT_TLS_DEFAULTS
-constexpr std::string_view DefaultCaFile = "tls/dev-server-cert.pem";
+constexpr std::string_view DefaultCaFile = "tls/dev-ca-cert.pem";
 constexpr std::string_view DefaultCertificateFile = "tls/dev-server-cert.pem";
 constexpr std::string_view DefaultPrivateKeyFile = "tls/dev-server-key.pem";
 #else
-constexpr std::string_view DefaultCaFile;
 constexpr std::string_view DefaultCertificateFile;
 constexpr std::string_view DefaultPrivateKeyFile;
 #endif
+
+std::string defaultCaFile()
+{
+#ifdef BAYOU_DEVELOPMENT_TLS_DEFAULTS
+    return std::string(DefaultCaFile);
+#elif defined(_WIN32)
+    std::vector<wchar_t> path(32768);
+    const DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+    if (length != 0 && length < path.size())
+    {
+        return (std::filesystem::path(std::wstring_view(path.data(), length)).parent_path() /
+                "bayou-ca.pem")
+            .string();
+    }
+    return "bayou-ca.pem";
+#else
+    std::error_code error;
+    const std::filesystem::path executable = std::filesystem::read_symlink("/proc/self/exe", error);
+    return error ? "bayou-ca.pem" : (executable.parent_path() / "bayou-ca.pem").string();
+#endif
+}
 
 std::string environmentOr(const char* name, std::string fallback)
 {
@@ -50,6 +78,13 @@ std::string environmentOr(const char* name, std::string fallback)
     std::array<char, 256> details{};
     mbedtls_strerror(error, details.data(), details.size());
     throw std::runtime_error(std::string(operation) + ": " + details.data());
+}
+
+std::string tlsErrorText(int error)
+{
+    std::array<char, 256> details{};
+    mbedtls_strerror(error, details.data(), details.size());
+    return details.data();
 }
 
 void requireTls(int result, std::string_view operation)
@@ -119,7 +154,7 @@ public:
             }
             else
             {
-                const std::string caFile = environmentOr("BAYOU_TLS_CA_FILE", std::string(DefaultCaFile));
+                const std::string caFile = environmentOr("BAYOU_TLS_CA_FILE", defaultCaFile());
                 if (caFile.empty())
                 {
                     throw std::runtime_error("release TLS CA bundle is not configured");
@@ -350,8 +385,9 @@ public:
             configuration = std::make_shared<TlsConfiguration>(true);
             configurationValid = true;
         }
-        catch (const std::exception&)
+        catch (const std::exception& error)
         {
+            std::cerr << "TLS server configuration failed: " << error.what() << '\n';
             configurationValid = false;
         }
     }
@@ -382,16 +418,19 @@ sf::Socket::Status Socket::connect(const sf::IpAddress& address, unsigned short 
             return statusFor(error);
         }
         impl->prepareTls(impl->configuration, true);
-        if (impl->handshake() != 0)
+        const int handshakeResult = impl->handshake();
+        if (handshakeResult != 0)
         {
+            std::cerr << "TLS client handshake failed: " << tlsErrorText(handshakeResult) << '\n';
             disconnect();
             return sf::Socket::Status::Error;
         }
         impl->socket.non_blocking(!impl->blocking, error);
         return statusFor(error);
     }
-    catch (const std::exception&)
+    catch (const std::exception& error)
     {
+        std::cerr << "TLS client setup failed: " << error.what() << '\n';
         disconnect();
         return sf::Socket::Status::Error;
     }
@@ -611,16 +650,19 @@ sf::Socket::Status Listener::accept(Socket& socket)
     try
     {
         socket.impl->prepareTls(impl->configuration, false);
-        if (socket.impl->handshake() != 0)
+        const int handshakeResult = socket.impl->handshake();
+        if (handshakeResult != 0)
         {
+            std::cerr << "TLS server handshake failed: " << tlsErrorText(handshakeResult) << '\n';
             socket.disconnect();
             return sf::Socket::Status::Error;
         }
         socket.impl->socket.non_blocking(!socket.impl->blocking, error);
         return statusFor(error);
     }
-    catch (const std::exception&)
+    catch (const std::exception& error)
     {
+        std::cerr << "TLS server setup failed: " << error.what() << '\n';
         socket.disconnect();
         return sf::Socket::Status::Error;
     }

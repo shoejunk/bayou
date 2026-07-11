@@ -13,6 +13,13 @@ VERSION="${VERSION:-$(date -u +%Y%m%d%H%M%S)}"
 RELEASE_DIR="${RELEASE_DIR:-/opt/bayou/releases/${VERSION}}"
 DATA_DIR="${DATA_DIR:-/var/lib/bayou/shared}"
 APP_USER="${APP_USER:-bayou}"
+TLS_CERT_FILE="${TLS_CERT_FILE:-}"
+TLS_KEY_FILE="${TLS_KEY_FILE:-}"
+TLS_CA_FILE="${TLS_CA_FILE:-}"
+TLS_SERVER_NAME="${TLS_SERVER_NAME:-}"
+TLS_DIR="/etc/bayou/tls"
+TLS_ENV_FILE="/etc/bayou/tls.env"
+SERVICE_UNITS=(bayou-accounts bayou-cardserver bayou-gameserver bayou-matchmaking)
 
 for executable in accounts cardserver gameserver matchmaking; do
     if [[ ! -x "${SOURCE_PREFIX}/bin/${executable}" ]]; then
@@ -20,6 +27,46 @@ for executable in accounts cardserver gameserver matchmaking; do
         exit 1
     fi
 done
+
+for variable in TLS_CERT_FILE TLS_KEY_FILE TLS_CA_FILE TLS_SERVER_NAME; do
+    if [[ -z "${!variable}" ]]; then
+        echo "${variable} is required for a production TLS deployment."
+        exit 1
+    fi
+done
+for file in "${TLS_CERT_FILE}" "${TLS_KEY_FILE}" "${TLS_CA_FILE}"; do
+    if [[ ! -f "${file}" ]]; then
+        echo "TLS input file does not exist: ${file}"
+        exit 1
+    fi
+done
+if [[ ! "${TLS_SERVER_NAME}" =~ ^[A-Za-z0-9.-]+$ ]]; then
+    echo "TLS_SERVER_NAME must be a DNS name or IPv4 address."
+    exit 1
+fi
+if ! command -v openssl >/dev/null 2>&1; then
+    echo "OpenSSL is required to validate production certificates before deployment."
+    exit 1
+fi
+
+# Fail before changing the active release if the certificate is expired,
+# untrusted by the supplied CA, does not match the private key, or does not
+# cover the identity that clients and internal services will verify.
+openssl x509 -in "${TLS_CERT_FILE}" -noout -checkend 86400
+openssl verify -CAfile "${TLS_CA_FILE}" "${TLS_CERT_FILE}"
+certificate_key="$({ openssl x509 -in "${TLS_CERT_FILE}" -pubkey -noout |
+    openssl pkey -pubin -outform DER; } | sha256sum | awk '{print $1}')"
+private_key="$({ openssl pkey -in "${TLS_KEY_FILE}" -pubout -outform DER; } |
+    sha256sum | awk '{print $1}')"
+if [[ "${certificate_key}" != "${private_key}" ]]; then
+    echo "TLS certificate and private key do not match."
+    exit 1
+fi
+if [[ "${TLS_SERVER_NAME}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    openssl x509 -in "${TLS_CERT_FILE}" -noout -checkip "${TLS_SERVER_NAME}"
+else
+    openssl x509 -in "${TLS_CERT_FILE}" -noout -checkhost "${TLS_SERVER_NAME}"
+fi
 
 if ! id -u "${APP_USER}" >/dev/null 2>&1; then
     useradd --system --home-dir "${DATA_DIR}" --shell /usr/sbin/nologin "${APP_USER}"
@@ -39,7 +86,18 @@ for database in accounts.db cards.db; do
 done
 chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}"
 
-ln -sfn "${RELEASE_DIR}" /opt/bayou/current
+install -d -m 0750 -o root -g "${APP_USER}" "${TLS_DIR}"
+install -m 0644 -o root -g root "${TLS_CERT_FILE}" "${TLS_DIR}/server-cert.pem"
+install -m 0640 -o root -g "${APP_USER}" "${TLS_KEY_FILE}" "${TLS_DIR}/server-key.pem"
+install -m 0644 -o root -g root "${TLS_CA_FILE}" "${TLS_DIR}/ca.pem"
+{
+    printf 'BAYOU_TLS_CERT_FILE=%s\n' "${TLS_DIR}/server-cert.pem"
+    printf 'BAYOU_TLS_KEY_FILE=%s\n' "${TLS_DIR}/server-key.pem"
+    printf 'BAYOU_TLS_CA_FILE=%s\n' "${TLS_DIR}/ca.pem"
+    printf 'BAYOU_TLS_SERVER_NAME=%s\n' "${TLS_SERVER_NAME}"
+} > "${TLS_ENV_FILE}"
+chown root:"${APP_USER}" "${TLS_ENV_FILE}"
+chmod 0640 "${TLS_ENV_FILE}"
 
 for unit in accounts cardserver gameserver matchmaking; do
     install -m 0644 "${SCRIPT_DIR}/bayou-${unit}.service" \
@@ -48,11 +106,47 @@ done
 install -m 0644 "${SCRIPT_DIR}/bayou-payments.service" \
     /etc/systemd/system/bayou-payments.service
 
+previous_release="$(readlink -f /opt/bayou/current 2>/dev/null || true)"
+rollback_release()
+{
+    echo "TLS deployment health check failed; restoring ${previous_release:-the previous service state}."
+    if [[ -n "${previous_release}" && -d "${previous_release}" ]]; then
+        ln -sfn "${previous_release}" /opt/bayou/current
+        systemctl daemon-reload
+        systemctl restart "${SERVICE_UNITS[@]}" || true
+    else
+        systemctl stop "${SERVICE_UNITS[@]}" || true
+    fi
+}
+
+ln -sfn "${RELEASE_DIR}" /opt/bayou/current
 systemctl daemon-reload
-systemctl enable \
-    bayou-accounts bayou-cardserver bayou-gameserver bayou-matchmaking
-systemctl restart \
-    bayou-accounts bayou-cardserver bayou-gameserver bayou-matchmaking
+systemctl enable "${SERVICE_UNITS[@]}"
+if ! systemctl restart "${SERVICE_UNITS[@]}"; then
+    rollback_release
+    exit 1
+fi
+
+sleep 3
+for service in "${SERVICE_UNITS[@]}"; do
+    if ! systemctl is-active --quiet "${service}"; then
+        systemctl --no-pager --full status "${service}" || true
+        rollback_release
+        exit 1
+    fi
+done
+
+for port in 55000 55001 55002 55004; do
+    if ! timeout 10 openssl s_client \
+        -connect "127.0.0.1:${port}" \
+        -servername "${TLS_SERVER_NAME}" \
+        -CAfile "${TLS_DIR}/ca.pem" \
+        -verify_return_error </dev/null >/dev/null 2>&1; then
+        echo "TLS health check failed on port ${port}."
+        rollback_release
+        exit 1
+    fi
+done
 
 if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then
     firewall-cmd --permanent --add-port=55000-55002/tcp
@@ -61,5 +155,4 @@ if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewa
     firewall-cmd --reload
 fi
 
-systemctl --no-pager --full status \
-    bayou-accounts bayou-cardserver bayou-gameserver bayou-matchmaking
+systemctl --no-pager --full status "${SERVICE_UNITS[@]}"

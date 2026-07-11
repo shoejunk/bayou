@@ -130,7 +130,10 @@ if(BAYOU_BUILD_CLIENTS)
             "$<TARGET_FILE_DIR:client>/client_debug.cfg"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/client_release.cfg"
-            "$<TARGET_FILE_DIR:client>/client_release.cfg")
+            "$<TARGET_FILE_DIR:client>/client_release.cfg"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/deploy/ca/isrg-root-x1.pem"
+            "$<TARGET_FILE_DIR:client>/bayou-ca.pem")
 endif()
 
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
