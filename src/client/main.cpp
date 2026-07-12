@@ -1061,6 +1061,8 @@ int main(int argc, char** argv)
     std::optional<int> draggingPieceId;
     sf::Vector2f gameDragStartPos;
     sf::Vector2f gameDragCurrentPos;
+    int gameDragPieceRowOffset = 0;
+    int gameDragPieceColumnOffset = 0;
     bool gameDragActive = false;
     struct PieceMoveAnimation
     {
@@ -1644,6 +1646,8 @@ int main(int argc, char** argv)
         gameDragKind = GameDragKind::None;
         draggingHandIndex.reset();
         draggingPieceId.reset();
+        gameDragPieceRowOffset = 0;
+        gameDragPieceColumnOffset = 0;
         gameDragActive = false;
         title.setString("Gloomthorn");
         centerText(title, 400.0f);
@@ -2799,7 +2803,9 @@ int main(int argc, char** argv)
                         currentPiece,
                         currentTarget.row,
                         currentTarget.column);
-                    if (!action.legal || !action.attacks || action.targetId != currentTarget.id)
+                    if (!action.legal || !action.attacks ||
+                        (action.targetId != currentTarget.id &&
+                         std::find(action.targetIds.begin(), action.targetIds.end(), currentTarget.id) == action.targetIds.end()))
                     {
                         continue;
                     }
@@ -3153,8 +3159,11 @@ int main(int argc, char** argv)
         float scale,
         sf::Color tint,
         int walkFrame,
-        int idleFrame) {
-        const sf::FloatRect target = pieceTargetRect(anchor, scale, true);
+        int idleFrame,
+        int footprintWidth = 1,
+        int footprintHeight = 1) {
+        const sf::FloatRect target = pieceTargetRect(
+            anchor, scale, true, footprintWidth, footprintHeight);
         if (sf::Texture* base = textures.load(basePath))
         {
             drawContainSprite(window, *base, target, tint);
@@ -3224,12 +3233,15 @@ int main(int argc, char** argv)
             scale,
             tint,
             -1,
-            -1);
+            -1,
+            card.width,
+            card.height);
         if (!drewPiece)
         {
             if (sf::Texture* art = cardArtTexture(card.imagePath))
             {
-                drawContainSprite(window, *art, pieceTargetRect(anchor, scale, false), tint);
+                drawContainSprite(window, *art, pieceTargetRect(
+                    anchor, scale, false, card.width, card.height), tint);
                 drewPiece = true;
             }
         }
@@ -3479,11 +3491,17 @@ int main(int argc, char** argv)
         const int actingPlayer = sandboxPlacementPlayer;
         if (card.type == "Unit" || card.type == "Hero")
         {
-            if (!game_data::inBounds(row, column) ||
-                next.control[static_cast<std::size_t>(game_data::squareIndex(row, column))] != actingPlayer ||
-                pieceAtInSnapshot(next, row, column) != nullptr)
+            bool footprintAvailable = row >= 0 && column >= 0 &&
+                row + card.height <= game_data::BoardSize &&
+                column + card.width <= game_data::BoardSize;
+            for (int r = row; footprintAvailable && r < row + card.height; ++r)
+                for (int c = column; footprintAvailable && c < column + card.width; ++c)
+                    footprintAvailable =
+                        next.control[static_cast<std::size_t>(game_data::squareIndex(r, c))] == actingPlayer &&
+                        pieceAtInSnapshot(next, r, c) == nullptr;
+            if (!footprintAvailable)
             {
-                next.status = "Sandbox pieces deploy onto an empty square controlled by the selected player.";
+                next.status = "Every square under a sandbox piece must be empty and controlled by the selected player.";
                 commitSandboxSnapshot(std::move(next));
                 return;
             }
@@ -3570,29 +3588,31 @@ int main(int argc, char** argv)
 
         const int attackerId = piece->id;
         const std::string attackerName = piece->name;
-        std::string targetName;
-        bool targetDestroyed = false;
-        bool targetAtDestination = false;
-        bool targetWasHidden = false;
+        std::vector<std::string> targetNames;
+        bool anyTargetDestroyed = false;
+        bool anyTargetWasHidden = false;
 
         if (action.attacks)
         {
-            game_data::Piece* target = pieceByIdInSnapshotMutable(next, action.targetId);
-            if (!target)
+            const std::vector<int> targetIds = action.targetIds.empty()
+                ? std::vector<int>{action.targetId}
+                : action.targetIds;
+            for (int targetId : targetIds)
             {
-                return;
+                game_data::Piece* target = pieceByIdInSnapshotMutable(next, targetId);
+                if (!target) continue;
+                targetNames.push_back((target->hidden ? "a hidden " : "") + target->name);
+                anyTargetWasHidden = anyTargetWasHidden || target->hidden;
+                startPieceAttackAnimation(attackerId, target->row, target->column);
+                target->health -= action.damage;
+                game_data::applyDamageStatus(*target, action.damage, action.statusTurns);
+                if (target->health <= 0)
+                {
+                    anyTargetDestroyed = true;
+                    removePieceFromSnapshot(next, targetId);
+                }
             }
-            targetName = target->name;
-            targetAtDestination = target->row == destinationRow && target->column == destinationColumn;
-            targetWasHidden = target->hidden;
-            startPieceAttackAnimation(attackerId, target->row, target->column);
-            target->health -= action.damage;
-            game_data::applyDamageStatus(*target, action.damage, action.statusTurns);
-            if (target->health <= 0)
-            {
-                targetDestroyed = true;
-                removePieceFromSnapshot(next, target->id);
-            }
+            if (targetNames.empty()) return;
         }
 
         std::string revealedName;
@@ -3613,7 +3633,7 @@ int main(int argc, char** argv)
 
         if (action.moves)
         {
-            if (!action.attacks || !targetAtDestination || targetDestroyed)
+            if (game_data::pieceFootprintFree(next.pieces, *acting, destinationRow, destinationColumn))
             {
                 acting->row = destinationRow;
                 acting->column = destinationColumn;
@@ -3631,14 +3651,19 @@ int main(int argc, char** argv)
         {
             const int effectiveDisabledTurns =
                 game_data::disabledTurnsForDamage(action.damage, action.statusTurns);
-            next.status = attackerName + " hit " + (targetWasHidden ? "a hidden " : "") +
-                targetName + " for " + std::to_string(action.damage);
-            if (!targetDestroyed && effectiveDisabledTurns > 0)
+            std::string joinedTargets;
+            for (std::size_t i = 0; i < targetNames.size(); ++i)
             {
-                next.status += " and disabled it for " + std::to_string(effectiveDisabledTurns) + " turn(s)";
+                if (i > 0) joinedTargets += i + 1 == targetNames.size() ? " and " : ", ";
+                joinedTargets += targetNames[i];
             }
-            next.status += targetDestroyed ? " and destroyed it." : ".";
-            if (targetWasHidden && !targetDestroyed)
+            next.status = attackerName + " hit " + joinedTargets + " for " +
+                std::to_string(action.damage) + " each";
+            if (effectiveDisabledTurns > 0)
+                next.status += " and disabled surviving targets for " +
+                    std::to_string(effectiveDisabledTurns) + " turn(s)";
+            next.status += anyTargetDestroyed ? "; at least one was destroyed." : ".";
+            if (anyTargetWasHidden)
             {
                 next.status += " It materialized!";
             }
@@ -3955,6 +3980,8 @@ int main(int argc, char** argv)
         gameDragKind = GameDragKind::None;
         draggingHandIndex.reset();
         draggingPieceId.reset();
+        gameDragPieceRowOffset = 0;
+        gameDragPieceColumnOffset = 0;
         gameDragActive = false;
     };
 
@@ -4000,6 +4027,11 @@ int main(int argc, char** argv)
             draggingPieceId = piece->id;
             gameDragStartPos = clickPos;
             gameDragCurrentPos = clickPos;
+            if (const auto grabbedSquare = squareAtPixel(clickPos))
+            {
+                gameDragPieceRowOffset = grabbedSquare->first - piece->row;
+                gameDragPieceColumnOffset = grabbedSquare->second - piece->column;
+            }
         }
     };
 
@@ -4034,7 +4066,8 @@ int main(int argc, char** argv)
             return true;
         }
 
-        const auto [row, column] = *square;
+        int row = square->first;
+        int column = square->second;
         if (gameDragKind == GameDragKind::HandCard && draggingHandIndex &&
             *draggingHandIndex < gameSnapshot.hand.size())
         {
@@ -4053,6 +4086,8 @@ int main(int argc, char** argv)
         }
         else if (gameDragKind == GameDragKind::Piece && draggingPieceId)
         {
+            row -= gameDragPieceRowOffset;
+            column -= gameDragPieceColumnOffset;
             if (const game_data::Piece* piece = gamePieceById(*draggingPieceId))
             {
                 const game_data::PieceActionOutcome outcome = game_data::resolvePieceActionThroughHidden(

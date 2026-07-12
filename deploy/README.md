@@ -32,7 +32,8 @@ Provision a certificate before deploying. The certificate must cover the DNS
 name (recommended) or IPv4 address that clients use for all four services. Keep
 the private key outside the repository. Prepare:
 
-- a PEM server certificate chain;
+- a PEM leaf server certificate;
+- its PEM intermediate certificate chain;
 - its PEM private key;
 - a PEM CA bundle that validates that chain; and
 - the exact certificate identity, such as `game.example.com`.
@@ -45,15 +46,16 @@ creates `/etc/bayou/tls.env` for all four systemd units.
 Run this from a checkout of the repository on the Oracle Cloud VM:
 
 ```sh
-export TLS_CERT_FILE=/etc/letsencrypt/live/game.gloomthorn.com/fullchain.pem
+export TLS_CERT_FILE=/etc/letsencrypt/live/game.gloomthorn.com/cert.pem
+export TLS_CHAIN_FILE=/etc/letsencrypt/live/game.gloomthorn.com/chain.pem
 export TLS_KEY_FILE=/etc/letsencrypt/live/game.gloomthorn.com/privkey.pem
 export TLS_CA_FILE="$(pwd)/deploy/ca/isrg-root-x1.pem"
 export TLS_SERVER_NAME=game.gloomthorn.com
-sudo --preserve-env=TLS_CERT_FILE,TLS_KEY_FILE,TLS_CA_FILE,TLS_SERVER_NAME \
+sudo --preserve-env=TLS_CERT_FILE,TLS_CHAIN_FILE,TLS_KEY_FILE,TLS_CA_FILE,TLS_SERVER_NAME \
   bash deploy/install-servers-linux.sh
 ```
 
-Set those four variables to the source files and certificate identity before
+Set those five variables to the source files and certificate identity before
 running the command. The installer performs TLS handshakes against ports
 `55000`, `55001`, `55002`, and `55004` after restart. If a service or handshake
 fails, it restores the prior release symlink and restarts the previous binaries.

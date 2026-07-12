@@ -16,6 +16,7 @@ GAME_SERVER_CONFIG_FILE="${GAME_SERVER_CONFIG_FILE:-/etc/bayou/gameserver.cfg}"
 CARDS_DATABASE_PATH="${CARDS_DATABASE_PATH:-${DATA_DIR}/cards.db}"
 APP_USER="${APP_USER:-bayou}"
 TLS_CERT_FILE="${TLS_CERT_FILE:-}"
+TLS_CHAIN_FILE="${TLS_CHAIN_FILE:-}"
 TLS_KEY_FILE="${TLS_KEY_FILE:-}"
 TLS_CA_FILE="${TLS_CA_FILE:-}"
 TLS_SERVER_NAME="${TLS_SERVER_NAME:-}"
@@ -30,13 +31,13 @@ for executable in accounts cardserver gameserver matchmaking; do
     fi
 done
 
-for variable in TLS_CERT_FILE TLS_KEY_FILE TLS_CA_FILE TLS_SERVER_NAME; do
+for variable in TLS_CERT_FILE TLS_CHAIN_FILE TLS_KEY_FILE TLS_CA_FILE TLS_SERVER_NAME; do
     if [[ -z "${!variable}" ]]; then
         echo "${variable} is required for a production TLS deployment."
         exit 1
     fi
 done
-for file in "${TLS_CERT_FILE}" "${TLS_KEY_FILE}" "${TLS_CA_FILE}"; do
+for file in "${TLS_CERT_FILE}" "${TLS_CHAIN_FILE}" "${TLS_KEY_FILE}" "${TLS_CA_FILE}"; do
     if [[ ! -f "${file}" ]]; then
         echo "TLS input file does not exist: ${file}"
         exit 1
@@ -56,7 +57,7 @@ fi
 # untrusted by the supplied CA, does not match the private key, or does not
 # cover the identity that clients and internal services will verify.
 openssl x509 -in "${TLS_CERT_FILE}" -noout -checkend 86400
-openssl verify -CAfile "${TLS_CA_FILE}" "${TLS_CERT_FILE}"
+openssl verify -CAfile "${TLS_CA_FILE}" -untrusted "${TLS_CHAIN_FILE}" "${TLS_CERT_FILE}"
 certificate_key="$({ openssl x509 -in "${TLS_CERT_FILE}" -pubkey -noout |
     openssl pkey -pubin -outform DER; } | sha256sum | awk '{print $1}')"
 private_key="$({ openssl pkey -in "${TLS_KEY_FILE}" -pubout -outform DER; } |
@@ -104,7 +105,12 @@ if [[ ! -f "${GAME_SERVER_CONFIG_FILE}" ]]; then
 fi
 
 install -d -m 0750 -o root -g "${APP_USER}" "${TLS_DIR}"
-install -m 0644 -o root -g root "${TLS_CERT_FILE}" "${TLS_DIR}/server-cert.pem"
+{
+    cat "${TLS_CERT_FILE}"
+    cat "${TLS_CHAIN_FILE}"
+} > "${TLS_DIR}/server-cert.pem"
+chown root:root "${TLS_DIR}/server-cert.pem"
+chmod 0644 "${TLS_DIR}/server-cert.pem"
 install -m 0640 -o root -g "${APP_USER}" "${TLS_KEY_FILE}" "${TLS_DIR}/server-key.pem"
 install -m 0644 -o root -g root "${TLS_CA_FILE}" "${TLS_DIR}/ca.pem"
 {

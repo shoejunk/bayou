@@ -68,6 +68,14 @@ sf::Vector2f boardCellAnchor(const BoardCellMetrics& metrics)
     return {metrics.center.x, metrics.center.y + metrics.height * 0.36f};
 }
 
+sf::Vector2f boardFootprintAnchor(int row, int column, int width, int viewer)
+{
+    const sf::Vector2f left = boardCellAnchor(boardCellMetricsForViewer(row, column, viewer));
+    const sf::Vector2f right = boardCellAnchor(
+        boardCellMetricsForViewer(row, column + std::max(1, width) - 1, viewer));
+    return {(left.x + right.x) * 0.5f, (left.y + right.y) * 0.5f};
+}
+
 bool pointInConvex(sf::Vector2f point, const std::array<sf::Vector2f, 4>& corners)
 {
     bool hasNegative = false;
@@ -96,10 +104,15 @@ std::array<sf::Vector2f, 4> offsetQuad(std::array<sf::Vector2f, 4> corners, sf::
     return corners;
 }
 
-sf::FloatRect pieceTargetRect(sf::Vector2f anchor, float scale, bool walkSheet)
+sf::FloatRect pieceTargetRect(
+    sf::Vector2f anchor, float scale, bool walkSheet, int footprintWidth, int footprintHeight)
 {
-    const float width = PieceBaseWidth * scale;
-    const float height = (walkSheet ? PieceWalkBaseHeight : PieceBaseHeight) * scale;
+    // Preserve the artwork's aspect ratio while making its rendered area grow
+    // in proportion to the number of occupied board squares.
+    const float footprintScale = std::sqrt(
+        static_cast<float>(std::max(1, footprintWidth) * std::max(1, footprintHeight)));
+    const float width = PieceBaseWidth * scale * footprintScale;
+    const float height = (walkSheet ? PieceWalkBaseHeight : PieceBaseHeight) * scale * footprintScale;
     return {{anchor.x - width * 0.5f, anchor.y - height}, {width, height}};
 }
 

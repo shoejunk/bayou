@@ -50,8 +50,10 @@ sf::Vector2f boardEdgePoint(int screenEdge, int columnEdge);
 float pieceScaleForScreenRow(int screenRow);
 BoardCellMetrics boardCellMetricsForViewer(int row, int column, int viewer);
 sf::Vector2f boardCellAnchor(const BoardCellMetrics& metrics);
+sf::Vector2f boardFootprintAnchor(int row, int column, int width, int viewer);
 bool pointInConvex(sf::Vector2f point, const std::array<sf::Vector2f, 4>& corners);
 std::array<sf::Vector2f, 4> offsetQuad(std::array<sf::Vector2f, 4> corners, sf::Vector2f offset);
-sf::FloatRect pieceTargetRect(sf::Vector2f anchor, float scale, bool walkSheet);
+sf::FloatRect pieceTargetRect(
+    sf::Vector2f anchor, float scale, bool walkSheet, int width = 1, int height = 1);
 
 } // namespace bayou::client

@@ -332,6 +332,8 @@ struct GameCard
     int cost = 1;          // steam cost (units / spells)
     int heroCost = 0;      // hero-cost budget contribution (heroes)
     int health = 1;
+    int width = 1;
+    int height = 1;
     int attack = 0;
     int attackRange = 0;
     std::uint8_t movePattern = static_cast<std::uint8_t>(MovePattern::None);
@@ -375,6 +377,8 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.cost = cardInt(card, "cost", 1);
     g.heroCost = cardInt(card, "heroCost", 0);
     g.health = cardInt(card, "health", 1);
+    g.width = std::clamp(cardInt(card, "width", 1), 1, BoardSize);
+    g.height = std::clamp(cardInt(card, "height", 1), 1, BoardSize);
     g.effect = cardStr(card, "effect", "none");
     g.target = cardStr(card, "target", "none");
     g.power = cardInt(card, "power", 0);
@@ -491,6 +495,8 @@ struct Piece
     int fidgetAnimFrames = 1;
     int maxHealth = 1;
     int health = 1;
+    int width = 1;
+    int height = 1;
     int attack = 0;
     int attackRange = 1;
     std::uint8_t movePattern = static_cast<std::uint8_t>(MovePattern::Omni);
@@ -534,6 +540,8 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.fidgetAnimFrames = card.fidgetAnimFrames;
     piece.maxHealth = card.health;
     piece.health = card.health;
+    piece.width = card.width;
+    piece.height = card.height;
     piece.attack = card.attack;
     piece.attackRange = card.attackRange;
     piece.movePattern = card.movePattern;
@@ -651,7 +659,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
            << card.walkAnimFrames << card.idleAnimFrames
            << card.attackAnimFrames << card.damagedAnimFrames << card.killedAnimFrames << card.fidgetAnimFrames
            << card.cost << card.heroCost
-           << card.health << card.attack << card.attackRange
+           << card.health << card.width << card.height << card.attack << card.attackRange
            << card.movePattern << card.moveRange << card.attackingMove
            << card.effect << card.target << card.power
            << card.canControl << card.growTurns;
@@ -681,7 +689,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
            >> card.walkAnimFrames >> card.idleAnimFrames
            >> card.attackAnimFrames >> card.damagedAnimFrames >> card.killedAnimFrames >> card.fidgetAnimFrames
            >> card.cost >> card.heroCost
-           >> card.health >> card.attack >> card.attackRange
+           >> card.health >> card.width >> card.height >> card.attack >> card.attackRange
            >> card.movePattern >> card.moveRange >> card.attackingMove
            >> card.effect >> card.target >> card.power
            >> card.canControl >> card.growTurns;
@@ -720,7 +728,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
            << piece.pieceBaseBluePath << piece.pieceBaseRedPath
            << piece.walkAnimFrames << piece.idleAnimFrames
            << piece.attackAnimFrames << piece.damagedAnimFrames << piece.killedAnimFrames << piece.fidgetAnimFrames
-           << piece.maxHealth << piece.health << piece.attack << piece.attackRange
+           << piece.maxHealth << piece.health << piece.width << piece.height << piece.attack << piece.attackRange
            << piece.movePattern << piece.moveRange << piece.attackingMove
            << piece.canControl << piece.growTurnsRemaining << piece.disabledTurns << piece.sleepTurnsRemaining
            << piece.actionState << piece.ability << piece.summonTitle << piece.abilityUses << piece.hidden
@@ -748,7 +756,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
            >> piece.pieceBaseBluePath >> piece.pieceBaseRedPath
            >> piece.walkAnimFrames >> piece.idleAnimFrames
            >> piece.attackAnimFrames >> piece.damagedAnimFrames >> piece.killedAnimFrames >> piece.fidgetAnimFrames
-           >> piece.maxHealth >> piece.health >> piece.attack >> piece.attackRange
+           >> piece.maxHealth >> piece.health >> piece.width >> piece.height >> piece.attack >> piece.attackRange
            >> piece.movePattern >> piece.moveRange >> piece.attackingMove
            >> piece.canControl >> piece.growTurnsRemaining >> piece.disabledTurns >> piece.sleepTurnsRemaining
            >> piece.actionState >> piece.ability >> piece.summonTitle >> piece.abilityUses >> piece.hidden

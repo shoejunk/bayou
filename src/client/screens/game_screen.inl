@@ -414,8 +414,15 @@
         const game_data::Piece* draggedPiece =
             gameDragKind == GameDragKind::Piece && draggingPieceId ? gamePieceById(*draggingPieceId) : nullptr;
         const game_data::Piece* actingPiece = draggedPiece ? draggedPiece : selectedPiece;
-        const std::optional<std::pair<int, int>> draggedPieceSquare =
-            gameDragActive && draggedPiece ? squareAtPixel(gameDragCurrentPos) : std::nullopt;
+        const std::optional<std::pair<int, int>> draggedPieceSquare = [&]()
+            -> std::optional<std::pair<int, int>> {
+            if (!gameDragActive || !draggedPiece) return std::nullopt;
+            const auto hovered = squareAtPixel(gameDragCurrentPos);
+            if (!hovered) return std::nullopt;
+            return std::pair<int, int>{
+                hovered->first - gameDragPieceRowOffset,
+                hovered->second - gameDragPieceColumnOffset};
+        }();
         bool draggedPieceDropValid = false;
         if (draggedPiece && draggedPieceSquare)
         {
@@ -444,15 +451,42 @@
         const std::optional<std::pair<int, int>> draggedHandSquare =
             draggingPieceCard ? squareAtPixel(gameDragCurrentPos) : std::nullopt;
         bool draggedHandDropValid = false;
+        auto cardFootprintCanDeploy = [&](const game_data::GameCard& card, int row, int column, bool starting) {
+            if (row < 0 || column < 0 || row + card.height > game_data::BoardSize ||
+                column + card.width > game_data::BoardSize)
+            {
+                return false;
+            }
+            for (int r = row; r < row + card.height; ++r)
+            {
+                for (int c = column; c < column + card.width; ++c)
+                {
+                    if (gamePieceAt(r, c))
+                    {
+                        return false;
+                    }
+                    if (starting)
+                    {
+                        const auto home = game_data::homeSquares(me);
+                        if (std::find(home.begin(), home.end(), std::pair<int, int>{r, c}) == home.end())
+                        {
+                            return false;
+                        }
+                    }
+                    else if (gameSnapshot.control[static_cast<std::size_t>(game_data::squareIndex(r, c))] != sandboxPlayer)
+                    {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        };
         if (draggedHandCard && draggedHandSquare)
         {
             const auto [row, column] = *draggedHandSquare;
-            const std::size_t idx = static_cast<std::size_t>(game_data::squareIndex(row, column));
             if (phase == game_data::Phase::HeroPlacement && draggedHandCard->type == "Hero")
             {
-                const auto home = game_data::homeSquares(me);
-                draggedHandDropValid = !gamePieceAt(row, column) &&
-                    std::find(home.begin(), home.end(), std::pair<int, int>{row, column}) != home.end();
+                draggedHandDropValid = cardFootprintCanDeploy(*draggedHandCard, row, column, true);
             }
             else if (phase == game_data::Phase::Playing &&
                      (draggedHandCard->type == "Unit" || (sandboxMode && draggedHandCard->type == "Hero")))
@@ -460,22 +494,36 @@
                 draggedHandDropValid = (sandboxMode || gameSnapshot.activePlayer == me) &&
                     (sandboxMode || draggedHandCard->cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].steam) &&
                     (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, *draggedHandCard)) &&
-                    !gamePieceAt(row, column) &&
-                    gameSnapshot.control[idx] == sandboxPlayer;
+                    cardFootprintCanDeploy(*draggedHandCard, row, column, false);
             }
         }
 
         // Precompute highlight masks for the current selection.
         std::array<int, game_data::BoardSquares> highlight{};  // 0 none,1 move,2 attack,3 place,4 spell
+        auto highlightFootprint = [&](int row, int column, int width, int height, int value) {
+            for (int r = row; r < row + height && r < game_data::BoardSize; ++r)
+                for (int c = column; c < column + width && c < game_data::BoardSize; ++c)
+                    if (r >= 0 && c >= 0)
+                        highlight[static_cast<std::size_t>(game_data::squareIndex(r, c))] = value;
+        };
         if (phase == game_data::Phase::HeroPlacement &&
             gameSnapshot.players[static_cast<std::size_t>(me - 1)].heroesToPlace > 0)
         {
-            for (const auto& [r, c] : game_data::homeSquares(me))
+            const game_data::GameCard* selectedHero = actingHandIndex && *actingHandIndex < gameSnapshot.hand.size()
+                ? &gameSnapshot.hand[*actingHandIndex]
+                : nullptr;
+            if (selectedHero && selectedHero->type == "Hero")
             {
-                if (!gamePieceAt(r, c))
-                {
-                    highlight[static_cast<std::size_t>(game_data::squareIndex(r, c))] = 3;
-                }
+                for (int r = 0; r < game_data::BoardSize; ++r)
+                    for (int c = 0; c < game_data::BoardSize; ++c)
+                        if (cardFootprintCanDeploy(*selectedHero, r, c, true))
+                            highlightFootprint(r, c, selectedHero->width, selectedHero->height, 3);
+            }
+            else
+            {
+                for (const auto& [r, c] : game_data::homeSquares(me))
+                    if (!gamePieceAt(r, c))
+                        highlight[static_cast<std::size_t>(game_data::squareIndex(r, c))] = 3;
             }
         }
         else if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
@@ -496,7 +544,16 @@
                             visiblePieces, gameSnapshot.holes, *actingPiece, r, c);
                         if (action.legal)
                         {
-                            highlight[idx] = action.attacks ? 2 : 1;
+                            if (action.moves)
+                            {
+                                highlightFootprint(
+                                    r, c, actingPiece->width, actingPiece->height,
+                                    action.attacks ? 2 : 1);
+                            }
+                            else
+                            {
+                                highlight[idx] = action.attacks ? 2 : 1;
+                            }
                         }
                     }
                 }
@@ -514,9 +571,9 @@
                             const game_data::Piece* occupant = gamePieceAt(r, c);
                             if (card.type == "Unit" || (sandboxMode && card.type == "Hero"))
                             {
-                                if (!occupant && gameSnapshot.control[idx] == sandboxPlayer)
+                                if (cardFootprintCanDeploy(card, r, c, false))
                                 {
-                                    highlight[idx] = 3;
+                                    highlightFootprint(r, c, card.width, card.height, 3);
                                 }
                             }
                             else if (card.effect == "damage" && occupant && occupant->owner != sandboxPlayer)
@@ -630,9 +687,9 @@
                     window.draw(valve);
                 }
 
-                if (draggedHandSquare &&
-                    draggedHandSquare->first == row &&
-                    draggedHandSquare->second == column)
+                if (draggedHandSquare && draggedHandCard &&
+                    row >= draggedHandSquare->first && row < draggedHandSquare->first + draggedHandCard->height &&
+                    column >= draggedHandSquare->second && column < draggedHandSquare->second + draggedHandCard->width)
                 {
                     drawQuad(
                         metrics.corners,
@@ -645,9 +702,9 @@
                             : sf::Color(255, 135, 120, 235));
                 }
 
-                if (draggedPieceSquare &&
-                    draggedPieceSquare->first == row &&
-                    draggedPieceSquare->second == column)
+                if (draggedPieceSquare && draggedPiece &&
+                    row >= draggedPieceSquare->first && row < draggedPieceSquare->first + draggedPiece->height &&
+                    column >= draggedPieceSquare->second && column < draggedPieceSquare->second + draggedPiece->width)
                 {
                     drawQuad(
                         metrics.corners,
@@ -687,7 +744,8 @@
         {
             const game_data::Piece& piece = *piecePtr;
             BoardCellMetrics cell = boardCellMetrics(piece.row, piece.column);
-            sf::Vector2f anchor = boardCellAnchor(cell);
+            sf::Vector2f anchor = boardFootprintAnchor(
+                piece.row, piece.column, piece.width, gameSnapshot.yourPlayer);
             float pieceScale = cell.depthScale;
             bool isMoving = false;
             float walkAnimationElapsed = 0.0f;
@@ -704,8 +762,12 @@
                         animation->second.fromRow, animation->second.fromColumn, gameSnapshot.yourPlayer);
                     const BoardCellMetrics endCell = boardCellMetricsForViewer(
                         animation->second.toRow, animation->second.toColumn, gameSnapshot.yourPlayer);
-                    const sf::Vector2f start = boardCellAnchor(startCell);
-                    const sf::Vector2f end = boardCellAnchor(endCell);
+                    const sf::Vector2f start = boardFootprintAnchor(
+                        animation->second.fromRow, animation->second.fromColumn,
+                        piece.width, gameSnapshot.yourPlayer);
+                    const sf::Vector2f end = boardFootprintAnchor(
+                        animation->second.toRow, animation->second.toColumn,
+                        piece.width, gameSnapshot.yourPlayer);
                     anchor = {
                         start.x + (end.x - start.x) * progress,
                         start.y + (end.y - start.y) * progress};
@@ -862,7 +924,9 @@
                 pieceScale,
                 pieceTint,
                 reactionPath ? reactionFrame : walkFrame,
-                reactionPath ? -1 : idleFrame);
+                reactionPath ? -1 : idleFrame,
+                piece.width,
+                piece.height);
             if (!drewPiece)
             {
                 if (sf::Texture* art = cardArtTexture(piece.imagePath))
@@ -871,7 +935,8 @@
                         ? sf::Color(130, 130, 130)
                         : sf::Color::White;
                     artTint.a = pieceTint.a;
-                    drawContainSprite(window, *art, pieceTargetRect(anchor, pieceScale, false), artTint);
+                    drawContainSprite(window, *art, pieceTargetRect(
+                        anchor, pieceScale, false, piece.width, piece.height), artTint);
                     drewPiece = true;
                 }
             }
@@ -931,7 +996,8 @@
 
             const game_data::Piece& killedPiece = animation->piece;
             const BoardCellMetrics cell = boardCellMetrics(killedPiece.row, killedPiece.column);
-            const sf::Vector2f anchor = boardCellAnchor(cell);
+            const sf::Vector2f anchor = boardFootprintAnchor(
+                killedPiece.row, killedPiece.column, killedPiece.width, gameSnapshot.yourPlayer);
             const int killedFrameCount = std::max(1, killedPiece.killedAnimFrames);
             const int killedFrame = std::min(
                 static_cast<int>(progress * static_cast<float>(killedFrameCount)),
@@ -950,12 +1016,15 @@
                 cell.depthScale,
                 tint,
                 killedFrame,
-                -1);
+                -1,
+                killedPiece.width,
+                killedPiece.height);
             if (!drewKilledPiece)
             {
                 if (sf::Texture* art = cardArtTexture(killedPiece.imagePath))
                 {
-                    drawContainSprite(window, *art, pieceTargetRect(anchor, cell.depthScale, false), tint);
+                    drawContainSprite(window, *art, pieceTargetRect(
+                        anchor, cell.depthScale, false, killedPiece.width, killedPiece.height), tint);
                 }
             }
             ++animation;
@@ -978,7 +1047,8 @@
             {
                 const game_data::Piece& ghostPiece = ghost->piece;
                 const BoardCellMetrics cell = boardCellMetrics(ghostPiece.row, ghostPiece.column);
-                const sf::Vector2f anchor = boardCellAnchor(cell);
+                const sf::Vector2f anchor = boardFootprintAnchor(
+                    ghostPiece.row, ghostPiece.column, ghostPiece.width, gameSnapshot.yourPlayer);
                 const float scale = cell.depthScale;
                 const auto alpha = static_cast<std::uint8_t>(
                     std::clamp(220.0f * (1.0f - elapsed / DematerializeBlinkSeconds), 0.0f, 220.0f));
@@ -995,12 +1065,15 @@
                     scale,
                     tint,
                     -1,
-                    -1);
+                    -1,
+                    ghostPiece.width,
+                    ghostPiece.height);
                 if (!drewGhost)
                 {
                     if (sf::Texture* art = cardArtTexture(ghostPiece.imagePath))
                     {
-                        drawContainSprite(window, *art, pieceTargetRect(anchor, scale, false), tint);
+                        drawContainSprite(window, *art, pieceTargetRect(
+                            anchor, scale, false, ghostPiece.width, ghostPiece.height), tint);
                         drewGhost = true;
                     }
                 }
@@ -1154,7 +1227,11 @@
                     {
                         const BoardCellMetrics metrics =
                             boardCellMetrics(draggedHandSquare->first, draggedHandSquare->second);
-                        anchor = boardCellAnchor(metrics);
+                        anchor = boardFootprintAnchor(
+                            draggedHandSquare->first,
+                            draggedHandSquare->second,
+                            draggedCard.width,
+                            gameSnapshot.yourPlayer);
                         scale = metrics.depthScale;
                     }
                     drawCardPiecePreview(draggedCard, sandboxPlayer, anchor, scale, draggedHandDropValid);
@@ -1180,7 +1257,11 @@
                 {
                     const BoardCellMetrics metrics =
                         boardCellMetrics(draggedPieceSquare->first, draggedPieceSquare->second);
-                    anchor = boardCellAnchor(metrics);
+                    anchor = boardFootprintAnchor(
+                        draggedPieceSquare->first,
+                        draggedPieceSquare->second,
+                        draggedPiece->width,
+                        gameSnapshot.yourPlayer);
                     scale = metrics.depthScale;
                 }
                 const sf::Color tint = draggedPieceDropValid
@@ -1198,12 +1279,15 @@
                     scale,
                     tint,
                     -1,
-                    -1);
+                    -1,
+                    draggedPiece->width,
+                    draggedPiece->height);
                 if (!drewPiece)
                 {
                     if (sf::Texture* art = cardArtTexture(draggedPiece->imagePath))
                     {
-                        drawContainSprite(window, *art, pieceTargetRect(anchor, scale, false), tint);
+                        drawContainSprite(window, *art, pieceTargetRect(
+                            anchor, scale, false, draggedPiece->width, draggedPiece->height), tint);
                         drewPiece = true;
                     }
                 }

@@ -50,12 +50,41 @@ inline const Piece* findPieceAt(const std::vector<Piece>& pieces, int row, int c
 {
     for (const Piece& piece : pieces)
     {
-        if (piece.row == row && piece.column == column)
+        if (row >= piece.row && row < piece.row + piece.height &&
+            column >= piece.column && column < piece.column + piece.width)
         {
             return &piece;
         }
     }
     return nullptr;
+}
+
+inline bool pieceFootprintInBounds(const Piece& piece, int row, int column)
+{
+    return row >= 0 && column >= 0 &&
+        row + piece.height <= BoardSize && column + piece.width <= BoardSize;
+}
+
+inline bool pieceFootprintFree(
+    const std::vector<Piece>& pieces, const Piece& piece, int row, int column)
+{
+    if (!pieceFootprintInBounds(piece, row, column)) return false;
+    for (int r = row; r < row + piece.height; ++r)
+        for (int c = column; c < column + piece.width; ++c)
+        {
+            const Piece* occupant = findPieceAt(pieces, r, c);
+            if (occupant != nullptr && occupant != &piece &&
+                (piece.id == 0 || occupant->id != piece.id)) return false;
+        }
+    return true;
+}
+
+inline const Piece* findOtherPieceAt(
+    const std::vector<Piece>& pieces, const Piece& piece, int row, int column)
+{
+    const Piece* occupant = findPieceAt(pieces, row, column);
+    return occupant != nullptr && occupant != &piece &&
+        (piece.id == 0 || occupant->id != piece.id) ? occupant : nullptr;
 }
 
 // Shared rules used by both the authoritative server and the client (for
@@ -67,8 +96,8 @@ inline bool hasLegalMoveGeometry(
     int toColumn,
     bool allowOccupiedDestination)
 {
-    if (!inBounds(toRow, toColumn) ||
-        (!allowOccupiedDestination && findPieceAt(pieces, toRow, toColumn) != nullptr))
+    if (!pieceFootprintInBounds(piece, toRow, toColumn) ||
+        (!allowOccupiedDestination && !pieceFootprintFree(pieces, piece, toRow, toColumn)))
     {
         return false;
     }
@@ -164,7 +193,15 @@ inline bool isLegalAttack(const Piece& attacker, const Piece& target)
     {
         return false;
     }
-    return chebyshev(attacker.row, attacker.column, target.row, target.column) <= attacker.attackRange;
+    const int rowGap = std::max(
+        0,
+        std::max(target.row - (attacker.row + attacker.height - 1),
+                 attacker.row - (target.row + target.height - 1)));
+    const int columnGap = std::max(
+        0,
+        std::max(target.column - (attacker.column + attacker.width - 1),
+                 attacker.column - (target.column + target.width - 1)));
+    return std::max(rowGap, columnGap) <= attacker.attackRange;
 }
 
 struct ActionResolution
@@ -174,12 +211,37 @@ struct ActionResolution
     bool attacks = false;
     int actionIndex = -1;
     int targetId = 0;
+    std::vector<int> targetIds;
     int damage = 0;
     int statusTurns = 0;
     int cooldownTurns = 0;
     int stagingRow = 0;
     int stagingColumn = 0;
 };
+
+inline void addActionTarget(ActionResolution& action, const Piece& target)
+{
+    if (std::find(action.targetIds.begin(), action.targetIds.end(), target.id) == action.targetIds.end())
+    {
+        action.targetIds.push_back(target.id);
+        if (action.targetId == 0)
+        {
+            action.targetId = target.id;
+        }
+    }
+}
+
+inline std::vector<const Piece*> piecesOverlappingFootprint(
+    const std::vector<Piece>& pieces, const Piece& mover, int row, int column)
+{
+    std::vector<const Piece*> overlaps;
+    for (int r = row; r < row + mover.height; ++r)
+        for (int c = column; c < column + mover.width; ++c)
+            if (const Piece* occupant = findOtherPieceAt(pieces, mover, r, c);
+                occupant && std::find(overlaps.begin(), overlaps.end(), occupant) == overlaps.end())
+                overlaps.push_back(occupant);
+    return overlaps;
+}
 
 inline bool actionPatternMatches(
     std::uint8_t patternValue,
@@ -260,14 +322,72 @@ inline bool actionPathClear(
     int column = piece.column + stepColumn;
     while (row != toRow || column != toColumn)
     {
-        if (findPieceAt(pieces, row, column) != nullptr)
-        {
-            return false;
-        }
+        for (int footprintRow = row; footprintRow < row + piece.height; ++footprintRow)
+            for (int footprintColumn = column; footprintColumn < column + piece.width; ++footprintColumn)
+                if (findOtherPieceAt(pieces, piece, footprintRow, footprintColumn) != nullptr)
+                    return false;
         row += stepRow;
         column += stepColumn;
     }
     return true;
+}
+
+inline bool rangedActionReachesTarget(
+    const std::vector<Piece>& pieces,
+    const Piece& attacker,
+    const Piece& target,
+    const ActionProfile& action)
+{
+    const int rowGap = std::max(
+        0,
+        std::max(target.row - (attacker.row + attacker.height - 1),
+                 attacker.row - (target.row + target.height - 1)));
+    const int columnGap = std::max(
+        0,
+        std::max(target.column - (attacker.column + attacker.width - 1),
+                 attacker.column - (target.column + target.width - 1)));
+    const int closestDistance = std::max(rowGap, columnGap);
+    if (closestDistance < action.minRange || closestDistance > action.maxRange)
+        return false;
+
+    for (int attackerRow = attacker.row; attackerRow < attacker.row + attacker.height; ++attackerRow)
+        for (int attackerColumn = attacker.column; attackerColumn < attacker.column + attacker.width; ++attackerColumn)
+            for (int targetRow = target.row; targetRow < target.row + target.height; ++targetRow)
+                for (int targetColumn = target.column; targetColumn < target.column + target.width; ++targetColumn)
+                {
+                    const int deltaRow = targetRow - attackerRow;
+                    const int deltaColumn = targetColumn - attackerColumn;
+                    if (std::max(absInt(deltaRow), absInt(deltaColumn)) != closestDistance)
+                        continue;
+                    if (!actionPatternMatches(
+                            action.pattern, deltaRow, deltaColumn, closestDistance, closestDistance))
+                        continue;
+
+                    const bool straight = deltaRow == 0 || deltaColumn == 0;
+                    const bool diagonal = absInt(deltaRow) == absInt(deltaColumn);
+                    if (!straight && !diagonal)
+                        return true;
+
+                    const int stepRow = (deltaRow > 0) - (deltaRow < 0);
+                    const int stepColumn = (deltaColumn > 0) - (deltaColumn < 0);
+                    int row = attackerRow + stepRow;
+                    int column = attackerColumn + stepColumn;
+                    bool clear = true;
+                    while (row != targetRow || column != targetColumn)
+                    {
+                        const Piece* blocker = findPieceAt(pieces, row, column);
+                        if (blocker && blocker->id != attacker.id && blocker->id != target.id)
+                        {
+                            clear = false;
+                            break;
+                        }
+                        row += stepRow;
+                        column += stepColumn;
+                    }
+                    if (clear)
+                        return true;
+                }
+    return false;
 }
 
 inline ActionResolution resolvePieceAction(
@@ -284,7 +404,7 @@ inline ActionResolution resolvePieceAction(
         return best;
     }
 
-    const Piece* destination = findPieceAt(pieces, toRow, toColumn);
+    const Piece* destination = findOtherPieceAt(pieces, piece, toRow, toColumn);
     const int deltaRow = toRow - piece.row;
     const int deltaColumn = toColumn - piece.column;
 
@@ -345,7 +465,7 @@ inline ActionResolution resolvePieceAction(
                     if (action.canAttack && pivot->owner != piece.owner)
                     {
                         candidate.attacks = true;
-                        candidate.targetId = pivot->id;
+                        addActionTarget(candidate, *pivot);
                     }
                 }
             }
@@ -353,23 +473,16 @@ inline ActionResolution resolvePieceAction(
         else if (kind == ActionKind::Ranged)
         {
             if (action.canAttack && destination != nullptr && destination->owner != piece.owner &&
-                actionPatternMatches(
-                    action.pattern,
-                    deltaRow,
-                    deltaColumn,
-                    action.minRange,
-                    action.maxRange) &&
-                actionPathClear(pieces, piece, toRow, toColumn, false))
+                rangedActionReachesTarget(pieces, piece, *destination, action))
             {
                 candidate.legal = true;
                 candidate.attacks = true;
-                candidate.targetId = destination->id;
+                addActionTarget(candidate, *destination);
             }
         }
         else if (kind == ActionKind::Capture)
         {
-            if (destination == nullptr || destination->owner == piece.owner ||
-                !action.canMove || !action.canAttack ||
+            if (!action.canMove || !action.canAttack ||
                 !actionPatternMatches(
                     action.pattern,
                     deltaRow,
@@ -386,10 +499,20 @@ inline ActionResolution resolvePieceAction(
                 continue;
             }
 
+            const std::vector<const Piece*> footprintTargets =
+                piecesOverlappingFootprint(pieces, piece, toRow, toColumn);
+            if (footprintTargets.empty() || std::any_of(
+                    footprintTargets.begin(), footprintTargets.end(),
+                    [&](const Piece* target) { return target->owner == piece.owner; }))
+            {
+                continue;
+            }
+
             candidate.legal = true;
             candidate.moves = true;
             candidate.attacks = true;
-            candidate.targetId = destination->id;
+            for (const Piece* target : footprintTargets)
+                addActionTarget(candidate, *target);
             if (!jumping && !action.passThrough)
             {
                 const int stepRow = (deltaRow > 0) - (deltaRow < 0);
@@ -416,7 +539,29 @@ inline ActionResolution resolvePieceAction(
                 continue;
             }
 
-            if (destination == nullptr && action.canMove)
+            const std::vector<const Piece*> footprintTargets = action.canMove
+                ? piecesOverlappingFootprint(pieces, piece, toRow, toColumn)
+                : std::vector<const Piece*>{};
+            const bool friendlyOverlap = std::any_of(
+                footprintTargets.begin(), footprintTargets.end(),
+                [&](const Piece* target) { return target->owner == piece.owner; });
+            if (!friendlyOverlap && action.canAttack && !footprintTargets.empty())
+            {
+                for (const Piece* target : footprintTargets)
+                    if (target->owner != piece.owner)
+                        addActionTarget(candidate, *target);
+                candidate.legal = !candidate.targetIds.empty();
+                candidate.attacks = candidate.legal;
+                candidate.moves = action.canMove;
+                if (!jumping && !action.passThrough)
+                {
+                    const int stepRow = (deltaRow > 0) - (deltaRow < 0);
+                    const int stepColumn = (deltaColumn > 0) - (deltaColumn < 0);
+                    candidate.stagingRow = toRow - stepRow;
+                    candidate.stagingColumn = toColumn - stepColumn;
+                }
+            }
+            else if (destination == nullptr && action.canMove)
             {
                 candidate.legal = true;
                 candidate.moves = true;
@@ -426,7 +571,7 @@ inline ActionResolution resolvePieceAction(
                 candidate.legal = true;
                 candidate.attacks = true;
                 candidate.moves = action.canMove;
-                candidate.targetId = destination->id;
+                addActionTarget(candidate, *destination);
                 if (!jumping && !action.passThrough)
                 {
                     const int stepRow = (deltaRow > 0) - (deltaRow < 0);
@@ -437,6 +582,11 @@ inline ActionResolution resolvePieceAction(
             }
         }
 
+        if (candidate.legal && candidate.moves && !candidate.attacks &&
+            !pieceFootprintFree(pieces, piece, toRow, toColumn))
+        {
+            candidate.legal = false;
+        }
         if (!candidate.legal || (candidate.moves && piece.sleepTurnsRemaining > 0) ||
             (attackingMovesOnly && !(candidate.moves && candidate.attacks)))
         {
@@ -606,6 +756,7 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
     // Otherwise the mover bumps into it harmlessly and stops short.
     outcome.action.attacks = false;
     outcome.action.targetId = 0;
+    outcome.action.targetIds.clear();
     outcome.action.damage = 0;
     outcome.action.statusTurns = 0;
     outcome.action.moves = stopRow != piece.row || stopColumn != piece.column;

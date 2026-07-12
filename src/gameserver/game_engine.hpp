@@ -97,7 +97,8 @@ public:
             return;
         }
 
-        if (!isStartingSquare(playerNumber, row, column) || pieceAt(row, column) != nullptr)
+        const GameCard& hero = player.heroesToPlace[static_cast<std::size_t>(heroIndex)];
+        if (!footprintCanDeploy(playerNumber, hero, row, column, true))
         {
             setStatusFor(playerNumber, "Heroes must go on an empty starting square.");
             return;
@@ -105,7 +106,7 @@ public:
 
         spawnPiece(
             playerNumber,
-            player.heroesToPlace[static_cast<std::size_t>(heroIndex)],
+            hero,
             row,
             column,
             true);
@@ -154,9 +155,7 @@ public:
 
         if (card.type == "Unit")
         {
-            if (!inBounds(targetRow, targetColumn) ||
-                control[static_cast<std::size_t>(squareIndex(targetRow, targetColumn))] != playerNumber ||
-                pieceAt(targetRow, targetColumn) != nullptr)
+            if (!footprintCanDeploy(playerNumber, card, targetRow, targetColumn, false))
             {
                 setStatusFor(playerNumber, "Units deploy onto an empty square you control.");
                 return;
@@ -406,7 +405,8 @@ private:
     {
         for (Piece& piece : pieces)
         {
-            if (piece.row == row && piece.column == column)
+            if (row >= piece.row && row < piece.row + piece.height &&
+                column >= piece.column && column < piece.column + piece.width)
             {
                 return &piece;
             }
@@ -417,7 +417,8 @@ private:
     {
         for (const Piece& piece : pieces)
         {
-            if (piece.row == row && piece.column == column)
+            if (row >= piece.row && row < piece.row + piece.height &&
+                column >= piece.column && column < piece.column + piece.width)
             {
                 return &piece;
             }
@@ -466,6 +467,21 @@ private:
         }
     }
 
+    bool footprintCanDeploy(int playerNumber, const GameCard& card, int row, int column, bool starting) const
+    {
+        if (row < 0 || column < 0 || row + card.height > BoardSize || column + card.width > BoardSize)
+            return false;
+        for (int r = row; r < row + card.height; ++r)
+            for (int c = column; c < column + card.width; ++c)
+            {
+                if ((starting ? !isStartingSquare(playerNumber, r, c)
+                              : control[static_cast<std::size_t>(squareIndex(r, c))] != playerNumber) ||
+                    pieceAt(r, c) != nullptr)
+                    return false;
+            }
+        return true;
+    }
+
     const GameCard* summonCardByTitle(const std::string& title) const
     {
         const auto found = std::find_if(
@@ -504,31 +520,34 @@ private:
 
         const int attackerId = piece->id;
         const std::string attackerName = piece->name;
-        std::string targetName;
-        bool targetDestroyed = false;
-        bool targetAtDestination = false;
-        bool targetWasHidden = false;
-        int victimOwner = 0;
+        std::vector<std::string> targetNames;
+        std::vector<int> defeatedOwners;
+        bool anyTargetDestroyed = false;
+        bool anyTargetWasHidden = false;
 
         if (action.attacks)
         {
-            Piece* target = pieceById(action.targetId);
-            if (target == nullptr)
+            const std::vector<int> targetIds = action.targetIds.empty()
+                ? std::vector<int>{action.targetId}
+                : action.targetIds;
+            for (int targetId : targetIds)
             {
-                return;
+                Piece* target = pieceById(targetId);
+                if (target == nullptr)
+                    continue;
+                targetNames.push_back((target->hidden ? "a hidden " : "") + target->name);
+                anyTargetWasHidden = anyTargetWasHidden || target->hidden;
+                const int victimOwner = target->owner;
+                target->health -= action.damage;
+                applyDamageStatus(*target, action.damage, action.statusTurns);
+                if (target->health <= 0)
+                {
+                    anyTargetDestroyed = true;
+                    defeatedOwners.push_back(victimOwner);
+                    removePiece(targetId);
+                }
             }
-
-            targetName = target->name;
-            targetAtDestination = target->row == destinationRow && target->column == destinationColumn;
-            targetWasHidden = target->hidden;
-            victimOwner = target->owner;
-            target->health -= action.damage;
-            applyDamageStatus(*target, action.damage, action.statusTurns);
-            if (target->health <= 0)
-            {
-                targetDestroyed = true;
-                removePiece(target->id);
-            }
+            if (targetNames.empty()) return;
         }
 
         // A hidden piece that was struck or bumped into materializes stunned.
@@ -550,7 +569,7 @@ private:
 
         if (action.moves)
         {
-            if (!action.attacks || !targetAtDestination || targetDestroyed)
+            if (pieceFootprintFree(pieces, *survivingAttacker, destinationRow, destinationColumn))
             {
                 survivingAttacker->row = destinationRow;
                 survivingAttacker->column = destinationColumn;
@@ -565,9 +584,9 @@ private:
             std::max(survivingAttacker->disabledTurns, action.cooldownTurns);
         survivingAttacker->hasActed = true;
 
-        if (targetDestroyed)
+        for (int defeatedOwner : defeatedOwners)
         {
-            checkForWinner(victimOwner);
+            checkForWinner(defeatedOwner);
             if (phaseValue == Phase::GameOver)
             {
                 return;
@@ -577,18 +596,19 @@ private:
         if (action.attacks)
         {
             const int effectiveDisabledTurns = disabledTurnsForDamage(action.damage, action.statusTurns);
-            std::string result = fmt::format(
-                "{} hit {}{} for {}",
-                attackerName,
-                targetWasHidden ? "a hidden " : "",
-                targetName,
-                action.damage);
-            if (!targetDestroyed && effectiveDisabledTurns > 0)
+            std::string joinedTargets;
+            for (std::size_t i = 0; i < targetNames.size(); ++i)
             {
-                result += fmt::format(" and disabled it for {} turn(s)", effectiveDisabledTurns);
+                if (i > 0) joinedTargets += i + 1 == targetNames.size() ? " and " : ", ";
+                joinedTargets += targetNames[i];
             }
-            result += targetDestroyed ? " and destroyed it!" : ".";
-            if (targetWasHidden && !targetDestroyed)
+            std::string result = fmt::format("{} hit {} for {} each", attackerName, joinedTargets, action.damage);
+            if (effectiveDisabledTurns > 0)
+            {
+                result += fmt::format(" and disabled surviving targets for {} turn(s)", effectiveDisabledTurns);
+            }
+            result += anyTargetDestroyed ? "; at least one was destroyed!" : ".";
+            if (anyTargetWasHidden)
             {
                 result += " It materialized!";
             }

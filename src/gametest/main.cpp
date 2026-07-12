@@ -271,6 +271,92 @@ int main(int argc, char** argv)
 {
     fmt::println("=== Steam Tactics integration test ===");
 
+    card_data::Card largeDefinition;
+    largeDefinition.title = "Large Unit";
+    largeDefinition.type = "Unit";
+    largeDefinition.integerValues = {{"width", 2}, {"height", 3}};
+    const GameCard largeCard = toGameCard(largeDefinition);
+    check(largeCard.width == 2 && largeCard.height == 3,
+          "unit width and height resolve from card data");
+    Piece largePiece;
+    largePiece.id = 100;
+    largePiece.row = 2;
+    largePiece.column = 3;
+    populatePieceFromCard(largePiece, largeCard, false);
+    std::vector<Piece> footprintPieces{largePiece};
+    check(findPieceAt(footprintPieces, 4, 4) != nullptr &&
+              findPieceAt(footprintPieces, 5, 4) == nullptr,
+          "every square inside a multi-square footprint is occupied");
+    Piece footprintBlocker;
+    footprintBlocker.id = 101;
+    footprintBlocker.row = 3;
+    footprintBlocker.column = 6;
+    footprintPieces.push_back(footprintBlocker);
+    check(!pieceFootprintFree(footprintPieces, footprintPieces[0], 3, 5),
+          "multi-square movement rejects a blocker under any covered square");
+
+    Piece largeRangedAttacker;
+    largeRangedAttacker.id = 110;
+    largeRangedAttacker.owner = 1;
+    largeRangedAttacker.row = 2;
+    largeRangedAttacker.column = 1;
+    largeRangedAttacker.width = 2;
+    largeRangedAttacker.height = 2;
+    ActionProfile rangedProfile;
+    rangedProfile.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+    rangedProfile.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
+    rangedProfile.minRange = 1;
+    rangedProfile.maxRange = 2;
+    rangedProfile.canMove = false;
+    rangedProfile.canAttack = true;
+    rangedProfile.damage = 1;
+    largeRangedAttacker.actions = {rangedProfile};
+    Piece rangedTarget;
+    rangedTarget.id = 111;
+    rangedTarget.owner = 2;
+    rangedTarget.row = 2;
+    rangedTarget.column = 4;
+    std::array<std::uint8_t, BoardSquares> footprintBoard{};
+    std::vector<Piece> rangedPieces{largeRangedAttacker, rangedTarget};
+    check(resolvePieceAction(rangedPieces, footprintBoard, rangedPieces[0], 2, 4).legal,
+          "large ranged attacker measures range from its closest footprint square");
+    rangedPieces[1].actions = {rangedProfile};
+    rangedPieces[1].owner = 1;
+    rangedPieces[0].owner = 2;
+    check(resolvePieceAction(rangedPieces, footprintBoard, rangedPieces[1], 2, 1).legal,
+          "ranged attacks against a large target use its closest footprint square");
+
+    Piece sweepingAttacker;
+    sweepingAttacker.id = 120;
+    sweepingAttacker.owner = 1;
+    sweepingAttacker.row = 2;
+    sweepingAttacker.column = 1;
+    sweepingAttacker.width = 3;
+    sweepingAttacker.height = 3;
+    ActionProfile sweepingMove;
+    sweepingMove.kind = static_cast<std::uint8_t>(ActionKind::Slide);
+    sweepingMove.pattern = static_cast<std::uint8_t>(MovePattern::Horizontal);
+    sweepingMove.minRange = 1;
+    sweepingMove.maxRange = 1;
+    sweepingMove.damage = 2;
+    sweepingMove.canMove = true;
+    sweepingMove.canAttack = true;
+    sweepingAttacker.actions = {sweepingMove};
+    std::vector<Piece> sweepingPieces{sweepingAttacker};
+    for (int row = 2; row <= 4; ++row)
+    {
+        Piece target;
+        target.id = 121 + row;
+        target.owner = 2;
+        target.row = row;
+        target.column = 4;
+        sweepingPieces.push_back(target);
+    }
+    const ActionResolution sweep =
+        resolvePieceAction(sweepingPieces, footprintBoard, sweepingPieces[0], 2, 2);
+    check(sweep.legal && sweep.moves && sweep.attacks && sweep.targetIds.size() == 3,
+          "attacking move targets every enemy overlapped by the destination footprint");
+
     Piece slidingAttacker;
     slidingAttacker.owner = 1;
     slidingAttacker.row = 3;
