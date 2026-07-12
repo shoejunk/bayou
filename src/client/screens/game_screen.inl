@@ -830,6 +830,24 @@
                     pieceDamagedAnimations.erase(piece.id);
                 }
             }
+            else if (!isMoving)
+            {
+                const auto animation = pieceFidgetAnimations.find(piece.id);
+                if (animation != pieceFidgetAnimations.end() &&
+                    animation->second.playing && !piece.fidgetAnimPath.empty())
+                {
+                    const float elapsed = std::max(0.0f, animationTime - animation->second.startTime);
+                    const float progress = std::min(elapsed / FidgetAnimationDurationSeconds, 1.0f);
+                    if (progress < 1.0f)
+                    {
+                        reactionPath = &piece.fidgetAnimPath;
+                        reactionFrames = std::max(1, piece.fidgetAnimFrames);
+                        reactionFrame = std::min(
+                            static_cast<int>(progress * static_cast<float>(reactionFrames)),
+                            reactionFrames - 1);
+                    }
+                }
+            }
             bool drewPiece = drawPieceVisual(
                 tokenPath,
                 reactionPath ? *reactionPath : walkPath,

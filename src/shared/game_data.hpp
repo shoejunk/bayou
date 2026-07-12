@@ -298,6 +298,7 @@ struct GameCard
     std::string attackAnimPath;
     std::string damagedAnimPath;
     std::string killedAnimPath;
+    std::string fidgetAnimPath;
     std::string tokenPath;
     std::string pieceBaseBluePath;
     std::string pieceBaseRedPath;
@@ -306,6 +307,7 @@ struct GameCard
     int attackAnimFrames = 1;
     int damagedAnimFrames = 1;
     int killedAnimFrames = 1;
+    int fidgetAnimFrames = 1;
     int cost = 1;          // steam cost (units / spells)
     int heroCost = 0;      // hero-cost budget contribution (heroes)
     int health = 1;
@@ -338,6 +340,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.attackAnimPath = cardStr(card, "AttackAnim");
     g.damagedAnimPath = cardStr(card, "DamagedAnim");
     g.killedAnimPath = cardStr(card, "KilledAnim");
+    g.fidgetAnimPath = cardStr(card, "FidgetAnim");
     g.tokenPath = cardStr(card, "Token");
     g.pieceBaseBluePath = cardStr(card, "PieceBaseBlue");
     g.pieceBaseRedPath = cardStr(card, "PieceBaseRed");
@@ -346,6 +349,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.attackAnimFrames = std::max(1, cardInt(card, "AttackAnimFrames", 1));
     g.damagedAnimFrames = std::max(1, cardInt(card, "DamagedAnimFrames", 1));
     g.killedAnimFrames = std::max(1, cardInt(card, "KilledAnimFrames", 1));
+    g.fidgetAnimFrames = std::max(1, cardInt(card, "FidgetAnimFrames", 1));
     g.cost = cardInt(card, "cost", 1);
     g.heroCost = cardInt(card, "heroCost", 0);
     g.health = cardInt(card, "health", 1);
@@ -452,6 +456,7 @@ struct Piece
     std::string attackAnimPath;
     std::string damagedAnimPath;
     std::string killedAnimPath;
+    std::string fidgetAnimPath;
     std::string tokenPath;
     std::string pieceBaseBluePath;
     std::string pieceBaseRedPath;
@@ -460,6 +465,7 @@ struct Piece
     int attackAnimFrames = 1;
     int damagedAnimFrames = 1;
     int killedAnimFrames = 1;
+    int fidgetAnimFrames = 1;
     int maxHealth = 1;
     int health = 1;
     int attack = 0;
@@ -492,6 +498,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.attackAnimPath = card.attackAnimPath;
     piece.damagedAnimPath = card.damagedAnimPath;
     piece.killedAnimPath = card.killedAnimPath;
+    piece.fidgetAnimPath = card.fidgetAnimPath;
     piece.tokenPath = card.tokenPath;
     piece.pieceBaseBluePath = card.pieceBaseBluePath;
     piece.pieceBaseRedPath = card.pieceBaseRedPath;
@@ -500,6 +507,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.attackAnimFrames = card.attackAnimFrames;
     piece.damagedAnimFrames = card.damagedAnimFrames;
     piece.killedAnimFrames = card.killedAnimFrames;
+    piece.fidgetAnimFrames = card.fidgetAnimFrames;
     piece.maxHealth = card.health;
     piece.health = card.health;
     piece.attack = card.attack;
@@ -602,10 +610,10 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
     packet << card.title << card.type;
     card_data::writeStringVector(packet, card.keywords);
     packet << card.imagePath << card.walkAnimPath << card.idleAnimPath
-           << card.attackAnimPath << card.damagedAnimPath << card.killedAnimPath << card.tokenPath
+           << card.attackAnimPath << card.damagedAnimPath << card.killedAnimPath << card.fidgetAnimPath << card.tokenPath
            << card.pieceBaseBluePath << card.pieceBaseRedPath
            << card.walkAnimFrames << card.idleAnimFrames
-           << card.attackAnimFrames << card.damagedAnimFrames << card.killedAnimFrames
+           << card.attackAnimFrames << card.damagedAnimFrames << card.killedAnimFrames << card.fidgetAnimFrames
            << card.cost << card.heroCost
            << card.health << card.attack << card.attackRange
            << card.movePattern << card.moveRange << card.attackingMove
@@ -631,10 +639,10 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
         return false;
     }
     packet >> card.imagePath >> card.walkAnimPath >> card.idleAnimPath
-           >> card.attackAnimPath >> card.damagedAnimPath >> card.killedAnimPath >> card.tokenPath
+           >> card.attackAnimPath >> card.damagedAnimPath >> card.killedAnimPath >> card.fidgetAnimPath >> card.tokenPath
            >> card.pieceBaseBluePath >> card.pieceBaseRedPath
            >> card.walkAnimFrames >> card.idleAnimFrames
-           >> card.attackAnimFrames >> card.damagedAnimFrames >> card.killedAnimFrames
+           >> card.attackAnimFrames >> card.damagedAnimFrames >> card.killedAnimFrames >> card.fidgetAnimFrames
            >> card.cost >> card.heroCost
            >> card.health >> card.attack >> card.attackRange
            >> card.movePattern >> card.moveRange >> card.attackingMove
@@ -670,10 +678,10 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
     packet << piece.id << piece.owner << piece.row << piece.column << piece.name;
     card_data::writeStringVector(packet, piece.keywords);
     packet << piece.imagePath << piece.walkAnimPath << piece.idleAnimPath
-           << piece.attackAnimPath << piece.damagedAnimPath << piece.killedAnimPath << piece.tokenPath
+           << piece.attackAnimPath << piece.damagedAnimPath << piece.killedAnimPath << piece.fidgetAnimPath << piece.tokenPath
            << piece.pieceBaseBluePath << piece.pieceBaseRedPath
            << piece.walkAnimFrames << piece.idleAnimFrames
-           << piece.attackAnimFrames << piece.damagedAnimFrames << piece.killedAnimFrames
+           << piece.attackAnimFrames << piece.damagedAnimFrames << piece.killedAnimFrames << piece.fidgetAnimFrames
            << piece.maxHealth << piece.health << piece.attack << piece.attackRange
            << piece.movePattern << piece.moveRange << piece.attackingMove
            << piece.canControl << piece.growTurnsRemaining << piece.disabledTurns << piece.sleepTurnsRemaining
@@ -697,10 +705,10 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
         return false;
     }
     packet >> piece.imagePath >> piece.walkAnimPath >> piece.idleAnimPath
-           >> piece.attackAnimPath >> piece.damagedAnimPath >> piece.killedAnimPath >> piece.tokenPath
+           >> piece.attackAnimPath >> piece.damagedAnimPath >> piece.killedAnimPath >> piece.fidgetAnimPath >> piece.tokenPath
            >> piece.pieceBaseBluePath >> piece.pieceBaseRedPath
            >> piece.walkAnimFrames >> piece.idleAnimFrames
-           >> piece.attackAnimFrames >> piece.damagedAnimFrames >> piece.killedAnimFrames
+           >> piece.attackAnimFrames >> piece.damagedAnimFrames >> piece.killedAnimFrames >> piece.fidgetAnimFrames
            >> piece.maxHealth >> piece.health >> piece.attack >> piece.attackRange
            >> piece.movePattern >> piece.moveRange >> piece.attackingMove
            >> piece.canControl >> piece.growTurnsRemaining >> piece.disabledTurns >> piece.sleepTurnsRemaining

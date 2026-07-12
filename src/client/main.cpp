@@ -32,6 +32,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <random>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -444,6 +445,10 @@ constexpr const char* CoinPackId = "coins_50";
 constexpr int CoinPackCoins = 50;
 constexpr float CoinPurchasePollIntervalSeconds = 2.0f;
 constexpr float CoinPurchasePollTimeoutSeconds = 300.0f;
+constexpr float FidgetDelayMinimumSeconds = 3.0f;
+constexpr float FidgetDelayMaximumSeconds = 8.0f;
+constexpr float FidgetAnimationDurationSeconds = 0.75f;
+constexpr float PieceMoveAnimationDurationSeconds = 0.95f;
 #ifdef NDEBUG
 constexpr const char* ClientConfigFileName = "client_release.cfg";
 #else
@@ -1081,6 +1086,14 @@ int main(int argc, char** argv)
         float duration = PieceReactionAnimationDurationSeconds;
     };
     std::unordered_map<int, PieceReactionAnimation> pieceDamagedAnimations;
+    struct PieceFidgetAnimation
+    {
+        float nextStartTime = 0.0f;
+        float startTime = 0.0f;
+        bool playing = false;
+    };
+    std::unordered_map<int, PieceFidgetAnimation> pieceFidgetAnimations;
+    std::mt19937 fidgetRandomEngine(std::random_device{}());
     struct PieceKilledAnimation
     {
         game_data::Piece piece;
@@ -1965,6 +1978,7 @@ int main(int argc, char** argv)
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
         pieceDamagedAnimations.clear();
+        pieceFidgetAnimations.clear();
         pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
 
@@ -2580,6 +2594,25 @@ int main(int argc, char** argv)
         }
     };
 
+    auto randomFidgetDelay = [&]() {
+        std::uniform_real_distribution<float> distribution(
+            FidgetDelayMinimumSeconds,
+            FidgetDelayMaximumSeconds);
+        return distribution(fidgetRandomEngine);
+    };
+
+    auto schedulePieceFidget = [&](const game_data::Piece& piece, float delayAfterSeconds = 0.0f) {
+        if (piece.fidgetAnimPath.empty())
+        {
+            pieceFidgetAnimations.erase(piece.id);
+            return;
+        }
+        pieceFidgetAnimations[piece.id] = {
+            animationTime + delayAfterSeconds + randomFidgetDelay(),
+            0.0f,
+            false};
+    };
+
     auto updatePieceMoveAnimations = [&](const game_data::Snapshot& nextSnapshot) {
         std::vector<int> staleAnimations;
         for (auto& [pieceId, animation] : pieceMoveAnimations)
@@ -2620,8 +2653,25 @@ int main(int argc, char** argv)
             pieceDamagedAnimations.erase(pieceId);
         }
 
+        staleAnimations.clear();
+        for (auto& [pieceId, animation] : pieceFidgetAnimations)
+        {
+            if (!pieceByIdInSnapshot(nextSnapshot, pieceId))
+            {
+                staleAnimations.push_back(pieceId);
+            }
+        }
+        for (int pieceId : staleAnimations)
+        {
+            pieceFidgetAnimations.erase(pieceId);
+        }
+
         if (!haveSnapshot)
         {
+            for (const game_data::Piece& piece : nextSnapshot.pieces)
+            {
+                schedulePieceFidget(piece);
+            }
             return;
         }
 
@@ -2668,10 +2718,12 @@ int main(int argc, char** argv)
             if (!currentPiece)
             {
                 playedPlaceSound = true;
+                schedulePieceFidget(nextPiece);
                 continue;
             }
 
-            if (currentPiece->row != nextPiece.row || currentPiece->column != nextPiece.column)
+            const bool pieceMoved = currentPiece->row != nextPiece.row || currentPiece->column != nextPiece.column;
+            if (pieceMoved)
             {
                 pieceMoveAnimations[nextPiece.id] = {
                     currentPiece->row,
@@ -2679,8 +2731,23 @@ int main(int argc, char** argv)
                     nextPiece.row,
                     nextPiece.column,
                     animationTime,
-                    0.95f};
+                    PieceMoveAnimationDurationSeconds};
+                schedulePieceFidget(nextPiece, PieceMoveAnimationDurationSeconds);
                 playedMoveSound = true;
+            }
+            else if (nextPiece.fidgetAnimPath.empty())
+            {
+                pieceFidgetAnimations.erase(nextPiece.id);
+            }
+            else
+            {
+                const auto fidgetAnimation = pieceFidgetAnimations.find(nextPiece.id);
+                if (fidgetAnimation == pieceFidgetAnimations.end() ||
+                    currentPiece->fidgetAnimPath != nextPiece.fidgetAnimPath ||
+                    currentPiece->fidgetAnimFrames != nextPiece.fidgetAnimFrames)
+                {
+                    schedulePieceFidget(nextPiece);
+                }
             }
             if (nextPiece.health < currentPiece->health)
             {
@@ -2801,6 +2868,43 @@ int main(int argc, char** argv)
         return nullptr;
     };
 
+    auto updatePieceFidgetAnimations = [&]() {
+        for (auto animation = pieceFidgetAnimations.begin(); animation != pieceFidgetAnimations.end();)
+        {
+            const game_data::Piece* piece = gamePieceById(animation->first);
+            if (!piece || piece->fidgetAnimPath.empty())
+            {
+                animation = pieceFidgetAnimations.erase(animation);
+                continue;
+            }
+
+            const auto moveAnimation = pieceMoveAnimations.find(piece->id);
+            const bool isMoving = moveAnimation != pieceMoveAnimations.end() &&
+                animationTime < moveAnimation->second.startTime + moveAnimation->second.duration;
+            if (isMoving)
+            {
+                animation->second.playing = false;
+                ++animation;
+                continue;
+            }
+
+            if (animation->second.playing)
+            {
+                if (animationTime >= animation->second.startTime + FidgetAnimationDurationSeconds)
+                {
+                    animation->second.playing = false;
+                    animation->second.nextStartTime = animationTime + randomFidgetDelay();
+                }
+            }
+            else if (animationTime >= animation->second.nextStartTime)
+            {
+                animation->second.playing = true;
+                animation->second.startTime = animationTime;
+            }
+            ++animation;
+        }
+    };
+
     auto commitSandboxSnapshot = [&](game_data::Snapshot nextSnapshot) {
         recomputeSandboxControl(nextSnapshot);
         refreshSandboxPlayerSnapshots(nextSnapshot);
@@ -2865,6 +2969,7 @@ int main(int argc, char** argv)
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
         pieceDamagedAnimations.clear();
+        pieceFidgetAnimations.clear();
         pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
 
@@ -2922,6 +3027,7 @@ int main(int argc, char** argv)
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
         pieceDamagedAnimations.clear();
+        pieceFidgetAnimations.clear();
         pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
 
@@ -4064,6 +4170,7 @@ int main(int argc, char** argv)
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
         pieceDamagedAnimations.clear();
+        pieceFidgetAnimations.clear();
         pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
         sandboxMode = false;
@@ -4214,6 +4321,7 @@ int main(int argc, char** argv)
         if (currentState == GameState::Game)
         {
             pollGameSocket();
+            updatePieceFidgetAnimations();
         }
 
         if (pendingRequest &&

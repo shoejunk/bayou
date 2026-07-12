@@ -2385,7 +2385,7 @@ private:
         y = drawInstructionBullet(window, "Title: the unique card name. Renaming an existing card updates that card; duplicate titles are not valid.", y);
         y = drawInstructionBullet(window, "Type: enter exactly Hero, Unit, or Spell. Type matching is case-sensitive.", y);
         y = drawInstructionBullet(window, "Image Path: a path under the assets folder, such as cards/clockwork-rook.png. Do not include an absolute path or use .. to leave the assets folder.", y);
-        y = drawInstructionBullet(window, "Board art: Token selects the shared resting image and WalkAnim selects its horizontal walking sprite sheet; WalkAnimFrames gives the frame count. PieceBaseBlue and PieceBaseRed select the team-colored bases drawn beneath that art. IdleAnim loops while placed pieces are not moving; AttackAnim, DamagedAnim, and KilledAnim play as one-shot combat sheets.", y);
+        y = drawInstructionBullet(window, "Board art: Token selects the shared resting image and WalkAnim selects its horizontal walking sprite sheet; WalkAnimFrames gives the frame count. PieceBaseBlue and PieceBaseRed select the team-colored bases drawn beneath that art. IdleAnim loops while placed pieces are not moving; AttackAnim, DamagedAnim, and KilledAnim play as one-shot combat sheets. Optional FidgetAnim with FidgetAnimFrames plays occasionally while the piece is stationary.", y);
         y += 12.0f;
 
         y = drawInstructionSection(window, "2. Card types", y);

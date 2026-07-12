@@ -536,7 +536,8 @@ int main(int argc, char** argv)
     encodedCard.title = "Encoded";
     encodedCard.type = "Unit";
     encodedCard.keywords = {"corrupt", "fey"};
-    encodedCard.integerValues = {{"attack", 9}, {"range", 5}};
+    encodedCard.integerValues = {{"attack", 9}, {"range", 5}, {"FidgetAnimFrames", 3}};
+    encodedCard.stringValues = {{"FidgetAnim", "animations/fidget/test.png"}};
     encodedCard.actionNames = {"Diagonal Charge"};
     encodedCard.actions.push_back({
         "Diagonal Charge",
@@ -560,7 +561,9 @@ int main(int argc, char** argv)
               decodedCard.actions[0].name == "Diagonal Charge" &&
               decodedCard.actions[0].damage == 2 &&
               decodedCard.actions[0].canMove &&
-              decodedCard.actions[0].canAttack,
+              decodedCard.actions[0].canAttack &&
+              decodedCard.fidgetAnimPath == "animations/fidget/test.png" &&
+              decodedCard.fidgetAnimFrames == 3,
           "referenced action object resolves into gameplay data without a legacy fallback attack");
 
     GameCard serializedCard = decodedCard;
@@ -570,6 +573,7 @@ int main(int argc, char** argv)
     serializedCard.attackAnimPath = "animations/attack/test.png";
     serializedCard.damagedAnimPath = "animations/damaged/test.png";
     serializedCard.killedAnimPath = "animations/killed/test.png";
+    serializedCard.fidgetAnimPath = "animations/fidget/test.png";
     serializedCard.pieceBaseBluePath = "characters/bases/blue.png";
     serializedCard.pieceBaseRedPath = "characters/bases/red.png";
     serializedCard.walkAnimFrames = 7;
@@ -577,6 +581,7 @@ int main(int argc, char** argv)
     serializedCard.attackAnimFrames = 6;
     serializedCard.damagedAnimFrames = 8;
     serializedCard.killedAnimFrames = 9;
+    serializedCard.fidgetAnimFrames = 10;
     serializedCard.ability = "transform";
     serializedCard.summonTitle = "Serialized Summon";
     serializedCard.abilityLabels = {"Ready", "Lower"};
@@ -594,6 +599,7 @@ int main(int argc, char** argv)
               roundTrippedCard.attackAnimPath == "animations/attack/test.png" &&
               roundTrippedCard.damagedAnimPath == "animations/damaged/test.png" &&
               roundTrippedCard.killedAnimPath == "animations/killed/test.png" &&
+              roundTrippedCard.fidgetAnimPath == "animations/fidget/test.png" &&
               roundTrippedCard.pieceBaseBluePath == "characters/bases/blue.png" &&
               roundTrippedCard.pieceBaseRedPath == "characters/bases/red.png" &&
               roundTrippedCard.walkAnimFrames == 7 &&
@@ -601,6 +607,7 @@ int main(int argc, char** argv)
               roundTrippedCard.attackAnimFrames == 6 &&
               roundTrippedCard.damagedAnimFrames == 8 &&
               roundTrippedCard.killedAnimFrames == 9 &&
+              roundTrippedCard.fidgetAnimFrames == 10 &&
               roundTrippedCard.summonTitle == "Serialized Summon" &&
               roundTrippedCard.abilityLabels.size() == 2 &&
               roundTrippedCard.abilityUses == 2,
@@ -616,6 +623,7 @@ int main(int argc, char** argv)
     serializedPiece.attackAnimPath = "animations/attack/test.png";
     serializedPiece.damagedAnimPath = "animations/damaged/test.png";
     serializedPiece.killedAnimPath = "animations/killed/test.png";
+    serializedPiece.fidgetAnimPath = "animations/fidget/test.png";
     serializedPiece.pieceBaseBluePath = "characters/bases/blue.png";
     serializedPiece.pieceBaseRedPath = "characters/bases/red.png";
     serializedPiece.walkAnimFrames = 6;
@@ -623,6 +631,7 @@ int main(int argc, char** argv)
     serializedPiece.attackAnimFrames = 5;
     serializedPiece.damagedAnimFrames = 7;
     serializedPiece.killedAnimFrames = 8;
+    serializedPiece.fidgetAnimFrames = 9;
     serializedPiece.abilityLabels = {"Dig"};
     serializedPiece.abilityUses = 1;
     serializedPiece.growTurnsRemaining = 2;
@@ -645,6 +654,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.attackAnimPath == "animations/attack/test.png" &&
               roundTrippedPiece.damagedAnimPath == "animations/damaged/test.png" &&
               roundTrippedPiece.killedAnimPath == "animations/killed/test.png" &&
+              roundTrippedPiece.fidgetAnimPath == "animations/fidget/test.png" &&
               roundTrippedPiece.pieceBaseBluePath == "characters/bases/blue.png" &&
               roundTrippedPiece.pieceBaseRedPath == "characters/bases/red.png" &&
               roundTrippedPiece.walkAnimFrames == 6 &&
@@ -652,6 +662,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.attackAnimFrames == 5 &&
               roundTrippedPiece.damagedAnimFrames == 7 &&
               roundTrippedPiece.killedAnimFrames == 8 &&
+              roundTrippedPiece.fidgetAnimFrames == 9 &&
               roundTrippedPiece.ability == "dig" &&
               roundTrippedPiece.summonTitle == "Serialized Summon" &&
               roundTrippedPiece.growTurnsRemaining == 2 &&
