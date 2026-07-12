@@ -534,7 +534,7 @@ int main(int argc, char** argv)
     card_data::Card encodedCard;
     encodedCard.title = "Encoded";
     encodedCard.type = "Unit";
-    encodedCard.keywords = {"mechanical", "occult"};
+    encodedCard.keywords = {"corrupt", "fey"};
     encodedCard.integerValues = {{"attack", 9}, {"range", 5}};
     encodedCard.actionNames = {"Diagonal Charge"};
     encodedCard.actions.push_back({
@@ -614,7 +614,7 @@ int main(int argc, char** argv)
     Piece serializedPiece = profilePiece;
     serializedPiece.ability = "dig";
     serializedPiece.summonTitle = "Serialized Summon";
-    serializedPiece.keywords = {"mechanical"};
+    serializedPiece.keywords = {"corrupt"};
     serializedPiece.tokenPath = "characters/test.png";
     serializedPiece.blueTokenPath = "characters/blue/test.png";
     serializedPiece.redTokenPath = "characters/red/test.png";
@@ -670,28 +670,28 @@ int main(int argc, char** argv)
               roundTrippedPiece.sleepTurnsRemaining == 1,
           "extended piece fields survive network serialization");
 
-    Piece mechanicalHero;
-    mechanicalHero.owner = 1;
-    mechanicalHero.isHero = true;
-    mechanicalHero.keywords = {"mechanical"};
-    Piece occultHero;
-    occultHero.owner = 1;
-    occultHero.isHero = true;
-    occultHero.keywords = {"occult"};
+    Piece corruptHero;
+    corruptHero.owner = 1;
+    corruptHero.isHero = true;
+    corruptHero.keywords = {"corrupt"};
+    Piece feyHero;
+    feyHero.owner = 1;
+    feyHero.isHero = true;
+    feyHero.keywords = {"fey"};
     Piece enemyHero;
     enemyHero.owner = 2;
     enemyHero.isHero = true;
-    enemyHero.keywords = {"bio"};
+    enemyHero.keywords = {"fey"};
     GameCard unrestrictedCard;
-    GameCard mechanicalOccultCard;
-    mechanicalOccultCard.keywords = {"mechanical", "occult"};
-    check(heroKeywordsAllowCard({mechanicalHero}, 1, unrestrictedCard),
+    GameCard corruptFeyCard;
+    corruptFeyCard.keywords = {"corrupt", "fey"};
+    check(heroKeywordsAllowCard({corruptHero}, 1, unrestrictedCard),
           "cards without keywords need no hero keyword");
-    check(!heroKeywordsAllowCard({mechanicalHero, enemyHero}, 1, mechanicalOccultCard),
+    check(!heroKeywordsAllowCard({corruptHero, enemyHero}, 1, corruptFeyCard),
           "enemy heroes cannot supply a card keyword");
-    check(heroKeywordsAllowCard({mechanicalHero, occultHero}, 1, mechanicalOccultCard),
+    check(heroKeywordsAllowCard({corruptHero, feyHero}, 1, corruptFeyCard),
           "multiple friendly heroes can collectively supply all card keywords");
-    check(!heroKeywordsAllowCard({mechanicalHero}, 1, mechanicalOccultCard),
+    check(!heroKeywordsAllowCard({corruptHero}, 1, corruptFeyCard),
           "a card becomes unavailable when a required hero is no longer on the board");
 
     const auto [equalWinnerRating, equalLoserRating] =

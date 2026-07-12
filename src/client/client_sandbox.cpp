@@ -164,7 +164,7 @@ game_data::GameCard makeStoryTomCard()
     game_data::GameCard card;
     card.title = "Tinkering Tom";
     card.type = "Hero";
-    card.keywords = {"mechanical"};
+    card.keywords = {"corrupt"};
     card.imagePath = "cards/tinkering-tom.png";
     card.blueTokenPath = "characters/blue/tinkeringTom.png";
     card.redTokenPath = "characters/red/tinkeringTom.png";

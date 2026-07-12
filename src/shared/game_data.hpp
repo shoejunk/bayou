@@ -29,11 +29,7 @@ constexpr int MinHeroes = 1;
 constexpr int MaxHeroes = 4;
 constexpr int HeroCostLimit = 100;
 constexpr int DamageDisabledTurns = 1;
-constexpr std::array<const char*, 6> CardKeywordLabels = {
-    "bio",
-    "mechanical",
-    "occult",
-    "riffraff",
+constexpr std::array<const char*, 2> CardKeywordLabels = {
     "corrupt",
     "fey"};
 
