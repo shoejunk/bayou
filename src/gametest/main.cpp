@@ -144,8 +144,9 @@ std::string loginForTest(const std::string& username, const std::string& passwor
 }
 
 // Fetches the account's saved decks and returns the first one as title-only
-// cards; the game server resolves each title against its own cards.db, so the
-// titles are all a legitimate client needs to submit.
+// cards; the game server resolves each title against its configured
+// authoritative card catalog, so the titles are all a legitimate client needs
+// to submit.
 std::vector<card_data::Card> fetchDeckCards(const std::string& accessToken)
 {
     bayou::tls::Socket socket;
@@ -564,17 +565,13 @@ int main(int argc, char** argv)
 
     GameCard serializedCard = decodedCard;
     serializedCard.tokenPath = "characters/test.png";
-    serializedCard.blueTokenPath = "characters/blue/test.png";
-    serializedCard.redTokenPath = "characters/red/test.png";
-    serializedCard.blueWalkAnimPath = "animations/blue/test.png";
-    serializedCard.redWalkAnimPath = "animations/red/test.png";
+    serializedCard.walkAnimPath = "animations/test.png";
     serializedCard.idleAnimPath = "animations/idle/test.png";
     serializedCard.attackAnimPath = "animations/attack/test.png";
     serializedCard.damagedAnimPath = "animations/damaged/test.png";
     serializedCard.killedAnimPath = "animations/killed/test.png";
     serializedCard.pieceBaseBluePath = "characters/bases/blue.png";
     serializedCard.pieceBaseRedPath = "characters/bases/red.png";
-    serializedCard.separateBaseArt = true;
     serializedCard.walkAnimFrames = 7;
     serializedCard.idleAnimFrames = 5;
     serializedCard.attackAnimFrames = 6;
@@ -592,15 +589,13 @@ int main(int argc, char** argv)
               roundTrippedCard.actions[0].name == "Diagonal Charge" &&
               roundTrippedCard.keywords == encodedCard.keywords &&
               roundTrippedCard.tokenPath == "characters/test.png" &&
-              roundTrippedCard.blueTokenPath == "characters/blue/test.png" &&
-              roundTrippedCard.redWalkAnimPath == "animations/red/test.png" &&
+              roundTrippedCard.walkAnimPath == "animations/test.png" &&
               roundTrippedCard.idleAnimPath == "animations/idle/test.png" &&
               roundTrippedCard.attackAnimPath == "animations/attack/test.png" &&
               roundTrippedCard.damagedAnimPath == "animations/damaged/test.png" &&
               roundTrippedCard.killedAnimPath == "animations/killed/test.png" &&
               roundTrippedCard.pieceBaseBluePath == "characters/bases/blue.png" &&
               roundTrippedCard.pieceBaseRedPath == "characters/bases/red.png" &&
-              roundTrippedCard.separateBaseArt &&
               roundTrippedCard.walkAnimFrames == 7 &&
               roundTrippedCard.idleAnimFrames == 5 &&
               roundTrippedCard.attackAnimFrames == 6 &&
@@ -616,17 +611,13 @@ int main(int argc, char** argv)
     serializedPiece.summonTitle = "Serialized Summon";
     serializedPiece.keywords = {"corrupt"};
     serializedPiece.tokenPath = "characters/test.png";
-    serializedPiece.blueTokenPath = "characters/blue/test.png";
-    serializedPiece.redTokenPath = "characters/red/test.png";
-    serializedPiece.blueWalkAnimPath = "animations/blue/test.png";
-    serializedPiece.redWalkAnimPath = "animations/red/test.png";
+    serializedPiece.walkAnimPath = "animations/test.png";
     serializedPiece.idleAnimPath = "animations/idle/test.png";
     serializedPiece.attackAnimPath = "animations/attack/test.png";
     serializedPiece.damagedAnimPath = "animations/damaged/test.png";
     serializedPiece.killedAnimPath = "animations/killed/test.png";
     serializedPiece.pieceBaseBluePath = "characters/bases/blue.png";
     serializedPiece.pieceBaseRedPath = "characters/bases/red.png";
-    serializedPiece.separateBaseArt = true;
     serializedPiece.walkAnimFrames = 6;
     serializedPiece.idleAnimFrames = 4;
     serializedPiece.attackAnimFrames = 5;
@@ -649,15 +640,13 @@ int main(int argc, char** argv)
               roundTrippedPiece.actions[0].name == "Serialized Action" &&
               roundTrippedPiece.keywords == serializedPiece.keywords &&
               roundTrippedPiece.tokenPath == "characters/test.png" &&
-              roundTrippedPiece.blueTokenPath == "characters/blue/test.png" &&
-              roundTrippedPiece.redWalkAnimPath == "animations/red/test.png" &&
+              roundTrippedPiece.walkAnimPath == "animations/test.png" &&
               roundTrippedPiece.idleAnimPath == "animations/idle/test.png" &&
               roundTrippedPiece.attackAnimPath == "animations/attack/test.png" &&
               roundTrippedPiece.damagedAnimPath == "animations/damaged/test.png" &&
               roundTrippedPiece.killedAnimPath == "animations/killed/test.png" &&
               roundTrippedPiece.pieceBaseBluePath == "characters/bases/blue.png" &&
               roundTrippedPiece.pieceBaseRedPath == "characters/bases/red.png" &&
-              roundTrippedPiece.separateBaseArt &&
               roundTrippedPiece.walkAnimFrames == 6 &&
               roundTrippedPiece.idleAnimFrames == 4 &&
               roundTrippedPiece.attackAnimFrames == 5 &&
@@ -959,8 +948,8 @@ int main(int argc, char** argv)
         send(socket, packet);
     };
     // The game server only accepts decks whose titles resolve against its
-    // cards.db and that the account actually owns, so submit each player's
-    // saved starter deck.
+    // authoritative card catalog and that the account actually owns, so submit
+    // each player's saved starter deck.
     const std::vector<card_data::Card> deck1 = fetchDeckCards(pnumA == 1 ? tokenA : tokenB);
     const std::vector<card_data::Card> deck2 = fetchDeckCards(pnumA == 1 ? tokenB : tokenA);
     check(!deck1.empty() && !deck2.empty(), "fetched saved decks for both players");

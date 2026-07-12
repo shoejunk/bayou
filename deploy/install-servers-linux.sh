@@ -12,6 +12,8 @@ SOURCE_PREFIX="${SOURCE_PREFIX:-${REPO_ROOT}/dist/servers}"
 VERSION="${VERSION:-$(date -u +%Y%m%d%H%M%S)}"
 RELEASE_DIR="${RELEASE_DIR:-/opt/bayou/releases/${VERSION}}"
 DATA_DIR="${DATA_DIR:-/var/lib/bayou/shared}"
+GAME_SERVER_CONFIG_FILE="${GAME_SERVER_CONFIG_FILE:-/etc/bayou/gameserver.cfg}"
+CARDS_DATABASE_PATH="${CARDS_DATABASE_PATH:-${DATA_DIR}/cards.db}"
 APP_USER="${APP_USER:-bayou}"
 TLS_CERT_FILE="${TLS_CERT_FILE:-}"
 TLS_KEY_FILE="${TLS_KEY_FILE:-}"
@@ -44,6 +46,7 @@ if [[ ! "${TLS_SERVER_NAME}" =~ ^[A-Za-z0-9.-]+$ ]]; then
     echo "TLS_SERVER_NAME must be a DNS name or IPv4 address."
     exit 1
 fi
+CARD_SERVER_HOST="${CARD_SERVER_HOST:-${TLS_SERVER_NAME}}"
 if ! command -v openssl >/dev/null 2>&1; then
     echo "OpenSSL is required to validate production certificates before deployment."
     exit 1
@@ -78,13 +81,27 @@ for executable in accounts cardserver gameserver matchmaking; do
     install -m 0755 "${SOURCE_PREFIX}/bin/${executable}" "${RELEASE_DIR}/bin/${executable}"
 done
 
-for database in accounts.db cards.db; do
+if [[ ! -f "${CARDS_DATABASE_PATH}" ]]; then
+    echo "Missing authoritative cards database: ${CARDS_DATABASE_PATH}"
+    echo "Provision the shared database before installing the server release."
+    exit 1
+fi
+
+for database in accounts.db; do
     if [[ ! -f "${DATA_DIR}/${database}" && -f "${REPO_ROOT}/${database}" ]]; then
         install -m 0600 -o "${APP_USER}" -g "${APP_USER}" \
             "${REPO_ROOT}/${database}" "${DATA_DIR}/${database}"
     fi
 done
 chown -R "${APP_USER}:${APP_USER}" "${DATA_DIR}"
+
+install -d -m 0750 -o root -g "${APP_USER}" "$(dirname "${GAME_SERVER_CONFIG_FILE}")"
+if [[ ! -f "${GAME_SERVER_CONFIG_FILE}" ]]; then
+    printf '# Authoritative card database served by the card server.\ncard_server=%s:55004\n' \
+        "${CARD_SERVER_HOST}" > "${GAME_SERVER_CONFIG_FILE}"
+    chown root:"${APP_USER}" "${GAME_SERVER_CONFIG_FILE}"
+    chmod 0640 "${GAME_SERVER_CONFIG_FILE}"
+fi
 
 install -d -m 0750 -o root -g "${APP_USER}" "${TLS_DIR}"
 install -m 0644 -o root -g root "${TLS_CERT_FILE}" "${TLS_DIR}/server-cert.pem"

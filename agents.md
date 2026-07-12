@@ -11,9 +11,10 @@ the game coordinator spawns per-match processes via `CreateProcessA` (see the
 
 ## Run the services
 
-- `debug_services.bat` starts the accounts, card, game, and matchmaking services
-  (plus the Stripe coin service when `.env.stripe` is present). `debug_client.bat`
-  launches the client. Release equivalents: `release_services.bat`,
+- `debug_services.bat` starts the accounts, game, and matchmaking services
+  (plus the Stripe coin service when `.env.stripe` is present); card data comes
+  from the configured authoritative card server. `debug_client.bat` launches
+  the client. Release equivalents: `release_services.bat`,
   `release_client.bat`.
 - After each client change, run `debug_services.bat`, then run `debug_client.bat`
   once.

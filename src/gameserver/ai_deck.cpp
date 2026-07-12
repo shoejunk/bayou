@@ -2,7 +2,6 @@
 
 #include "../accounts/account_catalog.hpp"
 #include "../accounts/account_decks.hpp"
-#include "../shared/card_database.hpp"
 #include "../shared/deck_data.hpp"
 #include "../shared/game_data.hpp"
 
@@ -19,19 +18,6 @@ namespace
 constexpr int StarterNonHeroKinds = game_data::DeckCardCount / game_data::MaxCardCopies;
 constexpr const char* PreferredStarterHero = "Steam Baron";
 constexpr const char* AccountDatabasePath = "accounts.db";
-
-std::vector<card_data::Card> loadCardsFromCardsDb()
-{
-    try
-    {
-        return card_database::loadCardsFromFile("cards.db");
-    }
-    catch (const std::exception& error)
-    {
-        fmt::println("Could not load AI starter deck from cards.db: {}", error.what());
-    }
-    return {};
-}
 
 const std::vector<std::string>& fallbackStarterNonHeroes()
 {
@@ -169,9 +155,8 @@ std::vector<card_data::Card> resolveDeckTitles(
 
 namespace ai_deck
 {
-std::vector<card_data::Card> makeStarterDeck()
+std::vector<card_data::Card> makeStarterDeck(const std::vector<card_data::Card>& library)
 {
-    const std::vector<card_data::Card> library = loadCardsFromCardsDb();
     if (library.empty())
     {
         return fallbackStarterDeck();

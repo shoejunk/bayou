@@ -2,7 +2,6 @@
 
 #include "account_catalog.hpp"
 
-#include "../shared/card_database.hpp"
 #include "../shared/game_data.hpp"
 
 #include <cstddef>
@@ -63,7 +62,7 @@ std::optional<std::int64_t> findDeckId(SQLite::Database& database, const std::st
 std::unordered_set<std::string> tokenCardTitles()
 {
     std::unordered_set<std::string> titles;
-    for (const card_data::Card& card : card_database::loadCardsFromFile("cards.db"))
+    for (const card_data::Card& card : account_catalog::cardLibrary())
     {
         if (game_data::isTokenCard(card))
         {
@@ -206,7 +205,7 @@ std::optional<std::string> deckCollectionError(
 
 std::optional<std::string> deckRulesError(const deck_data::Deck& deck)
 {
-    const std::vector<card_data::Card> library = card_database::loadCardsFromFile("cards.db");
+    const std::vector<card_data::Card>& library = account_catalog::cardLibrary();
     std::unordered_map<std::string, card_data::Card> cardsByTitle;
     for (const card_data::Card& card : library)
     {

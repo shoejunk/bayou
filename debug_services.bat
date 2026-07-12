@@ -5,6 +5,6 @@ if exist "%~dp0.env.stripe" (
 ) else (
     echo Stripe Coin Service skipped: .env.stripe was not found.
 )
-start "Card Server Service" /D "%~dp0" debug_cardserver.bat
+echo Card Server Service skipped: the debug client and game server use the configured authoritative card server.
 start "Game Server Service" /D "%~dp0" debug_gameserver.bat
 start "Matchmaking Service" /D "%~dp0" debug_matchmaking.bat

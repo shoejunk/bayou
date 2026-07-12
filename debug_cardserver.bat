@@ -1,3 +1,4 @@
 @echo off
-call "%~dp0ensure_dev_tls.bat" || exit /b 1
-"%~dp0build\Debug\cardserver.exe"
+echo Local card server is disabled because card data is authoritative on the configured remote card server.
+echo Use the card server endpoint in client_debug.cfg or gameserver.cfg.
+exit /b 1

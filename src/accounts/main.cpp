@@ -11,6 +11,8 @@
 #include "account_tokens.hpp"
 
 #include "../shared/account_data.hpp"
+#include "../shared/card_server_client.hpp"
+#include "../shared/card_source_config.hpp"
 #include "../shared/deck_data.hpp"
 #include "../shared/listener_retry.hpp"
 #include "../shared/ranking.hpp"
@@ -22,6 +24,7 @@
 #include <cctype>
 #include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -29,6 +32,7 @@
 #include <random>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "../shared/network.hpp"
@@ -1656,8 +1660,43 @@ private:
 
 };
 
-int main()
+int main(int argc, char* argv[])
 {
+    std::filesystem::path configPath = "gameserver.cfg";
+    if (argc == 3 && std::string(argv[1]) == "--config")
+    {
+        configPath = argv[2];
+    }
+    else if (argc != 1)
+    {
+        fmt::println("Usage: accounts [--config <path>]");
+        return 1;
+    }
+
+    std::string configError;
+    const std::optional<card_source_config::Config> config =
+        card_source_config::load(configPath, configError);
+    if (!config)
+    {
+        fmt::println("Account server card-source configuration error: {}", configError);
+        return 1;
+    }
+
+    std::string catalogError;
+    std::vector<card_data::Card> cardLibrary = card_server_client::load(*config, catalogError);
+    if (!catalogError.empty())
+    {
+        fmt::println("Account server could not load the authoritative card catalog: {}", catalogError);
+        return 1;
+    }
+    if (cardLibrary.empty())
+    {
+        fmt::println("Account server received an empty authoritative card catalog");
+        return 1;
+    }
+    fmt::println("Loaded {} authoritative cards", cardLibrary.size());
+    account_catalog::setCardLibrary(std::move(cardLibrary));
+
     fmt::println("Starting Accounts Server...");
 
     AccountServer server(55000);

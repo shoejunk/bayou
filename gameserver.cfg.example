@@ -1,0 +1,7 @@
+# The authoritative card database is served by the card server. This lets a
+# local game-server process use the same remote catalog without a local copy.
+card_server=game.gloomthorn.com:55004
+
+# A mounted SQLite path is also supported when the game server and card server
+# share a filesystem. Do not point it at a database inside the source checkout.
+# cards_database=/var/lib/bayou/shared/cards.db

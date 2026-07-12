@@ -4,6 +4,7 @@
 *.db
 *.db-shm
 *.db-wal
+/gameserver.cfg
 __pycache__/
 *.pyc
 .env.stripe

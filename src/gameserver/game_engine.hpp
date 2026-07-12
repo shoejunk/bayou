@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../shared/card_database.hpp"
 #include "../shared/card_data.hpp"
 #include "../shared/game_data.hpp"
 
@@ -30,10 +29,10 @@ public:
         bool deckSubmitted = false;
     };
 
-    explicit GameEngine(unsigned int seed)
+    GameEngine(unsigned int seed, const std::vector<card_data::Card>& cardLibrary)
         : rng(seed)
     {
-        loadSummonCatalog();
+        loadSummonCatalog(cardLibrary);
         players[0].number = 1;
         players[1].number = 2;
         initializeControl();
@@ -459,18 +458,11 @@ private:
         *found = card;
     }
 
-    void loadSummonCatalog()
+    void loadSummonCatalog(const std::vector<card_data::Card>& cardLibrary)
     {
-        try
+        for (const card_data::Card& card : cardLibrary)
         {
-            for (const card_data::Card& card : card_database::loadCardsFromFile("cards.db"))
-            {
-                rememberSummonCard(toGameCard(card));
-            }
-        }
-        catch (const std::exception& error)
-        {
-            fmt::println("Could not load summon catalog from cards.db: {}", error.what());
+            rememberSummonCard(toGameCard(card));
         }
     }
 

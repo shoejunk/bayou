@@ -13,9 +13,11 @@
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
 #include <limits>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -31,7 +33,8 @@
 
 #include "../shared/account_data.hpp"
 #include "../shared/card_data.hpp"
-#include "../shared/card_database.hpp"
+#include "../shared/card_server_client.hpp"
+#include "../shared/card_source_config.hpp"
 #include "../shared/game_data.hpp"
 
 #include "../shared/listener_retry.hpp"
@@ -268,20 +271,23 @@ bool spawnGameProcess(
     const std::string& playerTwo,
     const std::string& resultToken,
     const std::string& aiAccessToken,
-    bool aiOpponent)
+    bool aiOpponent,
+    const std::filesystem::path& configPath)
 {
 #ifdef _WIN32
     std::string command = aiOpponent
         ? fmt::format(
-            "\"{}\" --game-ai {} {} {} {}",
+            "\"{}\" --config \"{}\" --game-ai {} {} {} {}",
             executablePath(),
+            configPath.string(),
             matchId,
             port,
             playerOne,
             aiAccessToken)
         : fmt::format(
-            "\"{}\" --game {} {} {} {} {}",
+            "\"{}\" --config \"{}\" --game {} {} {} {} {}",
             executablePath(),
+            configPath.string(),
             matchId,
             port,
             playerOne,
@@ -316,15 +322,17 @@ bool spawnGameProcess(
 #else
     const std::string command = aiOpponent
         ? fmt::format(
-            "{} --game-ai {} {} {} {} &",
+            "{} --config {} --game-ai {} {} {} {} &",
             executablePath(),
+            configPath.string(),
             matchId,
             port,
             playerOne,
             aiAccessToken)
         : fmt::format(
-            "{} --game {} {} {} {} {} &",
+            "{} --config {} --game {} {} {} {} {} &",
             executablePath(),
+            configPath.string(),
             matchId,
             port,
             playerOne,
@@ -342,8 +350,9 @@ bool spawnGameProcess(
 class GameServerCoordinator
 {
 public:
-    explicit GameServerCoordinator(unsigned short port)
-        : listener(std::make_unique<bayou::tls::Listener>())
+    GameServerCoordinator(unsigned short port, std::filesystem::path configPath)
+        : configPath(std::move(configPath)),
+          listener(std::make_unique<bayou::tls::Listener>())
     {
         if (!listener_retry::listenWithRetry(*listener, port))
         {
@@ -378,6 +387,7 @@ public:
     }
 
 private:
+    std::filesystem::path configPath;
     std::unique_ptr<bayou::tls::Listener> listener;
     std::atomic<bool> running{false};
     bool listening = false;
@@ -434,7 +444,8 @@ private:
             playerTwo,
             resultToken,
             playerOneToken,
-            type == MessageType::CreateAiGameSession);
+            type == MessageType::CreateAiGameSession,
+            configPath);
 
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::GameSessionCreated);
@@ -460,12 +471,14 @@ public:
         std::string playerOne,
         std::string playerTwo,
         std::string resultToken,
+        card_source_config::Config cardSourceConfig,
         bool aiOpponent = false,
         std::string aiAccessToken = {})
         : matchId(matchId),
           port(port),
           playerUsernames{std::move(playerOne), std::move(playerTwo)},
           resultToken(std::move(resultToken)),
+          cardSourceConfig(std::move(cardSourceConfig)),
           aiAccessToken(std::move(aiAccessToken)),
           listener(std::make_unique<bayou::tls::Listener>()),
           aiOpponent(aiOpponent)
@@ -519,7 +532,7 @@ public:
         const unsigned int seed =
             static_cast<unsigned int>(matchId) ^
             static_cast<unsigned int>(std::chrono::steady_clock::now().time_since_epoch().count());
-        GameEngine engine(seed);
+        GameEngine engine(seed, cardCatalog);
 
         if (!receiveDeck(*playerOne, engine))
         {
@@ -562,7 +575,7 @@ public:
         const unsigned int seed =
             static_cast<unsigned int>(matchId) ^
             static_cast<unsigned int>(std::chrono::steady_clock::now().time_since_epoch().count());
-        GameEngine engine(seed);
+        GameEngine engine(seed, cardCatalog);
 
         if (!receiveDeck(*human, engine))
         {
@@ -573,7 +586,7 @@ public:
             return;
         }
 
-        const std::vector<card_data::Card> aiDeck = ai_deck::makeStarterDeck();
+        const std::vector<card_data::Card> aiDeck = ai_deck::makeStarterDeck(cardCatalog);
         engine.submitDeck(AiPlayerNumber, aiDeck);
         fmt::println("AI game {} started ({} AI deck cards)", matchId, aiDeck.size());
 
@@ -673,11 +686,13 @@ private:
     unsigned short port = 0;
     std::array<std::string, 2> playerUsernames;
     std::string resultToken;
+    card_source_config::Config cardSourceConfig;
     std::string aiAccessToken;
     std::unique_ptr<bayou::tls::Listener> listener;
-    // Authoritative card definitions keyed by title, loaded from this server's
-    // own cards.db; submitted decks are resolved against these stats.
+    // Authoritative card definitions keyed by title, loaded from the configured
+    // card source; submitted decks are resolved against these stats.
     std::unordered_map<std::string, card_data::Card> cardLibrary;
+    std::vector<card_data::Card> cardCatalog;
     bool listening = false;
     bool aiOpponent = false;
 
@@ -733,7 +748,7 @@ private:
     }
 
     // The client's deck submission is trusted only for its card titles. Every
-    // title is re-resolved against this process's own cards.db load and checked
+    // title is re-resolved against this process's configured card database and checked
     // against the player's account collection, so a modified client can neither
     // forge card stats nor field cards it does not own.
     bool receiveDeck(JoinedPlayer& player, GameEngine& engine)
@@ -835,17 +850,30 @@ private:
     {
         try
         {
-            for (card_data::Card& card : card_database::loadCardsFromFile("cards.db"))
+            std::string loadError;
+            const std::vector<card_data::Card> cards = card_server_client::load(cardSourceConfig, loadError);
+            if (!loadError.empty())
             {
-                std::string title = card.title;
-                cardLibrary.emplace(std::move(title), std::move(card));
+                throw std::runtime_error(loadError);
+            }
+
+            for (const card_data::Card& card : cards)
+            {
+                cardCatalog.push_back(card);
+                cardLibrary.emplace(card.title, card);
             }
         }
         catch (const std::exception& error)
         {
             // Fail closed: with an empty library every submitted deck is
             // rejected rather than falling back to client-supplied stats.
-            fmt::println("Game {} could not load cards.db: {}", matchId, error.what());
+            fmt::println(
+                "Game {} could not load configured card source {}: {}",
+                matchId,
+                cardSourceConfig.usesCardServer()
+                    ? cardSourceConfig.cardServerHost + ":" + std::to_string(cardSourceConfig.cardServerPort)
+                    : cardSourceConfig.cardsDatabasePath->string(),
+                error.what());
         }
     }
 
@@ -1016,11 +1044,34 @@ private:
 
 int main(int argc, char* argv[])
 {
-    if (argc == 7 && std::string(argv[1]) == "--game")
+    std::filesystem::path configPath = "gameserver.cfg";
+    int commandIndex = 1;
+    if (argc >= 3 && std::string(argv[1]) == "--config")
     {
-        const int matchId = std::stoi(argv[2]);
-        const unsigned short port = static_cast<unsigned short>(std::stoi(argv[3]));
-        GameProcess game(matchId, port, argv[4], argv[5], argv[6]);
+        configPath = argv[2];
+        commandIndex = 3;
+    }
+
+    std::string configError;
+    const std::optional<card_source_config::Config> config =
+        card_source_config::load(configPath, configError);
+    if (!config)
+    {
+        fmt::println("Game server configuration error: {}", configError);
+        return 1;
+    }
+
+    if (argc == commandIndex + 6 && std::string(argv[commandIndex]) == "--game")
+    {
+        const int matchId = std::stoi(argv[commandIndex + 1]);
+        const unsigned short port = static_cast<unsigned short>(std::stoi(argv[commandIndex + 2]));
+        GameProcess game(
+            matchId,
+            port,
+            argv[commandIndex + 3],
+            argv[commandIndex + 4],
+            argv[commandIndex + 5],
+            *config);
         if (!game.isListening())
         {
             return 1;
@@ -1029,11 +1080,19 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    if (argc == 6 && std::string(argv[1]) == "--game-ai")
+    if (argc == commandIndex + 5 && std::string(argv[commandIndex]) == "--game-ai")
     {
-        const int matchId = std::stoi(argv[2]);
-        const unsigned short port = static_cast<unsigned short>(std::stoi(argv[3]));
-        GameProcess game(matchId, port, argv[4], AiOpponentName, "", true, argv[5]);
+        const int matchId = std::stoi(argv[commandIndex + 1]);
+        const unsigned short port = static_cast<unsigned short>(std::stoi(argv[commandIndex + 2]));
+        GameProcess game(
+            matchId,
+            port,
+            argv[commandIndex + 3],
+            AiOpponentName,
+            "",
+            *config,
+            true,
+            argv[commandIndex + 4]);
         if (!game.isListening())
         {
             return 1;
@@ -1044,7 +1103,7 @@ int main(int argc, char* argv[])
 
     fmt::println("Starting Game Server Coordinator...");
 
-    GameServerCoordinator coordinator(GameServerPort);
+    GameServerCoordinator coordinator(GameServerPort, configPath);
     if (!coordinator.isListening())
     {
         return 1;

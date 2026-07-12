@@ -6,5 +6,5 @@
 
 namespace ai_deck
 {
-std::vector<card_data::Card> makeStarterDeck();
+std::vector<card_data::Card> makeStarterDeck(const std::vector<card_data::Card>& cardLibrary);
 }

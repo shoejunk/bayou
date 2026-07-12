@@ -9,7 +9,7 @@ User=bayou
 Group=bayou
 WorkingDirectory=/var/lib/bayou/shared
 EnvironmentFile=/etc/bayou/tls.env
-ExecStart=/opt/bayou/current/bin/gameserver
+ExecStart=/opt/bayou/current/bin/gameserver --config /etc/bayou/gameserver.cfg
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true
@@ -17,7 +17,7 @@ PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
 ReadWritePaths=/var/lib/bayou/shared
-ReadOnlyPaths=/etc/bayou/tls /etc/bayou/tls.env
+ReadOnlyPaths=/etc/bayou/tls /etc/bayou/tls.env /etc/bayou/gameserver.cfg
 
 [Install]
 WantedBy=multi-user.target

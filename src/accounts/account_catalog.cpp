@@ -1,12 +1,9 @@
 #include "account_catalog.hpp"
 
-#include "../shared/card_database.hpp"
 #include "../shared/game_data.hpp"
 
-#include <fmt/core.h>
-
 #include <algorithm>
-#include <exception>
+#include <utility>
 
 namespace
 {
@@ -26,6 +23,7 @@ constexpr const char* StarterDeckNonHeroTitles[] = {
     "Rustbucket",
 };
 constexpr const char* StarterCollectionExtraTitles[] = {PreferredStarterHero};
+std::vector<card_data::Card> authoritativeCards;
 
 int shopRarityWeight(const std::string& rarity)
 {
@@ -72,24 +70,10 @@ bool containsTitle(const std::vector<std::string>& titles, const std::string& ti
     return std::find(titles.begin(), titles.end(), title) != titles.end();
 }
 
-std::vector<card_data::Card> loadCardsFromCardsDb(const std::string& failureContext)
-{
-    try
-    {
-        return card_database::loadCardsFromFile("cards.db");
-    }
-    catch (const std::exception& error)
-    {
-        fmt::println("{}: {}", failureContext, error.what());
-    }
-    return {};
-}
-
-std::vector<std::string> loadCardTitlesFromCardsDb(const std::string& typeFilter)
+std::vector<std::string> loadCardTitles(const std::string& typeFilter)
 {
     std::vector<std::string> titles;
-    for (const card_data::Card& card : loadCardsFromCardsDb(
-             "Could not read cards.db while building account inventory"))
+    for (const card_data::Card& card : authoritativeCards)
     {
         if (game_data::isTokenCard(card))
         {
@@ -106,7 +90,7 @@ std::vector<std::string> loadCardTitlesFromCardsDb(const std::string& typeFilter
 std::vector<std::string> loadNonHeroCardTitles()
 {
     std::vector<std::string> titles;
-    for (const card_data::Card& card : loadCardsFromCardsDb("Could not read non-hero cards from cards.db"))
+    for (const card_data::Card& card : authoritativeCards)
     {
         if (card.type != "Hero" && !game_data::isTokenCard(card))
         {
@@ -118,7 +102,7 @@ std::vector<std::string> loadNonHeroCardTitles()
 
 std::vector<std::string> loadAllCardTitles()
 {
-    std::vector<std::string> titles = loadCardTitlesFromCardsDb("");
+    std::vector<std::string> titles = loadCardTitles("");
     if (!titles.empty())
     {
         return titles;
@@ -132,7 +116,7 @@ std::vector<std::string> loadAllCardTitles()
 
 std::string starterHeroTitle()
 {
-    std::vector<std::string> heroes = loadCardTitlesFromCardsDb("Hero");
+    std::vector<std::string> heroes = loadCardTitles("Hero");
     if (heroes.empty())
     {
         return PreferredStarterHero;
@@ -144,7 +128,7 @@ std::string starterHeroTitle()
 
 std::vector<std::string> starterHeroTitles()
 {
-    std::vector<std::string> heroes = loadCardTitlesFromCardsDb("Hero");
+    std::vector<std::string> heroes = loadCardTitles("Hero");
     std::vector<std::string> result;
     for (const char* name : StarterDeckHeroTitles)
     {
@@ -216,10 +200,20 @@ std::vector<std::string> starterNonHeroSlots()
 
 namespace account_catalog
 {
+void setCardLibrary(std::vector<card_data::Card> cards)
+{
+    authoritativeCards = std::move(cards);
+}
+
+const std::vector<card_data::Card>& cardLibrary()
+{
+    return authoritativeCards;
+}
+
 std::vector<ShopCardEntry> loadShopCards()
 {
     std::vector<ShopCardEntry> cards;
-    for (const card_data::Card& card : loadCardsFromCardsDb("Could not read shop cards from cards.db"))
+    for (const card_data::Card& card : authoritativeCards)
     {
         const std::string rarity = game_data::cardRarity(card);
         if (rarity == "token")

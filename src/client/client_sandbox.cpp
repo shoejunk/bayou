@@ -166,10 +166,10 @@ game_data::GameCard makeStoryTomCard()
     card.type = "Hero";
     card.keywords = {"corrupt"};
     card.imagePath = "cards/tinkering-tom.png";
-    card.blueTokenPath = "characters/blue/tinkeringTom.png";
-    card.redTokenPath = "characters/red/tinkeringTom.png";
-    card.blueWalkAnimPath = "animations/blue/tinkeringTom-walk.png";
-    card.redWalkAnimPath = "animations/red/tinkeringTom-walk.png";
+    card.tokenPath = "characters/tinkeringTom.png";
+    card.walkAnimPath = "animations/tinkeringTom-walk.png";
+    card.pieceBaseBluePath = "characters/bases/piece-base-blue.png";
+    card.pieceBaseRedPath = "characters/bases/piece-base-red.png";
     card.walkAnimFrames = 81;
     card.health = 1;
     card.attack = 0;

@@ -149,6 +149,8 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
             src/accounts/account_security.cpp
             src/accounts/account_tokens.cpp
             src/shared/card_database.cpp
+            src/shared/card_source_config.cpp
+            src/shared/card_server_client.cpp
     )
 
     target_link_libraries(accounts PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network sodium bayou_transport)
@@ -180,6 +182,8 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
             src/accounts/account_catalog.cpp
             src/accounts/account_decks.cpp
             src/shared/card_database.cpp
+            src/shared/card_source_config.cpp
+            src/shared/card_server_client.cpp
     )
 
     target_link_libraries(gameserver PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network bayou_transport)

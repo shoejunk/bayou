@@ -1,7 +1,7 @@
 [Unit]
 Description=Bayou Accounts
-After=network-online.target
-Wants=network-online.target
+After=network-online.target bayou-cardserver.service
+Wants=network-online.target bayou-cardserver.service
 
 [Service]
 Type=simple
@@ -9,7 +9,7 @@ User=bayou
 Group=bayou
 WorkingDirectory=/var/lib/bayou/shared
 EnvironmentFile=/etc/bayou/tls.env
-ExecStart=/opt/bayou/current/bin/accounts
+ExecStart=/opt/bayou/current/bin/accounts --config /etc/bayou/gameserver.cfg
 Restart=on-failure
 RestartSec=2
 UMask=0077
@@ -30,7 +30,7 @@ LockPersonality=true
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadWritePaths=/var/lib/bayou/shared
-ReadOnlyPaths=/etc/bayou/tls /etc/bayou/tls.env
+ReadOnlyPaths=/etc/bayou/tls /etc/bayou/tls.env /etc/bayou/gameserver.cfg
 
 [Install]
 WantedBy=multi-user.target

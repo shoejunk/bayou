@@ -10,8 +10,11 @@ The release services use these TCP ports:
 - Card server: `55004`
 - Game sessions: `56000+`
 
-The accounts and card services use `accounts.db` and `cards.db` in their
-shared working directory.
+The authoritative card database must already exist in the shared data
+directory. The accounts and game services read their card source from
+`/etc/bayou/gameserver.cfg`; by default they fetch the catalog from the
+configured card server, which is backed by `/var/lib/bayou/shared/cards.db`.
+The installer never copies a workspace-local card database into the deployment.
 
 ## Build on Linux
 
@@ -63,6 +66,7 @@ Defaults:
 - Versioned releases: `/opt/bayou/releases/<UTC timestamp>`
 - Current release: `/opt/bayou/current`
 - Shared data: `/var/lib/bayou/shared`
+- Game-server config: `/etc/bayou/gameserver.cfg`
 - Services: `bayou-accounts`, `bayou-cardserver`, `bayou-gameserver`,
   and `bayou-matchmaking`
 

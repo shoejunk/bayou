@@ -45,10 +45,9 @@ bool isHiddenCardDetailKey(const std::string& key)
         key == "WalkAnimFrames" || key == "IdleAnimFrames" ||
         key == "AttackAnimFrames" || key == "DamagedAnimFrames" || key == "KilledAnimFrames" ||
         key == "rarity" || key == "effect" || key == "target" ||
-        key == "movement" || key == "WalkAnim" || key == "WalkAnimBlue" ||
-        key == "WalkAnimRed" || key == "IdleAnim" ||
+        key == "movement" || key == "WalkAnim" || key == "IdleAnim" ||
         key == "AttackAnim" || key == "DamagedAnim" || key == "KilledAnim" || key == "Token" ||
-        key == "TokenBlue" || key == "TokenRed";
+        key == "PieceBaseBlue" || key == "PieceBaseRed";
 }
 
 } // namespace
