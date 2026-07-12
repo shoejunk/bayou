@@ -441,11 +441,16 @@ public:
             }
             return;
         }
+        addTraitButton.update(mouse);
         addKeywordButton.update(mouse);
         addIntegerButton.update(mouse);
         addStringButton.update(mouse);
         addListButton.update(mouse);
         addActionRefButton.update(mouse);
+        for (EditorButton& button : removeTraitButtons)
+        {
+            button.update(mouse);
+        }
         for (EditorButton& button : removeKeywordButtons)
         {
             button.update(mouse);
@@ -574,6 +579,7 @@ private:
     InputBox titleField;
     InputBox imageField;
     InputBox typeField;
+    std::vector<InputBox> traitFields;
     std::vector<InputBox> keywordFields;
     std::vector<InputBox> intKeyFields;
     std::vector<InputBox> intValueFields;
@@ -605,11 +611,13 @@ private:
     EditorButton saveActionButton;
     EditorButton deleteButton;
     TabStrip editorTabs;
+    EditorButton addTraitButton;
     EditorButton addKeywordButton;
     EditorButton addIntegerButton;
     EditorButton addStringButton;
     EditorButton addListButton;
     EditorButton addActionRefButton;
+    std::vector<EditorButton> removeTraitButtons;
     std::vector<EditorButton> removeKeywordButtons;
     std::vector<EditorButton> removeIntegerButtons;
     std::vector<EditorButton> removeStringButtons;
@@ -685,12 +693,25 @@ private:
         std::uint8_t responseType = 0;
         bool success = false;
         std::string message;
-        std::uint32_t count = 0;
-        response >> responseType >> success >> message >> count;
+        response >> responseType >> success >> message;
         if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::CardListResponse)
         {
             socket.disconnect();
             return {false, "Unexpected card list response"};
+        }
+
+        if (!success)
+        {
+            socket.disconnect();
+            return {false, message};
+        }
+
+        std::uint32_t count = 0;
+        bool legacyFormat = false;
+        if (!card_data::readCardListHeader(response, count, legacyFormat))
+        {
+            socket.disconnect();
+            return {false, "Unsupported card list payload"};
         }
 
         std::vector<card_data::Card> loadedCards;
@@ -698,7 +719,7 @@ private:
         for (std::uint32_t i = 0; i < count; ++i)
         {
             card_data::Card card;
-            if (!card_data::readCard(response, card))
+            if (!card_data::readListedCard(response, card, legacyFormat))
             {
                 socket.disconnect();
                 return {false, "Invalid card list payload"};
@@ -925,6 +946,7 @@ private:
         saveButton = EditorButton(font, "Save Card", {660.0f, 690.0f}, {156.0f, 42.0f}, AccentDark);
         saveActionButton = EditorButton(font, "Save Action", {660.0f, 690.0f}, {156.0f, 42.0f}, AccentDark);
         deleteButton = EditorButton(font, "Delete", {528.0f, 690.0f}, {120.0f, 42.0f}, Warn);
+        addTraitButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addKeywordButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addIntegerButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addStringButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
@@ -964,6 +986,7 @@ private:
 
     void loadArrayFields(const card_data::Card& card)
     {
+        traitFields.clear();
         keywordFields.clear();
         intKeyFields.clear();
         intValueFields.clear();
@@ -972,6 +995,10 @@ private:
         listEditors.clear();
         actionRefFields.clear();
 
+        for (const std::string& trait : card.traits)
+        {
+            traitFields.push_back(makeCompactField(trait, {392.0f, 32.0f}));
+        }
         for (const std::string& keyword : card.keywords)
         {
             keywordFields.push_back(makeCompactField(keyword, {392.0f, 32.0f}));
@@ -1032,6 +1059,10 @@ private:
         focusOrder.push_back(&titleField);
         focusOrder.push_back(&imageField);
         focusOrder.push_back(&typeField);
+        for (InputBox& field : traitFields)
+        {
+            focusOrder.push_back(&field);
+        }
         for (InputBox& field : keywordFields)
         {
             focusOrder.push_back(&field);
@@ -1344,6 +1375,7 @@ private:
         titleField.setValue("");
         imageField.setValue("");
         typeField.setValue("Unit");
+        traitFields.clear();
         keywordFields.clear();
         intKeyFields.clear();
         intValueFields.clear();
@@ -1383,6 +1415,14 @@ private:
         card.title = trim(titleField.getValue());
         card.type = trim(typeField.getValue());
         card.imagePath = assetRelativeImagePath(imageField.getValue());
+        for (const InputBox& field : traitFields)
+        {
+            const std::string value = trim(field.getValue());
+            if (!value.empty())
+            {
+                card.traits.push_back(value);
+            }
+        }
         for (const InputBox& field : keywordFields)
         {
             const std::string value = trim(field.getValue());
@@ -1661,6 +1701,7 @@ private:
     void layoutArrayControls()
     {
         arraySectionLabels.clear();
+        removeTraitButtons.clear();
         removeKeywordButtons.clear();
         removeIntegerButtons.clear();
         removeStringButtons.clear();
@@ -1675,6 +1716,22 @@ private:
             addButton.setPosition({778.0f, y + 1.0f});
             y += 30.0f;
         };
+
+        addSection("Traits", addTraitButton);
+        if (traitFields.empty())
+        {
+            arraySectionLabels.push_back({"No traits", {354.0f, y + 6.0f}});
+            y += 34.0f;
+        }
+        for (InputBox& field : traitFields)
+        {
+            field.setPosition({340.0f, y});
+            EditorButton button = makeMiniButton("X", Warn);
+            button.setPosition({778.0f, y + 2.0f});
+            removeTraitButtons.push_back(std::move(button));
+            y += 40.0f;
+        }
+        y += 12.0f;
 
         addSection("Keywords", addKeywordButton);
         if (keywordFields.empty())
@@ -1799,6 +1856,14 @@ private:
         hasPreviewImage = true;
     }
 
+    void addTrait()
+    {
+        traitFields.push_back(makeCompactField("", {392.0f, 32.0f}));
+        rebuildFocusOrder();
+        activateField(&traitFields.back());
+        ensureActiveFieldVisible();
+    }
+
     void addKeyword()
     {
         keywordFields.push_back(makeCompactField("", {392.0f, 32.0f}));
@@ -1854,6 +1919,16 @@ private:
         rebuildFocusOrder();
         activateField(&actionRefFields.back());
         ensureActiveFieldVisible();
+    }
+
+    void removeTrait(std::size_t index)
+    {
+        if (index < traitFields.size())
+        {
+            traitFields.erase(traitFields.begin() + static_cast<std::ptrdiff_t>(index));
+            rebuildFocusOrder();
+            activateField(&titleField);
+        }
     }
 
     void removeKeyword(std::size_t index)
@@ -1948,6 +2023,13 @@ private:
         if (!isInArrayViewport(mouse))
         {
             return nullptr;
+        }
+        for (InputBox& field : traitFields)
+        {
+            if (isVisibleInArrayViewport(field.bounds()) && field.contains(mouse))
+            {
+                return &field;
+            }
         }
         for (InputBox& field : keywordFields)
         {
@@ -2132,6 +2214,11 @@ private:
         }
         if (isInArrayViewport(mouse))
         {
+            if (isVisibleInArrayViewport(addTraitButton.bounds()) && addTraitButton.contains(mouse))
+            {
+                addTrait();
+                return false;
+            }
             if (isVisibleInArrayViewport(addKeywordButton.bounds()) && addKeywordButton.contains(mouse))
             {
                 addKeyword();
@@ -2156,6 +2243,14 @@ private:
             {
                 addActionReference();
                 return false;
+            }
+            for (std::size_t i = 0; i < removeTraitButtons.size(); ++i)
+            {
+                if (isVisibleInArrayViewport(removeTraitButtons[i].bounds()) && removeTraitButtons[i].contains(mouse))
+                {
+                    removeTrait(i);
+                    return false;
+                }
             }
             for (std::size_t i = 0; i < removeKeywordButtons.size(); ++i)
             {
@@ -2423,9 +2518,10 @@ private:
         y = drawInstructionParagraph(window, "Use the lowercase values exactly. The current game resolves targeting from effect; target documents the intended target and is displayed in card details.", y + 5.0f, Muted);
         y += 17.0f;
 
-        y = drawInstructionSection(window, "6. Rarity, Keywords, and String Lists", y);
+        y = drawInstructionSection(window, "6. Rarity, Traits, Keywords, and String Lists", y);
         y = drawInstructionBullet(window, "Rarity: add a String Field named rarity with value common, rare, legendary, or token. Missing or unknown values count as common. Token cards cannot appear in collections or decks. Shop selection odds are 70% common, 25% rare, and 5% legendary; cards within a rarity are equally likely.", y);
-        y = drawInstructionBullet(window, "Keywords: free-form labels shown in card details. The current game engine does not attach rules to them.", y);
+        y = drawInstructionBullet(window, "Traits: unit cards require living friendly heroes with matching traits when played. Heroes and spells do not require matching traits. The deck editor can filter by the nine supported traits.", y);
+        y = drawInstructionBullet(window, "Keywords: free-form labels shown in card details. They are stored separately from traits and do not currently affect gameplay.", y);
         y = drawInstructionBullet(window, "ability: transform, dematerialize, dig, or summon. Transform-style abilities switch action states; dig creates a tunnel hole; summon creates the unit named by the summon string field in the space in front.", y);
         y = drawInstructionBullet(window, "summon: exact Unit card title created by a summon ability. Player 1 summons to the right; Player 2 summons to the left.", y);
         y = drawInstructionBullet(window, "Cards store ordered references to reusable action objects. Use the Actions section on the card form to choose them.", y);
@@ -2450,7 +2546,7 @@ private:
         y += 22.0f;
 
         y = drawInstructionSection(window, "9. Using the editor safely", y);
-        y = drawInstructionBullet(window, "Use the + button beside each section to add a field and the - button beside a row to remove it. Empty keys, empty keywords, and empty list values are not saved.", y);
+        y = drawInstructionBullet(window, "Use the + button beside each section to add a field and the - button beside a row to remove it. Empty keys, empty traits, empty keywords, and empty list values are not saved.", y);
         y = drawInstructionBullet(window, "Integer values must be valid whole numbers. An invalid or blank number is omitted from the saved card, causing the game to use that field's default.", y);
         y = drawInstructionBullet(window, "Tab and Shift+Tab move between fields. Enter saves. The mouse wheel scrolls the field list when the pointer is over it.", y);
         y = drawInstructionBullet(window, "Save Card creates a draft or updates the selected card. Delete removes the selected saved card. Refresh discards the local form state by reloading the server library.", y);
@@ -2568,11 +2664,16 @@ private:
             }
         }
 
+        drawVisibleButton(window, addTraitButton);
         drawVisibleButton(window, addKeywordButton);
         drawVisibleButton(window, addIntegerButton);
         drawVisibleButton(window, addStringButton);
         drawVisibleButton(window, addListButton);
         drawVisibleButton(window, addActionRefButton);
+        for (InputBox& field : traitFields)
+        {
+            drawVisibleField(window, field);
+        }
         for (InputBox& field : keywordFields)
         {
             drawVisibleField(window, field);
@@ -2598,6 +2699,10 @@ private:
         for (InputBox& field : actionRefFields)
         {
             drawVisibleField(window, field);
+        }
+        for (EditorButton& button : removeTraitButtons)
+        {
+            drawVisibleButton(window, button);
         }
         for (EditorButton& button : removeKeywordButtons)
         {
@@ -2771,6 +2876,9 @@ private:
 
         float y = 480.0f;
         drawText(window, font, fmt::format("Cost: {}", cost), 16, {882.0f, y}, Ink);
+        y += 54.0f;
+        drawText(window, font, "Traits", 15, {882.0f, y}, Muted);
+        drawText(window, font, joinStrings(card.traits, ", "), 16, {882.0f, y + 22.0f}, Ink, 336.0f);
         y += 54.0f;
         drawText(window, font, "Keywords", 15, {882.0f, y}, Muted);
         drawText(window, font, joinStrings(card.keywords, ", "), 16, {882.0f, y + 22.0f}, Ink, 336.0f);

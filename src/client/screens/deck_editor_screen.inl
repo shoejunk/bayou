@@ -104,9 +104,9 @@
                 secondary,
                 selectedDeckCard && *selectedDeckCard == i);
             if (std::find(
-                    stats.keywordMismatchTitles.begin(),
-                    stats.keywordMismatchTitles.end(),
-                    deckTitles[i]) != stats.keywordMismatchTitles.end())
+                    stats.traitMismatchTitles.begin(),
+                    stats.traitMismatchTitles.end(),
+                    deckTitles[i]) != stats.traitMismatchTitles.end())
             {
                 sf::RectangleShape warningStripe({4.0f, DeckCardRowHeight - 4.0f});
                 warningStripe.setPosition({DeckCardsX, y});
@@ -144,10 +144,10 @@
         collectionHeroFilterCheckbox.draw(window, collectionTypeFilterChecked[0]);
         collectionUnitFilterCheckbox.draw(window, collectionTypeFilterChecked[1]);
         collectionSpellFilterCheckbox.draw(window, collectionTypeFilterChecked[2]);
-        drawText(window, font, "Keywords", 12, {430.0f, 199.0f}, sf::Color(248, 214, 112));
-        for (std::size_t i = 0; i < collectionKeywordFilterCheckboxes.size(); ++i)
+        drawText(window, font, "Traits", 12, {430.0f, 199.0f}, sf::Color(248, 214, 112));
+        for (std::size_t i = 0; i < collectionTraitFilterCheckboxes.size(); ++i)
         {
-            collectionKeywordFilterCheckboxes[i].draw(window, collectionKeywordFilterChecked[i]);
+            collectionTraitFilterCheckboxes[i].draw(window, collectionTraitFilterChecked[i]);
         }
 
         const std::size_t lastCard = std::min(filteredCardLibrary.size(), libraryOffset + VisibleLibraryRows);

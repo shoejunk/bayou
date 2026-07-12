@@ -535,7 +535,8 @@ int main(int argc, char** argv)
     card_data::Card encodedCard;
     encodedCard.title = "Encoded";
     encodedCard.type = "Unit";
-    encodedCard.keywords = {"corrupt", "fey"};
+    encodedCard.traits = {"corrupt", "fey"};
+    encodedCard.keywords = {"future-rule"};
     encodedCard.integerValues = {{"attack", 9}, {"range", 5}, {"FidgetAnimFrames", 3}};
     encodedCard.stringValues = {{"FidgetAnim", "animations/fidget/test.png"}};
     encodedCard.actionNames = {"Diagonal Charge"};
@@ -556,6 +557,7 @@ int main(int argc, char** argv)
     });
     const GameCard decodedCard = toGameCard(encodedCard);
     check(decodedCard.actions.size() == 1 &&
+              decodedCard.traits == encodedCard.traits &&
               decodedCard.keywords == encodedCard.keywords &&
               decodedCard.attackingMove &&
               decodedCard.actions[0].name == "Diagonal Charge" &&
@@ -565,6 +567,35 @@ int main(int argc, char** argv)
               decodedCard.fidgetAnimPath == "animations/fidget/test.png" &&
               decodedCard.fidgetAnimFrames == 3,
           "referenced action object resolves into gameplay data without a legacy fallback attack");
+
+    sf::Packet legacyCardListPacket;
+    legacyCardListPacket << static_cast<std::uint32_t>(1);
+    legacyCardListPacket << std::string("Legacy") << std::string("Unit") << std::string("legacy.png");
+    card_data::writeStringVector(
+        legacyCardListPacket,
+        std::vector<std::string>{"corrupt", "fey"});
+    legacyCardListPacket << static_cast<std::uint32_t>(0); // integer fields
+    legacyCardListPacket << static_cast<std::uint32_t>(0); // string fields
+    legacyCardListPacket << static_cast<std::uint32_t>(0); // string lists
+    card_data::writeStringVector(legacyCardListPacket, std::vector<std::string>{}); // action names
+    legacyCardListPacket << static_cast<std::uint32_t>(0); // actions
+    std::uint32_t legacyCardCount = 0;
+    bool legacyCardFormat = false;
+    card_data::Card legacyCard;
+    check(card_data::readCardListHeader(legacyCardListPacket, legacyCardCount, legacyCardFormat) &&
+              legacyCardCount == 1 && legacyCardFormat &&
+              card_data::readListedCard(legacyCardListPacket, legacyCard, legacyCardFormat) &&
+              legacyCard.traits == std::vector<std::string>({"corrupt", "fey"}) &&
+              legacyCard.keywords.empty(),
+          "legacy card-server keywords decode as traits");
+
+    sf::Packet currentCardListHeader;
+    card_data::writeCardListHeader(currentCardListHeader, 3);
+    std::uint32_t currentCardCount = 0;
+    bool currentCardFormatIsLegacy = true;
+    check(card_data::readCardListHeader(currentCardListHeader, currentCardCount, currentCardFormatIsLegacy) &&
+              currentCardCount == 3 && !currentCardFormatIsLegacy,
+          "versioned card-list headers select the traits-and-keywords format");
 
     GameCard serializedCard = decodedCard;
     serializedCard.tokenPath = "characters/test.png";
@@ -592,6 +623,7 @@ int main(int argc, char** argv)
     check(readGameCard(cardPacket, roundTrippedCard) &&
               roundTrippedCard.actions.size() == 1 &&
               roundTrippedCard.actions[0].name == "Diagonal Charge" &&
+              roundTrippedCard.traits == encodedCard.traits &&
               roundTrippedCard.keywords == encodedCard.keywords &&
               roundTrippedCard.tokenPath == "characters/test.png" &&
               roundTrippedCard.walkAnimPath == "animations/test.png" &&
@@ -616,7 +648,8 @@ int main(int argc, char** argv)
     Piece serializedPiece = profilePiece;
     serializedPiece.ability = "dig";
     serializedPiece.summonTitle = "Serialized Summon";
-    serializedPiece.keywords = {"corrupt"};
+    serializedPiece.traits = {"corrupt"};
+    serializedPiece.keywords = {"future-rule"};
     serializedPiece.tokenPath = "characters/test.png";
     serializedPiece.walkAnimPath = "animations/test.png";
     serializedPiece.idleAnimPath = "animations/idle/test.png";
@@ -647,6 +680,7 @@ int main(int argc, char** argv)
     check(readPiece(piecePacket, roundTrippedPiece) &&
               roundTrippedPiece.actions.size() == 1 &&
               roundTrippedPiece.actions[0].name == "Serialized Action" &&
+              roundTrippedPiece.traits == serializedPiece.traits &&
               roundTrippedPiece.keywords == serializedPiece.keywords &&
               roundTrippedPiece.tokenPath == "characters/test.png" &&
               roundTrippedPiece.walkAnimPath == "animations/test.png" &&
@@ -673,26 +707,40 @@ int main(int argc, char** argv)
     Piece corruptHero;
     corruptHero.owner = 1;
     corruptHero.isHero = true;
-    corruptHero.keywords = {"corrupt"};
+    corruptHero.traits = {"corrupt"};
     Piece feyHero;
     feyHero.owner = 1;
     feyHero.isHero = true;
-    feyHero.keywords = {"fey"};
+    feyHero.traits = {"fey"};
     Piece enemyHero;
     enemyHero.owner = 2;
     enemyHero.isHero = true;
-    enemyHero.keywords = {"fey"};
+    enemyHero.traits = {"fey"};
     GameCard unrestrictedCard;
+    unrestrictedCard.type = "Unit";
     GameCard corruptFeyCard;
-    corruptFeyCard.keywords = {"corrupt", "fey"};
-    check(heroKeywordsAllowCard({corruptHero}, 1, unrestrictedCard),
-          "cards without keywords need no hero keyword");
-    check(!heroKeywordsAllowCard({corruptHero, enemyHero}, 1, corruptFeyCard),
-          "enemy heroes cannot supply a card keyword");
-    check(heroKeywordsAllowCard({corruptHero, feyHero}, 1, corruptFeyCard),
-          "multiple friendly heroes can collectively supply all card keywords");
-    check(!heroKeywordsAllowCard({corruptHero}, 1, corruptFeyCard),
-          "a card becomes unavailable when a required hero is no longer on the board");
+    corruptFeyCard.type = "Unit";
+    corruptFeyCard.traits = {"corrupt", "fey"};
+    check(heroTraitsAllowCard({corruptHero}, 1, unrestrictedCard),
+          "units without traits need no hero trait");
+    check(!heroTraitsAllowCard({corruptHero, enemyHero}, 1, corruptFeyCard),
+          "enemy heroes cannot supply a card trait");
+    check(heroTraitsAllowCard({corruptHero, feyHero}, 1, corruptFeyCard),
+          "multiple friendly heroes can collectively supply all card traits");
+    check(!heroTraitsAllowCard({corruptHero}, 1, corruptFeyCard),
+          "a unit becomes unavailable when a required hero trait is no longer supplied");
+    GameCard traitSpell;
+    traitSpell.type = "Spell";
+    traitSpell.traits = {"ancient"};
+    check(heroTraitsAllowCard({}, 1, traitSpell),
+          "spells do not require matching hero traits");
+    GameCard keywordUnit;
+    keywordUnit.type = "Unit";
+    keywordUnit.keywords = {"corrupt"};
+    check(heroTraitsAllowCard({}, 1, keywordUnit),
+          "keywords do not gate unit play");
+    check(CardTraitLabels.size() == 9,
+          "the card model exposes nine supported traits");
 
     const auto [equalWinnerRating, equalLoserRating] =
         ranking::ratingsAfterMatch(0, 0, 1);

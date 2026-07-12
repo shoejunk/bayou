@@ -77,7 +77,7 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
         for (int handIndex = 0; handIndex < static_cast<int>(player.hand.size()); ++handIndex)
         {
             const GameCard& card = player.hand[static_cast<std::size_t>(handIndex)];
-            if (card.cost > player.steam || !heroKeywordsAllowCard(pieces, playerNumber, card))
+            if (card.cost > player.steam || !heroTraitsAllowCard(pieces, playerNumber, card))
             {
                 continue;
             }

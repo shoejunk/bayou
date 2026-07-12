@@ -866,13 +866,13 @@ int main(int argc, char** argv)
     CheckboxControl collectionHeroFilterCheckbox({430.0f, 172.0f}, "Heroes", font, rememberCheckTexture, 13, 16.0f, 22.0f);
     CheckboxControl collectionUnitFilterCheckbox({560.0f, 172.0f}, "Units", font, rememberCheckTexture, 13, 16.0f, 22.0f);
     CheckboxControl collectionSpellFilterCheckbox({690.0f, 172.0f}, "Spells", font, rememberCheckTexture, 13, 16.0f, 22.0f);
-    std::vector<CheckboxControl> collectionKeywordFilterCheckboxes;
-    collectionKeywordFilterCheckboxes.reserve(game_data::CardKeywordLabels.size());
-    for (std::size_t i = 0; i < game_data::CardKeywordLabels.size(); ++i)
+    std::vector<CheckboxControl> collectionTraitFilterCheckboxes;
+    collectionTraitFilterCheckboxes.reserve(game_data::CardTraitLabels.size());
+    for (std::size_t i = 0; i < game_data::CardTraitLabels.size(); ++i)
     {
-        collectionKeywordFilterCheckboxes.emplace_back(
+        collectionTraitFilterCheckboxes.emplace_back(
             sf::Vector2f{430.0f + static_cast<float>(i % 3) * 105.0f, 217.0f + static_cast<float>(i / 3) * 24.0f},
-            game_data::CardKeywordLabels[i],
+            game_data::CardTraitLabels[i],
             font,
             rememberCheckTexture,
             13,
@@ -972,8 +972,8 @@ int main(int argc, char** argv)
     std::vector<card_data::Card> filteredCardLibrary;
     std::vector<card_data::Card> allCardLibrary;
     std::array<bool, CollectionTypeLabels.size()> collectionTypeFilterChecked = {true, true, true};
-    std::array<bool, game_data::CardKeywordLabels.size()> collectionKeywordFilterChecked = [] {
-        std::array<bool, game_data::CardKeywordLabels.size()> checked{};
+    std::array<bool, game_data::CardTraitLabels.size()> collectionTraitFilterChecked = [] {
+        std::array<bool, game_data::CardTraitLabels.size()> checked{};
         checked.fill(true);
         return checked;
     }();
@@ -1455,23 +1455,24 @@ int main(int argc, char** argv)
             return false;
         }
 
-        const bool allKeywordsChecked = std::all_of(
-            collectionKeywordFilterChecked.begin(),
-            collectionKeywordFilterChecked.end(),
+        const bool allTraitsChecked = std::all_of(
+            collectionTraitFilterChecked.begin(),
+            collectionTraitFilterChecked.end(),
             [](bool checked) {
                 return checked;
             });
-        if (allKeywordsChecked)
+        if (allTraitsChecked)
         {
             return true;
         }
 
-        for (const std::string& keyword : card.keywords)
+        for (const std::string& trait : card.traits)
         {
-            const std::string normalizedKeyword = lowerKey(keyword);
-            for (std::size_t i = 0; i < game_data::CardKeywordLabels.size(); ++i)
+            const std::string normalizedCardTrait = game_data::normalizedTrait(trait);
+            for (std::size_t i = 0; i < game_data::CardTraitLabels.size(); ++i)
             {
-                if (collectionKeywordFilterChecked[i] && normalizedKeyword == game_data::CardKeywordLabels[i])
+                if (collectionTraitFilterChecked[i] &&
+                    normalizedCardTrait == game_data::normalizedTrait(game_data::CardTraitLabels[i]))
                 {
                     return true;
                 }
@@ -1536,23 +1537,23 @@ int main(int argc, char** argv)
         applyCollectionFilters();
     };
 
-    auto toggleCollectionKeywordFilter = [&](std::size_t index) {
-        if (index >= collectionKeywordFilterChecked.size())
+    auto toggleCollectionTraitFilter = [&](std::size_t index) {
+        if (index >= collectionTraitFilterChecked.size())
         {
             return;
         }
-        collectionKeywordFilterChecked[index] = !collectionKeywordFilterChecked[index];
+        collectionTraitFilterChecked[index] = !collectionTraitFilterChecked[index];
         libraryOffset = 0;
         applyCollectionFilters();
     };
 
-    auto clickCollectionKeywordFilter = [&](sf::Vector2f clickPos) {
-        for (std::size_t i = 0; i < collectionKeywordFilterCheckboxes.size(); ++i)
+    auto clickCollectionTraitFilter = [&](sf::Vector2f clickPos) {
+        for (std::size_t i = 0; i < collectionTraitFilterCheckboxes.size(); ++i)
         {
-            if (collectionKeywordFilterCheckboxes[i].isClicked(clickPos))
+            if (collectionTraitFilterCheckboxes[i].isClicked(clickPos))
             {
                 clearFocus();
-                toggleCollectionKeywordFilter(i);
+                toggleCollectionTraitFilter(i);
                 return true;
             }
         }
@@ -1587,7 +1588,7 @@ int main(int argc, char** argv)
         filteredCardLibrary.clear();
         allCardLibrary.clear();
         collectionTypeFilterChecked.fill(true);
-        collectionKeywordFilterChecked.fill(true);
+        collectionTraitFilterChecked.fill(true);
         deckEditorMode = DeckEditorMode::DeckList;
         starterDeckMode = false;
         adminTabs.setActive(0);
@@ -1731,7 +1732,7 @@ int main(int argc, char** argv)
         cardLibrary.clear();
         filteredCardLibrary.clear();
         collectionTypeFilterChecked.fill(true);
-        collectionKeywordFilterChecked.fill(true);
+        collectionTraitFilterChecked.fill(true);
         playerDecks.clear();
         editingDeck = {};
         activeDeckOriginalName.clear();
@@ -2033,7 +2034,7 @@ int main(int argc, char** argv)
         cardLibrary.clear();
         filteredCardLibrary.clear();
         collectionTypeFilterChecked.fill(true);
-        collectionKeywordFilterChecked.fill(true);
+        collectionTraitFilterChecked.fill(true);
         playerDecks.clear();
         editingDeck = {};
         activeDeckOriginalName.clear();
@@ -2170,33 +2171,33 @@ int main(int argc, char** argv)
         int cardCount = 0;   // non-hero cards
         int heroCount = 0;
         int heroCost = 0;
-        std::vector<std::string> heroKeywords;
-        std::vector<std::string> keywordMismatchTitles;
+        std::vector<std::string> heroTraits;
+        std::vector<std::string> traitMismatchTitles;
         std::vector<std::string> warnings;
     };
 
     auto computeDeckStats = [&]() {
         DeckStats stats;
-        auto addHeroKeyword = [&](const std::string& keyword) {
-            const std::string normalized = lowerKey(keyword);
+        auto addHeroTrait = [&](const std::string& trait) {
+            const std::string normalized = game_data::normalizedTrait(trait);
             const bool alreadyPresent = std::any_of(
-                stats.heroKeywords.begin(),
-                stats.heroKeywords.end(),
+                stats.heroTraits.begin(),
+                stats.heroTraits.end(),
                 [&](const std::string& existing) {
-                    return lowerKey(existing) == normalized;
+                    return game_data::normalizedTrait(existing) == normalized;
                 });
             if (!alreadyPresent)
             {
-                stats.heroKeywords.push_back(keyword);
+                stats.heroTraits.push_back(trait);
             }
         };
-        auto heroHasKeyword = [&](const std::string& keyword) {
-            const std::string normalized = lowerKey(keyword);
+        auto heroHasTrait = [&](const std::string& trait) {
+            const std::string normalized = game_data::normalizedTrait(trait);
             return std::any_of(
-                stats.heroKeywords.begin(),
-                stats.heroKeywords.end(),
-                [&](const std::string& heroKeyword) {
-                    return lowerKey(heroKeyword) == normalized;
+                stats.heroTraits.begin(),
+                stats.heroTraits.end(),
+                [&](const std::string& heroTrait) {
+                    return game_data::normalizedTrait(heroTrait) == normalized;
                 });
         };
 
@@ -2207,11 +2208,11 @@ int main(int argc, char** argv)
             {
                 ++stats.heroCount;
                 stats.heroCost += game_data::cardInt(*card, "heroCost", 0);
-                for (const std::string& keyword : card->keywords)
+                for (const std::string& trait : card->traits)
                 {
-                    if (!keyword.empty())
+                    if (!trait.empty())
                     {
-                        addHeroKeyword(keyword);
+                        addHeroTrait(trait);
                     }
                 }
             }
@@ -2229,17 +2230,22 @@ int main(int argc, char** argv)
                 continue;
             }
 
-            const bool missingHeroKeyword = std::any_of(
-                card->keywords.begin(),
-                card->keywords.end(),
-                [&](const std::string& keyword) {
-                    return !keyword.empty() && !heroHasKeyword(keyword);
-                });
-            if (missingHeroKeyword &&
-                std::find(stats.keywordMismatchTitles.begin(), stats.keywordMismatchTitles.end(), title) ==
-                    stats.keywordMismatchTitles.end())
+            if (!game_data::isUnitCard(*card))
             {
-                stats.keywordMismatchTitles.push_back(title);
+                continue;
+            }
+
+            const bool missingHeroTrait = std::any_of(
+                card->traits.begin(),
+                card->traits.end(),
+                [&](const std::string& trait) {
+                    return !trait.empty() && !heroHasTrait(trait);
+                });
+            if (missingHeroTrait &&
+                std::find(stats.traitMismatchTitles.begin(), stats.traitMismatchTitles.end(), title) ==
+                    stats.traitMismatchTitles.end())
+            {
+                stats.traitMismatchTitles.push_back(title);
             }
         }
 
@@ -2259,9 +2265,9 @@ int main(int argc, char** argv)
                 "Use exactly " + std::to_string(game_data::DeckCardCount) +
                 " non-hero cards.");
         }
-        if (!stats.keywordMismatchTitles.empty())
+        if (!stats.traitMismatchTitles.empty())
         {
-            stats.warnings.push_back("Highlighted cards lack hero keywords.");
+            stats.warnings.push_back("Highlighted units lack matching hero traits.");
         }
         return stats;
     };
@@ -2509,7 +2515,7 @@ int main(int argc, char** argv)
         cardLibrary.clear();
         filteredCardLibrary.clear();
         collectionTypeFilterChecked.fill(true);
-        collectionKeywordFilterChecked.fill(true);
+        collectionTraitFilterChecked.fill(true);
         selectedDeck.reset();
         deckListOffset = 0;
         setMessageY(messageText, 524.0f);
@@ -3885,7 +3891,7 @@ int main(int argc, char** argv)
         selectedPieceId.reset();
         if (card.type != "Unit" && card.effect == "steam" &&
             (sandboxMode ||
-             game_data::heroKeywordsAllowCard(
+             game_data::heroTraitsAllowCard(
                  gameSnapshot.pieces, gameSnapshot.yourPlayer, card)))
         {
             sendPlayCard(static_cast<int>(handIndex), -1, -1);
@@ -5461,7 +5467,7 @@ int main(int argc, char** argv)
                             clearFocus();
                             toggleCollectionTypeFilter(2);
                         }
-                        else if (deckEditorMode == DeckEditorMode::EditDeck && clickCollectionKeywordFilter(clickPos))
+                        else if (deckEditorMode == DeckEditorMode::EditDeck && clickCollectionTraitFilter(clickPos))
                         {
                         }
                         else if (deckEditorMode == DeckEditorMode::EditDeck && addCardButton.isClicked(clickPos))
@@ -6231,7 +6237,7 @@ int main(int argc, char** argv)
                 collectionHeroFilterCheckbox.update(mousePos);
                 collectionUnitFilterCheckbox.update(mousePos);
                 collectionSpellFilterCheckbox.update(mousePos);
-                for (CheckboxControl& checkbox : collectionKeywordFilterCheckboxes)
+                for (CheckboxControl& checkbox : collectionTraitFilterCheckboxes)
                 {
                     checkbox.update(mousePos);
                 }

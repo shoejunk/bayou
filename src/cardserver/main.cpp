@@ -29,7 +29,7 @@ constexpr auto InitialRequestTimeout = std::chrono::seconds(2);
 
 void writeCards(sf::Packet& packet, const std::vector<card_data::Card>& cards)
 {
-    packet << static_cast<std::uint32_t>(cards.size());
+    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(cards.size()));
     for (const card_data::Card& card : cards)
     {
         card_data::writeCard(packet, card);
@@ -170,6 +170,27 @@ private:
             "type TEXT NOT NULL,"
             "image_path TEXT NOT NULL"
             ")");
+        if (tableExists("card_keywords") && !tableExists("card_traits"))
+        {
+            // Before traits were separated from keywords, card_keywords held
+            // the hero-gating values. Preserve those values as traits.
+            SQLite::Transaction transaction(*database);
+            database->exec(
+                "CREATE TABLE card_traits ("
+                "title TEXT NOT NULL,"
+                "trait TEXT NOT NULL,"
+                "FOREIGN KEY(title) REFERENCES cards(title) ON DELETE CASCADE"
+                ")");
+            database->exec("INSERT INTO card_traits (title, trait) SELECT title, keyword FROM card_keywords");
+            database->exec("DROP TABLE card_keywords");
+            transaction.commit();
+        }
+        database->exec(
+            "CREATE TABLE IF NOT EXISTS card_traits ("
+            "title TEXT NOT NULL,"
+            "trait TEXT NOT NULL,"
+            "FOREIGN KEY(title) REFERENCES cards(title) ON DELETE CASCADE"
+            ")");
         database->exec(
             "CREATE TABLE IF NOT EXISTS card_keywords ("
             "title TEXT NOT NULL,"
@@ -224,6 +245,16 @@ private:
             "FOREIGN KEY(action_name) REFERENCES actions(name)"
             ")");
         migrateLegacyActions();
+    }
+
+    bool tableExists(const std::string& tableName)
+    {
+        SQLite::Statement query(
+            *database,
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?");
+        query.bind(1, tableName);
+        query.executeStep();
+        return query.getColumn(0).getInt() != 0;
     }
 
     void handleClient(bayou::tls::Socket& client)
@@ -285,7 +316,7 @@ private:
         catch (const std::exception& error)
         {
             response << false << std::string(error.what());
-            response << static_cast<std::uint32_t>(0);
+            card_data::writeCardListHeader(response, 0);
         }
 
         [[maybe_unused]] auto result = client.send(response);
@@ -503,6 +534,7 @@ private:
         upsert.exec();
 
         deleteChildRows(card.title);
+        insertTraits(card);
         insertKeywords(card);
         insertIntegerValues(card);
         insertStringValues(card);
@@ -531,6 +563,7 @@ private:
     void deleteChildRows(const std::string& title)
     {
         for (const std::string& table : {
+                 "card_traits",
                  "card_keywords",
                  "card_integer_values",
                  "card_string_values",
@@ -540,6 +573,18 @@ private:
         {
             SQLite::Statement statement(*database, fmt::format("DELETE FROM {} WHERE title = ?", table));
             statement.bind(1, title);
+            statement.exec();
+        }
+    }
+
+    void insertTraits(const card_data::Card& card)
+    {
+        SQLite::Statement statement(*database, "INSERT INTO card_traits (title, trait) VALUES (?, ?)");
+        for (const std::string& trait : card.traits)
+        {
+            statement.reset();
+            statement.bind(1, card.title);
+            statement.bind(2, trait);
             statement.exec();
         }
     }

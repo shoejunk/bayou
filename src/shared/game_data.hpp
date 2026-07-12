@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -29,9 +30,28 @@ constexpr int MinHeroes = 1;
 constexpr int MaxHeroes = 4;
 constexpr int HeroCostLimit = 100;
 constexpr int DamageDisabledTurns = 1;
-constexpr std::array<const char*, 2> CardKeywordLabels = {
-    "corrupt",
-    "fey"};
+constexpr std::array<const char*, 9> CardTraitLabels = {
+    "Corrupt",
+    "Fey",
+    "Civilized",
+    "Wild",
+    "Honorable",
+    "Arcane",
+    "Mechanical",
+    "Undead",
+    "Ancient"};
+
+inline std::string normalizedTrait(std::string value)
+{
+    std::transform(
+        value.begin(),
+        value.end(),
+        value.begin(),
+        [](unsigned char character) {
+            return static_cast<char>(std::tolower(character));
+        });
+    return value;
+}
 
 inline std::string cardRarity(const card_data::Card& card)
 {
@@ -291,6 +311,7 @@ struct GameCard
 {
     std::string title;
     std::string type;      // "Unit", "Spell", or "Hero"
+    std::vector<std::string> traits;
     std::vector<std::string> keywords;
     std::string imagePath;
     std::string walkAnimPath;
@@ -333,6 +354,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     GameCard g;
     g.title = card.title;
     g.type = card.type;
+    g.traits = card.traits;
     g.keywords = card.keywords;
     g.imagePath = card.imagePath;
     g.walkAnimPath = cardStr(card, "WalkAnim");
@@ -449,6 +471,7 @@ struct Piece
     int row = 0;
     int column = 0;
     std::string name;
+    std::vector<std::string> traits;
     std::vector<std::string> keywords;
     std::string imagePath;
     std::string walkAnimPath;
@@ -491,6 +514,7 @@ struct Piece
 inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHero)
 {
     piece.name = card.title;
+    piece.traits = card.traits;
     piece.keywords = card.keywords;
     piece.imagePath = card.imagePath;
     piece.walkAnimPath = card.walkAnimPath;
@@ -539,21 +563,32 @@ inline void applyDamageStatus(Piece& target, int damage, int statusTurns)
     target.disabledTurns = std::max(target.disabledTurns, disabledTurnsForDamage(damage, statusTurns));
 }
 
-// Returns the card keywords not supplied by any surviving friendly hero.
-// Keywords are requirements only when initially playing a Unit or Spell.
-inline std::vector<std::string> missingHeroKeywords(
+// Returns the Unit card traits not supplied by any friendly hero.
+// Traits are requirements only when initially playing a Unit. Spells and
+// Heroes do not require a matching hero trait.
+inline std::vector<std::string> missingHeroTraits(
     const std::vector<Piece>& pieces,
     int playerNumber,
     const GameCard& card)
 {
     std::vector<std::string> missing;
-    for (const std::string& required : card.keywords)
+    if (card.type != "Unit")
+    {
+        return missing;
+    }
+
+    for (const std::string& required : card.traits)
     {
         bool supplied = false;
         for (const Piece& piece : pieces)
         {
             if (piece.owner == playerNumber && piece.isHero &&
-                std::find(piece.keywords.begin(), piece.keywords.end(), required) != piece.keywords.end())
+                std::any_of(
+                    piece.traits.begin(),
+                    piece.traits.end(),
+                    [&](const std::string& suppliedTrait) {
+                        return normalizedTrait(suppliedTrait) == normalizedTrait(required);
+                    }))
             {
                 supplied = true;
                 break;
@@ -567,12 +602,12 @@ inline std::vector<std::string> missingHeroKeywords(
     return missing;
 }
 
-inline bool heroKeywordsAllowCard(
+inline bool heroTraitsAllowCard(
     const std::vector<Piece>& pieces,
     int playerNumber,
     const GameCard& card)
 {
-    return missingHeroKeywords(pieces, playerNumber, card).empty();
+    return missingHeroTraits(pieces, playerNumber, card).empty();
 }
 
 // Per-player summary visible to both players.
@@ -608,6 +643,7 @@ struct Snapshot
 inline void writeGameCard(sf::Packet& packet, const GameCard& card)
 {
     packet << card.title << card.type;
+    card_data::writeStringVector(packet, card.traits);
     card_data::writeStringVector(packet, card.keywords);
     packet << card.imagePath << card.walkAnimPath << card.idleAnimPath
            << card.attackAnimPath << card.damagedAnimPath << card.killedAnimPath << card.fidgetAnimPath << card.tokenPath
@@ -634,7 +670,8 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
 inline bool readGameCard(sf::Packet& packet, GameCard& card)
 {
     packet >> card.title >> card.type;
-    if (!packet || !card_data::readStringVector(packet, card.keywords))
+    if (!packet || !card_data::readStringVector(packet, card.traits) ||
+        !card_data::readStringVector(packet, card.keywords))
     {
         return false;
     }
@@ -676,6 +713,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
 inline void writePiece(sf::Packet& packet, const Piece& piece)
 {
     packet << piece.id << piece.owner << piece.row << piece.column << piece.name;
+    card_data::writeStringVector(packet, piece.traits);
     card_data::writeStringVector(packet, piece.keywords);
     packet << piece.imagePath << piece.walkAnimPath << piece.idleAnimPath
            << piece.attackAnimPath << piece.damagedAnimPath << piece.killedAnimPath << piece.fidgetAnimPath << piece.tokenPath
@@ -700,7 +738,8 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
 inline bool readPiece(sf::Packet& packet, Piece& piece)
 {
     packet >> piece.id >> piece.owner >> piece.row >> piece.column >> piece.name;
-    if (!packet || !card_data::readStringVector(packet, piece.keywords))
+    if (!packet || !card_data::readStringVector(packet, piece.traits) ||
+        !card_data::readStringVector(packet, piece.keywords))
     {
         return false;
     }

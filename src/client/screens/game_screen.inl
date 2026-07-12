@@ -288,12 +288,6 @@
             y += 22.0f;
             drawText(window, font, "Health: " + std::to_string(piece->health) + "/" + std::to_string(piece->maxHealth),
                      14, {statX, y}, sf::Color(224, 210, 176));
-            if (!piece->keywords.empty())
-            {
-                y += 22.0f;
-                drawText(window, font, "Keywords: " + joinStrings(piece->keywords, ", "),
-                         14, {statX, y}, sf::Color(198, 180, 142), PiecePopupWidth - 174.0f);
-            }
         }
         else
         {
@@ -311,12 +305,6 @@
             if (card->type == "Unit" || card->type == "Hero")
             {
                 drawText(window, font, "Health: " + std::to_string(card->health), 14, {statX, y}, sf::Color(224, 210, 176));
-                if (!card->keywords.empty())
-                {
-                    y += 22.0f;
-                    drawText(window, font, "Keywords: " + joinStrings(card->keywords, ", "),
-                             14, {statX, y}, sf::Color(198, 180, 142), PiecePopupWidth - 174.0f);
-                }
             }
             else
             {
@@ -326,6 +314,20 @@
                 y += 22.0f;
                 drawText(window, font, "Target: " + card->target, 14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
             }
+        }
+        const std::vector<std::string>& traits = piece ? piece->traits : card->traits;
+        const std::vector<std::string>& keywords = piece ? piece->keywords : card->keywords;
+        if (!traits.empty())
+        {
+            y += 22.0f;
+            drawText(window, font, "Traits: " + joinStrings(traits, ", "),
+                     14, {statX, y}, sf::Color(248, 214, 112), PiecePopupWidth - 174.0f);
+        }
+        if (!keywords.empty())
+        {
+            y += 22.0f;
+            drawText(window, font, "Keywords: " + joinStrings(keywords, ", "),
+                     14, {statX, y}, sf::Color(198, 180, 142), PiecePopupWidth - 174.0f);
         }
 
         inspectedPieceScroll = std::clamp(inspectedPieceScroll, 0.0f, popupMaxScroll(actionDescriptions));
@@ -457,7 +459,7 @@
             {
                 draggedHandDropValid = (sandboxMode || gameSnapshot.activePlayer == me) &&
                     (sandboxMode || draggedHandCard->cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].steam) &&
-                    (sandboxMode || game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, *draggedHandCard)) &&
+                    (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, *draggedHandCard)) &&
                     !gamePieceAt(row, column) &&
                     gameSnapshot.control[idx] == sandboxPlayer;
             }
@@ -502,7 +504,7 @@
             else if (actingHandIndex && *actingHandIndex < gameSnapshot.hand.size())
             {
                 const game_data::GameCard& card = gameSnapshot.hand[*actingHandIndex];
-                if (sandboxMode || game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, card))
+                if (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, card))
                 {
                     for (int r = 0; r < game_data::BoardSize; ++r)
                     {
@@ -1131,7 +1133,7 @@
                 const bool affordable = phase == game_data::Phase::HeroPlacement ||
                     ((sandboxMode || card.cost <= mine.steam) && (sandboxMode || gameSnapshot.activePlayer == me) &&
                      phase == game_data::Phase::Playing &&
-                     (sandboxMode || game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, card)));
+                     (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, card)));
                 drawGameCardFace({x, HandY}, card, selectedHandIndex && *selectedHandIndex == i, affordable);
             }
         }
@@ -1161,7 +1163,7 @@
                 {
                     const bool affordable = (sandboxMode || draggedCard.cost <= mine.steam) &&
                         (sandboxMode || gameSnapshot.activePlayer == me) && phase == game_data::Phase::Playing &&
-                        (sandboxMode || game_data::heroKeywordsAllowCard(gameSnapshot.pieces, me, draggedCard));
+                        (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, draggedCard));
                     drawGameCardFace(
                         {gameDragCurrentPos.x - HandCardWidth / 2.0f,
                          gameDragCurrentPos.y - HandCardHeight / 2.0f},

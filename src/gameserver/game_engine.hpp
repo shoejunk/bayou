@@ -137,15 +137,15 @@ public:
             return;
         }
 
-        const std::vector<std::string> missingKeywords =
-            missingHeroKeywords(pieces, playerNumber, card);
-        if (!missingKeywords.empty())
+        const std::vector<std::string> missingTraits =
+            missingHeroTraits(pieces, playerNumber, card);
+        if (!missingTraits.empty())
         {
-            std::string message = "Your living heroes must supply:";
-            for (std::size_t i = 0; i < missingKeywords.size(); ++i)
+            std::string message = "Your living heroes must supply traits:";
+            for (std::size_t i = 0; i < missingTraits.size(); ++i)
             {
                 message += i == 0 ? " " : ", ";
-                message += missingKeywords[i];
+                message += missingTraits[i];
             }
             message += " to play that card.";
             setStatusFor(playerNumber, message);

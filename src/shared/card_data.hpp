@@ -11,6 +11,8 @@ namespace card_data
 // Upper bound on any serialized list count, checked before reserving so a
 // crafted packet cannot trigger a huge allocation.
 constexpr std::uint32_t MaxSerializedItems = 4096;
+constexpr std::uint32_t CardListSchemaMarker = 0xffffffffu;
+constexpr std::uint32_t CardListSchemaVersion = 2;
 
 struct KeyIntPair
 {
@@ -52,6 +54,7 @@ struct Card
     std::string title;
     std::string type = "Unit";
     std::string imagePath;
+    std::vector<std::string> traits;
     std::vector<std::string> keywords;
     std::vector<KeyIntPair> integerValues;
     std::vector<KeyStringPair> stringValues;
@@ -111,12 +114,40 @@ inline bool readAction(sf::Packet& packet, Action& action)
     return static_cast<bool>(packet);
 }
 
+inline void writeCardListHeader(sf::Packet& packet, std::uint32_t count)
+{
+    packet << CardListSchemaMarker << CardListSchemaVersion << count;
+}
+
+inline bool readCardListHeader(sf::Packet& packet, std::uint32_t& count, bool& legacyFormat)
+{
+    std::uint32_t markerOrCount = 0;
+    packet >> markerOrCount;
+    if (!packet)
+    {
+        return false;
+    }
+
+    if (markerOrCount == CardListSchemaMarker)
+    {
+        std::uint32_t version = 0;
+        packet >> version >> count;
+        legacyFormat = false;
+        return static_cast<bool>(packet) && version == CardListSchemaVersion && count <= MaxSerializedItems;
+    }
+
+    count = markerOrCount;
+    legacyFormat = true;
+    return count <= MaxSerializedItems;
+}
+
 inline void writeCard(sf::Packet& packet, const Card& card)
 {
     packet << card.title;
     packet << card.type;
     packet << card.imagePath;
 
+    writeStringVector(packet, card.traits);
     writeStringVector(packet, card.keywords);
 
     packet << static_cast<std::uint32_t>(card.integerValues.size());
@@ -146,19 +177,8 @@ inline void writeCard(sf::Packet& packet, const Card& card)
     }
 }
 
-inline bool readCard(sf::Packet& packet, Card& card)
+inline bool readCardRemaining(sf::Packet& packet, Card& card)
 {
-    packet >> card.title >> card.type >> card.imagePath;
-    if (!packet)
-    {
-        return false;
-    }
-
-    if (!readStringVector(packet, card.keywords))
-    {
-        return false;
-    }
-
     std::uint32_t integerCount = 0;
     packet >> integerCount;
     if (!packet || integerCount > MaxSerializedItems)
@@ -240,5 +260,31 @@ inline bool readCard(sf::Packet& packet, Card& card)
     }
 
     return true;
+}
+
+inline bool readCard(sf::Packet& packet, Card& card)
+{
+    packet >> card.title >> card.type >> card.imagePath;
+    if (!packet || !readStringVector(packet, card.traits) || !readStringVector(packet, card.keywords))
+    {
+        return false;
+    }
+    return readCardRemaining(packet, card);
+}
+
+inline bool readLegacyCard(sf::Packet& packet, Card& card)
+{
+    packet >> card.title >> card.type >> card.imagePath;
+    if (!packet || !readStringVector(packet, card.traits))
+    {
+        return false;
+    }
+    card.keywords.clear();
+    return readCardRemaining(packet, card);
+}
+
+inline bool readListedCard(sf::Packet& packet, Card& card, bool legacyFormat)
+{
+    return legacyFormat ? readLegacyCard(packet, card) : readCard(packet, card);
 }
 }

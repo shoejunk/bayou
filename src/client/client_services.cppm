@@ -332,12 +332,25 @@ CardListResult fetchCards()
     std::uint8_t responseType = 0;
     bool success = false;
     std::string message;
-    std::uint32_t count = 0;
-    response >> responseType >> success >> message >> count;
+    response >> responseType >> success >> message;
     if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::CardListResponse)
     {
         socket.disconnect();
         return {false, "Unexpected card list response"};
+    }
+
+    if (!success)
+    {
+        socket.disconnect();
+        return {false, message};
+    }
+
+    std::uint32_t count = 0;
+    bool legacyFormat = false;
+    if (!card_data::readCardListHeader(response, count, legacyFormat))
+    {
+        socket.disconnect();
+        return {false, "Unsupported card list payload"};
     }
 
     std::vector<card_data::Card> cards;
@@ -345,7 +358,7 @@ CardListResult fetchCards()
     for (std::uint32_t i = 0; i < count; ++i)
     {
         card_data::Card card;
-        if (!card_data::readCard(response, card))
+        if (!card_data::readListedCard(response, card, legacyFormat))
         {
             socket.disconnect();
             return {false, "Invalid card list payload"};

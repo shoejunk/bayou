@@ -69,8 +69,7 @@ std::vector<card_data::Card> loadFromCardServer(
     std::uint8_t responseType = 0;
     bool success = false;
     std::string message;
-    std::uint32_t count = 0;
-    response >> responseType >> success >> message >> count;
+    response >> responseType >> success >> message;
     if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::CardListResponse)
     {
         error = "unexpected card server response";
@@ -81,9 +80,11 @@ std::vector<card_data::Card> loadFromCardServer(
         error = message.empty() ? "card server rejected card list request" : message;
         return {};
     }
-    if (count > card_data::MaxSerializedItems)
+    std::uint32_t count = 0;
+    bool legacyFormat = false;
+    if (!card_data::readCardListHeader(response, count, legacyFormat))
     {
-        error = "card server returned too many cards";
+        error = "card server returned an unsupported card list payload";
         return {};
     }
 
@@ -92,7 +93,7 @@ std::vector<card_data::Card> loadFromCardServer(
     for (std::uint32_t i = 0; i < count; ++i)
     {
         card_data::Card card;
-        if (!card_data::readCard(response, card))
+        if (!card_data::readListedCard(response, card, legacyFormat))
         {
             error = "card server returned an invalid card payload";
             return {};

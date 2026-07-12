@@ -8,6 +8,16 @@ namespace card_database
 {
 namespace
 {
+bool tableExists(SQLite::Database& database, const std::string& tableName)
+{
+    SQLite::Statement query(
+        database,
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?");
+    query.bind(1, tableName);
+    query.executeStep();
+    return query.getColumn(0).getInt() != 0;
+}
+
 card_data::Action actionFromQuery(SQLite::Statement& query)
 {
     card_data::Action action;
@@ -129,6 +139,8 @@ std::vector<card_data::Action> loadCardActions(SQLite::Database& database, const
 std::vector<card_data::Card> loadCards(SQLite::Database& database)
 {
     std::vector<card_data::Card> cards;
+    const bool hasTraitsTable = tableExists(database, "card_traits");
+    const bool hasKeywordsTable = tableExists(database, "card_keywords");
     SQLite::Statement query(database, "SELECT title, type, image_path FROM cards ORDER BY title");
     while (query.executeStep())
     {
@@ -136,10 +148,29 @@ std::vector<card_data::Card> loadCards(SQLite::Database& database)
         card.title = query.getColumn(0).getString();
         card.type = query.getColumn(1).getString();
         card.imagePath = query.getColumn(2).getString();
-        card.keywords = loadStringColumn(
-            database,
-            "SELECT keyword FROM card_keywords WHERE title = ? ORDER BY keyword",
-            card.title);
+        if (hasTraitsTable)
+        {
+            card.traits = loadStringColumn(
+                database,
+                "SELECT trait FROM card_traits WHERE title = ? ORDER BY trait",
+                card.title);
+        }
+        else if (hasKeywordsTable)
+        {
+            // Read-only legacy databases still expose the old gating values
+            // as traits until the card server performs its migration.
+            card.traits = loadStringColumn(
+                database,
+                "SELECT keyword FROM card_keywords WHERE title = ? ORDER BY keyword",
+                card.title);
+        }
+        if (hasTraitsTable && hasKeywordsTable)
+        {
+            card.keywords = loadStringColumn(
+                database,
+                "SELECT keyword FROM card_keywords WHERE title = ? ORDER BY keyword",
+                card.title);
+        }
         card.integerValues = loadIntegerValues(database, card.title);
         card.stringValues = loadStringValues(database, card.title);
         card.stringLists = loadStringLists(database, card.title);

@@ -64,12 +64,6 @@
             const game_data::GameCard gameCard = game_data::toGameCard(*card);
             drawText(window, font, "Health: " + std::to_string(gameCard.health),
                      14, {statX, y}, sf::Color(224, 210, 176));
-            if (!card->keywords.empty())
-            {
-                y += 22.0f;
-                drawText(window, font, "Keywords: " + joinStrings(card->keywords, ", "),
-                         14, {statX, y}, sf::Color(198, 180, 142), PiecePopupWidth - 174.0f);
-            }
         }
         else
         {
@@ -79,6 +73,18 @@
             y += 22.0f;
             drawText(window, font, "Target: " + game_data::cardStr(*card, "target", "none"),
                      14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+        }
+        if (!card->traits.empty())
+        {
+            y += 22.0f;
+            drawText(window, font, "Traits: " + joinStrings(card->traits, ", "),
+                     14, {statX, y}, sf::Color(248, 214, 112), PiecePopupWidth - 174.0f);
+        }
+        if (!card->keywords.empty())
+        {
+            y += 22.0f;
+            drawText(window, font, "Keywords: " + joinStrings(card->keywords, ", "),
+                     14, {statX, y}, sf::Color(198, 180, 142), PiecePopupWidth - 174.0f);
         }
 
         inspectedDeckEditorCardScroll = std::clamp(

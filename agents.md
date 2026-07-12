@@ -16,8 +16,10 @@ the game coordinator spawns per-match processes via `CreateProcessA` (see the
   from the configured authoritative card server. `debug_client.bat` launches
   the client. Release equivalents: `release_services.bat`,
   `release_client.bat`.
-- After each client change, run `debug_services.bat`, then run `debug_client.bat`
-  once.
+- **After any client change, the full debug cycle is required:** run
+  `build_debug.bat`, then `debug_services.bat`, then `debug_client.bat` once.
+  Skipping the build or the services restart will cause stale code or stale
+  server state to be used.
 
 ## Tests
 
