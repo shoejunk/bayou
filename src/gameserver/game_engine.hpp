@@ -24,7 +24,7 @@ public:
         std::vector<GameCard> drawPile;
         std::vector<GameCard> hand;
         std::vector<GameCard> heroesToPlace;
-        int steam = 0;
+        int resources = 0;
         int discardsThisTurn = 0;
         bool deckSubmitted = false;
     };
@@ -139,9 +139,9 @@ public:
         }
 
         const GameCard card = player.hand[static_cast<std::size_t>(handIndex)];
-        if (card.cost > player.steam)
+        if (card.cost > player.resources)
         {
-            setStatusFor(playerNumber, "Not enough steam to play that card.");
+            setStatusFor(playerNumber, "Not enough Resources to play that card.");
             return;
         }
 
@@ -180,7 +180,7 @@ public:
             }
         }
 
-        player.steam -= card.cost;
+        player.resources -= card.cost;
         player.hand.erase(player.hand.begin() + handIndex);
         advanceTurn(fmt::format("Player {} played {}.", playerNumber, card.title));
     }
@@ -393,7 +393,7 @@ public:
         {
             const EnginePlayer& player = players[static_cast<std::size_t>(p)];
             PlayerSnapshot& view = snapshot.players[static_cast<std::size_t>(p)];
-            view.steam = player.steam;
+            view.resources = player.resources;
             view.controlledSquares = controlledCount(p + 1);
             view.handCount = phaseValue == Phase::HeroPlacement
                 ? static_cast<int>(player.heroesToPlace.size())
@@ -805,28 +805,36 @@ private:
     {
         EnginePlayer& player = playerRef(playerNumber);
         player.discardsThisTurn = 0;
-        player.steam += controlledCount(playerNumber);
+        const int controlledIncome = controlledCount(playerNumber);
+        player.resources += controlledIncome;
+
+        int taxAmount = 0;
+        for (const Piece& piece : pieces)
+        {
+            if (piece.owner == playerNumber)
+            {
+                taxAmount += piece.tax;
+            }
+        }
+        EnginePlayer& opponent = playerRef(playerNumber == 1 ? 2 : 1);
+        const int collectedTax = std::min(std::max(0, taxAmount), opponent.resources);
+        opponent.resources -= collectedTax;
+        player.resources += collectedTax;
         drawCard(player);
 
         for (Piece& piece : pieces)
         {
             if (piece.owner == playerNumber)
             {
-                piece.hasActed = false;
-                if (piece.growTurnsRemaining > 0)
-                {
-                    --piece.growTurnsRemaining;
-                    piece.hasActed = piece.growTurnsRemaining > 0;
-                }
-                if (piece.disabledTurns > 0)
-                {
-                    --piece.disabledTurns;
-                    piece.hasActed = true;
-                }
+                beginPieceTurn(piece);
             }
         }
 
-        status = fmt::format("Player {}'s turn. +{} steam.", playerNumber, controlledCount(playerNumber));
+        status = fmt::format(
+            "Player {}'s turn. +{} Resources{}.",
+            playerNumber,
+            controlledIncome,
+            collectedTax > 0 ? fmt::format(" and collected {} Resources in Tax", collectedTax) : "");
     }
 
     void drawCard(EnginePlayer& player)
@@ -872,9 +880,9 @@ private:
 
     bool resolveSpell(int playerNumber, const GameCard& card, int targetRow, int targetColumn)
     {
-        if (card.effect == "steam")
+        if (isResourcesEffect(card))
         {
-            playerRef(playerNumber).steam += card.power;
+            playerRef(playerNumber).resources += card.power;
             return true;
         }
 

@@ -2485,19 +2485,20 @@ private:
 
         y = drawInstructionSection(window, "2. Card types", y);
         y = drawInstructionBullet(window, "Hero: selected during deck building and placed on one of the player's four starting squares before play. Use heroCost instead of cost. A deck has 1-4 Heroes and a total Hero cost limit of 100. Losing every Hero loses the game.", y, sf::Color(248, 214, 112));
-        y = drawInstructionBullet(window, "Unit: goes into the 20-card main deck. It costs steam to play and deploys to an empty square the player controls. A newly deployed Unit cannot move or attack until its owner's next turn.", y, sf::Color(150, 210, 235));
-        y = drawInstructionBullet(window, "Spell: goes into the main deck, costs steam, resolves immediately, and leaves the hand. Spells do not use health, actions, or WalkAnim.", y, sf::Color(205, 175, 235));
+        y = drawInstructionBullet(window, "Unit: goes into the 20-card main deck. It costs Resources to play and deploys to an empty square the player controls. A newly deployed Unit cannot move or attack until its owner's next turn.", y, sf::Color(150, 210, 235));
+        y = drawInstructionBullet(window, "Spell: goes into the main deck, costs Resources, resolves immediately, and leaves the hand. Spells do not use health, actions, or WalkAnim.", y, sf::Color(205, 175, 235));
         y += 12.0f;
 
         y = drawInstructionSection(window, "3. Integer Fields (key = whole number)", y);
-        y = drawInstructionBullet(window, "cost: steam paid to play a Unit or Spell. Default: 1.", y);
+        y = drawInstructionBullet(window, "cost: Resources paid to play a Unit or Spell. Default: 1.", y);
         y = drawInstructionBullet(window, "heroCost: deck-building Hero budget. Use only on Heroes. Default: 0.", y);
         y = drawInstructionBullet(window, "health: starting and maximum hit points for a Hero or Unit. Default: 1.", y);
         y = drawInstructionBullet(window, "width and height: board squares occupied by a Hero or Unit. Both default to 1.", y);
         y = drawInstructionBullet(window, "canControl: set to 0 for pieces that do not claim their occupied square or influence adjacent territory. Default: 1.", y);
         y = drawInstructionBullet(window, "growTurns: owner turns a newly summoned piece must wait before it can act. Default: 0.", y);
         y = drawInstructionBullet(window, "abilityUses: number of uses for a limited ability such as dig; use -1 for unlimited.", y);
-        y = drawInstructionBullet(window, "power: spell amount. It is damage dealt, health restored, or steam gained depending on effect. Default: 0.", y);
+        y = drawInstructionBullet(window, "power: spell amount. It is damage dealt, health restored, or Resources gained depending on effect. Default: 0.", y);
+        y = drawInstructionBullet(window, "Tax: optional passive Resources taken from the opponent (up to this amount) and gained by the owning player at the start of each owner's turn. Default: 0.", y);
         y += 12.0f;
 
         y = drawInstructionSection(window, "4. Actions", y);
@@ -2515,7 +2516,7 @@ private:
         y = drawInstructionSection(window, "5. Spell String Fields", y);
         y = drawInstructionBullet(window, "effect=damage with target=enemy: subtract power from an enemy Hero or Unit. If health reaches 0, that piece is destroyed.", y);
         y = drawInstructionBullet(window, "effect=heal with target=ally: restore power health to a friendly Hero or Unit, up to its maximum health.", y);
-        y = drawInstructionBullet(window, "effect=steam with target=none: immediately add power steam to the player. No board target is required.", y);
+        y = drawInstructionBullet(window, "effect=resources with target=none: immediately add power Resources to the player. No board target is required. Legacy effect=steam is also accepted.", y);
         y = drawInstructionParagraph(window, "Use the lowercase values exactly. The current game resolves targeting from effect; target documents the intended target and is displayed in card details.", y + 5.0f, Muted);
         y += 17.0f;
 
@@ -2534,7 +2535,7 @@ private:
         y = drawInstructionSection(window, "7. Turn and board rules that affect balance", y);
         y = drawInstructionBullet(window, "On a turn, playing a card, moving, or attacking ends the turn. A piece can therefore move or attack, not both, before the opponent acts.", y);
         y = drawInstructionBullet(window, "A piece with canControl=1 controls its occupied square and influences adjacent territory. Pieces with canControl=0 do neither. Ties keep the current controller.", y);
-        y = drawInstructionBullet(window, "At the start of a turn, the player gains 1 steam per controlled square, draws one card if below the 8-card hand limit, and refreshes their pieces.", y);
+        y = drawInstructionBullet(window, "At the start of a turn, the player gains 1 Resource per controlled square, Tax pieces collect Resources from the opponent, the player draws one card if below the 8-card hand limit, and their pieces refresh.", y);
         y = drawInstructionBullet(window, "Attacks use the range, pattern, line-of-sight, and blocker settings of the selected action.", y);
         y += 12.0f;
 

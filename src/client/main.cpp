@@ -669,6 +669,8 @@ enum class DeckEditorMode
 };
 
 constexpr float GameLabelY = 44.0f;
+constexpr float GameResourcesX = 282.0f;
+constexpr float GameReadoutWidth = 330.0f;
 constexpr float GameActionButtonY = 14.0f;
 constexpr float HandY = 512.0f;
 constexpr float HandCardWidth = 88.0f;
@@ -1103,6 +1105,18 @@ int main(int argc, char** argv)
         float duration = PieceReactionAnimationDurationSeconds;
     };
     std::vector<PieceKilledAnimation> pieceKilledAnimations;
+    struct FloatingNumberEffect
+    {
+        int row = 0;
+        int column = 0;
+        sf::Vector2f screenPosition;
+        bool boardPosition = false;
+        std::string text;
+        sf::Color color = sf::Color::White;
+        float startTime = 0.0f;
+        float duration = 1.15f;
+    };
+    std::vector<FloatingNumberEffect> floatingNumberEffects;
     // An opposing piece that just dematerialized: it blinks in place for a few
     // seconds, then is not drawn at all until it materializes again.
     struct DematerializeGhost
@@ -1983,6 +1997,7 @@ int main(int argc, char** argv)
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
         pieceDamagedAnimations.clear();
+        floatingNumberEffects.clear();
         pieceFidgetAnimations.clear();
         pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
@@ -2604,6 +2619,45 @@ int main(int argc, char** argv)
         }
     };
 
+    auto addFloatingNumber = [&](int value, int row, int column) {
+        if (value == 0)
+        {
+            return;
+        }
+        floatingNumberEffects.push_back({
+            row,
+            column,
+            {},
+            true,
+            (value > 0 ? "+" : "") + std::to_string(value),
+            value > 0 ? sf::Color(120, 235, 145) : sf::Color(245, 115, 105),
+            animationTime,
+            1.15f});
+    };
+
+    auto addResourceNumber = [&](int playerNumber, int value, int displayedResources) {
+        if (value == 0 || playerNumber != gameSnapshot.yourPlayer)
+        {
+            return;
+        }
+        const std::string effectText = (value > 0 ? "+" : "") + std::to_string(value);
+        const sf::Text prefix(font, "Resources: ", 16);
+        const sf::Text resourceValue(font, std::to_string(displayedResources), 16);
+        const sf::Text floatingValue(font, effectText, 20);
+        const float resourceCenterX = GameResourcesX + prefix.getLocalBounds().size.x +
+            resourceValue.getLocalBounds().size.x * 0.5f;
+        const float x = resourceCenterX - floatingValue.getLocalBounds().size.x * 0.5f;
+        floatingNumberEffects.push_back({
+            0,
+            0,
+            {x, GameLabelY - 22.0f},
+            false,
+            effectText,
+            value > 0 ? sf::Color(120, 235, 145) : sf::Color(245, 115, 105),
+            animationTime,
+            1.15f});
+    };
+
     auto randomFidgetDelay = [&]() {
         std::uniform_real_distribution<float> distribution(
             FidgetDelayMinimumSeconds,
@@ -2685,6 +2739,17 @@ int main(int argc, char** argv)
             return;
         }
 
+        for (int playerNumber = 1; playerNumber <= 2; ++playerNumber)
+        {
+            const int index = playerNumber - 1;
+            const int resourceDelta = nextSnapshot.players[static_cast<std::size_t>(index)].resources -
+                gameSnapshot.players[static_cast<std::size_t>(index)].resources;
+            addResourceNumber(
+                playerNumber,
+                resourceDelta,
+                nextSnapshot.players[static_cast<std::size_t>(index)].resources);
+        }
+
         // A ghost is stale once its piece is visible again (it materialized).
         dematerializeGhosts.erase(
             std::remove_if(
@@ -2761,8 +2826,21 @@ int main(int argc, char** argv)
             }
             if (nextPiece.health < currentPiece->health)
             {
+                addFloatingNumber(nextPiece.health - currentPiece->health, nextPiece.row, nextPiece.column);
                 startPieceDamagedAnimation(nextPiece);
             }
+        }
+
+        for (const game_data::Piece& currentPiece : gameSnapshot.pieces)
+        {
+            if (pieceByIdInSnapshot(nextSnapshot, currentPiece.id) != nullptr)
+            {
+                continue;
+            }
+            // The final snapshot omits destroyed pieces. Showing their
+            // remaining health still communicates the lethal damage at the
+            // exact square where the piece was hit.
+            addFloatingNumber(-currentPiece.health, currentPiece.row, currentPiece.column);
         }
 
         if (snapshotDescribesAttack)
@@ -3001,6 +3079,7 @@ int main(int argc, char** argv)
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
         pieceDamagedAnimations.clear();
+        floatingNumberEffects.clear();
         pieceFidgetAnimations.clear();
         pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
@@ -3323,7 +3402,7 @@ int main(int argc, char** argv)
         drawText(window, font, card.title, 22, {position.x + 18.0f, position.y + 178.0f}, sf::Color(248, 239, 216), size.x - 36.0f);
         const std::string typeLine = game_data::isHeroCard(card)
             ? "Hero cost " + std::to_string(game_data::cardInt(card, "heroCost", 0))
-            : card.type + "  " + std::to_string(game_data::cardInt(card, "cost", 0)) + " steam";
+            : card.type + "  " + std::to_string(game_data::cardInt(card, "cost", 0)) + " Resources";
         drawText(window, font, cardRarityLabel(card) + "  " + typeLine, 16, {position.x + 18.0f, position.y + 210.0f}, cardRarityColor(card), size.x - 36.0f);
 
         std::string statLine;
@@ -3538,7 +3617,7 @@ int main(int argc, char** argv)
             return;
         }
 
-        if (card.effect == "steam")
+        if (game_data::isResourcesEffect(card))
         {
             next.status = "Sandbox played " + card.title + ".";
             commitSandboxSnapshot(std::move(next));
@@ -3882,17 +3961,7 @@ int main(int argc, char** argv)
         {
             if (piece.owner == startingPlayer)
             {
-                piece.hasActed = false;
-                if (piece.growTurnsRemaining > 0)
-                {
-                    --piece.growTurnsRemaining;
-                    piece.hasActed = piece.growTurnsRemaining > 0;
-                }
-                if (piece.disabledTurns > 0)
-                {
-                    --piece.disabledTurns;
-                    piece.hasActed = true;
-                }
+                game_data::beginPieceTurn(piece);
             }
         }
         next.status = "Sandbox advanced timing to Player " + std::to_string(startingPlayer) + ".";
@@ -4021,7 +4090,7 @@ int main(int argc, char** argv)
 
         const game_data::GameCard& card = gameSnapshot.hand[handIndex];
         selectedPieceId.reset();
-        if (card.type != "Unit" && card.effect == "steam" &&
+        if (card.type != "Unit" && game_data::isResourcesEffect(card) &&
             (sandboxMode ||
              game_data::heroTraitsAllowCard(
                  gameSnapshot.pieces, gameSnapshot.yourPlayer, card)))
@@ -4380,14 +4449,12 @@ int main(int argc, char** argv)
         }
 
         // Playing phase Ã¢â‚¬â€ only the active player may act.
-        if (!sandboxMode && gameSnapshot.activePlayer != me)
-        {
-            return;
-        }
-
         if (const std::optional<std::size_t> handIndex = handCardAtPixel(clickPos))
         {
-            handleHandCardClick(*handIndex);
+            if (sandboxMode || gameSnapshot.activePlayer == me)
+            {
+                handleHandCardClick(*handIndex);
+            }
             return;
         }
 
@@ -4401,6 +4468,18 @@ int main(int argc, char** argv)
         const auto [row, column] = *square;
         const game_data::Piece* clicked = gamePieceAt(row, column);
 
+        // During the other player's turn, board clicks are previews only.
+        // Selecting a piece belonging to the inactive player must never send
+        // an action, even if that piece belongs to this client.
+        if (!sandboxMode && gameSnapshot.activePlayer != me)
+        {
+            selectedHandIndex.reset();
+            selectedPieceId = clicked && clicked->owner != gameSnapshot.activePlayer
+                ? std::optional<int>(clicked->id)
+                : std::nullopt;
+            return;
+        }
+
         if (selectedHandIndex)
         {
             sendPlayCard(static_cast<int>(*selectedHandIndex), row, column);
@@ -4413,6 +4492,15 @@ int main(int argc, char** argv)
             const game_data::Piece* selected = gamePieceById(*selectedPieceId);
             if (selected)
             {
+                if (!sandboxMode && selected->owner != gameSnapshot.activePlayer)
+                {
+                    selectedPieceId = clicked && clicked->owner != gameSnapshot.activePlayer
+                        ? std::optional<int>(clicked->id)
+                        : (clicked && pieceCanTakeGameAction(*clicked)
+                            ? std::optional<int>(clicked->id)
+                            : std::nullopt);
+                    return;
+                }
                 if (clicked && clicked->owner != (sandboxMode ? selected->owner : me))
                 {
                     const game_data::PieceActionOutcome outcome = game_data::resolvePieceActionThroughHidden(
@@ -4444,7 +4532,11 @@ int main(int argc, char** argv)
             return;
         }
 
-        if (clicked && pieceCanTakeGameAction(*clicked))
+        if (clicked && !sandboxMode && clicked->owner != gameSnapshot.activePlayer)
+        {
+            selectedPieceId = clicked->id;
+        }
+        else if (clicked && pieceCanTakeGameAction(*clicked))
         {
             selectedPieceId = clicked->id;
         }

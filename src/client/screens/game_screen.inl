@@ -46,7 +46,7 @@
             line2 = "Spell";
             if (card.effect == "damage") line3 = "Deal " + std::to_string(card.power);
             else if (card.effect == "heal") line3 = "Heal " + std::to_string(card.power);
-            else if (card.effect == "steam") line3 = "+" + std::to_string(card.power) + " steam";
+            else if (game_data::isResourcesEffect(card)) line3 = "+" + std::to_string(card.power) + " Resources";
         }
         drawText(window, font, line2, 11, {position.x + 6.0f, position.y + 53.0f}, sf::Color(224, 210, 176), HandCardWidth - 12.0f);
         drawText(window, font, line3, 11, {position.x + 6.0f, position.y + 65.0f}, sf::Color(143, 220, 205), HandCardWidth - 12.0f);
@@ -102,24 +102,24 @@
         }
         if (card.type == "Unit")
         {
-            return "Play: " + std::to_string(card.cost) + " steam, controlled empty square";
+            return "Play: " + std::to_string(card.cost) + " Resources, controlled empty square";
         }
         if (card.effect == "damage")
         {
-            return "Play: " + std::to_string(card.cost) + " steam, deal " +
+            return "Play: " + std::to_string(card.cost) + " Resources, deal " +
                 std::to_string(card.power) + " damage";
         }
         if (card.effect == "heal")
         {
-            return "Play: " + std::to_string(card.cost) + " steam, restore " +
+            return "Play: " + std::to_string(card.cost) + " Resources, restore " +
                 std::to_string(card.power) + " health";
         }
-        if (card.effect == "steam")
+        if (game_data::isResourcesEffect(card))
         {
-            return "Play: " + std::to_string(card.cost) + " steam, gain " +
-                std::to_string(card.power) + " steam";
+            return "Play: " + std::to_string(card.cost) + " Resources, gain " +
+                std::to_string(card.power) + " Resources";
         }
-        return std::string("Play: ") + std::to_string(card.cost) + " steam";
+        return std::string("Play: ") + std::to_string(card.cost) + " Resources";
     };
 
     auto cardPopupActionDescriptions = [&](const game_data::GameCard& card) {
@@ -288,6 +288,12 @@
             y += 22.0f;
             drawText(window, font, "Health: " + std::to_string(piece->health) + "/" + std::to_string(piece->maxHealth),
                      14, {statX, y}, sf::Color(224, 210, 176));
+            if (piece->tax > 0)
+            {
+                y += 22.0f;
+                drawText(window, font, "Tax: " + std::to_string(piece->tax) + " Resources each turn",
+                         14, {statX, y}, sf::Color(248, 214, 112), PiecePopupWidth - 174.0f);
+            }
         }
         else
         {
@@ -299,16 +305,23 @@
             }
             else
             {
-                drawText(window, font, "Cost: " + std::to_string(card->cost) + " steam", 14, {statX, y}, sf::Color(150, 210, 235));
+                drawText(window, font, "Cost: " + std::to_string(card->cost) + " Resources", 14, {statX, y}, sf::Color(150, 210, 235));
             }
             y += 24.0f;
             if (card->type == "Unit" || card->type == "Hero")
             {
                 drawText(window, font, "Health: " + std::to_string(card->health), 14, {statX, y}, sf::Color(224, 210, 176));
+                if (card->tax > 0)
+                {
+                    y += 22.0f;
+                    drawText(window, font, "Tax: " + std::to_string(card->tax) + " Resources each turn",
+                             14, {statX, y}, sf::Color(248, 214, 112), PiecePopupWidth - 174.0f);
+                }
             }
             else
             {
-                drawText(window, font, "Effect: " + card->effect, 14, {statX, y}, sf::Color(224, 210, 176));
+                drawText(window, font, "Effect: " + (game_data::isResourcesEffect(*card) ? "resources" : card->effect),
+                         14, {statX, y}, sf::Color(224, 210, 176));
                 y += 22.0f;
                 drawText(window, font, "Power: " + std::to_string(card->power), 14, {statX, y}, sf::Color(224, 210, 176));
                 y += 22.0f;
@@ -414,6 +427,15 @@
         const game_data::Piece* draggedPiece =
             gameDragKind == GameDragKind::Piece && draggingPieceId ? gamePieceById(*draggingPieceId) : nullptr;
         const game_data::Piece* actingPiece = draggedPiece ? draggedPiece : selectedPiece;
+        const bool previewingNextTurn = actingPiece && !sandboxMode &&
+            actingPiece->owner != gameSnapshot.activePlayer;
+        std::optional<game_data::Piece> nextTurnPiece;
+        if (previewingNextTurn)
+        {
+            nextTurnPiece = *actingPiece;
+            game_data::beginPieceTurn(*nextTurnPiece);
+        }
+        const game_data::Piece* highlightedPiece = nextTurnPiece ? &*nextTurnPiece : actingPiece;
         const std::optional<std::pair<int, int>> draggedPieceSquare = [&]()
             -> std::optional<std::pair<int, int>> {
             if (!gameDragActive || !draggedPiece) return std::nullopt;
@@ -491,7 +513,7 @@
             {
                 draggedHandDropValid = gameSnapshot.relentlessPieceId == 0 &&
                     (sandboxMode || gameSnapshot.activePlayer == me) &&
-                    (sandboxMode || draggedHandCard->cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].steam) &&
+                    (sandboxMode || draggedHandCard->cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].resources) &&
                     (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, *draggedHandCard)) &&
                     cardFootprintCanDeploy(*draggedHandCard, row, column, false);
             }
@@ -525,28 +547,32 @@
                         highlight[static_cast<std::size_t>(game_data::squareIndex(r, c))] = 3;
             }
         }
-        else if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
+        else if (phase == game_data::Phase::Playing)
         {
-            if (actingPiece && pieceCanTakeGameAction(*actingPiece))
+            const bool pieceCanHighlight = highlightedPiece &&
+                ((previewingNextTurn && !highlightedPiece->hasActed) ||
+                 (!previewingNextTurn && (sandboxMode || gameSnapshot.activePlayer == me) &&
+                  pieceCanTakeGameAction(*highlightedPiece)));
+            if (pieceCanHighlight)
             {
                 // Highlight against the acting piece's view of the board:
                 // dematerialized enemies read as open squares (never as
                 // attack targets), so nothing betrays where they hide.
                 const std::vector<game_data::Piece> visiblePieces =
-                    game_data::piecesVisibleTo(gameSnapshot.pieces, actingPiece->owner);
+                    game_data::piecesVisibleTo(gameSnapshot.pieces, highlightedPiece->owner);
                 for (int r = 0; r < game_data::BoardSize; ++r)
                 {
                     for (int c = 0; c < game_data::BoardSize; ++c)
                     {
                         const std::size_t idx = static_cast<std::size_t>(game_data::squareIndex(r, c));
                         const game_data::ActionResolution action = game_data::resolvePieceAction(
-                            visiblePieces, gameSnapshot.holes, *actingPiece, r, c);
+                            visiblePieces, gameSnapshot.holes, *highlightedPiece, r, c);
                         if (action.legal)
                         {
                             if (action.moves)
                             {
                                 highlightFootprint(
-                                    r, c, actingPiece->width, actingPiece->height,
+                                    r, c, highlightedPiece->width, highlightedPiece->height,
                                     action.attacks ? 2 : 1);
                             }
                             else
@@ -557,7 +583,8 @@
                     }
                 }
             }
-            else if (gameSnapshot.relentlessPieceId == 0 &&
+            else if (!previewingNextTurn && (sandboxMode || gameSnapshot.activePlayer == me) &&
+                     gameSnapshot.relentlessPieceId == 0 &&
                      actingHandIndex && *actingHandIndex < gameSnapshot.hand.size())
             {
                 const game_data::GameCard& card = gameSnapshot.hand[*actingHandIndex];
@@ -1093,6 +1120,26 @@
             ++ghost;
         }
 
+        for (auto effect = floatingNumberEffects.begin(); effect != floatingNumberEffects.end();)
+        {
+            const float elapsed = animationTime - effect->startTime;
+            const float progress = std::clamp(elapsed / effect->duration, 0.0f, 1.0f);
+            if (progress >= 1.0f)
+            {
+                effect = floatingNumberEffects.erase(effect);
+                continue;
+            }
+
+            sf::Vector2f position = effect->boardPosition
+                ? boardFootprintAnchor(effect->row, effect->column, 1, gameSnapshot.yourPlayer)
+                : effect->screenPosition;
+            position.y -= 28.0f * progress;
+            sf::Color color = effect->color;
+            color.a = static_cast<std::uint8_t>(std::clamp(255.0f * (1.0f - progress), 0.0f, 255.0f));
+            drawText(window, font, effect->text, 20, position, color, 120.0f);
+            ++effect;
+        }
+
         // Compact game readout.
         const game_data::PlayerSnapshot& mine = gameSnapshot.players[static_cast<std::size_t>(me - 1)];
         const int activePlayer = std::clamp(gameSnapshot.activePlayer, 1, 2);
@@ -1101,12 +1148,12 @@
             : (sandboxMode
             ? "Player " + std::to_string(activePlayer)
             : (activePlayer == me ? loggedInUsername : "Opponent"));
-        const std::string steamText = storyMode ? "story" : (sandboxMode ? "free" : std::to_string(mine.steam));
+        const std::string resourcesText = storyMode ? "story" : (sandboxMode ? "free" : std::to_string(mine.resources));
         drawText(window, font, "Turn: " + activePlayerName, 16, {BoardOriginX, GameLabelY},
                  ownerColor(activePlayer), 240.0f);
         const std::string controlText = storyMode ? "story" : std::to_string(mine.controlledSquares);
-        drawText(window, font, "Steam: " + steamText + "  Control: " + controlText, 16, {282.0f, GameLabelY},
-                 sf::Color(150, 210, 235), 180.0f);
+        drawText(window, font, "Resources: " + resourcesText + "  Control: " + controlText,
+                 16, {GameResourcesX, GameLabelY}, sf::Color(150, 210, 235), GameReadoutWidth);
 
         if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
         {
@@ -1207,7 +1254,7 @@
                 const game_data::GameCard& card = gameSnapshot.hand[i];
                 const bool affordable = phase == game_data::Phase::HeroPlacement ||
                     (gameSnapshot.relentlessPieceId == 0 &&
-                     (sandboxMode || card.cost <= mine.steam) && (sandboxMode || gameSnapshot.activePlayer == me) &&
+                     (sandboxMode || card.cost <= mine.resources) && (sandboxMode || gameSnapshot.activePlayer == me) &&
                      phase == game_data::Phase::Playing &&
                      (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, card)));
                 drawGameCardFace({x, HandY}, card, selectedHandIndex && *selectedHandIndex == i, affordable);
@@ -1242,7 +1289,7 @@
                 else
                 {
                     const bool affordable = gameSnapshot.relentlessPieceId == 0 &&
-                        (sandboxMode || draggedCard.cost <= mine.steam) &&
+                        (sandboxMode || draggedCard.cost <= mine.resources) &&
                         (sandboxMode || gameSnapshot.activePlayer == me) && phase == game_data::Phase::Playing &&
                         (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, draggedCard));
                     drawGameCardFace(

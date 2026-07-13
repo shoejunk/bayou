@@ -67,14 +67,14 @@ int heroesAliveInSnapshot(const game_data::Snapshot& snapshot, int playerNumber)
 
 void refreshSandboxPlayerSnapshots(game_data::Snapshot& snapshot)
 {
-    snapshot.players[0].steam = 999;
+    snapshot.players[0].resources = 999;
     snapshot.players[0].controlledSquares = controlledCountInSnapshot(snapshot, 1);
     snapshot.players[0].handCount = static_cast<int>(snapshot.hand.size());
     snapshot.players[0].heroesToPlace = 0;
     snapshot.players[0].heroesAlive = heroesAliveInSnapshot(snapshot, 1);
     snapshot.players[0].drawPileCount = 0;
 
-    snapshot.players[1].steam = 0;
+    snapshot.players[1].resources = 0;
     snapshot.players[1].controlledSquares = controlledCountInSnapshot(snapshot, 2);
     snapshot.players[1].handCount = 0;
     snapshot.players[1].heroesToPlace = 0;

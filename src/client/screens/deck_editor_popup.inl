@@ -55,7 +55,7 @@
         }
         else
         {
-            drawText(window, font, "Cost: " + std::to_string(game_data::cardInt(*card, "cost", 0)) + " steam",
+            drawText(window, font, "Cost: " + std::to_string(game_data::cardInt(*card, "cost", 0)) + " Resources",
                      14, {statX, y}, sf::Color(150, 210, 235));
         }
         y += 22.0f;

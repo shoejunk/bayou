@@ -39,7 +39,7 @@ std::string actionRangeText(const game_data::ActionProfile& action)
 
 bool isHiddenCardDetailKey(const std::string& key)
 {
-    return key == "cost" || key == "heroCost" || key == "health" || key == "attack" ||
+    return key == "cost" || key == "heroCost" || key == "health" || key == "attack" || key == "Tax" || key == "tax" ||
         key == "range" || key == "move" || key == "attackingMove" || key == "power" ||
         key == "canControl" || key == "growTurns" || key == "abilityUses" ||
         key == "WalkAnimFrames" || key == "IdleAnimFrames" ||
@@ -170,13 +170,18 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
     else
     {
         details.push_back({"Rarity: " + cardRarityLabel(card), cardRarityColor(card)});
-        details.push_back({"Cost: " + std::to_string(game_data::cardInt(card, "cost", 0)) + " steam",
+        details.push_back({"Cost: " + std::to_string(game_data::cardInt(card, "cost", 0)) + " Resources",
                            sf::Color(150, 210, 235)});
     }
 
     if (unit)
     {
         details.push_back({"Health: " + std::to_string(gameCard.health), sf::Color(224, 210, 176)});
+        if (gameCard.tax > 0)
+        {
+            details.push_back({"Tax: " + std::to_string(gameCard.tax) + " Resources",
+                               sf::Color(248, 214, 112)});
+        }
         if (gameCard.actions.empty())
         {
             details.push_back({"Actions: none", sf::Color(225, 170, 150)});
@@ -188,7 +193,8 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
     }
     else
     {
-        details.push_back({"Effect: " + game_data::cardStr(card, "effect", "none"),
+        const std::string effect = game_data::cardStr(card, "effect", "none");
+        details.push_back({"Effect: " + (effect == "steam" ? "resources" : effect),
                            sf::Color(224, 210, 176)});
         details.push_back({"Power: " + std::to_string(game_data::cardInt(card, "power", 0)),
                            sf::Color(224, 210, 176)});

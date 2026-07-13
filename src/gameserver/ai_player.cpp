@@ -91,7 +91,7 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
         for (int handIndex = 0; handIndex < static_cast<int>(player.hand.size()); ++handIndex)
         {
             const GameCard& card = player.hand[static_cast<std::size_t>(handIndex)];
-            if (card.cost > player.steam || !heroTraitsAllowCard(pieces, playerNumber, card))
+            if (card.cost > player.resources || !heroTraitsAllowCard(pieces, playerNumber, card))
             {
                 continue;
             }
@@ -111,7 +111,7 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
             }
             else if (card.type == "Spell")
             {
-                if (card.effect == "steam")
+                if (isResourcesEffect(card))
                 {
                     actions.push_back({AiActionKind::PlayCard, 0, handIndex, 0, 0});
                 }
@@ -215,7 +215,7 @@ int evaluateEngine(const GameEngine& engine, int aiPlayer)
     const PlayerSnapshot aiSnapshot = engine.snapshotFor(aiPlayer).players[static_cast<std::size_t>(aiPlayer - 1)];
     const PlayerSnapshot opponentSnapshot = engine.snapshotFor(aiPlayer).players[static_cast<std::size_t>(opponent - 1)];
     score += (aiSnapshot.controlledSquares - opponentSnapshot.controlledSquares) * 20;
-    score += (aiSnapshot.steam - opponentSnapshot.steam) * 2;
+    score += (aiSnapshot.resources - opponentSnapshot.resources) * 2;
     score += (aiSnapshot.heroesAlive - opponentSnapshot.heroesAlive) * 800;
     score += aiSnapshot.handCount * 4;
     return score;

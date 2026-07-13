@@ -147,7 +147,7 @@ inline std::optional<std::string> deckRulesError(const std::vector<card_data::Ca
     return std::nullopt;
 }
 
-// Hand / steam tuning.
+// Hand / resource tuning.
 constexpr int StartingHandSize = 4;
 constexpr int MaxHandSize = 4;
 constexpr int MaxDiscardsPerTurn = 1;
@@ -340,7 +340,7 @@ struct GameCard
     int damagedAnimFrames = 1;
     int killedAnimFrames = 1;
     int fidgetAnimFrames = 1;
-    int cost = 1;          // steam cost (units / spells)
+    int cost = 1;          // resource cost (units / spells)
     int heroCost = 0;      // hero-cost budget contribution (heroes)
     int health = 1;
     int width = 1;
@@ -350,9 +350,10 @@ struct GameCard
     std::uint8_t movePattern = static_cast<std::uint8_t>(MovePattern::None);
     int moveRange = 0;
     bool attackingMove = false;
-    std::string effect = "none";  // spells: "damage", "heal", "steam"
+    std::string effect = "none";  // spells: "damage", "heal", "resources"
     std::string target = "none";  // spells: "enemy", "ally", "none"
     int power = 0;                // spell magnitude
+    int tax = 0;                  // passive resources taken from the opponent each owner's turn
     bool canControl = true;
     int growTurns = 0;
     std::vector<ActionProfile> actions;
@@ -393,6 +394,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.effect = cardStr(card, "effect", "none");
     g.target = cardStr(card, "target", "none");
     g.power = cardInt(card, "power", 0);
+    g.tax = std::max(0, cardInt(card, "Tax", cardInt(card, "tax", 0)));
     g.canControl = cardInt(card, "canControl", 1) != 0;
     g.growTurns = cardInt(card, "growTurns", 0);
     g.ability = cardStr(card, "ability");
@@ -478,6 +480,13 @@ inline GameCard toGameCard(const card_data::Card& card)
     return g;
 }
 
+// Keep old card databases playable while the displayed/gameplay name is
+// Resources. New cards should use effect=resources.
+inline bool isResourcesEffect(const GameCard& card)
+{
+    return card.effect == "resources" || card.effect == "steam";
+}
+
 // A unit / hero standing on the board.
 struct Piece
 {
@@ -506,6 +515,7 @@ struct Piece
     int fidgetAnimFrames = 1;
     int maxHealth = 1;
     int health = 1;
+    int tax = 0;
     int width = 1;
     int height = 1;
     int attack = 0;
@@ -551,6 +561,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.fidgetAnimFrames = card.fidgetAnimFrames;
     piece.maxHealth = card.health;
     piece.health = card.health;
+    piece.tax = card.tax;
     piece.width = card.width;
     piece.height = card.height;
     piece.attack = card.attack;
@@ -580,6 +591,24 @@ inline void applyDamageStatus(Piece& target, int damage, int statusTurns)
         target.sleepTurnsRemaining = std::max(target.sleepTurnsRemaining, 1);
     }
     target.disabledTurns = std::max(target.disabledTurns, disabledTurnsForDamage(damage, statusTurns));
+}
+
+// Applies the per-piece timing changes that occur when its owner's turn starts.
+// Keeping this shared also lets the client preview a piece's next turn without
+// mutating the authoritative snapshot.
+inline void beginPieceTurn(Piece& piece)
+{
+    piece.hasActed = false;
+    if (piece.growTurnsRemaining > 0)
+    {
+        --piece.growTurnsRemaining;
+        piece.hasActed = piece.growTurnsRemaining > 0;
+    }
+    if (piece.disabledTurns > 0)
+    {
+        --piece.disabledTurns;
+        piece.hasActed = true;
+    }
 }
 
 // Returns the Unit card traits not supplied by any friendly hero.
@@ -632,7 +661,7 @@ inline bool heroTraitsAllowCard(
 // Per-player summary visible to both players.
 struct PlayerSnapshot
 {
-    int steam = 0;
+    int resources = 0;
     int controlledSquares = 0;
     int handCount = 0;
     int heroesToPlace = 0;
@@ -675,7 +704,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
            << card.health << card.width << card.height << card.attack << card.attackRange
            << card.movePattern << card.moveRange << card.attackingMove
            << card.effect << card.target << card.power
-           << card.canControl << card.growTurns;
+           << card.canControl << card.growTurns << card.tax;
     packet << static_cast<std::uint32_t>(card.actions.size());
     for (const ActionProfile& action : card.actions)
     {
@@ -705,7 +734,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
            >> card.health >> card.width >> card.height >> card.attack >> card.attackRange
            >> card.movePattern >> card.moveRange >> card.attackingMove
            >> card.effect >> card.target >> card.power
-           >> card.canControl >> card.growTurns;
+           >> card.canControl >> card.growTurns >> card.tax;
     std::uint32_t actionCount = 0;
     packet >> actionCount;
     card.actions.clear();
@@ -741,7 +770,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
            << piece.pieceBaseBluePath << piece.pieceBaseRedPath
            << piece.walkAnimFrames << piece.idleAnimFrames
            << piece.attackAnimFrames << piece.damagedAnimFrames << piece.killedAnimFrames << piece.fidgetAnimFrames
-           << piece.maxHealth << piece.health << piece.width << piece.height << piece.attack << piece.attackRange
+           << piece.maxHealth << piece.health << piece.tax << piece.width << piece.height << piece.attack << piece.attackRange
            << piece.movePattern << piece.moveRange << piece.attackingMove
            << piece.canControl << piece.growTurnsRemaining << piece.disabledTurns << piece.sleepTurnsRemaining
            << piece.actionState << piece.ability << piece.summonTitle << piece.abilityUses << piece.hidden
@@ -769,7 +798,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
            >> piece.pieceBaseBluePath >> piece.pieceBaseRedPath
            >> piece.walkAnimFrames >> piece.idleAnimFrames
            >> piece.attackAnimFrames >> piece.damagedAnimFrames >> piece.killedAnimFrames >> piece.fidgetAnimFrames
-           >> piece.maxHealth >> piece.health >> piece.width >> piece.height >> piece.attack >> piece.attackRange
+           >> piece.maxHealth >> piece.health >> piece.tax >> piece.width >> piece.height >> piece.attack >> piece.attackRange
            >> piece.movePattern >> piece.moveRange >> piece.attackingMove
            >> piece.canControl >> piece.growTurnsRemaining >> piece.disabledTurns >> piece.sleepTurnsRemaining
            >> piece.actionState >> piece.ability >> piece.summonTitle >> piece.abilityUses >> piece.hidden
@@ -795,14 +824,14 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
 
 inline void writePlayerSnapshot(sf::Packet& packet, const PlayerSnapshot& player)
 {
-    packet << player.steam << player.controlledSquares << player.handCount
+    packet << player.resources << player.controlledSquares << player.handCount
            << player.heroesToPlace << player.heroesAlive << player.drawPileCount
            << player.discardsThisTurn;
 }
 
 inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 {
-    packet >> player.steam >> player.controlledSquares >> player.handCount
+    packet >> player.resources >> player.controlledSquares >> player.handCount
            >> player.heroesToPlace >> player.heroesAlive >> player.drawPileCount
            >> player.discardsThisTurn;
     return static_cast<bool>(packet);

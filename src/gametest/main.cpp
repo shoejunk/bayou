@@ -270,7 +270,7 @@ void sendDiscardCard(bayou::tls::Socket& socket, int handIndex)
 
 int main(int argc, char** argv)
 {
-    fmt::println("=== Steam Tactics integration test ===");
+    fmt::println("=== Resources Tactics integration test ===");
 
     card_data::Card largeDefinition;
     largeDefinition.title = "Large Unit";
@@ -480,6 +480,18 @@ int main(int argc, char** argv)
           "command cannot activate an adjacent enemy piece");
     profilePiece.ability.clear();
 
+    Piece readyNextTurn = profilePiece;
+    readyNextTurn.hasActed = true;
+    readyNextTurn.growTurnsRemaining = 1;
+    beginPieceTurn(readyNextTurn);
+    check(!readyNextTurn.hasActed && readyNextTurn.growTurnsRemaining == 0,
+          "a piece finishing growth is ready at the start of its next turn");
+    Piece stunnedNextTurn = profilePiece;
+    stunnedNextTurn.disabledTurns = 1;
+    beginPieceTurn(stunnedNextTurn);
+    check(stunnedNextTurn.hasActed && stunnedNextTurn.disabledTurns == 0,
+          "a piece whose final disabled turn starts remains stunned for that turn");
+
     ActionProfile paralyze;
     paralyze.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
     paralyze.maxRange = 2;
@@ -644,7 +656,7 @@ int main(int argc, char** argv)
     encodedCard.type = "Unit";
     encodedCard.traits = {"corrupt", "fey"};
     encodedCard.keywords = {"future-rule"};
-    encodedCard.integerValues = {{"attack", 9}, {"range", 5}, {"FidgetAnimFrames", 3}};
+    encodedCard.integerValues = {{"attack", 9}, {"range", 5}, {"FidgetAnimFrames", 3}, {"Tax", 4}};
     encodedCard.stringValues = {{"FidgetAnim", "animations/fidget/test.png"}};
     encodedCard.actionNames = {"Diagonal Charge"};
     encodedCard.actions.push_back({
@@ -672,7 +684,8 @@ int main(int argc, char** argv)
               decodedCard.actions[0].canMove &&
               decodedCard.actions[0].canAttack &&
               decodedCard.fidgetAnimPath == "animations/fidget/test.png" &&
-              decodedCard.fidgetAnimFrames == 3,
+              decodedCard.fidgetAnimFrames == 3 &&
+              decodedCard.tax == 4,
           "referenced action object resolves into gameplay data without a legacy fallback attack");
 
     sf::Packet legacyCardListPacket;
@@ -724,6 +737,7 @@ int main(int argc, char** argv)
     serializedCard.summonTitle = "Serialized Summon";
     serializedCard.abilityLabels = {"Ready", "Lower"};
     serializedCard.abilityUses = 2;
+    serializedCard.tax = 4;
     sf::Packet cardPacket;
     writeGameCard(cardPacket, serializedCard);
     GameCard roundTrippedCard;
@@ -749,7 +763,8 @@ int main(int argc, char** argv)
               roundTrippedCard.fidgetAnimFrames == 10 &&
               roundTrippedCard.summonTitle == "Serialized Summon" &&
               roundTrippedCard.abilityLabels.size() == 2 &&
-              roundTrippedCard.abilityUses == 2,
+              roundTrippedCard.abilityUses == 2 &&
+              roundTrippedCard.tax == 4,
           "extended game card fields survive network serialization");
 
     Piece serializedPiece = profilePiece;
@@ -823,6 +838,34 @@ int main(int argc, char** argv)
               roundTrippedSnapshot.relentlessPieceId == 44 &&
               roundTrippedSnapshot.status == "Command pending",
           "pending command and Relentless states survive snapshot serialization");
+
+    card_data::Card taxHeroCard;
+    taxHeroCard.title = "Tax Hero";
+    taxHeroCard.type = "Hero";
+    taxHeroCard.integerValues = {{"health", 4}, {"Tax", 2}};
+    card_data::Card plainHeroCard;
+    plainHeroCard.title = "Plain Hero";
+    plainHeroCard.type = "Hero";
+    plainHeroCard.integerValues = {{"health", 4}};
+    GameEngine taxEngine(17, {taxHeroCard, plainHeroCard});
+    taxEngine.submitDeck(1, {taxHeroCard});
+    taxEngine.submitDeck(2, {plainHeroCard});
+    taxEngine.placeHero(1, 0, homeSquares(1)[0].first, homeSquares(1)[0].second);
+    taxEngine.placeHero(2, 0, homeSquares(2)[0].first, homeSquares(2)[0].second);
+    const auto taxHero = std::find_if(
+        taxEngine.boardPieces().begin(), taxEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Tax Hero"; });
+    check(taxHero != taxEngine.boardPieces().end() && taxHero->tax == 2,
+          "Tax card field resolves onto the owned piece");
+    taxEngine.endTurn(1);
+    const int playerTwoResourcesBeforeTax =
+        taxEngine.snapshotFor(2).players[1].resources;
+    taxEngine.endTurn(2);
+    const Snapshot taxedSnapshot = taxEngine.snapshotFor(1);
+    check(playerTwoResourcesBeforeTax > 0 &&
+              taxedSnapshot.players[1].resources == playerTwoResourcesBeforeTax - 2 &&
+              taxedSnapshot.players[0].resources >= 2,
+          "Tax transfers up to its amount from the opponent to the owner each turn");
 
     auto commandTestHero = [](const std::string& title, bool commands) {
         card_data::Card card;
@@ -1422,11 +1465,11 @@ int main(int argc, char** argv)
         }
     }
     check(visibleToPlayer2 == heroCount1 + heroCount2, "both placements are revealed when setup finishes");
-    check(s1.players[0].steam == s1.players[0].controlledSquares, "player 1 steam equals controlled squares");
+    check(s1.players[0].resources == s1.players[0].controlledSquares, "player 1 Resources equals controlled squares");
     check(s1.players[0].handCount >= StartingHandSize, "player 1 drew an opening hand");
 
     // --- player 1 deploys a unit ------------------------------------------
-    // Steam accrues every turn, so pass turns until the cheapest unit in
+    // Resources accrue every turn, so pass turns until the cheapest unit in
     // player 1's hand is affordable.
     int unitIndex = -1;
     int unitCost = 0;
@@ -1441,7 +1484,7 @@ int main(int argc, char** argv)
                 unitCost = s1.hand[i].cost;
             }
         }
-        if (unitIndex >= 0 && unitCost <= s1.players[0].steam)
+        if (unitIndex >= 0 && unitCost <= s1.players[0].resources)
         {
             break;
         }
@@ -1450,11 +1493,11 @@ int main(int argc, char** argv)
         sendEndTurn(p2);
         settle(p1, p2, s1, s2, 400);
     }
-    const bool unitAffordable = unitIndex >= 0 && unitCost <= s1.players[0].steam;
+    const bool unitAffordable = unitIndex >= 0 && unitCost <= s1.players[0].resources;
     check(unitAffordable, "player 1 has an affordable unit card in hand");
 
     const int p1ControlBefore = s1.players[0].controlledSquares;
-    const int p1SteamBefore = s1.players[0].steam;
+    const int p1ResourcesBefore = s1.players[0].resources;
     const int p1PiecesBefore = static_cast<int>(s1.pieces.size());
 
     // An empty controlled square to deploy the unit onto. Find one.
@@ -1477,15 +1520,15 @@ int main(int argc, char** argv)
 
     if (deployRow >= 0 && unitAffordable)
     {
-        const int p2SteamBefore = s2.players[1].steam;
+        const int p2ResourcesBefore = s2.players[1].resources;
         sendPlayCard(p1, unitIndex, deployRow, deployCol);
         settle(p1, p2, s1, s2, 800);
         check(static_cast<int>(s1.pieces.size()) == p1PiecesBefore + 1, "deploying a unit added a piece");
-        check(s1.players[0].steam == p1SteamBefore - unitCost, "deploying spent steam");
+        check(s1.players[0].resources == p1ResourcesBefore - unitCost, "deploying spent Resources");
         check(s1.activePlayer == 2, "playing a card immediately ended player 1's turn");
         check(s2.activePlayer == 2, "turn passed to player 2 after player 1 played a card");
-        check(s2.players[1].steam == p2SteamBefore + s2.players[1].controlledSquares,
-              "player 2 gained steam on its turn");
+        check(s2.players[1].resources == p2ResourcesBefore + s2.players[1].controlledSquares,
+              "player 2 gained Resources on its turn");
     }
 
     // Player 1's extra piece should have expanded or maintained its territory.
@@ -1493,14 +1536,14 @@ int main(int argc, char** argv)
 
     if (s2.activePlayer == 2 && !s2.hand.empty())
     {
-        const int p2SteamBeforeDiscard = s2.players[1].steam;
+        const int p2ResourcesBeforeDiscard = s2.players[1].resources;
         const int p2HandBeforeDiscard = s2.players[1].handCount;
         const int p2DrawPileBeforeDiscard = s2.players[1].drawPileCount;
 
         sendDiscardCard(p2, 0);
         settle(p1, p2, s1, s2, 800);
         check(s2.activePlayer == 2, "discarding a card does not end the turn");
-        check(s2.players[1].steam == p2SteamBeforeDiscard, "discarding a card grants no steam");
+        check(s2.players[1].resources == p2ResourcesBeforeDiscard, "discarding a card grants no Resources");
         check(s2.players[1].handCount == p2HandBeforeDiscard - 1,
               "discarding removes the card from hand");
         check(s2.players[1].drawPileCount == p2DrawPileBeforeDiscard + 1,

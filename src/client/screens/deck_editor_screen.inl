@@ -93,7 +93,7 @@
                     "/" + std::to_string(copyLimit);
                 secondary = heroRow
                     ? "Hero  cost " + std::to_string(game_data::cardInt(*card, "heroCost", 0)) + copies
-                    : card->type + "  " + std::to_string(game_data::cardInt(*card, "cost", 0)) + " steam" + copies;
+                    : card->type + "  " + std::to_string(game_data::cardInt(*card, "cost", 0)) + " Resources" + copies;
             }
             drawRow(
                 window,
@@ -161,7 +161,7 @@
             const std::string secondary = game_data::isHeroCard(libCard)
                 ? "Hero  hc " + std::to_string(game_data::cardInt(libCard, "heroCost", 0)) + ownedSuffix
                 : libCard.type + "  " + std::to_string(game_data::cardInt(libCard, "cost", 0)) +
-                    " steam" + ownedSuffix;
+                    " Resources" + ownedSuffix;
             drawRow(
                 window,
                 font,
