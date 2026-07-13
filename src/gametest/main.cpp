@@ -813,14 +813,16 @@ int main(int argc, char** argv)
 
     Snapshot serializedSnapshot;
     serializedSnapshot.commandingPieceId = 43;
+    serializedSnapshot.relentlessPieceId = 44;
     serializedSnapshot.status = "Command pending";
     sf::Packet snapshotPacket;
     writeSnapshot(snapshotPacket, serializedSnapshot);
     Snapshot roundTrippedSnapshot;
     check(readSnapshot(snapshotPacket, roundTrippedSnapshot) &&
               roundTrippedSnapshot.commandingPieceId == 43 &&
+              roundTrippedSnapshot.relentlessPieceId == 44 &&
               roundTrippedSnapshot.status == "Command pending",
-          "pending command state survives snapshot serialization");
+          "pending command and Relentless states survive snapshot serialization");
 
     auto commandTestHero = [](const std::string& title, bool commands) {
         card_data::Card card;
@@ -892,6 +894,126 @@ int main(int argc, char** argv)
         commandEngine.movePiece(1, normalId, player1Home[2].first, 1);
         check(commandEngine.currentPlayer() == 2,
               "a normal move after the commanded action ends the turn");
+    }
+
+    auto relentlessTestHero = [](const std::string& title, bool relentless, bool canDig) {
+        card_data::Card card;
+        card.title = title;
+        card.type = "Hero";
+        card.integerValues = {{"health", 3}};
+        if (relentless)
+        {
+            card.keywords = {"ReLeNtLeSs"};
+        }
+        if (canDig)
+        {
+            card.stringValues = {{"ability", "dig"}};
+            card.integerValues.push_back({"abilityUses", 1});
+        }
+
+        card_data::Action step;
+        step.name = title + " Step";
+        step.kind = "slide";
+        step.pattern = "omni";
+        step.maxRange = 1;
+        step.canMove = true;
+
+        card_data::Action shot;
+        shot.name = title + " Shot";
+        shot.kind = "ranged";
+        shot.pattern = "none";
+        shot.maxRange = 7;
+        shot.damage = 3;
+        shot.canMove = false;
+        shot.canAttack = true;
+        card.actions = {step, shot};
+        return card;
+    };
+
+    const card_data::Card relentlessCard =
+        relentlessTestHero("Relentless Hero", true, true);
+    const card_data::Card relentlessAllyCard =
+        relentlessTestHero("Relentless Ally", false, false);
+    const card_data::Card relentlessVictimA =
+        relentlessTestHero("Relentless Victim A", false, false);
+    const card_data::Card relentlessVictimB =
+        relentlessTestHero("Relentless Victim B", false, false);
+    const card_data::Card relentlessSurvivor =
+        relentlessTestHero("Relentless Survivor", false, false);
+    const std::vector<card_data::Card> relentlessLibrary = {
+        relentlessCard,
+        relentlessAllyCard,
+        relentlessVictimA,
+        relentlessVictimB,
+        relentlessSurvivor};
+    GameEngine relentlessEngine(11, relentlessLibrary);
+    relentlessEngine.submitDeck(1, {relentlessCard, relentlessAllyCard});
+    relentlessEngine.submitDeck(2, {
+        relentlessVictimA,
+        relentlessVictimB,
+        relentlessSurvivor});
+    relentlessEngine.placeHero(1, 0, player1Home[0].first, player1Home[0].second);
+    relentlessEngine.placeHero(1, 0, player1Home[1].first, player1Home[1].second);
+    relentlessEngine.placeHero(2, 0, player2Home[0].first, player2Home[0].second);
+    relentlessEngine.placeHero(2, 0, player2Home[1].first, player2Home[1].second);
+    relentlessEngine.placeHero(2, 0, player2Home[2].first, player2Home[2].second);
+
+    auto relentlessPieceNamed = [&](const GameEngine& engine, const std::string& name) -> const Piece* {
+        const auto found = std::find_if(
+            engine.boardPieces().begin(),
+            engine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == name; });
+        return found == engine.boardPieces().end() ? nullptr : &*found;
+    };
+    const Piece* relentlessAttacker = relentlessPieceNamed(relentlessEngine, "Relentless Hero");
+    const Piece* relentlessAlly = relentlessPieceNamed(relentlessEngine, "Relentless Ally");
+    check(relentlessAttacker && relentlessAlly,
+          "Relentless engine test placed its friendly pieces");
+    if (relentlessAttacker && relentlessAlly)
+    {
+        const int attackerId = relentlessAttacker->id;
+        const int allyId = relentlessAlly->id;
+        relentlessEngine.attackPiece(
+            1, attackerId, player2Home[0].first, player2Home[0].second);
+        const Piece* readyRelentless = relentlessPieceNamed(relentlessEngine, "Relentless Hero");
+        check(relentlessEngine.currentPlayer() == 1 &&
+                  relentlessEngine.relentlessPiece() == attackerId &&
+                  readyRelentless && !readyRelentless->hasActed &&
+                  relentlessPieceNamed(relentlessEngine, "Relentless Victim A") == nullptr,
+              "a case-insensitive Relentless kill readies that piece without ending the turn");
+
+        GameEngine relentlessMoveBranch = relentlessEngine;
+        relentlessMoveBranch.movePiece(
+            1, attackerId, player1Home[0].first, player1Home[0].second + 1);
+        const Piece* movedRelentless =
+            relentlessPieceNamed(relentlessMoveBranch, "Relentless Hero");
+        check(relentlessMoveBranch.currentPlayer() == 2 &&
+                  relentlessMoveBranch.relentlessPiece() == 0 &&
+                  movedRelentless && movedRelentless->column == 1,
+              "the immediate Relentless action may be a normal move and then ends the turn");
+
+        relentlessEngine.movePiece(
+            1, allyId, player1Home[1].first, player1Home[1].second + 1);
+        const Piece* blockedAlly = relentlessPieceNamed(relentlessEngine, "Relentless Ally");
+        check(relentlessEngine.currentPlayer() == 1 &&
+                  relentlessEngine.relentlessPiece() == attackerId &&
+                  blockedAlly && blockedAlly->column == player1Home[1].second,
+              "another piece cannot consume a pending Relentless action");
+
+        relentlessEngine.attackPiece(
+            1, attackerId, player2Home[1].first, player2Home[1].second);
+        check(relentlessEngine.currentPlayer() == 1 &&
+                  relentlessEngine.relentlessPiece() == attackerId &&
+                  relentlessPieceNamed(relentlessEngine, "Relentless Victim B") == nullptr,
+              "a second Relentless kill chains another immediate action");
+
+        relentlessEngine.useAbility(1, attackerId);
+        check(relentlessEngine.currentPlayer() == 2 &&
+                  relentlessEngine.relentlessPiece() == 0 &&
+                  relentlessEngine.boardHoles()[static_cast<std::size_t>(squareIndex(
+                      player1Home[0].first,
+                      player1Home[0].second))] != 0,
+              "the immediate Relentless action may use an ability and then ends the turn");
     }
 
     Piece corruptHero;

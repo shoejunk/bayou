@@ -53,6 +53,17 @@ inline std::string normalizedTrait(std::string value)
     return value;
 }
 
+inline bool hasKeyword(const std::vector<std::string>& keywords, const std::string& keyword)
+{
+    const std::string normalizedKeyword = normalizedTrait(keyword);
+    return std::any_of(
+        keywords.begin(),
+        keywords.end(),
+        [&](const std::string& candidate) {
+            return normalizedTrait(candidate) == normalizedKeyword;
+        });
+}
+
 inline std::string cardRarity(const card_data::Card& card)
 {
     for (const card_data::KeyStringPair& item : card.stringValues)
@@ -639,6 +650,7 @@ struct Snapshot
     int yourPlayer = 1;
     int winner = 0;  // 0 = none
     int commandingPieceId = 0;  // nonzero while Command is waiting for an adjacent friendly action
+    int relentlessPieceId = 0;  // nonzero while a killing Relentless piece may act again
     std::array<PlayerSnapshot, 2> players{};
     std::array<std::uint8_t, BoardSquares> control{};  // 0 neutral, 1, 2
     std::array<std::uint8_t, BoardSquares> holes{};
@@ -800,7 +812,7 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
 {
     packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner
-           << snapshot.commandingPieceId;
+           << snapshot.commandingPieceId << snapshot.relentlessPieceId;
     writePlayerSnapshot(packet, snapshot.players[0]);
     writePlayerSnapshot(packet, snapshot.players[1]);
 
@@ -831,7 +843,7 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
 inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot)
 {
     packet >> snapshot.phase >> snapshot.activePlayer >> snapshot.yourPlayer >> snapshot.winner
-           >> snapshot.commandingPieceId;
+           >> snapshot.commandingPieceId >> snapshot.relentlessPieceId;
     if (!packet || !readPlayerSnapshot(packet, snapshot.players[0]) ||
         !readPlayerSnapshot(packet, snapshot.players[1]))
     {

@@ -47,9 +47,14 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
         pieces.end(),
         [&](const Piece& piece) { return piece.id == engine.commandingPiece(); });
     const Piece* commander = commanderFound == pieces.end() ? nullptr : &*commanderFound;
+    const int relentlessPieceId = engine.relentlessPiece();
     for (const Piece& piece : pieces)
     {
         if (piece.owner != playerNumber || piece.hasActed || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
+        {
+            continue;
+        }
+        if (relentlessPieceId != 0 && piece.id != relentlessPieceId)
         {
             continue;
         }
@@ -80,7 +85,7 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
         }
     }
 
-    if (allowCards && commander == nullptr)
+    if (allowCards && commander == nullptr && relentlessPieceId == 0)
     {
         const GameEngine::EnginePlayer& player = engine.playerState(playerNumber);
         for (int handIndex = 0; handIndex < static_cast<int>(player.hand.size()); ++handIndex)
@@ -285,4 +290,3 @@ void placeAiHeroes(GameEngine& engine, int aiPlayer)
         ++homeIndex;
     }
 }
-

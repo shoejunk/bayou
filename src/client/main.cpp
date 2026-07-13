@@ -2782,6 +2782,7 @@ int main(int argc, char** argv)
                 }
 
                 const bool actorWasUsed = nextActor->hasActed ||
+                    nextSnapshot.relentlessPieceId == currentPiece.id ||
                     currentPiece.row != nextActor->row ||
                     currentPiece.column != nextActor->column ||
                     nextActor->disabledTurns != currentPiece.disabledTurns;
@@ -2884,6 +2885,11 @@ int main(int argc, char** argv)
         if (!haveSnapshot)
         {
             return false;
+        }
+        if (gameSnapshot.relentlessPieceId != 0)
+        {
+            return piece.id == gameSnapshot.relentlessPieceId &&
+                (sandboxMode || (piece.owner == gameSnapshot.yourPlayer && !piece.hasActed));
         }
         if (gameSnapshot.commandingPieceId != 0)
         {
@@ -3501,6 +3507,12 @@ int main(int argc, char** argv)
         }
 
         game_data::Snapshot next = gameSnapshot;
+        if (next.relentlessPieceId != 0)
+        {
+            next.status = "The Relentless piece must act again or you must advance the turn.";
+            commitSandboxSnapshot(std::move(next));
+            return;
+        }
         const game_data::GameCard card = next.hand[static_cast<std::size_t>(handIndex)];
         const int actingPlayer = sandboxPlacementPlayer;
         if (card.type == "Unit" || card.type == "Hero")
@@ -3585,6 +3597,12 @@ int main(int argc, char** argv)
         game_data::Piece* piece = pieceByIdInSnapshotMutable(next, pieceId);
         if (!piece)
         {
+            return;
+        }
+        if (next.relentlessPieceId != 0 && piece->id != next.relentlessPieceId)
+        {
+            next.status = "Only the Relentless piece may take the immediate action.";
+            commitSandboxSnapshot(std::move(next));
             return;
         }
 
@@ -3708,6 +3726,15 @@ int main(int argc, char** argv)
         {
             next.status = attackerName + " moved.";
         }
+        if (anyTargetDestroyed && game_data::hasKeyword(acting->keywords, "relentless"))
+        {
+            next.relentlessPieceId = attackerId;
+            next.status += " Relentless: it may act again immediately.";
+        }
+        else if (next.relentlessPieceId == attackerId)
+        {
+            next.relentlessPieceId = 0;
+        }
         if (acting)
         {
             updateStoryAfterMove(next, *acting);
@@ -3726,6 +3753,12 @@ int main(int argc, char** argv)
         game_data::Piece* piece = pieceByIdInSnapshotMutable(next, pieceId);
         if (!piece || !game_data::pieceAbilityAvailable(next.pieces, *piece))
         {
+            return;
+        }
+        if (next.relentlessPieceId != 0 && piece->id != next.relentlessPieceId)
+        {
+            next.status = "Only the Relentless piece may take the immediate action.";
+            commitSandboxSnapshot(std::move(next));
             return;
         }
 
@@ -3795,6 +3828,7 @@ int main(int argc, char** argv)
         else if (piece->ability == "command")
         {
             piece->hasActed = true;
+            next.relentlessPieceId = 0;
             next.commandingPieceId = piece->id;
             next.status = pieceName + " used Command. Activate one adjacent friendly piece.";
             commitSandboxSnapshot(std::move(next));
@@ -3808,6 +3842,10 @@ int main(int argc, char** argv)
         if (game_data::Piece* actingPiece = pieceByIdInSnapshotMutable(next, actingPieceId))
         {
             actingPiece->hasActed = false;
+        }
+        if (next.relentlessPieceId == actingPieceId)
+        {
+            next.relentlessPieceId = 0;
         }
         if (commandedAction)
         {
@@ -3828,6 +3866,7 @@ int main(int argc, char** argv)
         }
         game_data::Snapshot next = gameSnapshot;
         next.commandingPieceId = 0;
+        next.relentlessPieceId = 0;
         const int endingPlayer = std::clamp(next.activePlayer, 1, 2);
         for (game_data::Piece& piece : next.pieces)
         {
@@ -3949,6 +3988,10 @@ int main(int argc, char** argv)
         {
             return false;
         }
+        if (gameSnapshot.relentlessPieceId != 0)
+        {
+            return false;
+        }
         const int me = gameSnapshot.yourPlayer;
         if (me < 1 || me > 2 || gameSnapshot.activePlayer != me)
         {
@@ -3968,6 +4011,10 @@ int main(int argc, char** argv)
 
     auto handleHandCardClick = [&](std::size_t handIndex) {
         if (handIndex >= gameSnapshot.hand.size())
+        {
+            return false;
+        }
+        if (gameSnapshot.relentlessPieceId != 0)
         {
             return false;
         }
@@ -4073,6 +4120,10 @@ int main(int argc, char** argv)
 
         if (const std::optional<std::size_t> handIndex = handCardAtPixel(clickPos))
         {
+            if (gameSnapshot.relentlessPieceId != 0)
+            {
+                return;
+            }
             gameDragKind = GameDragKind::HandCard;
             draggingHandIndex = *handIndex;
             gameDragStartPos = clickPos;
@@ -4183,6 +4234,12 @@ int main(int argc, char** argv)
                     updatePieceMoveAnimations(snapshot);
                     gameSnapshot = snapshot;
                     haveSnapshot = true;
+                    if (gameSnapshot.relentlessPieceId != 0 &&
+                        gameSnapshot.activePlayer == gameSnapshot.yourPlayer)
+                    {
+                        selectedPieceId = gameSnapshot.relentlessPieceId;
+                        selectedHandIndex.reset();
+                    }
                     clampListOffset(gameHandOffset, gameSnapshot.hand.size(), VisibleGameHandCards);
                     if (static_cast<game_data::Phase>(gameSnapshot.phase) ==
                             game_data::Phase::GameOver &&

@@ -47,6 +47,7 @@ public:
     int winner() const { return winnerValue; }
     int currentPlayer() const { return activePlayer; }
     int commandingPiece() const { return commandingPieceId; }
+    int relentlessPiece() const { return relentlessPieceId; }
     const std::vector<Piece>& boardPieces() const { return pieces; }
     const std::array<std::uint8_t, BoardSquares>& boardControl() const { return control; }
     const std::array<std::uint8_t, BoardSquares>& boardHoles() const { return holes; }
@@ -125,6 +126,11 @@ public:
         {
             return;
         }
+        if (relentlessPieceId != 0)
+        {
+            setStatusFor(playerNumber, "The Relentless piece must act again or you must pass.");
+            return;
+        }
 
         EnginePlayer& player = playerRef(playerNumber);
         if (handIndex < 0 || handIndex >= static_cast<int>(player.hand.size()))
@@ -186,6 +192,11 @@ public:
         {
             return;
         }
+        if (relentlessPieceId != 0)
+        {
+            setStatusFor(playerNumber, "The Relentless piece must act again or you must pass.");
+            return;
+        }
 
         EnginePlayer& player = playerRef(playerNumber);
         if (handIndex < 0 || handIndex >= static_cast<int>(player.hand.size()))
@@ -229,9 +240,17 @@ public:
         {
             return;
         }
+        if (relentlessPieceId != 0 && piece->id != relentlessPieceId)
+        {
+            setStatusFor(playerNumber, "Only the Relentless piece may take the immediate action.");
+            return;
+        }
 
         const Piece* commander = commandingPieceId != 0 ? pieceById(commandingPieceId) : nullptr;
         const bool commandedAction = commander != nullptr;
+        const bool relentlessAction = relentlessPieceId != 0;
+        const bool actionKeepsTurn = commandedAction ||
+            (relentlessAction && relentlessActionKeepsTurn);
         if (commandedAction && !pieceCanReceiveCommand(*commander, *piece))
         {
             setStatusFor(playerNumber, "Command must activate a ready adjacent friendly piece.");
@@ -285,6 +304,8 @@ public:
         else if (piece->ability == "command")
         {
             piece->hasActed = true;
+            relentlessPieceId = 0;
+            relentlessActionKeepsTurn = false;
             commandingPieceId = piece->id;
             status = fmt::format(
                 "{} used Command. Activate one adjacent friendly piece.",
@@ -302,6 +323,11 @@ public:
             return;
         }
         actingPiece->hasActed = true;
+        if (relentlessAction)
+        {
+            relentlessPieceId = 0;
+            relentlessActionKeepsTurn = false;
+        }
         if (commandedAction)
         {
             commandingPieceId = 0;
@@ -311,6 +337,11 @@ public:
                 commanderName,
                 actingPieceName,
                 abilityLabel);
+        }
+        else if (actionKeepsTurn)
+        {
+            recomputeControl();
+            status = fmt::format("{} used {}.", actingPieceName, abilityLabel);
         }
         else
         {
@@ -337,6 +368,7 @@ public:
         snapshot.yourPlayer = playerNumber;
         snapshot.winner = winnerValue;
         snapshot.commandingPieceId = commandingPieceId;
+        snapshot.relentlessPieceId = relentlessPieceId;
         snapshot.control = control;
         snapshot.holes = holes;
         snapshot.pieces.clear();
@@ -398,6 +430,8 @@ private:
     std::vector<GameCard> summonCatalog;
     int nextPieceId = 1;
     int commandingPieceId = 0;
+    int relentlessPieceId = 0;
+    bool relentlessActionKeepsTurn = false;
     std::string status = "Waiting for both decks...";
 
     EnginePlayer& playerRef(int playerNumber)
@@ -537,9 +571,17 @@ private:
         {
             return;
         }
+        if (relentlessPieceId != 0 && piece->id != relentlessPieceId)
+        {
+            setStatusFor(playerNumber, "Only the Relentless piece may take the immediate action.");
+            return;
+        }
 
         const Piece* commander = commandingPieceId != 0 ? pieceById(commandingPieceId) : nullptr;
         const bool commandedAction = commander != nullptr;
+        const bool relentlessAction = relentlessPieceId != 0;
+        const bool actionKeepsTurn = commandedAction ||
+            (relentlessAction && relentlessActionKeepsTurn);
         const std::string commanderName = commandedAction ? commander->name : std::string();
         if (commandedAction && !pieceCanReceiveCommand(*commander, *piece))
         {
@@ -625,7 +667,9 @@ private:
         }
         survivingAttacker->disabledTurns =
             std::max(survivingAttacker->disabledTurns, action.cooldownTurns);
-        survivingAttacker->hasActed = true;
+        const bool gainsRelentlessAction = anyTargetDestroyed &&
+            hasKeyword(survivingAttacker->keywords, "relentless");
+        survivingAttacker->hasActed = !gainsRelentlessAction;
 
         for (int defeatedOwner : defeatedOwners)
         {
@@ -672,11 +716,32 @@ private:
         if (commandedAction)
         {
             commandingPieceId = 0;
+        }
+
+        if (gainsRelentlessAction)
+        {
+            relentlessPieceId = attackerId;
+            relentlessActionKeepsTurn = actionKeepsTurn;
+            recomputeControl();
+            status = (commandedAction ? fmt::format("{} commanded {}", commanderName, result) : result) +
+                " Relentless: it may act again immediately.";
+        }
+        else if (commandedAction)
+        {
             recomputeControl();
             status = fmt::format("{} commanded {}", commanderName, result);
         }
+        else if (actionKeepsTurn)
+        {
+            relentlessPieceId = 0;
+            relentlessActionKeepsTurn = false;
+            recomputeControl();
+            status = result;
+        }
         else
         {
+            relentlessPieceId = 0;
+            relentlessActionKeepsTurn = false;
             advanceTurn(result);
         }
     }
@@ -777,6 +842,8 @@ private:
     void advanceTurn(const std::string& actionStatus)
     {
         commandingPieceId = 0;
+        relentlessPieceId = 0;
+        relentlessActionKeepsTurn = false;
         endTurnFor(activePlayer);
         recomputeControl();
         if (phaseValue == Phase::GameOver)
@@ -931,4 +998,3 @@ private:
         control = next;
     }
 };
-

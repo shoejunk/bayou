@@ -489,7 +489,8 @@
             else if (phase == game_data::Phase::Playing &&
                      (draggedHandCard->type == "Unit" || (sandboxMode && draggedHandCard->type == "Hero")))
             {
-                draggedHandDropValid = (sandboxMode || gameSnapshot.activePlayer == me) &&
+                draggedHandDropValid = gameSnapshot.relentlessPieceId == 0 &&
+                    (sandboxMode || gameSnapshot.activePlayer == me) &&
                     (sandboxMode || draggedHandCard->cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].steam) &&
                     (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, *draggedHandCard)) &&
                     cardFootprintCanDeploy(*draggedHandCard, row, column, false);
@@ -556,7 +557,8 @@
                     }
                 }
             }
-            else if (actingHandIndex && *actingHandIndex < gameSnapshot.hand.size())
+            else if (gameSnapshot.relentlessPieceId == 0 &&
+                     actingHandIndex && *actingHandIndex < gameSnapshot.hand.size())
             {
                 const game_data::GameCard& card = gameSnapshot.hand[*actingHandIndex];
                 if (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, card))
@@ -811,7 +813,9 @@
             }
 
             const bool pieceUnavailable =
-                (piece.hasActed && piece.owner == gameSnapshot.activePlayer) || piece.disabledTurns > 0;
+                ((piece.hasActed ||
+                  (gameSnapshot.relentlessPieceId != 0 && piece.id != gameSnapshot.relentlessPieceId)) &&
+                 piece.owner == gameSnapshot.activePlayer) || piece.disabledTurns > 0;
             sf::Color color = ownerColor(piece.owner);
             if (pieceUnavailable)
             {
@@ -1202,7 +1206,8 @@
                 const float x = HandStartX + static_cast<float>(i - gameHandOffset) * (HandCardWidth + HandGap);
                 const game_data::GameCard& card = gameSnapshot.hand[i];
                 const bool affordable = phase == game_data::Phase::HeroPlacement ||
-                    ((sandboxMode || card.cost <= mine.steam) && (sandboxMode || gameSnapshot.activePlayer == me) &&
+                    (gameSnapshot.relentlessPieceId == 0 &&
+                     (sandboxMode || card.cost <= mine.steam) && (sandboxMode || gameSnapshot.activePlayer == me) &&
                      phase == game_data::Phase::Playing &&
                      (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, card)));
                 drawGameCardFace({x, HandY}, card, selectedHandIndex && *selectedHandIndex == i, affordable);
@@ -1236,7 +1241,8 @@
                 }
                 else
                 {
-                    const bool affordable = (sandboxMode || draggedCard.cost <= mine.steam) &&
+                    const bool affordable = gameSnapshot.relentlessPieceId == 0 &&
+                        (sandboxMode || draggedCard.cost <= mine.steam) &&
                         (sandboxMode || gameSnapshot.activePlayer == me) && phase == game_data::Phase::Playing &&
                         (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, draggedCard));
                     drawGameCardFace(
@@ -1402,4 +1408,3 @@
 
         drawPiecePopup();
     };
-
