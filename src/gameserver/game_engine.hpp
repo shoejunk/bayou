@@ -46,6 +46,7 @@ public:
     Phase phase() const { return phaseValue; }
     int winner() const { return winnerValue; }
     int currentPlayer() const { return activePlayer; }
+    int commandingPiece() const { return commandingPieceId; }
     const std::vector<Piece>& boardPieces() const { return pieces; }
     const std::array<std::uint8_t, BoardSquares>& boardControl() const { return control; }
     const std::array<std::uint8_t, BoardSquares>& boardHoles() const { return holes; }
@@ -229,9 +230,18 @@ public:
             return;
         }
 
+        const Piece* commander = commandingPieceId != 0 ? pieceById(commandingPieceId) : nullptr;
+        const bool commandedAction = commander != nullptr;
+        if (commandedAction && !pieceCanReceiveCommand(*commander, *piece))
+        {
+            setStatusFor(playerNumber, "Command must activate a ready adjacent friendly piece.");
+            return;
+        }
+
         const std::string abilityLabel = pieceAbilityLabel(*piece);
         const std::string actingPieceName = piece->name;
         const int actingPieceId = piece->id;
+        const std::string commanderName = commandedAction ? commander->name : std::string();
         if (piece->ability == "dig")
         {
             if (piece->abilityUses == 0)
@@ -272,6 +282,15 @@ public:
             spawnPiece(playerNumber, *summonCard, row, column, false);
             pieces.back().hasActed = true;
         }
+        else if (piece->ability == "command")
+        {
+            piece->hasActed = true;
+            commandingPieceId = piece->id;
+            status = fmt::format(
+                "{} used Command. Activate one adjacent friendly piece.",
+                actingPieceName);
+            return;
+        }
         else
         {
             return;
@@ -283,7 +302,20 @@ public:
             return;
         }
         actingPiece->hasActed = true;
-        advanceTurn(fmt::format("{} used {}.", actingPieceName, abilityLabel));
+        if (commandedAction)
+        {
+            commandingPieceId = 0;
+            recomputeControl();
+            status = fmt::format(
+                "{} commanded {} to use {}.",
+                commanderName,
+                actingPieceName,
+                abilityLabel);
+        }
+        else
+        {
+            advanceTurn(fmt::format("{} used {}.", actingPieceName, abilityLabel));
+        }
     }
 
     void endTurn(int playerNumber)
@@ -304,6 +336,7 @@ public:
         snapshot.activePlayer = activePlayer;
         snapshot.yourPlayer = playerNumber;
         snapshot.winner = winnerValue;
+        snapshot.commandingPieceId = commandingPieceId;
         snapshot.control = control;
         snapshot.holes = holes;
         snapshot.pieces.clear();
@@ -364,6 +397,7 @@ private:
     std::array<EnginePlayer, 2> players{};
     std::vector<GameCard> summonCatalog;
     int nextPieceId = 1;
+    int commandingPieceId = 0;
     std::string status = "Waiting for both decks...";
 
     EnginePlayer& playerRef(int playerNumber)
@@ -504,6 +538,15 @@ private:
             return;
         }
 
+        const Piece* commander = commandingPieceId != 0 ? pieceById(commandingPieceId) : nullptr;
+        const bool commandedAction = commander != nullptr;
+        const std::string commanderName = commandedAction ? commander->name : std::string();
+        if (commandedAction && !pieceCanReceiveCommand(*commander, *piece))
+        {
+            setStatusFor(playerNumber, "Command must activate a ready adjacent friendly piece.");
+            return;
+        }
+
         // Resolve against the acting player's view of the board so hidden
         // enemy pieces do not block or betray their squares; a collision with
         // one is adjusted into a strike or a harmless bump below.
@@ -593,6 +636,7 @@ private:
             }
         }
 
+        std::string result;
         if (action.attacks)
         {
             const int effectiveDisabledTurns = disabledTurnsForDamage(action.damage, action.statusTurns);
@@ -602,7 +646,7 @@ private:
                 if (i > 0) joinedTargets += i + 1 == targetNames.size() ? " and " : ", ";
                 joinedTargets += targetNames[i];
             }
-            std::string result = fmt::format("{} hit {} for {} each", attackerName, joinedTargets, action.damage);
+            result = fmt::format("{} hit {} for {} each", attackerName, joinedTargets, action.damage);
             if (effectiveDisabledTurns > 0)
             {
                 result += fmt::format(" and disabled surviving targets for {} turn(s)", effectiveDisabledTurns);
@@ -612,18 +656,28 @@ private:
             {
                 result += " It materialized!";
             }
-            advanceTurn(result);
         }
         else if (!revealedName.empty())
         {
-            advanceTurn(fmt::format(
+            result = fmt::format(
                 "{} bumped into a hidden {}! It materialized, stunned.",
                 attackerName,
-                revealedName));
+                revealedName);
         }
         else
         {
-            advanceTurn(fmt::format("{} moved.", attackerName));
+            result = fmt::format("{} moved.", attackerName);
+        }
+
+        if (commandedAction)
+        {
+            commandingPieceId = 0;
+            recomputeControl();
+            status = fmt::format("{} commanded {}", commanderName, result);
+        }
+        else
+        {
+            advanceTurn(result);
         }
     }
 
@@ -722,6 +776,7 @@ private:
 
     void advanceTurn(const std::string& actionStatus)
     {
+        commandingPieceId = 0;
         endTurnFor(activePlayer);
         recomputeControl();
         if (phaseValue == Phase::GameOver)

@@ -638,6 +638,7 @@ struct Snapshot
     int activePlayer = 1;
     int yourPlayer = 1;
     int winner = 0;  // 0 = none
+    int commandingPieceId = 0;  // nonzero while Command is waiting for an adjacent friendly action
     std::array<PlayerSnapshot, 2> players{};
     std::array<std::uint8_t, BoardSquares> control{};  // 0 neutral, 1, 2
     std::array<std::uint8_t, BoardSquares> holes{};
@@ -798,7 +799,8 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 // Writes a complete snapshot payload (without the leading message-type byte).
 inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
 {
-    packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner;
+    packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner
+           << snapshot.commandingPieceId;
     writePlayerSnapshot(packet, snapshot.players[0]);
     writePlayerSnapshot(packet, snapshot.players[1]);
 
@@ -828,7 +830,8 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
 
 inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot)
 {
-    packet >> snapshot.phase >> snapshot.activePlayer >> snapshot.yourPlayer >> snapshot.winner;
+    packet >> snapshot.phase >> snapshot.activePlayer >> snapshot.yourPlayer >> snapshot.winner
+           >> snapshot.commandingPieceId;
     if (!packet || !readPlayerSnapshot(packet, snapshot.players[0]) ||
         !readPlayerSnapshot(packet, snapshot.players[1]))
     {

@@ -433,10 +433,8 @@
                 draggedPieceSquare->first,
                 draggedPieceSquare->second);
             draggedPieceDropValid = phase == game_data::Phase::Playing &&
-                (sandboxMode ||
-                 (gameSnapshot.activePlayer == me &&
-                  draggedPiece->owner == me &&
-                  !draggedPiece->hasActed)) &&
+                (sandboxMode || gameSnapshot.activePlayer == me) &&
+                pieceCanTakeGameAction(*draggedPiece) &&
                 outcome.action.legal;
         }
         const std::optional<std::size_t> actingHandIndex =
@@ -528,7 +526,7 @@
         }
         else if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
         {
-            if (actingPiece && (sandboxMode || !actingPiece->hasActed))
+            if (actingPiece && pieceCanTakeGameAction(*actingPiece))
             {
                 // Highlight against the acting piece's view of the board:
                 // dematerialized enemies read as open squares (never as
@@ -1108,7 +1106,7 @@
 
         if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
         {
-            if (selectedPiece && (sandboxMode || (selectedPiece->owner == me && !selectedPiece->hasActed)) &&
+            if (selectedPiece && pieceCanTakeGameAction(*selectedPiece) &&
                 game_data::pieceAbilityAvailable(gameSnapshot.pieces, *selectedPiece))
             {
                 abilityButton.setLabel(game_data::pieceAbilityLabel(*selectedPiece));

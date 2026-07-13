@@ -2880,6 +2880,20 @@ int main(int argc, char** argv)
         return nullptr;
     };
 
+    auto pieceCanTakeGameAction = [&](const game_data::Piece& piece) {
+        if (!haveSnapshot)
+        {
+            return false;
+        }
+        if (gameSnapshot.commandingPieceId != 0)
+        {
+            const game_data::Piece* commander = gamePieceById(gameSnapshot.commandingPieceId);
+            return commander != nullptr && game_data::pieceCanReceiveCommand(*commander, piece);
+        }
+        return sandboxMode ||
+            (piece.owner == gameSnapshot.yourPlayer && !piece.hasActed);
+    };
+
     auto updatePieceFidgetAnimations = [&]() {
         for (auto animation = pieceFidgetAnimations.begin(); animation != pieceFidgetAnimations.end();)
         {
@@ -3574,6 +3588,17 @@ int main(int argc, char** argv)
             return;
         }
 
+        const game_data::Piece* commander = next.commandingPieceId != 0
+            ? pieceByIdInSnapshot(next, next.commandingPieceId)
+            : nullptr;
+        const bool commandedAction = commander != nullptr;
+        if (commandedAction && !game_data::pieceCanReceiveCommand(*commander, *piece))
+        {
+            next.status = "Command must activate a ready adjacent friendly piece.";
+            commitSandboxSnapshot(std::move(next));
+            return;
+        }
+
         const game_data::PieceActionOutcome outcome =
             game_data::resolvePieceActionThroughHidden(next.pieces, next.holes, *piece, row, column);
         const game_data::ActionResolution& action = outcome.action;
@@ -3592,6 +3617,7 @@ int main(int argc, char** argv)
         bool anyTargetDestroyed = false;
         bool anyTargetWasHidden = false;
 
+        const std::string commanderName = commandedAction ? commander->name : std::string();
         if (action.attacks)
         {
             const std::vector<int> targetIds = action.targetIds.empty()
@@ -3647,7 +3673,12 @@ int main(int argc, char** argv)
         acting->disabledTurns = std::max(acting->disabledTurns, action.cooldownTurns);
         acting->hasActed = false;
 
-        if (action.attacks)
+        if (commandedAction)
+        {
+            next.commandingPieceId = 0;
+            next.status = commanderName + " commanded " + attackerName + " to act.";
+        }
+        else if (action.attacks)
         {
             const int effectiveDisabledTurns =
                 game_data::disabledTurnsForDamage(action.damage, action.statusTurns);
@@ -3698,8 +3729,20 @@ int main(int argc, char** argv)
             return;
         }
 
+        const game_data::Piece* commander = next.commandingPieceId != 0
+            ? pieceByIdInSnapshot(next, next.commandingPieceId)
+            : nullptr;
+        const bool commandedAction = commander != nullptr;
+        if (commandedAction && !game_data::pieceCanReceiveCommand(*commander, *piece))
+        {
+            next.status = "Command must activate a ready adjacent friendly piece.";
+            commitSandboxSnapshot(std::move(next));
+            return;
+        }
+
         const std::string abilityLabel = game_data::pieceAbilityLabel(*piece);
         const std::string pieceName = piece->name;
+        const std::string commanderName = commandedAction ? commander->name : std::string();
         const int pieceOwner = piece->owner;
         const int actingPieceId = piece->id;
         if (piece->ability == "dig")
@@ -3749,6 +3792,14 @@ int main(int argc, char** argv)
             }
             spawnSandboxPiece(next, nextSandboxPieceId, pieceOwner, *found, row, column, false);
         }
+        else if (piece->ability == "command")
+        {
+            piece->hasActed = true;
+            next.commandingPieceId = piece->id;
+            next.status = pieceName + " used Command. Activate one adjacent friendly piece.";
+            commitSandboxSnapshot(std::move(next));
+            return;
+        }
         else
         {
             return;
@@ -3758,7 +3809,15 @@ int main(int argc, char** argv)
         {
             actingPiece->hasActed = false;
         }
-        next.status = pieceName + " used " + abilityLabel + ".";
+        if (commandedAction)
+        {
+            next.commandingPieceId = 0;
+            next.status = commanderName + " commanded " + pieceName + " to use " + abilityLabel + ".";
+        }
+        else
+        {
+            next.status = pieceName + " used " + abilityLabel + ".";
+        }
         commitSandboxSnapshot(std::move(next));
     };
 
@@ -3768,6 +3827,7 @@ int main(int argc, char** argv)
             return;
         }
         game_data::Snapshot next = gameSnapshot;
+        next.commandingPieceId = 0;
         const int endingPlayer = std::clamp(next.activePlayer, 1, 2);
         for (game_data::Piece& piece : next.pieces)
         {
@@ -4021,7 +4081,7 @@ int main(int argc, char** argv)
         }
 
         if (const game_data::Piece* piece = gamePieceAtPixel(clickPos);
-            piece && (sandboxMode || (piece->owner == me && !piece->hasActed)))
+            piece && pieceCanTakeGameAction(*piece))
         {
             gameDragKind = GameDragKind::Piece;
             draggingPieceId = piece->id;
@@ -4309,7 +4369,9 @@ int main(int argc, char** argv)
                 }
                 if (clicked && (sandboxMode || clicked->owner == me))
                 {
-                    selectedPieceId = (!sandboxMode && clicked->hasActed) ? std::nullopt : std::optional<int>(clicked->id);
+                    selectedPieceId = pieceCanTakeGameAction(*clicked)
+                        ? std::optional<int>(clicked->id)
+                        : std::nullopt;
                     return;
                 }
                 const game_data::PieceActionOutcome outcome = game_data::resolvePieceActionThroughHidden(
@@ -4325,7 +4387,7 @@ int main(int argc, char** argv)
             return;
         }
 
-        if (clicked && (sandboxMode || (clicked->owner == me && !clicked->hasActed)))
+        if (clicked && pieceCanTakeGameAction(*clicked))
         {
             selectedPieceId = clicked->id;
         }
@@ -5382,7 +5444,7 @@ int main(int argc, char** argv)
                              abilityButton.isClicked(clickPos))
                     {
                         if (const game_data::Piece* piece = gamePieceById(*selectedPieceId);
-                            piece && (sandboxMode || (piece->owner == gameSnapshot.yourPlayer && !piece->hasActed)) &&
+                            piece && pieceCanTakeGameAction(*piece) &&
                             game_data::pieceAbilityAvailable(gameSnapshot.pieces, *piece))
                         {
                             pendingHandClickIndex.reset();
@@ -6333,7 +6395,7 @@ int main(int argc, char** argv)
                     (sandboxMode || gameSnapshot.activePlayer == gameSnapshot.yourPlayer))
                 {
                     if (const game_data::Piece* piece = gamePieceById(*selectedPieceId);
-                        piece && (sandboxMode || (piece->owner == gameSnapshot.yourPlayer && !piece->hasActed)) &&
+                        piece && pieceCanTakeGameAction(*piece) &&
                         game_data::pieceAbilityAvailable(gameSnapshot.pieces, *piece))
                     {
                         abilityButton.update(mousePos);

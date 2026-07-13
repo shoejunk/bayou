@@ -794,7 +794,31 @@ inline std::string pieceAbilityLabel(const Piece& piece)
     {
         return "Summon";
     }
+    if (piece.ability == "command")
+    {
+        return "Command";
+    }
     return "Use Ability";
+}
+
+inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
+{
+    const int rowGap = std::max(
+        0,
+        std::max(second.row - (first.row + first.height - 1),
+                 first.row - (second.row + second.height - 1)));
+    const int columnGap = std::max(
+        0,
+        std::max(second.column - (first.column + first.width - 1),
+                 first.column - (second.column + second.width - 1)));
+    return std::max(rowGap, columnGap) == 1;
+}
+
+inline bool pieceCanReceiveCommand(const Piece& commander, const Piece& target)
+{
+    return commander.id != target.id && commander.owner == target.owner &&
+        !target.hasActed && target.growTurnsRemaining <= 0 && target.disabledTurns <= 0 &&
+        piecesAreAdjacent(commander, target);
 }
 
 inline std::pair<int, int> summonDestination(const Piece& piece)
@@ -834,6 +858,13 @@ inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece&
     if (piece.ability == "summon")
     {
         return pieceSummonDestinationFree(pieces, piece);
+    }
+    if (piece.ability == "command")
+    {
+        return std::any_of(
+            pieces.begin(),
+            pieces.end(),
+            [&](const Piece& target) { return pieceCanReceiveCommand(piece, target); });
     }
     return true;
 }

@@ -42,9 +42,18 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
     // pieces neither block nor present targets (the engine adjudicates any
     // collision when the action executes).
     const std::vector<Piece> visiblePieces = piecesVisibleTo(pieces, playerNumber);
+    const auto commanderFound = std::find_if(
+        pieces.begin(),
+        pieces.end(),
+        [&](const Piece& piece) { return piece.id == engine.commandingPiece(); });
+    const Piece* commander = commanderFound == pieces.end() ? nullptr : &*commanderFound;
     for (const Piece& piece : pieces)
     {
         if (piece.owner != playerNumber || piece.hasActed || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
+        {
+            continue;
+        }
+        if (commander != nullptr && !pieceCanReceiveCommand(*commander, piece))
         {
             continue;
         }
@@ -71,7 +80,7 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
         }
     }
 
-    if (allowCards)
+    if (allowCards && commander == nullptr)
     {
         const GameEngine::EnginePlayer& player = engine.playerState(playerNumber);
         for (int handIndex = 0; handIndex < static_cast<int>(player.hand.size()); ++handIndex)

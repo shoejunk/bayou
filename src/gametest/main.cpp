@@ -18,6 +18,7 @@
 #include "../shared/deck_data.hpp"
 #include "../shared/game_data.hpp"
 #include "../shared/ranking.hpp"
+#include "../gameserver/game_engine.hpp"
 
 #include "../shared/network.hpp"
 
@@ -457,6 +458,26 @@ int main(int argc, char** argv)
     check(!pieceAbilityAvailable({profilePiece, summonBlocker}, profilePiece),
           "summon ability checks the left square for player 2");
     profilePiece.owner = 1;
+    profilePiece.ability = "command";
+    Piece commandedPiece = profilePiece;
+    commandedPiece.id = 43;
+    commandedPiece.ability.clear();
+    commandedPiece.column = 4;
+    check(pieceAbilityLabel(profilePiece) == "Command",
+          "command ability has a descriptive button label");
+    check(pieceAbilityAvailable({profilePiece, commandedPiece}, profilePiece),
+          "command is available with a ready adjacent friendly piece");
+    commandedPiece.hasActed = true;
+    check(!pieceAbilityAvailable({profilePiece, commandedPiece}, profilePiece),
+          "command rejects an adjacent friendly piece that already acted");
+    commandedPiece.hasActed = false;
+    commandedPiece.column = 5;
+    check(!pieceAbilityAvailable({profilePiece, commandedPiece}, profilePiece),
+          "command requires the friendly piece to be adjacent");
+    commandedPiece.column = 4;
+    commandedPiece.owner = 2;
+    check(!pieceAbilityAvailable({profilePiece, commandedPiece}, profilePiece),
+          "command cannot activate an adjacent enemy piece");
     profilePiece.ability.clear();
 
     ActionProfile paralyze;
@@ -789,6 +810,89 @@ int main(int argc, char** argv)
               roundTrippedPiece.disabledTurns == 1 &&
               roundTrippedPiece.sleepTurnsRemaining == 1,
           "extended piece fields survive network serialization");
+
+    Snapshot serializedSnapshot;
+    serializedSnapshot.commandingPieceId = 43;
+    serializedSnapshot.status = "Command pending";
+    sf::Packet snapshotPacket;
+    writeSnapshot(snapshotPacket, serializedSnapshot);
+    Snapshot roundTrippedSnapshot;
+    check(readSnapshot(snapshotPacket, roundTrippedSnapshot) &&
+              roundTrippedSnapshot.commandingPieceId == 43 &&
+              roundTrippedSnapshot.status == "Command pending",
+          "pending command state survives snapshot serialization");
+
+    auto commandTestHero = [](const std::string& title, bool commands) {
+        card_data::Card card;
+        card.title = title;
+        card.type = "Hero";
+        card.integerValues = {{"health", 5}};
+        if (commands)
+        {
+            card.stringValues = {{"ability", "command"}};
+        }
+        card_data::Action step;
+        step.name = title + " Step";
+        step.kind = "slide";
+        step.pattern = "omni";
+        step.minRange = 1;
+        step.maxRange = 7;
+        step.damage = 1;
+        step.canMove = true;
+        step.canAttack = true;
+        card.actions = {step};
+        return card;
+    };
+
+    const card_data::Card commanderCard = commandTestHero("Test Commander", true);
+    const card_data::Card commandedCard = commandTestHero("Commanded Friend", false);
+    const card_data::Card normalCard = commandTestHero("Normal Friend", false);
+    const card_data::Card enemyCard = commandTestHero("Enemy Hero", false);
+    const std::vector<card_data::Card> commandLibrary = {
+        commanderCard, commandedCard, normalCard, enemyCard};
+    GameEngine commandEngine(7, commandLibrary);
+    commandEngine.submitDeck(1, {commanderCard, commandedCard, normalCard});
+    commandEngine.submitDeck(2, {enemyCard});
+    const auto player1Home = homeSquares(1);
+    const auto player2Home = homeSquares(2);
+    commandEngine.placeHero(1, 0, player1Home[0].first, player1Home[0].second);
+    commandEngine.placeHero(1, 0, player1Home[1].first, player1Home[1].second);
+    commandEngine.placeHero(1, 0, player1Home[2].first, player1Home[2].second);
+    commandEngine.placeHero(2, 0, player2Home[1].first, player2Home[1].second);
+
+    auto boardPieceNamed = [&](const std::string& name) -> const Piece* {
+        const auto found = std::find_if(
+            commandEngine.boardPieces().begin(),
+            commandEngine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == name; });
+        return found == commandEngine.boardPieces().end() ? nullptr : &*found;
+    };
+    const Piece* testCommander = boardPieceNamed("Test Commander");
+    const Piece* testCommanded = boardPieceNamed("Commanded Friend");
+    const Piece* testNormal = boardPieceNamed("Normal Friend");
+    check(testCommander && testCommanded && testNormal,
+          "command engine test placed its friendly pieces");
+    if (testCommander && testCommanded && testNormal)
+    {
+        const int commanderId = testCommander->id;
+        const int commandedId = testCommanded->id;
+        const int normalId = testNormal->id;
+        commandEngine.useAbility(1, commanderId);
+        check(commandEngine.currentPlayer() == 1 && commandEngine.commandingPiece() == commanderId,
+              "using Command keeps the turn and waits for an adjacent friendly action");
+        const Piece* testEnemyBefore = boardPieceNamed("Enemy Hero");
+        const int enemyHealthBefore = testEnemyBefore ? testEnemyBefore->health : 0;
+        commandEngine.attackPiece(1, commandedId, player2Home[1].first, player2Home[1].second);
+        const Piece* movedCommandTarget = boardPieceNamed("Commanded Friend");
+        const Piece* testEnemyAfter = boardPieceNamed("Enemy Hero");
+        check(commandEngine.currentPlayer() == 1 && commandEngine.commandingPiece() == 0 &&
+                  movedCommandTarget && movedCommandTarget->hasActed &&
+                  testEnemyAfter && testEnemyAfter->health == enemyHealthBefore - 1,
+              "the commanded friendly piece attacks without ending the turn");
+        commandEngine.movePiece(1, normalId, player1Home[2].first, 1);
+        check(commandEngine.currentPlayer() == 2,
+              "a normal move after the commanded action ends the turn");
+    }
 
     Piece corruptHero;
     corruptHero.owner = 1;
