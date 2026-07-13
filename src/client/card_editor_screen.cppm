@@ -2506,7 +2506,7 @@ private:
         y += 5.0f;
         y = drawInstructionBullet(window, "Pattern ortho, diag, omni, horizontal, or vertical moves along that board geometry up to the action's maximum range.", y);
         y = drawInstructionBullet(window, "Pattern jump uses the fixed knight-style L shape. Pattern none is used for ranged, teleport, and tunnel actions that do not need slide geometry.", y);
-        y = drawInstructionBullet(window, "Can move lets the action target an empty destination. Can attack lets it target an enemy and apply the action's damage and status turns.", y);
+        y = drawInstructionBullet(window, "Can move lets the action target an empty destination. Can attack targets an enemy when Damage is zero or positive, or a friendly piece when Damage is negative. Negative Damage heals up to the target's maximum health.", y);
         y = drawInstructionBullet(window, "Minimum and maximum range are per action, so a card can mix short moves, long moves, ranged attacks, and state-specific actions.", y);
         y = drawInstructionParagraph(window, "For blocking slide and capture actions, every square along the path must be empty. Pass-through ignores blockers. Line of sight applies blocker checks to ranged attacks.", y + 5.0f, sf::Color(198, 210, 224));
         y += 10.0f;

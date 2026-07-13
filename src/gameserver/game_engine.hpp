@@ -604,6 +604,7 @@ private:
         const int destinationColumn = outcome.destinationColumn;
 
         const int attackerId = piece->id;
+        const int attackerOwner = piece->owner;
         const std::string attackerName = piece->name;
         std::vector<std::string> targetNames;
         std::vector<int> defeatedOwners;
@@ -621,10 +622,10 @@ private:
                 if (target == nullptr)
                     continue;
                 targetNames.push_back((target->hidden ? "a hidden " : "") + target->name);
-                anyTargetWasHidden = anyTargetWasHidden || target->hidden;
+                anyTargetWasHidden = anyTargetWasHidden ||
+                    (target->hidden && target->owner != attackerOwner);
                 const int victimOwner = target->owner;
-                target->health -= action.damage;
-                applyDamageStatus(*target, action.damage, action.statusTurns);
+                applyActionDamage(*target, action.damage, action.statusTurns);
                 if (target->health <= 0)
                 {
                     anyTargetDestroyed = true;
@@ -690,7 +691,14 @@ private:
                 if (i > 0) joinedTargets += i + 1 == targetNames.size() ? " and " : ", ";
                 joinedTargets += targetNames[i];
             }
-            result = fmt::format("{} hit {} for {} each", attackerName, joinedTargets, action.damage);
+            if (action.damage < 0)
+            {
+                result = fmt::format("{} healed {} for {} each", attackerName, joinedTargets, -action.damage);
+            }
+            else
+            {
+                result = fmt::format("{} hit {} for {} each", attackerName, joinedTargets, action.damage);
+            }
             if (effectiveDisabledTurns > 0)
             {
                 result += fmt::format(" and disabled surviving targets for {} turn(s)", effectiveDisabledTurns);

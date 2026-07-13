@@ -593,6 +593,21 @@ inline void applyDamageStatus(Piece& target, int damage, int statusTurns)
     target.disabledTurns = std::max(target.disabledTurns, disabledTurnsForDamage(damage, statusTurns));
 }
 
+// Action damage is signed: positive values hurt and negative values heal.
+// Healing cannot raise a piece above the health supplied by its card.
+inline void applyActionDamage(Piece& target, int damage, int statusTurns)
+{
+    if (damage < 0)
+    {
+        target.health = std::min(target.maxHealth, target.health - damage);
+    }
+    else
+    {
+        target.health -= damage;
+    }
+    applyDamageStatus(target, damage, statusTurns);
+}
+
 // Applies the per-piece timing changes that occur when its owner's turn starts.
 // Keeping this shared also lets the client preview a piece's next turn without
 // mutating the authoritative snapshot.

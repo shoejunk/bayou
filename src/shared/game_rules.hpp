@@ -231,6 +231,12 @@ inline void addActionTarget(ActionResolution& action, const Piece& target)
     }
 }
 
+inline bool actionCanTarget(const Piece& piece, const Piece& target, int damage)
+{
+    const bool targetsFriendly = damage < 0;
+    return (target.owner == piece.owner) == targetsFriendly;
+}
+
 inline std::vector<const Piece*> piecesOverlappingFootprint(
     const std::vector<Piece>& pieces, const Piece& mover, int row, int column)
 {
@@ -462,7 +468,7 @@ inline ActionResolution resolvePieceAction(
                 {
                     candidate.legal = true;
                     candidate.moves = true;
-                    if (action.canAttack && pivot->owner != piece.owner)
+                    if (action.canAttack && actionCanTarget(piece, *pivot, action.damage))
                     {
                         candidate.attacks = true;
                         addActionTarget(candidate, *pivot);
@@ -472,7 +478,8 @@ inline ActionResolution resolvePieceAction(
         }
         else if (kind == ActionKind::Ranged)
         {
-            if (action.canAttack && destination != nullptr && destination->owner != piece.owner &&
+            if (action.canAttack && destination != nullptr &&
+                actionCanTarget(piece, *destination, action.damage) &&
                 rangedActionReachesTarget(pieces, piece, *destination, action))
             {
                 candidate.legal = true;
@@ -503,7 +510,9 @@ inline ActionResolution resolvePieceAction(
                 piecesOverlappingFootprint(pieces, piece, toRow, toColumn);
             if (footprintTargets.empty() || std::any_of(
                     footprintTargets.begin(), footprintTargets.end(),
-                    [&](const Piece* target) { return target->owner == piece.owner; }))
+                    [&](const Piece* target) {
+                        return !actionCanTarget(piece, *target, action.damage);
+                    }))
             {
                 continue;
             }
@@ -542,14 +551,15 @@ inline ActionResolution resolvePieceAction(
             const std::vector<const Piece*> footprintTargets = action.canMove
                 ? piecesOverlappingFootprint(pieces, piece, toRow, toColumn)
                 : std::vector<const Piece*>{};
-            const bool friendlyOverlap = std::any_of(
+            const bool invalidTargetOverlap = std::any_of(
                 footprintTargets.begin(), footprintTargets.end(),
-                [&](const Piece* target) { return target->owner == piece.owner; });
-            if (!friendlyOverlap && action.canAttack && !footprintTargets.empty())
+                [&](const Piece* target) {
+                    return !actionCanTarget(piece, *target, action.damage);
+                });
+            if (!invalidTargetOverlap && action.canAttack && !footprintTargets.empty())
             {
                 for (const Piece* target : footprintTargets)
-                    if (target->owner != piece.owner)
-                        addActionTarget(candidate, *target);
+                    addActionTarget(candidate, *target);
                 candidate.legal = !candidate.targetIds.empty();
                 candidate.attacks = candidate.legal;
                 candidate.moves = action.canMove;
@@ -566,7 +576,8 @@ inline ActionResolution resolvePieceAction(
                 candidate.legal = true;
                 candidate.moves = true;
             }
-            else if (destination != nullptr && destination->owner != piece.owner && action.canAttack)
+            else if (destination != nullptr && action.canAttack &&
+                     actionCanTarget(piece, *destination, action.damage))
             {
                 candidate.legal = true;
                 candidate.attacks = true;
@@ -594,9 +605,9 @@ inline ActionResolution resolvePieceAction(
         }
 
         const int candidateImpact = candidate.attacks
-            ? candidate.damage + candidate.statusTurns
+            ? absInt(candidate.damage) + candidate.statusTurns
             : 0;
-        const int bestImpact = best.attacks ? best.damage + best.statusTurns : 0;
+        const int bestImpact = best.attacks ? absInt(best.damage) + best.statusTurns : 0;
         if (!best.legal || candidateImpact > bestImpact)
         {
             best = candidate;

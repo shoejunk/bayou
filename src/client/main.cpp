@@ -3709,6 +3709,7 @@ int main(int argc, char** argv)
         const int destinationColumn = outcome.destinationColumn;
 
         const int attackerId = piece->id;
+        const int attackerOwner = piece->owner;
         const std::string attackerName = piece->name;
         std::vector<std::string> targetNames;
         bool anyTargetDestroyed = false;
@@ -3725,10 +3726,10 @@ int main(int argc, char** argv)
                 game_data::Piece* target = pieceByIdInSnapshotMutable(next, targetId);
                 if (!target) continue;
                 targetNames.push_back((target->hidden ? "a hidden " : "") + target->name);
-                anyTargetWasHidden = anyTargetWasHidden || target->hidden;
+                anyTargetWasHidden = anyTargetWasHidden ||
+                    (target->hidden && target->owner != attackerOwner);
                 startPieceAttackAnimation(attackerId, target->row, target->column);
-                target->health -= action.damage;
-                game_data::applyDamageStatus(*target, action.damage, action.statusTurns);
+                game_data::applyActionDamage(*target, action.damage, action.statusTurns);
                 if (target->health <= 0)
                 {
                     anyTargetDestroyed = true;
@@ -3785,8 +3786,16 @@ int main(int argc, char** argv)
                 if (i > 0) joinedTargets += i + 1 == targetNames.size() ? " and " : ", ";
                 joinedTargets += targetNames[i];
             }
-            next.status = attackerName + " hit " + joinedTargets + " for " +
-                std::to_string(action.damage) + " each";
+            if (action.damage < 0)
+            {
+                next.status = attackerName + " healed " + joinedTargets + " for " +
+                    std::to_string(-action.damage) + " each";
+            }
+            else
+            {
+                next.status = attackerName + " hit " + joinedTargets + " for " +
+                    std::to_string(action.damage) + " each";
+            }
             if (effectiveDisabledTurns > 0)
                 next.status += " and disabled surviving targets for " +
                     std::to_string(effectiveDisabledTurns) + " turn(s)";

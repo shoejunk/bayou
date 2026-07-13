@@ -610,6 +610,39 @@ int main(int argc, char** argv)
               raisedAttack.damage == 3,
           "raised gun can deal damage without moving");
 
+    Piece healer = gunner;
+    healer.id = 24;
+    healer.owner = 1;
+    healer.actionState = 0;
+    ActionProfile healingAction = raisedGun;
+    healingAction.state = 0;
+    healingAction.damage = -3;
+    ActionProfile weakHealingAction = healingAction;
+    weakHealingAction.damage = -1;
+    healer.actions = {weakHealingAction, healingAction};
+    Piece woundedFriendly = gunTarget;
+    woundedFriendly.id = 25;
+    woundedFriendly.owner = 1;
+    woundedFriendly.maxHealth = 5;
+    woundedFriendly.health = 4;
+    Piece healingEnemy = gunTarget;
+    healingEnemy.id = 26;
+    healingEnemy.owner = 2;
+    healingEnemy.row = 4;
+    healingEnemy.column = 3;
+    std::vector<Piece> healingPieces = {healer, woundedFriendly, healingEnemy};
+    const ActionResolution healingResult =
+        resolvePieceAction(healingPieces, holes, healingPieces[0], 3, 4);
+    check(healingResult.legal && healingResult.attacks &&
+              healingResult.targetId == woundedFriendly.id && healingResult.damage == -3,
+          "negative damage targets a friendly piece");
+    check(!resolvePieceAction(healingPieces, holes, healingPieces[0], 4, 3).legal,
+          "negative damage cannot target an enemy piece");
+    applyActionDamage(healingPieces[1], healingResult.damage, healingResult.statusTurns);
+    check(healingPieces[1].health == healingPieces[1].maxHealth &&
+              healingPieces[1].disabledTurns == 0 && healingPieces[1].sleepTurnsRemaining == 0,
+          "negative damage heals only to maximum health without applying damage status");
+
     raisedGun.maxRange = 3;
     raisedGun.lineOfSight = false;
     gunner.actions = {raisedGun};
