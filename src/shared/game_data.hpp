@@ -189,6 +189,7 @@ struct ActionProfile
     int minRange = 1;
     int maxRange = 1;
     int damage = 0;
+    int heal = 0;
     int statusTurns = 0;
     int cooldownTurns = 0;
     bool canMove = true;
@@ -415,7 +416,8 @@ inline GameCard toGameCard(const card_data::Card& card)
         action.pattern = parseMovePattern(definition.pattern);
         action.minRange = definition.minRange;
         action.maxRange = definition.maxRange;
-        action.damage = definition.damage;
+        action.damage = std::max(0, definition.damage);
+        action.heal = std::max(0, definition.heal);
         action.canMove = definition.canMove;
         action.canAttack = definition.canAttack;
         action.passThrough = definition.passThrough;
@@ -593,19 +595,18 @@ inline void applyDamageStatus(Piece& target, int damage, int statusTurns)
     target.disabledTurns = std::max(target.disabledTurns, disabledTurnsForDamage(damage, statusTurns));
 }
 
-// Action damage is signed: positive values hurt and negative values heal.
-// Healing cannot raise a piece above the health supplied by its card.
 inline void applyActionDamage(Piece& target, int damage, int statusTurns)
 {
-    if (damage < 0)
-    {
-        target.health = std::min(target.maxHealth, target.health - damage);
-    }
-    else
-    {
-        target.health -= damage;
-    }
-    applyDamageStatus(target, damage, statusTurns);
+    const int positiveDamage = std::max(0, damage);
+    target.health -= positiveDamage;
+    applyDamageStatus(target, positiveDamage, statusTurns);
+}
+
+// Action healing is a separate positive magnitude and cannot exceed max health.
+inline void applyActionHealing(Piece& target, int heal, int statusTurns)
+{
+    target.health = std::min(target.maxHealth, target.health + std::max(0, heal));
+    applyDamageStatus(target, 0, statusTurns);
 }
 
 // Applies the per-piece timing changes that occur when its owner's turn starts.
@@ -724,7 +725,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
     for (const ActionProfile& action : card.actions)
     {
         packet << action.name << action.kind << action.pattern << action.state << action.minRange << action.maxRange
-               << action.damage << action.statusTurns << action.cooldownTurns
+               << action.damage << action.heal << action.statusTurns << action.cooldownTurns
                << action.canMove << action.canAttack << action.passThrough << action.lineOfSight;
     }
     packet << card.ability << card.summonTitle;
@@ -758,7 +759,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
     {
         ActionProfile action;
         packet >> action.name >> action.kind >> action.pattern >> action.state >> action.minRange >> action.maxRange
-               >> action.damage >> action.statusTurns >> action.cooldownTurns
+               >> action.damage >> action.heal >> action.statusTurns >> action.cooldownTurns
                >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight;
         if (!packet)
         {
@@ -794,7 +795,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
     for (const ActionProfile& action : piece.actions)
     {
         packet << action.name << action.kind << action.pattern << action.state << action.minRange << action.maxRange
-               << action.damage << action.statusTurns << action.cooldownTurns
+               << action.damage << action.heal << action.statusTurns << action.cooldownTurns
                << action.canMove << action.canAttack << action.passThrough << action.lineOfSight;
     }
     card_data::writeStringVector(packet, piece.abilityLabels);
@@ -826,7 +827,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
     {
         ActionProfile action;
         packet >> action.name >> action.kind >> action.pattern >> action.state >> action.minRange >> action.maxRange
-               >> action.damage >> action.statusTurns >> action.cooldownTurns
+               >> action.damage >> action.heal >> action.statusTurns >> action.cooldownTurns
                >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight;
         if (!packet)
         {

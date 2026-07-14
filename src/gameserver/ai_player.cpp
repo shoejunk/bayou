@@ -199,7 +199,7 @@ int evaluateEngine(const GameEngine& engine, int aiPlayer)
         int value = piece.health * (piece.isHero ? 10 : 4);
         for (const ActionProfile& action : piece.actions)
         {
-            value += std::abs(action.damage) * 3 + action.statusTurns * 4;
+            value += (action.damage + action.heal) * 3 + action.statusTurns * 4;
             if (action.canMove)
             {
                 value += action.maxRange;

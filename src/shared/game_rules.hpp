@@ -213,6 +213,7 @@ struct ActionResolution
     int targetId = 0;
     std::vector<int> targetIds;
     int damage = 0;
+    int heal = 0;
     int statusTurns = 0;
     int cooldownTurns = 0;
     int stagingRow = 0;
@@ -231,10 +232,17 @@ inline void addActionTarget(ActionResolution& action, const Piece& target)
     }
 }
 
-inline bool actionCanTarget(const Piece& piece, const Piece& target, int damage)
+inline bool actionCanTarget(
+    const Piece& piece,
+    const Piece& target,
+    int damage,
+    int heal)
 {
-    const bool targetsFriendly = damage < 0;
-    return (target.owner == piece.owner) == targetsFriendly;
+    if (target.owner == piece.owner)
+    {
+        return heal > 0;
+    }
+    return damage > 0 || (damage == 0 && heal == 0);
 }
 
 inline std::vector<const Piece*> piecesOverlappingFootprint(
@@ -425,6 +433,7 @@ inline ActionResolution resolvePieceAction(
         ActionResolution candidate;
         candidate.actionIndex = static_cast<int>(index);
         candidate.damage = action.damage;
+        candidate.heal = action.heal;
         candidate.statusTurns = action.statusTurns;
         candidate.cooldownTurns = action.cooldownTurns;
         candidate.stagingRow = piece.row;
@@ -468,7 +477,8 @@ inline ActionResolution resolvePieceAction(
                 {
                     candidate.legal = true;
                     candidate.moves = true;
-                    if (action.canAttack && actionCanTarget(piece, *pivot, action.damage))
+                    if (action.canAttack &&
+                        actionCanTarget(piece, *pivot, action.damage, action.heal))
                     {
                         candidate.attacks = true;
                         addActionTarget(candidate, *pivot);
@@ -479,7 +489,7 @@ inline ActionResolution resolvePieceAction(
         else if (kind == ActionKind::Ranged)
         {
             if (action.canAttack && destination != nullptr &&
-                actionCanTarget(piece, *destination, action.damage) &&
+                actionCanTarget(piece, *destination, action.damage, action.heal) &&
                 rangedActionReachesTarget(pieces, piece, *destination, action))
             {
                 candidate.legal = true;
@@ -511,7 +521,7 @@ inline ActionResolution resolvePieceAction(
             if (footprintTargets.empty() || std::any_of(
                     footprintTargets.begin(), footprintTargets.end(),
                     [&](const Piece* target) {
-                        return !actionCanTarget(piece, *target, action.damage);
+                        return !actionCanTarget(piece, *target, action.damage, action.heal);
                     }))
             {
                 continue;
@@ -554,7 +564,7 @@ inline ActionResolution resolvePieceAction(
             const bool invalidTargetOverlap = std::any_of(
                 footprintTargets.begin(), footprintTargets.end(),
                 [&](const Piece* target) {
-                    return !actionCanTarget(piece, *target, action.damage);
+                    return !actionCanTarget(piece, *target, action.damage, action.heal);
                 });
             if (!invalidTargetOverlap && action.canAttack && !footprintTargets.empty())
             {
@@ -577,7 +587,7 @@ inline ActionResolution resolvePieceAction(
                 candidate.moves = true;
             }
             else if (destination != nullptr && action.canAttack &&
-                     actionCanTarget(piece, *destination, action.damage))
+                     actionCanTarget(piece, *destination, action.damage, action.heal))
             {
                 candidate.legal = true;
                 candidate.attacks = true;
@@ -605,9 +615,11 @@ inline ActionResolution resolvePieceAction(
         }
 
         const int candidateImpact = candidate.attacks
-            ? absInt(candidate.damage) + candidate.statusTurns
+            ? std::max(candidate.damage, candidate.heal) + candidate.statusTurns
             : 0;
-        const int bestImpact = best.attacks ? absInt(best.damage) + best.statusTurns : 0;
+        const int bestImpact = best.attacks
+            ? std::max(best.damage, best.heal) + best.statusTurns
+            : 0;
         if (!best.legal || candidateImpact > bestImpact)
         {
             best = candidate;
@@ -769,6 +781,7 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
     outcome.action.targetId = 0;
     outcome.action.targetIds.clear();
     outcome.action.damage = 0;
+    outcome.action.heal = 0;
     outcome.action.statusTurns = 0;
     outcome.action.moves = stopRow != piece.row || stopColumn != piece.column;
     outcome.destinationRow = stopRow;
@@ -823,6 +836,85 @@ inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
         std::max(second.column - (first.column + first.width - 1),
                  first.column - (second.column + second.width - 1)));
     return std::max(rowGap, columnGap) == 1;
+}
+
+struct DamageAssignment
+{
+    int pieceId = 0;
+    int damage = 0;
+};
+
+// Applies positive action damage, redirecting it from a non-Bodyguard
+// piece to its adjacent friendly Bodyguards. Every protector receives the same
+// base amount; only the indivisible remainder is assigned randomly.
+template <typename RandomEngine>
+inline std::vector<DamageAssignment> applyDamageWithBodyguards(
+    std::vector<Piece>& pieces,
+    int targetId,
+    int damage,
+    int statusTurns,
+    RandomEngine& randomEngine)
+{
+    const auto targetIt = std::find_if(
+        pieces.begin(),
+        pieces.end(),
+        [targetId](const Piece& piece) { return piece.id == targetId; });
+    if (targetIt == pieces.end())
+    {
+        return {};
+    }
+
+    std::vector<DamageAssignment> assignments;
+    if (damage > 0 && !hasKeyword(targetIt->keywords, "bodyguard"))
+    {
+        std::vector<int> bodyguardIds;
+        for (const Piece& candidate : pieces)
+        {
+            if (candidate.id != targetIt->id && candidate.owner == targetIt->owner &&
+                hasKeyword(candidate.keywords, "bodyguard") &&
+                piecesAreAdjacent(*targetIt, candidate))
+            {
+                bodyguardIds.push_back(candidate.id);
+            }
+        }
+
+        if (!bodyguardIds.empty())
+        {
+            const int baseDamage = damage / static_cast<int>(bodyguardIds.size());
+            const int remainder = damage % static_cast<int>(bodyguardIds.size());
+            if (remainder > 0)
+            {
+                std::shuffle(bodyguardIds.begin(), bodyguardIds.end(), randomEngine);
+            }
+            for (std::size_t index = 0; index < bodyguardIds.size(); ++index)
+            {
+                const int assignedDamage = baseDamage +
+                    (static_cast<int>(index) < remainder ? 1 : 0);
+                if (assignedDamage > 0)
+                {
+                    assignments.push_back({bodyguardIds[index], assignedDamage});
+                }
+            }
+        }
+    }
+
+    if (assignments.empty())
+    {
+        assignments.push_back({targetId, damage});
+    }
+
+    for (const DamageAssignment& assignment : assignments)
+    {
+        const auto recipient = std::find_if(
+            pieces.begin(),
+            pieces.end(),
+            [&](const Piece& piece) { return piece.id == assignment.pieceId; });
+        if (recipient != pieces.end())
+        {
+            applyActionDamage(*recipient, assignment.damage, statusTurns);
+        }
+    }
+    return assignments;
 }
 
 inline bool pieceCanReceiveCommand(const Piece& commander, const Piece& target)

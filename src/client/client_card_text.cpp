@@ -132,9 +132,14 @@ std::string actionDescription(const game_data::ActionProfile& action, std::size_
     }
     if (action.canAttack)
     {
-        parts.push_back(action.damage < 0
-            ? "healing: " + std::to_string(-action.damage)
-            : "damage: " + std::to_string(action.damage));
+        if (action.damage > 0)
+        {
+            parts.push_back("damage: " + std::to_string(action.damage));
+        }
+        if (action.heal > 0)
+        {
+            parts.push_back("healing: " + std::to_string(action.heal));
+        }
     }
     if (action.statusTurns > 0)
     {

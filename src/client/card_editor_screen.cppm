@@ -594,6 +594,7 @@ private:
     InputBox actionMinRangeField;
     InputBox actionMaxRangeField;
     InputBox actionDamageField;
+    InputBox actionHealField;
     InputBox actionCanMoveField;
     InputBox actionCanAttackField;
     InputBox actionPassThroughField;
@@ -962,6 +963,7 @@ private:
         actionMinRangeField = makeCompactField("1", {210.0f, 32.0f});
         actionMaxRangeField = makeCompactField("1", {210.0f, 32.0f});
         actionDamageField = makeCompactField("0", {210.0f, 32.0f});
+        actionHealField = makeCompactField("0", {210.0f, 32.0f});
         actionCanMoveField = makeCompactField("1", {210.0f, 32.0f});
         actionCanAttackField = makeCompactField("0", {210.0f, 32.0f});
         actionPassThroughField = makeCompactField("0", {210.0f, 32.0f});
@@ -1046,6 +1048,7 @@ private:
                 &actionMinRangeField,
                 &actionMaxRangeField,
                 &actionDamageField,
+                &actionHealField,
                 &actionCanMoveField,
                 &actionCanAttackField,
                 &actionPassThroughField,
@@ -1189,7 +1192,8 @@ private:
         action.pattern = lowerKey(trim(actionPatternField.getValue()));
         action.minRange = formInt(actionMinRangeField, 1);
         action.maxRange = formInt(actionMaxRangeField, 1);
-        action.damage = formInt(actionDamageField, 0);
+        action.damage = std::max(0, formInt(actionDamageField, 0));
+        action.heal = std::max(0, formInt(actionHealField, 0));
         action.canMove = formBool(actionCanMoveField);
         action.canAttack = formBool(actionCanAttackField);
         action.passThrough = formBool(actionPassThroughField);
@@ -1209,6 +1213,7 @@ private:
         actionMinRangeField.setValue("1");
         actionMaxRangeField.setValue("1");
         actionDamageField.setValue("0");
+        actionHealField.setValue("0");
         actionCanMoveField.setValue("1");
         actionCanAttackField.setValue("0");
         actionPassThroughField.setValue("0");
@@ -1236,6 +1241,7 @@ private:
         actionMinRangeField.setValue(std::to_string(action.minRange));
         actionMaxRangeField.setValue(std::to_string(action.maxRange));
         actionDamageField.setValue(std::to_string(action.damage));
+        actionHealField.setValue(std::to_string(action.heal));
         actionCanMoveField.setValue(action.canMove ? "1" : "0");
         actionCanAttackField.setValue(action.canAttack ? "1" : "0");
         actionPassThroughField.setValue(action.passThrough ? "1" : "0");
@@ -2506,7 +2512,7 @@ private:
         y += 5.0f;
         y = drawInstructionBullet(window, "Pattern ortho, diag, omni, horizontal, or vertical moves along that board geometry up to the action's maximum range.", y);
         y = drawInstructionBullet(window, "Pattern jump uses the fixed knight-style L shape. Pattern none is used for ranged, teleport, and tunnel actions that do not need slide geometry.", y);
-        y = drawInstructionBullet(window, "Can move lets the action target an empty destination. Can attack targets an enemy when Damage is zero or positive, or a friendly piece when Damage is negative. Negative Damage heals up to the target's maximum health.", y);
+        y = drawInstructionBullet(window, "Can move lets the action target an empty destination. With Can attack enabled, positive Damage targets and hurts enemies, while positive Heal targets and restores friendlies up to maximum health. Damage and Heal must not be negative.", y);
         y = drawInstructionBullet(window, "Minimum and maximum range are per action, so a card can mix short moves, long moves, ranged attacks, and state-specific actions.", y);
         y = drawInstructionParagraph(window, "For blocking slide and capture actions, every square along the path must be empty. Pass-through ignores blockers. Line of sight applies blocker checks to ranged attacks.", y + 5.0f, sf::Color(198, 210, 224));
         y += 10.0f;
@@ -2523,7 +2529,7 @@ private:
         y = drawInstructionSection(window, "6. Rarity, Traits, Keywords, and String Lists", y);
         y = drawInstructionBullet(window, "Rarity: add a String Field named rarity with value common, rare, legendary, or token. Missing or unknown values count as common. Token cards cannot appear in collections or decks. Shop selection odds are 70% common, 25% rare, and 5% legendary; cards within a rarity are equally likely.", y);
         y = drawInstructionBullet(window, "Traits: unit cards require living friendly heroes with matching traits when played. Heroes and spells do not require matching traits. The deck editor can filter by the nine supported traits.", y);
-        y = drawInstructionBullet(window, "Keywords are stored separately from traits. Relentless lets a piece act again immediately whenever it destroys another piece.", y);
+        y = drawInstructionBullet(window, "Keywords are stored separately from traits. Relentless lets a piece act again immediately whenever it destroys another piece. Bodyguard passively redirects damage from adjacent friendly non-Bodyguard pieces to itself; multiple Bodyguards split that damage as evenly as possible.", y);
         y = drawInstructionBullet(window, "ability: transform, dematerialize, dig, summon, or command. Transform-style abilities switch action states; dig creates a tunnel hole; summon creates the unit named by the summon string field in the space in front; command lets one ready adjacent friendly piece take any normal action without ending the turn.", y);
         y = drawInstructionBullet(window, "summon: exact Unit card title created by a summon ability. Player 1 summons to the right; Player 2 summons to the left.", y);
         y = drawInstructionBullet(window, "Cards store ordered references to reusable action objects. Use the Actions section on the card form to choose them.", y);
@@ -2741,18 +2747,19 @@ private:
 
     void layoutActionFields()
     {
-        actionStateField.setPosition({340.0f, 246.0f});
-        actionKindField.setPosition({600.0f, 246.0f});
-        actionPatternField.setPosition({340.0f, 316.0f});
-        actionMinRangeField.setPosition({600.0f, 316.0f});
-        actionMaxRangeField.setPosition({340.0f, 386.0f});
-        actionDamageField.setPosition({600.0f, 386.0f});
-        actionCanMoveField.setPosition({340.0f, 456.0f});
-        actionCanAttackField.setPosition({600.0f, 456.0f});
-        actionPassThroughField.setPosition({340.0f, 526.0f});
-        actionLineOfSightField.setPosition({600.0f, 526.0f});
-        actionStatusTurnsField.setPosition({340.0f, 596.0f});
-        actionCooldownTurnsField.setPosition({600.0f, 596.0f});
+        actionStateField.setPosition({340.0f, 232.0f});
+        actionKindField.setPosition({600.0f, 232.0f});
+        actionPatternField.setPosition({340.0f, 290.0f});
+        actionMinRangeField.setPosition({600.0f, 290.0f});
+        actionMaxRangeField.setPosition({340.0f, 348.0f});
+        actionDamageField.setPosition({600.0f, 348.0f});
+        actionHealField.setPosition({340.0f, 406.0f});
+        actionCanMoveField.setPosition({600.0f, 406.0f});
+        actionCanAttackField.setPosition({340.0f, 464.0f});
+        actionPassThroughField.setPosition({600.0f, 464.0f});
+        actionLineOfSightField.setPosition({340.0f, 522.0f});
+        actionStatusTurnsField.setPosition({600.0f, 522.0f});
+        actionCooldownTurnsField.setPosition({340.0f, 580.0f});
     }
 
     void drawActionEditorPanel(sf::RenderWindow& window)
@@ -2763,18 +2770,19 @@ private:
         actionNameField.draw(window);
         layoutActionFields();
         const std::vector<std::pair<std::string, sf::Vector2f>> labels = {
-            {"State", {340.0f, 222.0f}},
-            {"Kind", {600.0f, 222.0f}},
-            {"Pattern", {340.0f, 292.0f}},
-            {"Minimum range", {600.0f, 292.0f}},
-            {"Maximum range", {340.0f, 362.0f}},
-            {"Damage", {600.0f, 362.0f}},
-            {"Can move", {340.0f, 432.0f}},
-            {"Can attack", {600.0f, 432.0f}},
-            {"Pass through", {340.0f, 502.0f}},
-            {"Line of sight", {600.0f, 502.0f}},
-            {"Status turns", {340.0f, 572.0f}},
-            {"Cooldown turns", {600.0f, 572.0f}},
+            {"State", {340.0f, 208.0f}},
+            {"Kind", {600.0f, 208.0f}},
+            {"Pattern", {340.0f, 266.0f}},
+            {"Minimum range", {600.0f, 266.0f}},
+            {"Maximum range", {340.0f, 324.0f}},
+            {"Damage", {600.0f, 324.0f}},
+            {"Heal", {340.0f, 382.0f}},
+            {"Can move", {600.0f, 382.0f}},
+            {"Can attack", {340.0f, 440.0f}},
+            {"Pass through", {600.0f, 440.0f}},
+            {"Line of sight", {340.0f, 498.0f}},
+            {"Status turns", {600.0f, 498.0f}},
+            {"Cooldown turns", {340.0f, 556.0f}},
         };
         for (const auto& [label, position] : labels)
         {
@@ -2799,7 +2807,7 @@ private:
         drawText(window, font, "Action Reference", 22, {882.0f, 124.0f}, Ink);
         drawText(window, font, action.name.empty() ? "Untitled Action" : action.name, 21, {882.0f, 168.0f}, Accent, 336.0f);
         drawText(window, font, fmt::format("state {}  |  {} / {}", action.state, action.kind, action.pattern), 17, {882.0f, 212.0f}, Ink, 336.0f);
-        drawText(window, font, fmt::format("range {}-{}  |  damage {}", action.minRange, action.maxRange, action.damage), 17, {882.0f, 252.0f}, Ink, 336.0f);
+        drawText(window, font, fmt::format("range {}-{}  |  damage {}  |  heal {}", action.minRange, action.maxRange, action.damage, action.heal), 17, {882.0f, 252.0f}, Ink, 336.0f);
         std::vector<std::string> flags;
         if (action.canMove) flags.push_back("move");
         if (action.canAttack) flags.push_back("attack");

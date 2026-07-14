@@ -96,6 +96,11 @@ std::optional<card_data::Action> decodeLegacyAction(const std::string& name, con
     action.minRange = integerOr(fields[3], 1);
     action.maxRange = integerOr(fields[4], 1);
     action.damage = integerOr(fields[5], 0);
+    if (action.damage < 0)
+    {
+        action.heal = -action.damage;
+        action.damage = 0;
+    }
     action.canMove = hasFlag(fields[6], "move");
     action.canAttack = hasFlag(fields[6], "attack");
     action.passThrough = hasFlag(fields[6], "pass");
@@ -228,6 +233,7 @@ private:
             "min_range INTEGER NOT NULL,"
             "max_range INTEGER NOT NULL,"
             "damage INTEGER NOT NULL,"
+            "heal INTEGER NOT NULL,"
             "can_move INTEGER NOT NULL,"
             "can_attack INTEGER NOT NULL,"
             "pass_through INTEGER NOT NULL,"
@@ -235,6 +241,12 @@ private:
             "status_turns INTEGER NOT NULL,"
             "cooldown_turns INTEGER NOT NULL"
             ")");
+        if (!columnExists("actions", "heal"))
+        {
+            database->exec("ALTER TABLE actions ADD COLUMN heal INTEGER NOT NULL DEFAULT 0");
+        }
+        database->exec(
+            "UPDATE actions SET heal = MAX(heal, -damage), damage = 0 WHERE damage < 0");
         database->exec(
             "CREATE TABLE IF NOT EXISTS card_actions ("
             "title TEXT NOT NULL,"
@@ -255,6 +267,19 @@ private:
         query.bind(1, tableName);
         query.executeStep();
         return query.getColumn(0).getInt() != 0;
+    }
+
+    bool columnExists(const std::string& tableName, const std::string& columnName)
+    {
+        SQLite::Statement query(*database, fmt::format("PRAGMA table_info({})", tableName));
+        while (query.executeStep())
+        {
+            if (query.getColumn(1).getString() == columnName)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     void handleClient(bayou::tls::Socket& client)
@@ -695,13 +720,14 @@ private:
         statement.bind(offset + 3, action.pattern);
         statement.bind(offset + 4, action.minRange);
         statement.bind(offset + 5, action.maxRange);
-        statement.bind(offset + 6, action.damage);
-        statement.bind(offset + 7, action.canMove ? 1 : 0);
-        statement.bind(offset + 8, action.canAttack ? 1 : 0);
-        statement.bind(offset + 9, action.passThrough ? 1 : 0);
-        statement.bind(offset + 10, action.lineOfSight ? 1 : 0);
-        statement.bind(offset + 11, action.statusTurns);
-        statement.bind(offset + 12, action.cooldownTurns);
+        statement.bind(offset + 6, std::max(0, action.damage));
+        statement.bind(offset + 7, std::max(0, action.heal));
+        statement.bind(offset + 8, action.canMove ? 1 : 0);
+        statement.bind(offset + 9, action.canAttack ? 1 : 0);
+        statement.bind(offset + 10, action.passThrough ? 1 : 0);
+        statement.bind(offset + 11, action.lineOfSight ? 1 : 0);
+        statement.bind(offset + 12, action.statusTurns);
+        statement.bind(offset + 13, action.cooldownTurns);
     }
 
     void saveAction(const std::string& originalName, const card_data::Action& action)
@@ -709,11 +735,11 @@ private:
         SQLite::Transaction transaction(*database);
         SQLite::Statement upsert(
             *database,
-            "INSERT INTO actions (name, state, kind, pattern, min_range, max_range, damage, can_move, "
+            "INSERT INTO actions (name, state, kind, pattern, min_range, max_range, damage, heal, can_move, "
             "can_attack, pass_through, line_of_sight, status_turns, cooldown_turns) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(name) DO UPDATE SET state=excluded.state, kind=excluded.kind, pattern=excluded.pattern, "
-            "min_range=excluded.min_range, max_range=excluded.max_range, damage=excluded.damage, "
+            "min_range=excluded.min_range, max_range=excluded.max_range, damage=excluded.damage, heal=excluded.heal, "
             "can_move=excluded.can_move, can_attack=excluded.can_attack, pass_through=excluded.pass_through, "
             "line_of_sight=excluded.line_of_sight, status_turns=excluded.status_turns, cooldown_turns=excluded.cooldown_turns");
         bindAction(upsert, action);
@@ -759,9 +785,9 @@ private:
             }
             SQLite::Statement insertAction(
                 *database,
-                "INSERT OR IGNORE INTO actions (name, state, kind, pattern, min_range, max_range, damage, "
+                "INSERT OR IGNORE INTO actions (name, state, kind, pattern, min_range, max_range, damage, heal, "
                 "can_move, can_attack, pass_through, line_of_sight, status_turns, cooldown_turns) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             bindAction(insertAction, *action);
             insertAction.exec();
             SQLite::Statement insertReference(

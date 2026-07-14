@@ -1098,6 +1098,7 @@ int main(int argc, char** argv)
     };
     std::unordered_map<int, PieceFidgetAnimation> pieceFidgetAnimations;
     std::mt19937 fidgetRandomEngine(std::random_device{}());
+    std::mt19937 sandboxDamageRandomEngine(std::random_device{}());
     struct PieceKilledAnimation
     {
         game_data::Piece piece;
@@ -3635,11 +3636,18 @@ int main(int argc, char** argv)
                 commitSandboxSnapshot(std::move(next));
                 return;
             }
-            target->health -= card.power;
-            game_data::applyDamageStatus(*target, card.power, 0);
-            if (target->health <= 0)
+            const int targetId = target->id;
+            const std::vector<game_data::DamageAssignment> damageAssignments =
+                game_data::applyDamageWithBodyguards(
+                    next.pieces, targetId, card.power, 0, sandboxDamageRandomEngine);
+            for (const game_data::DamageAssignment& assignment : damageAssignments)
             {
-                removePieceFromSnapshot(next, target->id);
+                game_data::Piece* damagedPiece =
+                    pieceByIdInSnapshotMutable(next, assignment.pieceId);
+                if (damagedPiece && damagedPiece->health <= 0)
+                {
+                    removePieceFromSnapshot(next, damagedPiece->id);
+                }
             }
         }
         else if (card.effect == "heal")
@@ -3711,7 +3719,8 @@ int main(int argc, char** argv)
         const int attackerId = piece->id;
         const int attackerOwner = piece->owner;
         const std::string attackerName = piece->name;
-        std::vector<std::string> targetNames;
+        std::vector<std::string> damagedTargetNames;
+        std::vector<std::string> healedTargetNames;
         bool anyTargetDestroyed = false;
         bool anyTargetWasHidden = false;
 
@@ -3725,18 +3734,39 @@ int main(int argc, char** argv)
             {
                 game_data::Piece* target = pieceByIdInSnapshotMutable(next, targetId);
                 if (!target) continue;
-                targetNames.push_back((target->hidden ? "a hidden " : "") + target->name);
+                const std::string targetName =
+                    (target->hidden ? "a hidden " : "") + target->name;
                 anyTargetWasHidden = anyTargetWasHidden ||
                     (target->hidden && target->owner != attackerOwner);
                 startPieceAttackAnimation(attackerId, target->row, target->column);
-                game_data::applyActionDamage(*target, action.damage, action.statusTurns);
-                if (target->health <= 0)
+                if (target->owner == attackerOwner)
                 {
-                    anyTargetDestroyed = true;
-                    removePieceFromSnapshot(next, targetId);
+                    healedTargetNames.push_back(targetName);
+                    game_data::applyActionHealing(*target, action.heal, action.statusTurns);
+                }
+                else
+                {
+                    damagedTargetNames.push_back(targetName);
+                    const std::vector<game_data::DamageAssignment> damageAssignments =
+                        game_data::applyDamageWithBodyguards(
+                            next.pieces,
+                            targetId,
+                            action.damage,
+                            action.statusTurns,
+                            sandboxDamageRandomEngine);
+                    for (const game_data::DamageAssignment& assignment : damageAssignments)
+                    {
+                        game_data::Piece* damagedPiece =
+                            pieceByIdInSnapshotMutable(next, assignment.pieceId);
+                        if (damagedPiece && damagedPiece->health <= 0)
+                        {
+                            anyTargetDestroyed = true;
+                            removePieceFromSnapshot(next, damagedPiece->id);
+                        }
+                    }
                 }
             }
-            if (targetNames.empty()) return;
+            if (damagedTargetNames.empty() && healedTargetNames.empty()) return;
         }
 
         std::string revealedName;
@@ -3778,23 +3808,31 @@ int main(int argc, char** argv)
         }
         else if (action.attacks)
         {
-            const int effectiveDisabledTurns =
-                game_data::disabledTurnsForDamage(action.damage, action.statusTurns);
-            std::string joinedTargets;
-            for (std::size_t i = 0; i < targetNames.size(); ++i)
+            next.status.clear();
+            const int effectiveDisabledTurns = damagedTargetNames.empty()
+                ? std::max(0, action.statusTurns)
+                : game_data::disabledTurnsForDamage(action.damage, action.statusTurns);
+            const auto joinTargets = [](const std::vector<std::string>& names) {
+                std::string joined;
+                for (std::size_t i = 0; i < names.size(); ++i)
+                {
+                    if (i > 0) joined += i + 1 == names.size() ? " and " : ", ";
+                    joined += names[i];
+                }
+                return joined;
+            };
+            if (!damagedTargetNames.empty())
             {
-                if (i > 0) joinedTargets += i + 1 == targetNames.size() ? " and " : ", ";
-                joinedTargets += targetNames[i];
+                next.status = attackerName + " hit " + joinTargets(damagedTargetNames) +
+                    " for " + std::to_string(action.damage) + " each";
             }
-            if (action.damage < 0)
+            if (!healedTargetNames.empty())
             {
-                next.status = attackerName + " healed " + joinedTargets + " for " +
-                    std::to_string(-action.damage) + " each";
-            }
-            else
-            {
-                next.status = attackerName + " hit " + joinedTargets + " for " +
-                    std::to_string(action.damage) + " each";
+                const std::string healed = "healed " + joinTargets(healedTargetNames) +
+                    " for " + std::to_string(action.heal) + " each";
+                next.status += next.status.empty()
+                    ? attackerName + " " + healed
+                    : " and " + healed;
             }
             if (effectiveDisabledTurns > 0)
                 next.status += " and disabled surviving targets for " +

@@ -12,7 +12,7 @@ namespace card_data
 // crafted packet cannot trigger a huge allocation.
 constexpr std::uint32_t MaxSerializedItems = 4096;
 constexpr std::uint32_t CardListSchemaMarker = 0xffffffffu;
-constexpr std::uint32_t CardListSchemaVersion = 2;
+constexpr std::uint32_t CardListSchemaVersion = 3;
 
 struct KeyIntPair
 {
@@ -41,6 +41,7 @@ struct Action
     int minRange = 1;
     int maxRange = 1;
     int damage = 0;
+    int heal = 0;
     bool canMove = true;
     bool canAttack = false;
     bool passThrough = false;
@@ -100,16 +101,25 @@ inline bool readStringVector(sf::Packet& packet, std::vector<std::string>& value
 inline void writeAction(sf::Packet& packet, const Action& action)
 {
     packet << action.name << action.state << action.kind << action.pattern
-           << action.minRange << action.maxRange << action.damage
+           << action.minRange << action.maxRange << action.damage << action.heal
            << action.canMove << action.canAttack << action.passThrough << action.lineOfSight
            << action.statusTurns << action.cooldownTurns;
 }
 
-inline bool readAction(sf::Packet& packet, Action& action)
+inline bool readAction(sf::Packet& packet, Action& action, bool includesHeal = true)
 {
     packet >> action.name >> action.state >> action.kind >> action.pattern
-           >> action.minRange >> action.maxRange >> action.damage
-           >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight
+           >> action.minRange >> action.maxRange >> action.damage;
+    if (includesHeal)
+    {
+        packet >> action.heal;
+    }
+    else if (action.damage < 0)
+    {
+        action.heal = -action.damage;
+        action.damage = 0;
+    }
+    packet >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight
            >> action.statusTurns >> action.cooldownTurns;
     return static_cast<bool>(packet);
 }
@@ -177,7 +187,7 @@ inline void writeCard(sf::Packet& packet, const Card& card)
     }
 }
 
-inline bool readCardRemaining(sf::Packet& packet, Card& card)
+inline bool readCardRemaining(sf::Packet& packet, Card& card, bool actionIncludesHeal = true)
 {
     std::uint32_t integerCount = 0;
     packet >> integerCount;
@@ -252,7 +262,7 @@ inline bool readCardRemaining(sf::Packet& packet, Card& card)
     for (std::uint32_t i = 0; i < actionCount; ++i)
     {
         Action action;
-        if (!readAction(packet, action))
+        if (!readAction(packet, action, actionIncludesHeal))
         {
             return false;
         }
@@ -280,7 +290,7 @@ inline bool readLegacyCard(sf::Packet& packet, Card& card)
         return false;
     }
     card.keywords.clear();
-    return readCardRemaining(packet, card);
+    return readCardRemaining(packet, card, false);
 }
 
 inline bool readListedCard(sf::Packet& packet, Card& card, bool legacyFormat)

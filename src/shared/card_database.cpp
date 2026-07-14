@@ -1,5 +1,6 @@
 #include "card_database.hpp"
 
+#include <algorithm>
 #include <map>
 #include <string>
 #include <utility>
@@ -18,6 +19,22 @@ bool tableExists(SQLite::Database& database, const std::string& tableName)
     return query.getColumn(0).getInt() != 0;
 }
 
+bool columnExists(
+    SQLite::Database& database,
+    const std::string& tableName,
+    const std::string& columnName)
+{
+    SQLite::Statement query(database, "PRAGMA table_info(" + tableName + ")");
+    while (query.executeStep())
+    {
+        if (query.getColumn(1).getString() == columnName)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 card_data::Action actionFromQuery(SQLite::Statement& query)
 {
     card_data::Action action;
@@ -28,12 +45,19 @@ card_data::Action actionFromQuery(SQLite::Statement& query)
     action.minRange = query.getColumn(4).getInt();
     action.maxRange = query.getColumn(5).getInt();
     action.damage = query.getColumn(6).getInt();
-    action.canMove = query.getColumn(7).getInt() != 0;
-    action.canAttack = query.getColumn(8).getInt() != 0;
-    action.passThrough = query.getColumn(9).getInt() != 0;
-    action.lineOfSight = query.getColumn(10).getInt() != 0;
-    action.statusTurns = query.getColumn(11).getInt();
-    action.cooldownTurns = query.getColumn(12).getInt();
+    action.heal = query.getColumn(7).getInt();
+    if (action.damage < 0)
+    {
+        action.heal = std::max(action.heal, -action.damage);
+        action.damage = 0;
+    }
+    action.heal = std::max(0, action.heal);
+    action.canMove = query.getColumn(8).getInt() != 0;
+    action.canAttack = query.getColumn(9).getInt() != 0;
+    action.passThrough = query.getColumn(10).getInt() != 0;
+    action.lineOfSight = query.getColumn(11).getInt() != 0;
+    action.statusTurns = query.getColumn(12).getInt();
+    action.cooldownTurns = query.getColumn(13).getInt();
     return action;
 }
 
@@ -108,10 +132,16 @@ std::vector<std::string> loadActionNames(SQLite::Database& database, const std::
 std::vector<card_data::Action> loadActions(SQLite::Database& database)
 {
     std::vector<card_data::Action> actions;
+    const bool hasHeal = columnExists(database, "actions", "heal");
     SQLite::Statement query(
         database,
-        "SELECT name, state, kind, pattern, min_range, max_range, damage, can_move, can_attack, "
-        "pass_through, line_of_sight, status_turns, cooldown_turns FROM actions ORDER BY name");
+        hasHeal
+            ? "SELECT name, state, kind, pattern, min_range, max_range, damage, heal, can_move, can_attack, "
+              "pass_through, line_of_sight, status_turns, cooldown_turns FROM actions ORDER BY name"
+            : "SELECT name, state, kind, pattern, min_range, max_range, "
+              "CASE WHEN damage < 0 THEN 0 ELSE damage END, "
+              "CASE WHEN damage < 0 THEN -damage ELSE 0 END, can_move, can_attack, "
+              "pass_through, line_of_sight, status_turns, cooldown_turns FROM actions ORDER BY name");
     while (query.executeStep())
     {
         actions.push_back(actionFromQuery(query));
@@ -122,12 +152,20 @@ std::vector<card_data::Action> loadActions(SQLite::Database& database)
 std::vector<card_data::Action> loadCardActions(SQLite::Database& database, const std::string& title)
 {
     std::vector<card_data::Action> actions;
+    const bool hasHeal = columnExists(database, "actions", "heal");
     SQLite::Statement query(
         database,
-        "SELECT a.name, a.state, a.kind, a.pattern, a.min_range, a.max_range, a.damage, "
-        "a.can_move, a.can_attack, a.pass_through, a.line_of_sight, a.status_turns, a.cooldown_turns "
-        "FROM card_actions ca JOIN actions a ON a.name = ca.action_name "
-        "WHERE ca.title = ? ORDER BY ca.item_index");
+        hasHeal
+            ? "SELECT a.name, a.state, a.kind, a.pattern, a.min_range, a.max_range, a.damage, a.heal, "
+              "a.can_move, a.can_attack, a.pass_through, a.line_of_sight, a.status_turns, a.cooldown_turns "
+              "FROM card_actions ca JOIN actions a ON a.name = ca.action_name "
+              "WHERE ca.title = ? ORDER BY ca.item_index"
+            : "SELECT a.name, a.state, a.kind, a.pattern, a.min_range, a.max_range, "
+              "CASE WHEN a.damage < 0 THEN 0 ELSE a.damage END, "
+              "CASE WHEN a.damage < 0 THEN -a.damage ELSE 0 END, "
+              "a.can_move, a.can_attack, a.pass_through, a.line_of_sight, a.status_turns, a.cooldown_turns "
+              "FROM card_actions ca JOIN actions a ON a.name = ca.action_name "
+              "WHERE ca.title = ? ORDER BY ca.item_index");
     query.bind(1, title);
     while (query.executeStep())
     {

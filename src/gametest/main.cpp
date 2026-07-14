@@ -6,10 +6,13 @@
 #include "tls_socket.hpp"
 #include <fmt/core.h>
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
+#include <random>
 #include <string>
 #include <thread>
 #include <vector>
@@ -616,9 +619,10 @@ int main(int argc, char** argv)
     healer.actionState = 0;
     ActionProfile healingAction = raisedGun;
     healingAction.state = 0;
-    healingAction.damage = -3;
+    healingAction.damage = 0;
+    healingAction.heal = 3;
     ActionProfile weakHealingAction = healingAction;
-    weakHealingAction.damage = -1;
+    weakHealingAction.heal = 1;
     healer.actions = {weakHealingAction, healingAction};
     Piece woundedFriendly = gunTarget;
     woundedFriendly.id = 25;
@@ -634,14 +638,15 @@ int main(int argc, char** argv)
     const ActionResolution healingResult =
         resolvePieceAction(healingPieces, holes, healingPieces[0], 3, 4);
     check(healingResult.legal && healingResult.attacks &&
-              healingResult.targetId == woundedFriendly.id && healingResult.damage == -3,
-          "negative damage targets a friendly piece");
+              healingResult.targetId == woundedFriendly.id &&
+              healingResult.damage == 0 && healingResult.heal == 3,
+          "positive action healing targets a friendly piece");
     check(!resolvePieceAction(healingPieces, holes, healingPieces[0], 4, 3).legal,
-          "negative damage cannot target an enemy piece");
-    applyActionDamage(healingPieces[1], healingResult.damage, healingResult.statusTurns);
+          "healing-only actions cannot target an enemy piece");
+    applyActionHealing(healingPieces[1], healingResult.heal, healingResult.statusTurns);
     check(healingPieces[1].health == healingPieces[1].maxHealth &&
               healingPieces[1].disabledTurns == 0 && healingPieces[1].sleepTurnsRemaining == 0,
-          "negative damage heals only to maximum health without applying damage status");
+          "positive action healing stops at maximum health without applying damage status");
 
     raisedGun.maxRange = 3;
     raisedGun.lineOfSight = false;
@@ -684,6 +689,67 @@ int main(int argc, char** argv)
     check(damagedTarget.disabledTurns == 2,
           "explicit status duration can exceed the damage disabled duration");
 
+    Piece protectedPiece;
+    protectedPiece.id = 30;
+    protectedPiece.owner = 2;
+    protectedPiece.row = 3;
+    protectedPiece.column = 3;
+    protectedPiece.health = 10;
+    protectedPiece.maxHealth = 10;
+    auto makeBodyguard = [](int id, int owner, int row, int column) {
+        Piece bodyguard;
+        bodyguard.id = id;
+        bodyguard.owner = owner;
+        bodyguard.row = row;
+        bodyguard.column = column;
+        bodyguard.health = 10;
+        bodyguard.maxHealth = 10;
+        bodyguard.keywords = {"BoDyGuArD"};
+        return bodyguard;
+    };
+    Piece bodyguardA = makeBodyguard(31, 2, 2, 2);
+    Piece bodyguardB = makeBodyguard(32, 2, 2, 3);
+    Piece bodyguardC = makeBodyguard(33, 2, 2, 4);
+    Piece enemyBodyguard = makeBodyguard(34, 1, 3, 4);
+    Piece distantBodyguard = makeBodyguard(35, 2, 0, 0);
+    std::vector<Piece> bodyguardPieces = {
+        protectedPiece,
+        bodyguardA,
+        bodyguardB,
+        bodyguardC,
+        enemyBodyguard,
+        distantBodyguard};
+    std::mt19937 bodyguardRandom(23);
+    const std::vector<DamageAssignment> splitAssignments =
+        applyDamageWithBodyguards(bodyguardPieces, protectedPiece.id, 5, 0, bodyguardRandom);
+    std::vector<int> bodyguardDamage;
+    for (int id : {bodyguardA.id, bodyguardB.id, bodyguardC.id})
+    {
+        const auto found = std::find_if(
+            bodyguardPieces.begin(),
+            bodyguardPieces.end(),
+            [id](const Piece& piece) { return piece.id == id; });
+        bodyguardDamage.push_back(10 - found->health);
+    }
+    std::sort(bodyguardDamage.begin(), bodyguardDamage.end());
+    check(splitAssignments.size() == 3 &&
+              bodyguardPieces[0].health == 10 &&
+              bodyguardDamage == std::vector<int>({1, 2, 2}) &&
+              bodyguardPieces[4].health == 10 &&
+              bodyguardPieces[5].health == 10,
+          "Bodyguard splits damage evenly among adjacent friendly Bodyguards only");
+
+    const std::array<int, 3> healthBeforeBodyguardHit = {
+        bodyguardPieces[1].health,
+        bodyguardPieces[2].health,
+        bodyguardPieces[3].health};
+    applyDamageWithBodyguards(
+        bodyguardPieces, bodyguardB.id, 5, 0, bodyguardRandom);
+    check(bodyguardPieces[1].health == healthBeforeBodyguardHit[0] &&
+              bodyguardPieces[2].health == healthBeforeBodyguardHit[1] - 5 &&
+              bodyguardPieces[3].health == healthBeforeBodyguardHit[2],
+          "damage dealt to a Bodyguard is not redirected to adjacent Bodyguards");
+
     card_data::Card encodedCard;
     encodedCard.title = "Encoded";
     encodedCard.type = "Unit";
@@ -700,6 +766,7 @@ int main(int argc, char** argv)
         1,
         7,
         2,
+        0,
         true,
         true,
         false,
@@ -714,12 +781,23 @@ int main(int argc, char** argv)
               decodedCard.attackingMove &&
               decodedCard.actions[0].name == "Diagonal Charge" &&
               decodedCard.actions[0].damage == 2 &&
+              decodedCard.actions[0].heal == 0 &&
               decodedCard.actions[0].canMove &&
               decodedCard.actions[0].canAttack &&
               decodedCard.fidgetAnimPath == "animations/fidget/test.png" &&
               decodedCard.fidgetAnimFrames == 3 &&
               decodedCard.tax == 4,
           "referenced action object resolves into gameplay data without a legacy fallback attack");
+
+    card_data::Action encodedHealingAction = encodedCard.actions[0];
+    encodedHealingAction.damage = 0;
+    encodedHealingAction.heal = 4;
+    sf::Packet actionPacket;
+    card_data::writeAction(actionPacket, encodedHealingAction);
+    card_data::Action roundTrippedAction;
+    check(card_data::readAction(actionPacket, roundTrippedAction) &&
+              roundTrippedAction.damage == 0 && roundTrippedAction.heal == 4,
+          "card-server action serialization keeps healing separate from damage");
 
     sf::Packet legacyCardListPacket;
     legacyCardListPacket << static_cast<std::uint32_t>(1);
@@ -771,12 +849,15 @@ int main(int argc, char** argv)
     serializedCard.abilityLabels = {"Ready", "Lower"};
     serializedCard.abilityUses = 2;
     serializedCard.tax = 4;
+    serializedCard.actions[0].heal = 3;
     sf::Packet cardPacket;
     writeGameCard(cardPacket, serializedCard);
     GameCard roundTrippedCard;
     check(readGameCard(cardPacket, roundTrippedCard) &&
               roundTrippedCard.actions.size() == 1 &&
               roundTrippedCard.actions[0].name == "Diagonal Charge" &&
+              roundTrippedCard.actions[0].damage == 2 &&
+              roundTrippedCard.actions[0].heal == 3 &&
               roundTrippedCard.traits == encodedCard.traits &&
               roundTrippedCard.keywords == encodedCard.keywords &&
               roundTrippedCard.tokenPath == "characters/test.png" &&
@@ -828,6 +909,7 @@ int main(int argc, char** argv)
     if (!serializedPiece.actions.empty())
     {
         serializedPiece.actions[0].name = "Serialized Action";
+        serializedPiece.actions[0].heal = 2;
     }
     sf::Packet piecePacket;
     writePiece(piecePacket, serializedPiece);
@@ -835,6 +917,7 @@ int main(int argc, char** argv)
     check(readPiece(piecePacket, roundTrippedPiece) &&
               roundTrippedPiece.actions.size() == 1 &&
               roundTrippedPiece.actions[0].name == "Serialized Action" &&
+              roundTrippedPiece.actions[0].heal == 2 &&
               roundTrippedPiece.traits == serializedPiece.traits &&
               roundTrippedPiece.keywords == serializedPiece.keywords &&
               roundTrippedPiece.tokenPath == "characters/test.png" &&

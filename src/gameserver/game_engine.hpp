@@ -606,7 +606,8 @@ private:
         const int attackerId = piece->id;
         const int attackerOwner = piece->owner;
         const std::string attackerName = piece->name;
-        std::vector<std::string> targetNames;
+        std::vector<std::string> damagedTargetNames;
+        std::vector<std::string> healedTargetNames;
         std::vector<int> defeatedOwners;
         bool anyTargetDestroyed = false;
         bool anyTargetWasHidden = false;
@@ -621,19 +622,34 @@ private:
                 Piece* target = pieceById(targetId);
                 if (target == nullptr)
                     continue;
-                targetNames.push_back((target->hidden ? "a hidden " : "") + target->name);
+                const std::string targetName =
+                    (target->hidden ? "a hidden " : "") + target->name;
                 anyTargetWasHidden = anyTargetWasHidden ||
                     (target->hidden && target->owner != attackerOwner);
-                const int victimOwner = target->owner;
-                applyActionDamage(*target, action.damage, action.statusTurns);
-                if (target->health <= 0)
+                if (target->owner == attackerOwner)
                 {
-                    anyTargetDestroyed = true;
-                    defeatedOwners.push_back(victimOwner);
-                    removePiece(targetId);
+                    healedTargetNames.push_back(targetName);
+                    applyActionHealing(*target, action.heal, action.statusTurns);
+                }
+                else
+                {
+                    damagedTargetNames.push_back(targetName);
+                    const std::vector<DamageAssignment> damageAssignments =
+                        applyDamageWithBodyguards(
+                            pieces, targetId, action.damage, action.statusTurns, rng);
+                    for (const DamageAssignment& assignment : damageAssignments)
+                    {
+                        Piece* damagedPiece = pieceById(assignment.pieceId);
+                        if (damagedPiece != nullptr && damagedPiece->health <= 0)
+                        {
+                            anyTargetDestroyed = true;
+                            defeatedOwners.push_back(damagedPiece->owner);
+                            removePiece(damagedPiece->id);
+                        }
+                    }
                 }
             }
-            if (targetNames.empty()) return;
+            if (damagedTargetNames.empty() && healedTargetNames.empty()) return;
         }
 
         // A hidden piece that was struck or bumped into materializes stunned.
@@ -684,20 +700,35 @@ private:
         std::string result;
         if (action.attacks)
         {
-            const int effectiveDisabledTurns = disabledTurnsForDamage(action.damage, action.statusTurns);
-            std::string joinedTargets;
-            for (std::size_t i = 0; i < targetNames.size(); ++i)
+            const int effectiveDisabledTurns = damagedTargetNames.empty()
+                ? std::max(0, action.statusTurns)
+                : disabledTurnsForDamage(action.damage, action.statusTurns);
+            const auto joinTargets = [](const std::vector<std::string>& names) {
+                std::string joined;
+                for (std::size_t i = 0; i < names.size(); ++i)
+                {
+                    if (i > 0) joined += i + 1 == names.size() ? " and " : ", ";
+                    joined += names[i];
+                }
+                return joined;
+            };
+            if (!damagedTargetNames.empty())
             {
-                if (i > 0) joinedTargets += i + 1 == targetNames.size() ? " and " : ", ";
-                joinedTargets += targetNames[i];
+                result = fmt::format(
+                    "{} hit {} for {} each",
+                    attackerName,
+                    joinTargets(damagedTargetNames),
+                    action.damage);
             }
-            if (action.damage < 0)
+            if (!healedTargetNames.empty())
             {
-                result = fmt::format("{} healed {} for {} each", attackerName, joinedTargets, -action.damage);
-            }
-            else
-            {
-                result = fmt::format("{} hit {} for {} each", attackerName, joinedTargets, action.damage);
+                const std::string healed = fmt::format(
+                    "healed {} for {} each",
+                    joinTargets(healedTargetNames),
+                    action.heal);
+                result += result.empty()
+                    ? fmt::format("{} {}", attackerName, healed)
+                    : " and " + healed;
             }
             if (effectiveDisabledTurns > 0)
             {
@@ -908,13 +939,18 @@ private:
                 setStatusFor(playerNumber, "Target an enemy piece.");
                 return false;
             }
-            target->health -= card.power;
-            applyDamageStatus(*target, card.power, 0);
-            if (target->health <= 0)
+            const int targetId = target->id;
+            const std::vector<DamageAssignment> damageAssignments =
+                applyDamageWithBodyguards(pieces, targetId, card.power, 0, rng);
+            for (const DamageAssignment& assignment : damageAssignments)
             {
-                const int victimOwner = target->owner;
-                removePiece(target->id);
-                checkForWinner(victimOwner);
+                Piece* damagedPiece = pieceById(assignment.pieceId);
+                if (damagedPiece != nullptr && damagedPiece->health <= 0)
+                {
+                    const int victimOwner = damagedPiece->owner;
+                    removePiece(damagedPiece->id);
+                    checkForWinner(victimOwner);
+                }
             }
             return true;
         }
