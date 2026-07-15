@@ -669,8 +669,10 @@ enum class DeckEditorMode
 };
 
 constexpr float GameLabelY = 44.0f;
-constexpr float GameResourcesX = 282.0f;
-constexpr float GameReadoutWidth = 330.0f;
+constexpr float GameTurnLabelY = 20.0f;
+constexpr float GameTurnReadoutWidth = 350.0f;
+constexpr float GamePlayerReadoutGap = 16.0f;
+constexpr float GamePlayerReadoutWidth = (BoardBottomWidth - GamePlayerReadoutGap) * 0.5f;
 constexpr float GameActionButtonY = 14.0f;
 constexpr float HandY = 512.0f;
 constexpr float HandCardWidth = 88.0f;
@@ -2637,15 +2639,30 @@ int main(int argc, char** argv)
     };
 
     auto addResourceNumber = [&](int playerNumber, int value, int displayedResources) {
-        if (value == 0 || playerNumber != gameSnapshot.yourPlayer)
+        if (value == 0)
         {
             return;
         }
         const std::string effectText = (value > 0 ? "+" : "") + std::to_string(value);
-        const sf::Text prefix(font, "Resources: ", 16);
+        const std::string prefixText = "Player " + std::to_string(playerNumber) + "  Resources: ";
+        const sf::Text prefix(font, prefixText, 16);
         const sf::Text resourceValue(font, std::to_string(displayedResources), 16);
         const sf::Text floatingValue(font, effectText, 20);
-        const float resourceCenterX = GameResourcesX + prefix.getLocalBounds().size.x +
+        const game_data::PlayerSnapshot& player =
+            gameSnapshot.players[static_cast<std::size_t>(playerNumber - 1)];
+        const std::string readoutText = elideToWidth(
+            font,
+            prefixText + std::to_string(displayedResources) +
+                "  Control: " + std::to_string(player.controlledSquares),
+            16,
+            GamePlayerReadoutWidth);
+        const sf::Text readout(font, readoutText, 16);
+        const sf::FloatRect readoutBounds = readout.getLocalBounds();
+        const float readoutX = playerNumber == 1
+            ? BoardOriginX
+            : BoardOriginX + BoardBottomWidth -
+                (readoutBounds.position.x + readoutBounds.size.x);
+        const float resourceCenterX = readoutX + prefix.getLocalBounds().size.x +
             resourceValue.getLocalBounds().size.x * 0.5f;
         const float x = resourceCenterX - floatingValue.getLocalBounds().size.x * 0.5f;
         floatingNumberEffects.push_back({

@@ -1140,20 +1140,54 @@
             ++effect;
         }
 
-        // Compact game readout.
+        // Compact game readout. Player ownership is always laid out from left
+        // to right so both players' state is easy to compare at a glance.
         const game_data::PlayerSnapshot& mine = gameSnapshot.players[static_cast<std::size_t>(me - 1)];
+        const game_data::PlayerSnapshot& playerOne = gameSnapshot.players[0];
+        const game_data::PlayerSnapshot& playerTwo = gameSnapshot.players[1];
         const int activePlayer = std::clamp(gameSnapshot.activePlayer, 1, 2);
         const std::string activePlayerName = storyMode
             ? "Tinkering Tom"
             : (sandboxMode
             ? "Player " + std::to_string(activePlayer)
             : (activePlayer == me ? loggedInUsername : "Opponent"));
-        const std::string resourcesText = storyMode ? "story" : (sandboxMode ? "free" : std::to_string(mine.resources));
-        drawText(window, font, "Turn: " + activePlayerName, 16, {BoardOriginX, GameLabelY},
-                 ownerColor(activePlayer), 240.0f);
-        const std::string controlText = storyMode ? "story" : std::to_string(mine.controlledSquares);
-        drawText(window, font, "Resources: " + resourcesText + "  Control: " + controlText,
-                 16, {GameResourcesX, GameLabelY}, sf::Color(150, 210, 235), GameReadoutWidth);
+        drawText(window, font, "Turn: " + activePlayerName, 16, {BoardOriginX, GameTurnLabelY},
+                 ownerColor(activePlayer), GameTurnReadoutWidth);
+
+        auto playerReadout = [&](int playerNumber, const game_data::PlayerSnapshot& player) {
+            const std::string resources = storyMode
+                ? "story"
+                : (sandboxMode ? "free" : std::to_string(player.resources));
+            const std::string control = storyMode
+                ? "story"
+                : std::to_string(player.controlledSquares);
+            return "Player " + std::to_string(playerNumber) + "  Resources: " + resources +
+                "  Control: " + control;
+        };
+
+        drawText(
+            window,
+            font,
+            playerReadout(1, playerOne),
+            16,
+            {BoardOriginX, GameLabelY},
+            ownerColor(1),
+            GamePlayerReadoutWidth);
+
+        const std::string playerTwoReadout = playerReadout(2, playerTwo);
+        const std::string displayedPlayerTwoReadout =
+            elideToWidth(font, playerTwoReadout, 16, GamePlayerReadoutWidth);
+        const sf::Text playerTwoText(font, displayedPlayerTwoReadout, 16);
+        const sf::FloatRect playerTwoBounds = playerTwoText.getLocalBounds();
+        const float playerTwoX = BoardOriginX + BoardBottomWidth -
+            (playerTwoBounds.position.x + playerTwoBounds.size.x);
+        drawText(
+            window,
+            font,
+            displayedPlayerTwoReadout,
+            16,
+            {playerTwoX, GameLabelY},
+            ownerColor(2));
 
         if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
         {
