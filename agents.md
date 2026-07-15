@@ -24,3 +24,12 @@ the game coordinator spawns per-match processes via `CreateProcessA` (see the
   matchmaking, and game services running and `BAYOU_TEST_PASSWORD` (or
   `BAYOU_SEED_PASSWORD`) set. The test creates its `alpha`/`bravo` accounts if
   they do not exist and submits each account's saved starter deck.
+
+## Deploy
+
+- For repeated Oracle deployments, use
+  `deploy/deploy-cached-servers-linux.sh` with the full `DEPLOY_COMMIT` from
+  `origin/main`. Do not create a fresh per-run clone and CMake tree: the helper
+  verifies the exact remote tip, protects and cleans only its private managed
+  checkout, reuses dependency/build caches, and delegates TLS validation,
+  restart, health checks, and rollback to `install-servers-linux.sh`.

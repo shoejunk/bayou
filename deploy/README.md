@@ -24,6 +24,45 @@ bash deploy/build-servers-linux.sh
 
 The default output is `dist/servers/bin`.
 
+The build script reuses an existing CMake tree, keeps its original generator,
+builds all four server targets in one sequential invocation, and automatically
+uses `ccache` when it is installed. Sequential compilation remains the default
+because the production Oracle VM is memory constrained.
+
+## Fast Repeated Oracle Deployments
+
+Use the cached deploy helper instead of creating a new clone and CMake tree for
+every release. The first run still builds all dependencies. Later runs preserve
+the dependency sources, CMake outputs, and (when installed) `ccache` objects,
+so they normally compile only files affected by the new commit.
+
+Run this as the normal Oracle deployment user from any trusted Bayou checkout
+that contains the helper:
+
+```sh
+export DEPLOY_COMMIT=<full-40-character-origin-main-commit>
+export TLS_CERT_FILE=/etc/letsencrypt/live/game.gloomthorn.com/cert.pem
+export TLS_CHAIN_FILE=/etc/letsencrypt/live/game.gloomthorn.com/chain.pem
+export TLS_KEY_FILE=/etc/letsencrypt/live/game.gloomthorn.com/privkey.pem
+export TLS_CA_FILE="$(pwd)/deploy/ca/isrg-root-x1.pem"
+export TLS_SERVER_NAME=game.gloomthorn.com
+bash deploy/deploy-cached-servers-linux.sh
+```
+
+The helper stores its private cache at
+`~/.cache/bayou-server-build` by default. It fetches the fixed HTTPS repository
+URL, requires `DEPLOY_COMMIT` to exactly match the newly fetched `origin/main`,
+and force-cleans only a marker-protected dedicated checkout. Completed artifacts
+are stamped with the full commit before reuse. It then delegates activation to
+`install-servers-linux.sh`, retaining certificate, hostname, key, service, TLS
+handshake, and rollback checks. The private key remains outside the build cache.
+
+Set `BAYOU_BUILD_ONLY=1` to prepare and verify artifacts without restarting
+services. `BAYOU_BUILD_CACHE_ROOT` may point to another dedicated private cache
+location; never point it at a developer checkout or shared directory. If an
+incomplete artifact directory is detected, the helper refuses to delete it and
+prints the exact path for manual inspection.
+
 ## Install as a Linux Service
 
 ### Production TLS prerequisites
