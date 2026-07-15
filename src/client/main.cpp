@@ -3735,6 +3735,8 @@ int main(int argc, char** argv)
 
         const int attackerId = piece->id;
         const int attackerOwner = piece->owner;
+        const int originRow = piece->row;
+        const int originColumn = piece->column;
         const std::string attackerName = piece->name;
         std::vector<std::string> damagedTargetNames;
         std::vector<std::string> healedTargetNames;
@@ -3881,6 +3883,25 @@ int main(int argc, char** argv)
         if (acting)
         {
             updateStoryAfterMove(next, *acting);
+        }
+        const bool leavesTrail = acting &&
+            (acting->row != originRow || acting->column != originColumn) &&
+            game_data::pieceHasTrailAbility(*acting);
+        const std::string trailSummonTitle = leavesTrail ? acting->summonTitle : std::string();
+        if (leavesTrail)
+        {
+            const auto found = std::find_if(
+                next.hand.begin(),
+                next.hand.end(),
+                [&](const game_data::GameCard& card) {
+                    return card.title == trailSummonTitle && card.type == "Unit";
+                });
+            if (found != next.hand.end() &&
+                game_data::cardFootprintFree(next.pieces, *found, originRow, originColumn))
+            {
+                spawnSandboxPiece(
+                    next, nextSandboxPieceId, attackerOwner, *found, originRow, originColumn, false);
+            }
         }
         commitSandboxSnapshot(std::move(next));
     };

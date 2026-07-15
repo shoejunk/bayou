@@ -605,6 +605,8 @@ private:
 
         const int attackerId = piece->id;
         const int attackerOwner = piece->owner;
+        const int originRow = piece->row;
+        const int originColumn = piece->column;
         const std::string attackerName = piece->name;
         std::vector<std::string> damagedTargetNames;
         std::vector<std::string> healedTargetNames;
@@ -687,6 +689,21 @@ private:
         const bool gainsRelentlessAction = anyTargetDestroyed &&
             hasKeyword(survivingAttacker->keywords, "relentless");
         survivingAttacker->hasActed = !gainsRelentlessAction;
+        const bool moved = survivingAttacker->row != originRow ||
+            survivingAttacker->column != originColumn;
+        const bool leavesTrail = moved && pieceHasTrailAbility(*survivingAttacker);
+        const std::string trailSummonTitle = survivingAttacker->summonTitle;
+
+        if (leavesTrail)
+        {
+            const GameCard* trailCard = summonCardByTitle(trailSummonTitle);
+            if (trailCard != nullptr && trailCard->type == "Unit" &&
+                cardFootprintFree(pieces, *trailCard, originRow, originColumn))
+            {
+                spawnPiece(attackerOwner, *trailCard, originRow, originColumn, false);
+                pieces.back().hasActed = true;
+            }
+        }
 
         for (int defeatedOwner : defeatedOwners)
         {

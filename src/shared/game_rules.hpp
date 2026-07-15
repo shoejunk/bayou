@@ -79,6 +79,15 @@ inline bool pieceFootprintFree(
     return true;
 }
 
+inline bool cardFootprintFree(
+    const std::vector<Piece>& pieces, const GameCard& card, int row, int column)
+{
+    Piece footprint;
+    footprint.width = card.width;
+    footprint.height = card.height;
+    return pieceFootprintFree(pieces, footprint, row, column);
+}
+
 inline const Piece* findOtherPieceAt(
     const std::vector<Piece>& pieces, const Piece& piece, int row, int column)
 {
@@ -822,7 +831,16 @@ inline std::string pieceAbilityLabel(const Piece& piece)
     {
         return "Command";
     }
+    if (piece.ability == "trail")
+    {
+        return "Trail";
+    }
     return "Use Ability";
+}
+
+inline bool pieceHasTrailAbility(const Piece& piece)
+{
+    return piece.ability == "trail" && !piece.summonTitle.empty();
 }
 
 inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
@@ -948,6 +966,10 @@ inline bool pieceAbilityAvailable(const Piece& piece)
     if (piece.ability == "summon")
     {
         return !piece.summonTitle.empty();
+    }
+    if (piece.ability == "trail")
+    {
+        return false;
     }
     return true;
 }

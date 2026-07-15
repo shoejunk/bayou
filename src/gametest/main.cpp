@@ -460,6 +460,11 @@ int main(int argc, char** argv)
     summonBlocker.column = 2;
     check(!pieceAbilityAvailable({profilePiece, summonBlocker}, profilePiece),
           "summon ability checks the left square for player 2");
+    profilePiece.ability = "trail";
+    check(pieceHasTrailAbility(profilePiece) &&
+              !pieceAbilityAvailable(profilePiece) &&
+              !pieceAbilityAvailable({profilePiece}, profilePiece),
+          "trail is a passive ability and does not expose an active ability action");
     profilePiece.owner = 1;
     profilePiece.ability = "command";
     Piece commandedPiece = profilePiece;
@@ -982,6 +987,69 @@ int main(int argc, char** argv)
               taxedSnapshot.players[1].resources == playerTwoResourcesBeforeTax - 2 &&
               taxedSnapshot.players[0].resources >= 2,
           "Tax transfers up to its amount from the opponent to the owner each turn");
+
+    card_data::Card trailHeroCard;
+    trailHeroCard.title = "Trail Hero";
+    trailHeroCard.type = "Hero";
+    trailHeroCard.integerValues = {{"health", 5}};
+    trailHeroCard.stringValues = {{"ability", "trail"}, {"summon", "Seedling"}};
+    card_data::Action trailStep;
+    trailStep.name = "Trail Step";
+    trailStep.kind = "slide";
+    trailStep.pattern = "omni";
+    trailStep.minRange = 1;
+    trailStep.maxRange = 1;
+    trailStep.canMove = true;
+    card_data::Action trailShot;
+    trailShot.name = "Trail Shot";
+    trailShot.kind = "ranged";
+    trailShot.pattern = "none";
+    trailShot.minRange = 1;
+    trailShot.maxRange = 7;
+    trailShot.damage = 1;
+    trailShot.canMove = false;
+    trailShot.canAttack = true;
+    trailHeroCard.actions = {trailStep, trailShot};
+
+    card_data::Card seedlingCard;
+    seedlingCard.title = "Seedling";
+    seedlingCard.type = "Unit";
+    seedlingCard.integerValues = {{"health", 1}, {"move", 0}, {"canControl", 0}};
+    card_data::Card trailEnemyCard;
+    trailEnemyCard.title = "Trail Enemy";
+    trailEnemyCard.type = "Hero";
+    trailEnemyCard.integerValues = {{"health", 5}};
+
+    GameEngine trailEngine(23, {trailHeroCard, seedlingCard, trailEnemyCard});
+    trailEngine.submitDeck(1, {trailHeroCard});
+    trailEngine.submitDeck(2, {trailEnemyCard});
+    const auto trailOrigin = homeSquares(1)[0];
+    const auto trailEnemyOrigin = homeSquares(2)[0];
+    trailEngine.placeHero(1, 0, trailOrigin.first, trailOrigin.second);
+    trailEngine.placeHero(2, 0, trailEnemyOrigin.first, trailEnemyOrigin.second);
+    const int trailHeroId = trailEngine.boardPieces().front().id;
+    trailEngine.movePiece(1, trailHeroId, trailOrigin.first, trailOrigin.second + 1);
+    const auto trailSeed = std::find_if(
+        trailEngine.boardPieces().begin(), trailEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Seedling"; });
+    const auto movedTrailHero = std::find_if(
+        trailEngine.boardPieces().begin(), trailEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Trail Hero"; });
+    check(trailSeed != trailEngine.boardPieces().end() &&
+              trailSeed->owner == 1 && trailSeed->row == trailOrigin.first &&
+              trailSeed->column == trailOrigin.second && trailSeed->hasActed &&
+              movedTrailHero != trailEngine.boardPieces().end() &&
+              movedTrailHero->column == trailOrigin.second + 1,
+          "trail summons its configured unit at the mover's former position");
+
+    trailEngine.endTurn(2);
+    trailEngine.attackPiece(
+        1, trailHeroId, trailEnemyOrigin.first, trailEnemyOrigin.second);
+    const int seedlingCount = static_cast<int>(std::count_if(
+        trailEngine.boardPieces().begin(), trailEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Seedling"; }));
+    check(seedlingCount == 1,
+          "trail does not summon when an action attacks without moving the piece");
 
     auto commandTestHero = [](const std::string& title, bool commands) {
         card_data::Card card;
