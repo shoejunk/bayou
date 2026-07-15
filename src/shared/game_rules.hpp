@@ -809,7 +809,8 @@ inline void materializeRevealedPiece(Piece& piece)
 
 inline std::string pieceAbilityLabel(const Piece& piece)
 {
-    if (piece.ability.empty())
+    const std::string ability = normalizedAbility(piece.ability);
+    if (ability.empty())
     {
         return "";
     }
@@ -819,28 +820,32 @@ inline std::string pieceAbilityLabel(const Piece& piece)
             piece.actionState % static_cast<int>(piece.abilityLabels.size()));
         return piece.abilityLabels[index];
     }
-    if (piece.ability == "dig")
+    if (ability == "dig")
     {
         return "Dig";
     }
-    if (piece.ability == "summon")
+    if (ability == "summon")
     {
         return "Summon";
     }
-    if (piece.ability == "command")
+    if (ability == "command")
     {
         return "Command";
     }
-    if (piece.ability == "trail")
+    if (ability == "transform")
     {
-        return "Trail";
+        return "Transform";
+    }
+    if (ability == "dematerialize")
+    {
+        return piece.actionState == 0 ? "Dematerialize" : "Materialize";
     }
     return "Use Ability";
 }
 
 inline bool pieceHasTrailAbility(const Piece& piece)
 {
-    return piece.ability == "trail" && !piece.summonTitle.empty();
+    return hasKeyword(piece.keywords, "trail") && !piece.summonTitle.empty();
 }
 
 inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
@@ -955,23 +960,20 @@ inline bool pieceSummonDestinationFree(const std::vector<Piece>& pieces, const P
 
 inline bool pieceAbilityAvailable(const Piece& piece)
 {
-    if (piece.ability.empty() || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
+    const std::string ability = normalizedAbility(piece.ability);
+    if (ability.empty() || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
     {
         return false;
     }
-    if (piece.ability == "dig")
+    if (ability == "dig")
     {
         return piece.abilityUses != 0;
     }
-    if (piece.ability == "summon")
+    if (ability == "summon")
     {
         return !piece.summonTitle.empty();
     }
-    if (piece.ability == "trail")
-    {
-        return false;
-    }
-    return true;
+    return ability == "transform" || ability == "dematerialize" || ability == "command";
 }
 
 inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece& piece)
@@ -980,11 +982,12 @@ inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece&
     {
         return false;
     }
-    if (piece.ability == "summon")
+    const std::string ability = normalizedAbility(piece.ability);
+    if (ability == "summon")
     {
         return pieceSummonDestinationFree(pieces, piece);
     }
-    if (piece.ability == "command")
+    if (ability == "command")
     {
         return std::any_of(
             pieces.begin(),

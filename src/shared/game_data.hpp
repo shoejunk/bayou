@@ -53,6 +53,20 @@ inline std::string normalizedTrait(std::string value)
     return value;
 }
 
+inline std::string normalizedAbility(std::string value)
+{
+    const auto notWhitespace = [](unsigned char character) {
+        return !std::isspace(character);
+    };
+    value.erase(
+        value.begin(),
+        std::find_if(value.begin(), value.end(), notWhitespace));
+    value.erase(
+        std::find_if(value.rbegin(), value.rend(), notWhitespace).base(),
+        value.end());
+    return normalizedTrait(std::move(value));
+}
+
 inline bool hasKeyword(const std::vector<std::string>& keywords, const std::string& keyword)
 {
     const std::string normalizedKeyword = normalizedTrait(keyword);
@@ -398,7 +412,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.tax = std::max(0, cardInt(card, "Tax", cardInt(card, "tax", 0)));
     g.canControl = cardInt(card, "canControl", 1) != 0;
     g.growTurns = cardInt(card, "growTurns", 0);
-    g.ability = cardStr(card, "ability");
+    g.ability = normalizedAbility(cardStr(card, "ability"));
     g.summonTitle = cardStr(card, "summon");
     if (g.summonTitle.empty())
     {
@@ -574,7 +588,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.canControl = card.canControl;
     piece.growTurnsRemaining = card.growTurns;
     piece.actions = card.actions;
-    piece.ability = card.ability;
+    piece.ability = normalizedAbility(card.ability);
     piece.summonTitle = card.summonTitle;
     piece.abilityLabels = card.abilityLabels;
     piece.abilityUses = card.abilityUses;

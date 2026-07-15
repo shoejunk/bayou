@@ -460,13 +460,20 @@ int main(int argc, char** argv)
     summonBlocker.column = 2;
     check(!pieceAbilityAvailable({profilePiece, summonBlocker}, profilePiece),
           "summon ability checks the left square for player 2");
-    profilePiece.ability = "trail";
+    profilePiece.ability.clear();
+    profilePiece.keywords = {"tRaIl"};
     check(pieceHasTrailAbility(profilePiece) &&
               !pieceAbilityAvailable(profilePiece) &&
               !pieceAbilityAvailable({profilePiece}, profilePiece),
-          "trail is a passive ability and does not expose an active ability action");
+          "Trail is a passive keyword and does not expose an active ability action");
+    profilePiece.ability = "dematerialize";
+    check(pieceHasTrailAbility(profilePiece) &&
+              pieceAbilityAvailable(profilePiece) &&
+              pieceAbilityLabel(profilePiece) == "Dematerialize",
+          "Trail can coexist with a clearly labeled active ability");
     profilePiece.owner = 1;
     profilePiece.ability = "command";
+    profilePiece.keywords.clear();
     Piece commandedPiece = profilePiece;
     commandedPiece.id = 43;
     commandedPiece.ability.clear();
@@ -992,7 +999,8 @@ int main(int argc, char** argv)
     trailHeroCard.title = "Trail Hero";
     trailHeroCard.type = "Hero";
     trailHeroCard.integerValues = {{"health", 5}};
-    trailHeroCard.stringValues = {{"ability", "trail"}, {"summon", "Seedling"}};
+    trailHeroCard.keywords = {"Trail"};
+    trailHeroCard.stringValues = {{"ability", "dematerialize"}, {"summon", "Seedling"}};
     card_data::Action trailStep;
     trailStep.name = "Trail Step";
     trailStep.kind = "slide";
