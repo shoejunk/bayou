@@ -909,6 +909,7 @@ int main(int argc, char** argv)
     serializedCard.summonTitle = "Serialized Summon";
     serializedCard.abilityLabels = {"Ready", "Lower"};
     serializedCard.abilityUses = 2;
+    serializedCard.gatherResources = 6;
     serializedCard.tax = 4;
     serializedCard.actions[0].heal = 3;
     sf::Packet cardPacket;
@@ -940,6 +941,7 @@ int main(int argc, char** argv)
               roundTrippedCard.summonTitle == "Serialized Summon" &&
               roundTrippedCard.abilityLabels.size() == 2 &&
               roundTrippedCard.abilityUses == 2 &&
+              roundTrippedCard.gatherResources == 6 &&
               roundTrippedCard.tax == 4,
           "extended game card fields survive network serialization");
 
@@ -965,6 +967,7 @@ int main(int argc, char** argv)
     serializedPiece.fidgetAnimFrames = 9;
     serializedPiece.abilityLabels = {"Dig"};
     serializedPiece.abilityUses = 1;
+    serializedPiece.gatherResources = 7;
     serializedPiece.growTurnsRemaining = 2;
     serializedPiece.disabledTurns = 1;
     serializedPiece.sleepTurnsRemaining = 1;
@@ -1001,6 +1004,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.fidgetAnimFrames == 9 &&
               roundTrippedPiece.ability == "dig" &&
               roundTrippedPiece.summonTitle == "Serialized Summon" &&
+              roundTrippedPiece.gatherResources == 7 &&
               roundTrippedPiece.growTurnsRemaining == 2 &&
               roundTrippedPiece.disabledTurns == 1 &&
               roundTrippedPiece.sleepTurnsRemaining == 1,
@@ -1149,6 +1153,40 @@ int main(int argc, char** argv)
               pushedVictim->column == pushVictimHome.second &&
               pushEngine.snapshotFor(1).status.find("3 extra collision damage") != std::string::npos,
           "authoritative attacks apply blocked push damage after their base damage");
+    card_data::Card gatherHeroCard;
+    gatherHeroCard.title = "Gather Hero";
+    gatherHeroCard.type = "Hero";
+    gatherHeroCard.integerValues = {{"health", 4}, {"gatherResources", 5}};
+    const GameCard resolvedGatherHero = toGameCard(gatherHeroCard);
+    check(resolvedGatherHero.gatherResources == 5,
+          "gatherResources card field resolves as the passive income amount");
+    GameEngine gatherEngine(19, {gatherHeroCard, plainHeroCard});
+    gatherEngine.submitDeck(1, {gatherHeroCard});
+    gatherEngine.submitDeck(2, {plainHeroCard});
+    gatherEngine.placeHero(1, 0, homeSquares(1)[0].first, homeSquares(1)[0].second);
+    gatherEngine.placeHero(2, 0, homeSquares(2)[0].first, homeSquares(2)[0].second);
+    const auto gatherHero = std::find_if(
+        gatherEngine.boardPieces().begin(), gatherEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Gather Hero"; });
+    check(gatherHero != gatherEngine.boardPieces().end() &&
+              gatherHero->gatherResources == 5 && gatherHero->ability.empty(),
+          "gather amount resolves onto the piece without an active ability");
+    if (gatherHero != gatherEngine.boardPieces().end())
+    {
+        const Snapshot firstGatherTurn = gatherEngine.snapshotFor(1);
+        check(firstGatherTurn.players[0].resources ==
+                  firstGatherTurn.players[0].controlledSquares + 5,
+              "gatherResources is granted at the start of the owner's first turn");
+        gatherEngine.endTurn(1);
+        const Snapshot beforeNextGather = gatherEngine.snapshotFor(2);
+        gatherEngine.endTurn(2);
+        const Snapshot afterNextGather = gatherEngine.snapshotFor(1);
+        check(afterNextGather.players[0].resources ==
+                  beforeNextGather.players[0].resources +
+                      afterNextGather.players[0].controlledSquares + 5 &&
+                  afterNextGather.players[1].resources == beforeNextGather.players[1].resources,
+              "gatherResources grants passive income each turn without removing enemy Resources");
+    }
 
     auto commandTestHero = [](const std::string& title, bool commands) {
         card_data::Card card;

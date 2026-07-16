@@ -82,6 +82,11 @@
                 descriptions.push_back({"Ability uses: unlimited", sf::Color(190, 198, 214)});
             }
         }
+        if (piece.gatherResources > 0)
+        {
+            descriptions.push_back({"Passive: +" + std::to_string(piece.gatherResources) + " Resources each turn",
+                                    sf::Color(190, 198, 214)});
+        }
         if (piece.actions.empty())
         {
             descriptions.push_back({"Actions: none", sf::Color(225, 170, 150)});
@@ -294,6 +299,12 @@
                 drawText(window, font, "Tax: " + std::to_string(piece->tax) + " Resources each turn",
                          14, {statX, y}, sf::Color(248, 214, 112), PiecePopupWidth - 174.0f);
             }
+            if (piece->gatherResources > 0)
+            {
+                y += 22.0f;
+                drawText(window, font, "Gather: +" + std::to_string(piece->gatherResources) + " Resources each turn",
+                         14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+            }
         }
         else
         {
@@ -316,6 +327,12 @@
                     y += 22.0f;
                     drawText(window, font, "Tax: " + std::to_string(card->tax) + " Resources each turn",
                              14, {statX, y}, sf::Color(248, 214, 112), PiecePopupWidth - 174.0f);
+                }
+                if (card->gatherResources > 0)
+                {
+                    y += 22.0f;
+                    drawText(window, font, "Gather: +" + std::to_string(card->gatherResources) + " Resources each turn",
+                             14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
                 }
             }
             else

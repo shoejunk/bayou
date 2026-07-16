@@ -899,13 +899,16 @@ private:
         player.resources += controlledIncome;
 
         int taxAmount = 0;
+        int gatheredResources = 0;
         for (const Piece& piece : pieces)
         {
             if (piece.owner == playerNumber)
             {
                 taxAmount += piece.tax;
+                gatheredResources += piece.gatherResources;
             }
         }
+        player.resources += gatheredResources;
         EnginePlayer& opponent = playerRef(playerNumber == 1 ? 2 : 1);
         const int collectedTax = std::min(std::max(0, taxAmount), opponent.resources);
         opponent.resources -= collectedTax;
@@ -921,9 +924,10 @@ private:
         }
 
         status = fmt::format(
-            "Player {}'s turn. +{} Resources{}.",
+            "Player {}'s turn. +{} Resources{}{}.",
             playerNumber,
             controlledIncome,
+            gatheredResources > 0 ? fmt::format(" and gathered {} Resources", gatheredResources) : "",
             collectedTax > 0 ? fmt::format(" and collected {} Resources in Tax", collectedTax) : "");
     }
 

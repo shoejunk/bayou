@@ -41,7 +41,7 @@ bool isHiddenCardDetailKey(const std::string& key)
 {
     return key == "cost" || key == "heroCost" || key == "health" || key == "attack" || key == "Tax" || key == "tax" ||
         key == "range" || key == "move" || key == "attackingMove" || key == "power" ||
-        key == "canControl" || key == "growTurns" || key == "abilityUses" ||
+        key == "canControl" || key == "growTurns" || key == "abilityUses" || key == "gatherResources" ||
         key == "WalkAnimFrames" || key == "IdleAnimFrames" ||
         key == "AttackAnimFrames" || key == "DamagedAnimFrames" || key == "KilledAnimFrames" ||
         key == "rarity" || key == "effect" || key == "target" ||
@@ -192,6 +192,11 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
         {
             details.push_back({"Tax: " + std::to_string(gameCard.tax) + " Resources",
                                sf::Color(248, 214, 112)});
+        }
+        if (gameCard.gatherResources > 0)
+        {
+            details.push_back({"Gather: +" + std::to_string(gameCard.gatherResources) + " Resources each turn",
+                               sf::Color(143, 220, 205)});
         }
         if (gameCard.actions.empty())
         {

@@ -2883,6 +2883,7 @@ private:
         y = drawInstructionBullet(window, "canControl: set to 0 for pieces that do not claim their occupied square or influence adjacent territory. Default: 1.", y);
         y = drawInstructionBullet(window, "growTurns: owner turns a newly summoned piece must wait before it can act. Default: 0.", y);
         y = drawInstructionBullet(window, "abilityUses: number of uses for a limited ability such as dig; use -1 for unlimited.", y);
+        y = drawInstructionBullet(window, "gatherResources: passive Resources gained at the start of each owner's turn. It does not remove Resources from the opponent. Default: 0.", y);
         y = drawInstructionBullet(window, "power: spell amount. It is damage dealt, health restored, or Resources gained depending on effect. Default: 0.", y);
         y = drawInstructionBullet(window, "Tax: optional passive Resources taken from the opponent (up to this amount) and gained by the owning player at the start of each owner's turn. Default: 0.", y);
         y += 12.0f;
@@ -2922,7 +2923,7 @@ private:
         y = drawInstructionSection(window, "7. Turn and board rules that affect balance", y);
         y = drawInstructionBullet(window, "On a turn, playing a card, moving, or attacking ends the turn. A piece can therefore move or attack, not both, before the opponent acts.", y);
         y = drawInstructionBullet(window, "A piece with canControl=1 controls its occupied square and influences adjacent territory. Pieces with canControl=0 do neither. Ties keep the current controller.", y);
-        y = drawInstructionBullet(window, "At the start of a turn, the player gains 1 Resource per controlled square, Tax pieces collect Resources from the opponent, the player draws one card if below the 8-card hand limit, and their pieces refresh.", y);
+        y = drawInstructionBullet(window, "At the start of a turn, the player gains 1 Resource per controlled square, gains each piece's gatherResources amount, Tax pieces collect Resources from the opponent, draws one card if below the 8-card hand limit, and refreshes their pieces.", y);
         y = drawInstructionBullet(window, "Attacks use the range, pattern, line-of-sight, and blocker settings of the selected action.", y);
         y += 12.0f;
 
