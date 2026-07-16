@@ -673,7 +673,6 @@ constexpr float GameTurnLabelY = 20.0f;
 constexpr float GameTurnReadoutWidth = 350.0f;
 constexpr float GamePlayerReadoutGap = 16.0f;
 constexpr float GamePlayerReadoutWidth = (BoardBottomWidth - GamePlayerReadoutGap) * 0.5f;
-constexpr float GameActionButtonY = 14.0f;
 constexpr float HandY = 512.0f;
 constexpr float HandCardWidth = 88.0f;
 constexpr float HandCardHeight = 78.0f;
@@ -684,6 +683,15 @@ constexpr float TrashCanSize = 86.0f;
 constexpr float TrashCanX = HandStartX + 4.0f * (HandCardWidth + HandGap) + 8.0f;
 constexpr float TrashCanY = HandY;
 constexpr float TrashCanDropPadding = 14.0f;
+constexpr float GameActionButtonGap = 6.0f;
+constexpr float GameActionButtonHeight = 30.0f;
+constexpr float GameActionButtonX =
+    TrashCanX + TrashCanSize + TrashCanDropPadding + GameActionButtonGap;
+constexpr float GameActionButtonY =
+    TrashCanY + TrashCanSize - GameActionButtonHeight - GameActionButtonGap;
+constexpr float GameAbilityButtonWidth = 92.0f;
+constexpr float GameEndTurnButtonWidth = 90.0f;
+constexpr float GameLeaveButtonWidth = 72.0f;
 constexpr float PiecePopupX = 150.0f;
 constexpr float PiecePopupY = 92.0f;
 constexpr float PiecePopupWidth = 500.0f;
@@ -1130,11 +1138,30 @@ int main(int argc, char** argv)
     std::vector<DematerializeGhost> dematerializeGhosts;
 
     Button findMatchButton({300.0f, 458.0f}, {200.0f, 52.0f}, "Find Match", font);
-    Button abilityButton({392.0f, GameActionButtonY}, {138.0f, 36.0f}, "Use Ability", font);
-    Button endTurnButton({540.0f, GameActionButtonY}, {132.0f, 36.0f}, "Pass Turn", font);
-    Button sandboxPlayerButton({532.0f, GameActionButtonY}, {48.0f, 36.0f}, "P1", font);
-    Button sandboxAdvanceTurnButton({588.0f, GameActionButtonY}, {88.0f, 36.0f}, "Advance", font);
-    Button leaveGameButton({684.0f, 14.0f}, {100.0f, 36.0f}, "Leave", font);
+    Button abilityButton(
+        {GameActionButtonX, GameActionButtonY},
+        {GameAbilityButtonWidth, GameActionButtonHeight},
+        "Use Ability",
+        font);
+    Button endTurnButton(
+        {GameActionButtonX + GameAbilityButtonWidth + GameActionButtonGap, GameActionButtonY},
+        {GameEndTurnButtonWidth, GameActionButtonHeight},
+        "Pass Turn",
+        font);
+    Button sandboxPlayerButton(
+        {GameActionButtonX, GameActionButtonY}, {48.0f, GameActionButtonHeight}, "P1", font);
+    Button sandboxAdvanceTurnButton(
+        {GameActionButtonX + 48.0f + GameActionButtonGap, GameActionButtonY},
+        {96.0f, GameActionButtonHeight},
+        "Advance",
+        font);
+    Button leaveGameButton(
+        {GameActionButtonX + GameAbilityButtonWidth + GameActionButtonGap +
+             GameEndTurnButtonWidth + GameActionButtonGap,
+         GameActionButtonY},
+        {GameLeaveButtonWidth, GameActionButtonHeight},
+        "Leave",
+        font);
     Button closePiecePopupButton({PiecePopupX + 358.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
     Button discardCardButton({PiecePopupX + 22.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {220.0f, 38.0f},
                              "Discard to deck bottom", font);

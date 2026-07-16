@@ -1,0 +1,24 @@
+Power
+ability: +10, +20, +30
+movement: bishop +10, rook +20, queen +30
+range: 5 * range
+damage: 20 * damage
+health: 20 * health
+
+Mog
+movement: queen (30)
+range: 5
+damage: 40
+health: 40
+---
+115
+
+Blackthorn Alchemist
+ability: 20 (heal: +10, hex: +10)
+movement: 30
+range: 5
+damage: 0
+health: 20
+---
+75
+

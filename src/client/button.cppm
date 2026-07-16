@@ -101,8 +101,9 @@ private:
     void fitAndCenterLabel()
     {
         const sf::Vector2f size = shape.getSize();
+        const unsigned int minimumCharacterSize = size.y <= 32.0f ? 10 : 14;
         text.setCharacterSize(size.y <= 40.0f ? 18 : 24);
-        while (text.getCharacterSize() > 14)
+        while (text.getCharacterSize() > minimumCharacterSize)
         {
             const sf::FloatRect bounds = text.getLocalBounds();
             if (bounds.size.x <= size.x - 24.0f && bounds.size.y <= size.y - 12.0f)
