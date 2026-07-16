@@ -249,7 +249,7 @@ inline bool actionCanTarget(
 {
     if (target.owner == piece.owner)
     {
-        return heal > 0;
+        return heal > 0 && target.health < target.maxHealth;
     }
     return damage > 0 || (damage == 0 && heal == 0);
 }

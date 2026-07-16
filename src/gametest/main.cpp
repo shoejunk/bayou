@@ -659,6 +659,8 @@ int main(int argc, char** argv)
     check(healingPieces[1].health == healingPieces[1].maxHealth &&
               healingPieces[1].disabledTurns == 0 && healingPieces[1].sleepTurnsRemaining == 0,
           "positive action healing stops at maximum health without applying damage status");
+    check(!resolvePieceAction(healingPieces, holes, healingPieces[0], 3, 4).legal,
+          "healing-only actions cannot target a friendly piece at maximum health");
 
     raisedGun.maxRange = 3;
     raisedGun.lineOfSight = false;
