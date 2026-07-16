@@ -184,7 +184,7 @@ public:
 
     bool contains(sf::Vector2f point) const
     {
-        return shape.getGlobalBounds().contains(point);
+        return enabled && shape.getGlobalBounds().contains(point);
     }
 
     sf::FloatRect bounds() const
@@ -203,8 +203,23 @@ public:
         }
     }
 
+    void setEnabled(bool value)
+    {
+        enabled = value;
+        isHovered = false;
+        shape.setFillColor(enabled ? base : sf::Color(47, 53, 54, 220));
+        if (text)
+        {
+            text->setFillColor(enabled ? Ink : sf::Color(123, 129, 128));
+        }
+    }
+
     void update(sf::Vector2f mouse)
     {
+        if (!enabled)
+        {
+            return;
+        }
         const bool hovered = contains(mouse);
         shape.setFillColor(hovered
             ? sf::Color(std::min(base.r + 22, 255), std::min(base.g + 22, 255), std::min(base.b + 22, 255), base.a)
@@ -219,7 +234,9 @@ public:
             shape.getPosition(),
             shape.getSize(),
             shape.getFillColor(),
-            isHovered ? sf::Color(239, 190, 98) : sf::Color(181, 126, 60),
+            enabled
+                ? (isHovered ? sf::Color(239, 190, 98) : sf::Color(181, 126, 60))
+                : sf::Color(77, 83, 83),
             isHovered,
             std::clamp(shape.getSize().y * 0.20f, 5.0f, 10.0f));
         window.draw(*text);
@@ -230,6 +247,7 @@ private:
     sf::RectangleShape shape;
     sf::Color base = AccentDark;
     bool isHovered = false;
+    bool enabled = true;
 };
 
 std::string joinStrings(const std::vector<std::string>& values, const std::string& separator)
@@ -288,6 +306,10 @@ public:
 
     void open()
     {
+        unsavedChangesPopupVisible = false;
+        pendingTransition = PendingTransition::None;
+        pendingSelectionName.clear();
+        unsavedChangesError.clear();
         loadCards();
         loadActions();
     }
@@ -342,6 +364,43 @@ public:
             return false;
         }
 
+        if (unsavedChangesPopupVisible)
+        {
+            bool shouldClose = false;
+            if (const auto* keyEvent = event.getIf<sf::Event::KeyPressed>())
+            {
+                if (keyEvent->code == sf::Keyboard::Key::Escape)
+                {
+                    keepEditing();
+                }
+                else if (keyEvent->code == sf::Keyboard::Key::Enter)
+                {
+                    shouldClose = saveAndContinue();
+                }
+            }
+            if (const auto* mousePressed = event.getIf<sf::Event::MouseButtonPressed>())
+            {
+                const sf::Vector2f mouse = window.mapPixelToCoords(mousePressed->position);
+                if (mousePressed->button == sf::Mouse::Button::Left)
+                {
+                    if (saveChangesButton.contains(mouse))
+                    {
+                        shouldClose = saveAndContinue();
+                    }
+                    else if (discardChangesButton.contains(mouse))
+                    {
+                        shouldClose = discardAndContinue();
+                    }
+                    else if (keepEditingButton.contains(mouse))
+                    {
+                        keepEditing();
+                    }
+                }
+            }
+            window.setView(previousView);
+            return shouldClose;
+        }
+
         if (!focusOrder.empty())
         {
             const std::string previousImagePath = imageField.getValue();
@@ -356,7 +415,7 @@ public:
         {
             if (keyEvent->code == sf::Keyboard::Key::Escape)
             {
-                shouldClose = true;
+                shouldClose = requestTransition(PendingTransition::CloseScreen);
             }
             else if (keyEvent->code == sf::Keyboard::Key::Tab)
             {
@@ -367,7 +426,10 @@ public:
             {
                 if (editorMode == EditorMode::Cards)
                 {
-                    saveCurrentCard();
+                    if (hasUnsavedCardChanges())
+                    {
+                        saveCurrentCard();
+                    }
                 }
                 else
                 {
@@ -424,10 +486,18 @@ public:
         {
             return;
         }
+        if (unsavedChangesPopupVisible)
+        {
+            saveChangesButton.update(mouse);
+            discardChangesButton.update(mouse);
+            keepEditingButton.update(mouse);
+            return;
+        }
         newButton.update(mouse);
         refreshButton.update(mouse);
         copyButton.update(mouse);
         copyActionButton.update(mouse);
+        saveButton.setEnabled(hasUnsavedCardChanges());
         saveButton.update(mouse);
         saveActionButton.update(mouse);
         deleteButton.update(mouse);
@@ -513,6 +583,10 @@ public:
                 drawActionEditorPanel(window);
                 drawActionPreviewPanel(window);
             }
+            if (unsavedChangesPopupVisible)
+            {
+                drawUnsavedChangesPopup(window);
+            }
         }
         window.setView(previousView);
     }
@@ -522,6 +596,20 @@ private:
     {
         Cards,
         Actions
+    };
+
+    enum class PendingTransition
+    {
+        None,
+        CloseScreen,
+        ShowCards,
+        ShowActions,
+        NewCard,
+        NewAction,
+        RefreshCards,
+        RefreshActions,
+        SelectCard,
+        SelectAction
     };
 
     struct CardListResult
@@ -575,6 +663,12 @@ private:
     bool instructionsVisible = false;
     float instructionScroll = 0.0f;
     float instructionContentHeight = 1840.0f;
+    bool unsavedChangesPopupVisible = false;
+    PendingTransition pendingTransition = PendingTransition::None;
+    std::string pendingSelectionName;
+    std::string unsavedChangesError;
+    std::string savedCardForm;
+    std::string savedActionForm;
 
     InputBox titleField;
     InputBox imageField;
@@ -619,6 +713,9 @@ private:
     EditorButton addStringButton;
     EditorButton addListButton;
     EditorButton addActionRefButton;
+    EditorButton saveChangesButton;
+    EditorButton discardChangesButton;
+    EditorButton keepEditingButton;
     std::vector<EditorButton> removeTraitButtons;
     std::vector<EditorButton> removeKeywordButtons;
     std::vector<EditorButton> removeIntegerButtons;
@@ -946,6 +1043,7 @@ private:
         copyButton = EditorButton(font, "Copy Card", {42.0f, 642.0f}, {228.0f, 38.0f}, AccentDark);
         copyActionButton = EditorButton(font, "Copy Action", {42.0f, 642.0f}, {228.0f, 38.0f}, AccentDark);
         saveButton = EditorButton(font, "Save Card", {660.0f, 690.0f}, {156.0f, 42.0f}, AccentDark);
+        saveButton.setEnabled(false);
         saveActionButton = EditorButton(font, "Save Action", {660.0f, 690.0f}, {156.0f, 42.0f}, AccentDark);
         deleteButton = EditorButton(font, "Delete", {528.0f, 690.0f}, {120.0f, 42.0f}, Warn);
         addTraitButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
@@ -954,6 +1052,9 @@ private:
         addStringButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addListButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addActionRefButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
+        saveChangesButton = EditorButton(font, "Save", {414.0f, 412.0f}, {136.0f, 42.0f}, AccentDark);
+        discardChangesButton = EditorButton(font, "Discard", {572.0f, 412.0f}, {136.0f, 42.0f}, Warn);
+        keepEditingButton = EditorButton(font, "Keep Editing", {730.0f, 412.0f}, {154.0f, 42.0f}, sf::Color(67, 48, 33));
         titleField = InputBox(font, "Title", {340.0f, 168.0f}, {470.0f, 42.0f});
         imageField = InputBox(font, "Image Path", {340.0f, 238.0f}, {470.0f, 42.0f});
         typeField = InputBox(font, "Type", {340.0f, 308.0f}, {470.0f, 42.0f});
@@ -1116,6 +1217,251 @@ private:
         }
     }
 
+    static void appendSnapshotValue(std::string& snapshot, const std::string& value)
+    {
+        snapshot += std::to_string(value.size());
+        snapshot += ':';
+        snapshot += value;
+        snapshot += ';';
+    }
+
+    std::string cardFormSnapshot() const
+    {
+        std::string snapshot;
+        auto appendFields = [&](const std::vector<InputBox>& fields) {
+            appendSnapshotValue(snapshot, std::to_string(fields.size()));
+            for (const InputBox& field : fields)
+            {
+                appendSnapshotValue(snapshot, field.getValue());
+            }
+        };
+
+        appendSnapshotValue(snapshot, titleField.getValue());
+        appendSnapshotValue(snapshot, imageField.getValue());
+        appendSnapshotValue(snapshot, typeField.getValue());
+        appendFields(traitFields);
+        appendFields(keywordFields);
+        appendFields(intKeyFields);
+        appendFields(intValueFields);
+        appendFields(stringKeyFields);
+        appendFields(stringValueFields);
+        appendSnapshotValue(snapshot, std::to_string(listEditors.size()));
+        for (const StringListEditor& editor : listEditors)
+        {
+            appendSnapshotValue(snapshot, editor.keyField.getValue());
+            appendFields(editor.valueFields);
+        }
+        appendFields(actionRefFields);
+        return snapshot;
+    }
+
+    std::string actionFormSnapshot() const
+    {
+        std::string snapshot;
+        const std::vector<const InputBox*> fields = {
+            &actionNameField,
+            &actionStateField,
+            &actionKindField,
+            &actionPatternField,
+            &actionMinRangeField,
+            &actionMaxRangeField,
+            &actionDamageField,
+            &actionHealField,
+            &actionCanMoveField,
+            &actionCanAttackField,
+            &actionPassThroughField,
+            &actionLineOfSightField,
+            &actionStatusTurnsField,
+            &actionCooldownTurnsField,
+            &actionPushField,
+        };
+        for (const InputBox* field : fields)
+        {
+            appendSnapshotValue(snapshot, field->getValue());
+        }
+        return snapshot;
+    }
+
+    void rememberCardForm()
+    {
+        savedCardForm = cardFormSnapshot();
+    }
+
+    void rememberActionForm()
+    {
+        savedActionForm = actionFormSnapshot();
+    }
+
+    bool hasUnsavedCardChanges() const
+    {
+        return cardFormSnapshot() != savedCardForm;
+    }
+
+    bool hasUnsavedChanges() const
+    {
+        return editorMode == EditorMode::Cards
+            ? hasUnsavedCardChanges()
+            : actionFormSnapshot() != savedActionForm;
+    }
+
+    void restoreCurrentForm()
+    {
+        if (editorMode == EditorMode::Cards)
+        {
+            if (selectedCard && *selectedCard < cards.size())
+            {
+                selectCard(*selectedCard);
+            }
+            else
+            {
+                createNewCard();
+            }
+        }
+        else if (selectedAction && *selectedAction < actions.size())
+        {
+            selectAction(*selectedAction);
+        }
+        else
+        {
+            createNewAction();
+        }
+    }
+
+    void setEditorMode(EditorMode mode)
+    {
+        editorMode = mode;
+        editorTabs.setActive(static_cast<std::size_t>(editorMode));
+        rebuildFocusOrder();
+        if (editorMode == EditorMode::Cards)
+        {
+            activateField(&titleField);
+            setStatus(fmt::format("{} cards", cards.size()), Muted);
+        }
+        else
+        {
+            activateField(&actionNameField);
+            setStatus(fmt::format("{} actions", actions.size()), Muted);
+        }
+    }
+
+    bool executePendingTransition()
+    {
+        const PendingTransition transition = pendingTransition;
+        const std::string selectionName = pendingSelectionName;
+        pendingTransition = PendingTransition::None;
+        pendingSelectionName.clear();
+
+        switch (transition)
+        {
+        case PendingTransition::CloseScreen:
+            return true;
+        case PendingTransition::ShowCards:
+            setEditorMode(EditorMode::Cards);
+            break;
+        case PendingTransition::ShowActions:
+            setEditorMode(EditorMode::Actions);
+            break;
+        case PendingTransition::NewCard:
+            createNewCard();
+            break;
+        case PendingTransition::NewAction:
+            createNewAction();
+            break;
+        case PendingTransition::RefreshCards:
+            loadCards();
+            break;
+        case PendingTransition::RefreshActions:
+            loadActions();
+            break;
+        case PendingTransition::SelectCard:
+        {
+            const auto found = std::find_if(cards.begin(), cards.end(), [&](const card_data::Card& card) {
+                return card.title == selectionName;
+            });
+            if (found != cards.end())
+            {
+                selectCard(static_cast<std::size_t>(found - cards.begin()));
+            }
+            else
+            {
+                setStatus("That card is no longer available", Warn);
+            }
+            break;
+        }
+        case PendingTransition::SelectAction:
+        {
+            const auto found = std::find_if(actions.begin(), actions.end(), [&](const card_data::Action& action) {
+                return action.name == selectionName;
+            });
+            if (found != actions.end())
+            {
+                selectAction(static_cast<std::size_t>(found - actions.begin()));
+            }
+            else
+            {
+                setStatus("That action is no longer available", Warn);
+            }
+            break;
+        }
+        case PendingTransition::None:
+            break;
+        }
+        return false;
+    }
+
+    bool requestTransition(PendingTransition transition, std::string selectionName = {})
+    {
+        pendingTransition = transition;
+        pendingSelectionName = std::move(selectionName);
+        if (!hasUnsavedChanges())
+        {
+            return executePendingTransition();
+        }
+
+        unsavedChangesPopupVisible = true;
+        unsavedChangesError.clear();
+        for (InputBox* field : focusOrder)
+        {
+            field->setActive(false);
+        }
+        return false;
+    }
+
+    bool saveAndContinue()
+    {
+        const bool saved = editorMode == EditorMode::Cards
+            ? saveCurrentCard()
+            : saveCurrentAction();
+        if (!saved)
+        {
+            unsavedChangesError = status;
+            return false;
+        }
+        unsavedChangesPopupVisible = false;
+        unsavedChangesError.clear();
+        return executePendingTransition();
+    }
+
+    bool discardAndContinue()
+    {
+        restoreCurrentForm();
+        unsavedChangesPopupVisible = false;
+        unsavedChangesError.clear();
+        return executePendingTransition();
+    }
+
+    void keepEditing()
+    {
+        unsavedChangesPopupVisible = false;
+        pendingTransition = PendingTransition::None;
+        pendingSelectionName.clear();
+        unsavedChangesError.clear();
+        if (!focusOrder.empty())
+        {
+            activateField(focusOrder[std::min(focusIndex, focusOrder.size() - 1)]);
+        }
+    }
+
     void loadCards()
     {
         const CardListResult result = fetchCardsFromServer();
@@ -1227,6 +1573,7 @@ private:
         actionPushField.setValue("0");
         rebuildFocusOrder();
         activateField(&actionNameField);
+        rememberActionForm();
         setStatus("Draft action", Muted);
     }
 
@@ -1256,6 +1603,7 @@ private:
         actionPushField.setValue(std::to_string(action.push));
         rebuildFocusOrder();
         activateField(&actionNameField);
+        rememberActionForm();
     }
 
     std::optional<std::string> selectedActionName() const
@@ -1267,13 +1615,13 @@ private:
         return actions[*selectedAction].name;
     }
 
-    void saveCurrentAction()
+    bool saveCurrentAction()
     {
         const card_data::Action action = actionFromForm();
         if (action.name.empty())
         {
             setStatus("Action name is required before saving", Warn);
-            return;
+            return false;
         }
         const std::optional<std::string> originalName = selectedActionName();
         const CommandResult result = originalName
@@ -1282,8 +1630,9 @@ private:
         if (!result.success)
         {
             setStatus(result.message, Warn);
-            return;
+            return false;
         }
+        rememberActionForm();
         const ActionListResult listResult = fetchActionsFromServer();
         if (listResult.success)
         {
@@ -1298,6 +1647,7 @@ private:
         }
         loadCards();
         setStatus("Saved action", Accent);
+        return true;
     }
 
     void copyCurrentAction()
@@ -1399,6 +1749,7 @@ private:
         rebuildFocusOrder();
         activateField(&titleField);
         hasPreviewImage = false;
+        rememberCardForm();
         setStatus("Draft card", Muted);
     }
 
@@ -1419,6 +1770,7 @@ private:
         editorScroll = 0.0f;
         rebuildFocusOrder();
         loadPreviewImage();
+        rememberCardForm();
     }
 
     card_data::Card cardFromForm() const
@@ -1495,18 +1847,18 @@ private:
         return card;
     }
 
-    void saveCurrentCard()
+    bool saveCurrentCard()
     {
         card_data::Card card = cardFromForm();
         if (card.title.empty())
         {
             setStatus("Title is required before saving", Warn);
-            return;
+            return false;
         }
         if (!card.imagePath.empty() && !resolveAssetImagePath(card.imagePath))
         {
             setStatus("Image path must stay inside assets", Warn);
-            return;
+            return false;
         }
         imageField.setValue(card.imagePath);
 
@@ -1515,7 +1867,7 @@ private:
         if (!result.success)
         {
             setStatus(result.message, Warn);
-            return;
+            return false;
         }
 
         setStatus("Saved card", Accent);
@@ -1533,6 +1885,8 @@ private:
                 ensureCardVisible(*selectedCard);
             }
         }
+        rememberCardForm();
+        return true;
     }
 
     void copyCurrentCard()
@@ -2122,48 +2476,30 @@ private:
         }
         if (backButton.contains(mouse))
         {
-            return true;
+            return requestTransition(PendingTransition::CloseScreen);
         }
         if (const std::optional<std::size_t> tabIndex = editorTabs.clickedIndex(mouse))
         {
-            editorTabs.setActive(*tabIndex);
-            editorMode = *tabIndex == 0 ? EditorMode::Cards : EditorMode::Actions;
-            rebuildFocusOrder();
-            if (editorMode == EditorMode::Cards)
+            const EditorMode requestedMode = *tabIndex == 0 ? EditorMode::Cards : EditorMode::Actions;
+            if (requestedMode == editorMode)
             {
-                activateField(&titleField);
-                setStatus(fmt::format("{} cards", cards.size()), Muted);
+                return false;
             }
-            else
-            {
-                activateField(&actionNameField);
-                setStatus(fmt::format("{} actions", actions.size()), Muted);
-            }
-            return false;
+            return requestTransition(requestedMode == EditorMode::Cards
+                ? PendingTransition::ShowCards
+                : PendingTransition::ShowActions);
         }
         if (newButton.contains(mouse))
         {
-            if (editorMode == EditorMode::Cards)
-            {
-                createNewCard();
-            }
-            else
-            {
-                createNewAction();
-            }
-            return false;
+            return requestTransition(editorMode == EditorMode::Cards
+                ? PendingTransition::NewCard
+                : PendingTransition::NewAction);
         }
         if (refreshButton.contains(mouse))
         {
-            if (editorMode == EditorMode::Cards)
-            {
-                loadCards();
-            }
-            else
-            {
-                loadActions();
-            }
-            return false;
+            return requestTransition(editorMode == EditorMode::Cards
+                ? PendingTransition::RefreshCards
+                : PendingTransition::RefreshActions);
         }
         if ((editorMode == EditorMode::Cards && copyButton.contains(mouse)) ||
             (editorMode == EditorMode::Actions && copyActionButton.contains(mouse)))
@@ -2209,8 +2545,11 @@ private:
             const std::optional<std::size_t> actionIndex = actionIndexAt(mouse);
             if (actionIndex)
             {
-                selectAction(*actionIndex);
-                return false;
+                if (selectedAction && *selectedAction == *actionIndex)
+                {
+                    return false;
+                }
+                return requestTransition(PendingTransition::SelectAction, actions[*actionIndex].name);
             }
             for (InputBox* field : focusOrder)
             {
@@ -2336,8 +2675,11 @@ private:
         const std::optional<std::size_t> listIndex = cardIndexAt(mouse);
         if (listIndex)
         {
-            selectCard(*listIndex);
-            return false;
+            if (selectedCard && *selectedCard == *listIndex)
+            {
+                return false;
+            }
+            return requestTransition(PendingTransition::SelectCard, cards[*listIndex].title);
         }
         if (titleField.contains(mouse))
         {
@@ -2421,6 +2763,38 @@ private:
             instructionsButton.draw(window);
             backButton.draw(window);
         }
+    }
+
+    void drawUnsavedChangesPopup(sf::RenderWindow& window)
+    {
+        sf::RectangleShape shade({EditorWidth, EditorHeight});
+        shade.setFillColor(sf::Color(0, 0, 0, 170));
+        window.draw(shade);
+
+        drawRoundedPanel(
+            window,
+            {382.0f, 236.0f},
+            {520.0f, 244.0f},
+            sf::Color(12, 20, 21, 252),
+            Accent);
+        drawText(window, font, "Unsaved Changes", 28, {414.0f, 266.0f}, Accent);
+        drawText(
+            window,
+            font,
+            editorMode == EditorMode::Cards
+                ? "This card has changes that have not been saved."
+                : "This action has changes that have not been saved.",
+            17,
+            {414.0f, 316.0f},
+            Ink);
+        drawText(window, font, "Save or discard them before continuing.", 16, {414.0f, 346.0f}, Muted);
+        if (!unsavedChangesError.empty())
+        {
+            drawText(window, font, unsavedChangesError, 14, {414.0f, 378.0f}, Warn, 456.0f);
+        }
+        saveChangesButton.draw(window);
+        discardChangesButton.draw(window);
+        keepEditingButton.draw(window);
     }
 
     float instructionMaxScroll() const
@@ -2564,7 +2938,7 @@ private:
         y = drawInstructionBullet(window, "Use the + button beside each section to add a field and the - button beside a row to remove it. Empty keys, empty traits, empty keywords, and empty list values are not saved.", y);
         y = drawInstructionBullet(window, "Integer values must be valid whole numbers. An invalid or blank number is omitted from the saved card, causing the game to use that field's default.", y);
         y = drawInstructionBullet(window, "Tab and Shift+Tab move between fields. Enter saves. The mouse wheel scrolls the field list when the pointer is over it.", y);
-        y = drawInstructionBullet(window, "Save Card creates a draft or updates the selected card. Delete removes the selected saved card. Refresh discards the local form state by reloading the server library.", y);
+        y = drawInstructionBullet(window, "Save Card creates a draft or updates the selected card. Delete removes the selected saved card. If you navigate away with edits, choose Save or Discard in the unsaved-changes prompt.", y);
         y = drawInstructionBullet(window, "Check the Preview panel before saving. It shows the stored values, but only the recognized keys documented above affect the game.", y);
         y += 22.0f;
 

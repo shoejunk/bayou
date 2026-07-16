@@ -1,5 +1,7 @@
 @echo off
-call "%~dp0ensure_dev_tls.bat" || exit /b 1
+if not defined BAYOU_DEV_TLS_READY (
+    call "%~dp0ensure_dev_tls.bat" || exit /b 1
+)
 set "BAYOU_TLS_CA_FILE=%~dp0tls\dev-client-ca-bundle.pem"
 set "SERVER_CONFIG=%~dp0gameserver.cfg"
 if not exist "%SERVER_CONFIG%" set "SERVER_CONFIG=%~dp0gameserver.cfg.example"
