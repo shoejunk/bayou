@@ -601,6 +601,7 @@ private:
     InputBox actionLineOfSightField;
     InputBox actionStatusTurnsField;
     InputBox actionCooldownTurnsField;
+    InputBox actionPushField;
     EditorButton backButton;
     EditorButton instructionsButton;
     EditorButton instructionsBackButton;
@@ -970,6 +971,7 @@ private:
         actionLineOfSightField = makeCompactField("0", {210.0f, 32.0f});
         actionStatusTurnsField = makeCompactField("0", {210.0f, 32.0f});
         actionCooldownTurnsField = makeCompactField("0", {210.0f, 32.0f});
+        actionPushField = makeCompactField("0", {210.0f, 32.0f});
         rebuildFocusOrder();
         activateField(&titleField);
     }
@@ -1055,6 +1057,7 @@ private:
                 &actionLineOfSightField,
                 &actionStatusTurnsField,
                 &actionCooldownTurnsField,
+                &actionPushField,
             };
             focusIndex = std::min(focusIndex, focusOrder.size() - 1);
             return;
@@ -1200,6 +1203,7 @@ private:
         action.lineOfSight = formBool(actionLineOfSightField);
         action.statusTurns = formInt(actionStatusTurnsField, 0);
         action.cooldownTurns = formInt(actionCooldownTurnsField, 0);
+        action.push = std::max(0, formInt(actionPushField, 0));
         return action;
     }
 
@@ -1220,6 +1224,7 @@ private:
         actionLineOfSightField.setValue("0");
         actionStatusTurnsField.setValue("0");
         actionCooldownTurnsField.setValue("0");
+        actionPushField.setValue("0");
         rebuildFocusOrder();
         activateField(&actionNameField);
         setStatus("Draft action", Muted);
@@ -1248,6 +1253,7 @@ private:
         actionLineOfSightField.setValue(action.lineOfSight ? "1" : "0");
         actionStatusTurnsField.setValue(std::to_string(action.statusTurns));
         actionCooldownTurnsField.setValue(std::to_string(action.cooldownTurns));
+        actionPushField.setValue(std::to_string(action.push));
         rebuildFocusOrder();
         activateField(&actionNameField);
     }
@@ -2513,6 +2519,7 @@ private:
         y = drawInstructionBullet(window, "Pattern ortho, diag, omni, horizontal, or vertical moves along that board geometry up to the action's maximum range.", y);
         y = drawInstructionBullet(window, "Pattern jump uses the fixed knight-style L shape. Pattern none is used for ranged, teleport, and tunnel actions that do not need slide geometry.", y);
         y = drawInstructionBullet(window, "Can move lets the action target an empty destination. With Can attack enabled, positive Damage targets and hurts enemies, while positive Heal targets and restores friendlies up to maximum health. Damage and Heal must not be negative.", y);
+        y = drawInstructionBullet(window, "Push moves each surviving enemy target up to that many squares directly away from the attack's staging square. Blocked push distance becomes 1 extra damage per prevented square.", y);
         y = drawInstructionBullet(window, "Minimum and maximum range are per action, so a card can mix short moves, long moves, ranged attacks, and state-specific actions.", y);
         y = drawInstructionParagraph(window, "For blocking slide and capture actions, every square along the path must be empty. Pass-through ignores blockers. Line of sight applies blocker checks to ranged attacks.", y + 5.0f, sf::Color(198, 210, 224));
         y += 10.0f;
@@ -2760,6 +2767,7 @@ private:
         actionLineOfSightField.setPosition({340.0f, 522.0f});
         actionStatusTurnsField.setPosition({600.0f, 522.0f});
         actionCooldownTurnsField.setPosition({340.0f, 580.0f});
+        actionPushField.setPosition({600.0f, 580.0f});
     }
 
     void drawActionEditorPanel(sf::RenderWindow& window)
@@ -2783,6 +2791,7 @@ private:
             {"Line of sight", {340.0f, 498.0f}},
             {"Status turns", {600.0f, 498.0f}},
             {"Cooldown turns", {340.0f, 556.0f}},
+            {"Push", {600.0f, 556.0f}},
         };
         for (const auto& [label, position] : labels)
         {
@@ -2817,7 +2826,8 @@ private:
         drawText(window, font, flags.empty() ? "none" : joinStrings(flags, ", "), 17, {882.0f, 330.0f}, Ink, 336.0f);
         drawText(window, font, fmt::format("Status: {} turns", action.statusTurns), 17, {882.0f, 382.0f}, Ink);
         drawText(window, font, fmt::format("Cooldown: {} turns", action.cooldownTurns), 17, {882.0f, 420.0f}, Ink);
-        drawText(window, font, "Cards reference this object by its unique name.", 15, {882.0f, 486.0f}, Muted, 336.0f);
+        drawText(window, font, fmt::format("Push: {} squares", action.push), 17, {882.0f, 458.0f}, Ink);
+        drawText(window, font, "Cards reference this object by its unique name.", 15, {882.0f, 500.0f}, Muted, 336.0f);
         drawText(window, font, "Kinds: slide, ranged, hop, teleport, tunnel,", 14, {882.0f, 540.0f}, Muted, 336.0f);
         drawText(window, font, "capture", 14, {882.0f, 560.0f}, Muted, 336.0f);
         drawText(window, font, "Patterns: none, ortho, diag, omni, jump,", 14, {882.0f, 590.0f}, Muted, 336.0f);

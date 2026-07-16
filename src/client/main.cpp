@@ -3769,6 +3769,8 @@ int main(int argc, char** argv)
         std::vector<std::string> healedTargetNames;
         bool anyTargetDestroyed = false;
         bool anyTargetWasHidden = false;
+        int pushedSquares = 0;
+        int pushCollisionDamage = 0;
 
         const std::string commanderName = commandedAction ? commander->name : std::string();
         if (action.attacks)
@@ -3810,6 +3812,21 @@ int main(int argc, char** argv)
                             removePieceFromSnapshot(next, damagedPiece->id);
                         }
                     }
+                    const game_data::PushResult pushResult = game_data::applyActionPush(
+                        next.pieces,
+                        targetId,
+                        action.stagingRow,
+                        action.stagingColumn,
+                        action.push);
+                    pushedSquares += pushResult.movedSquares;
+                    pushCollisionDamage += pushResult.preventedSquares;
+                    if (game_data::Piece* pushedTarget =
+                            pieceByIdInSnapshotMutable(next, targetId);
+                        pushedTarget && pushedTarget->health <= 0)
+                    {
+                        anyTargetDestroyed = true;
+                        removePieceFromSnapshot(next, pushedTarget->id);
+                    }
                 }
             }
             if (damagedTargetNames.empty() && healedTargetNames.empty()) return;
@@ -3840,8 +3857,15 @@ int main(int argc, char** argv)
             }
             else
             {
-                acting->row = action.stagingRow;
-                acting->column = action.stagingColumn;
+                if (game_data::pieceFootprintFree(
+                        next.pieces,
+                        *acting,
+                        action.stagingRow,
+                        action.stagingColumn))
+                {
+                    acting->row = action.stagingRow;
+                    acting->column = action.stagingColumn;
+                }
             }
         }
         acting->disabledTurns = std::max(acting->disabledTurns, action.cooldownTurns);
@@ -3880,6 +3904,12 @@ int main(int argc, char** argv)
                     ? attackerName + " " + healed
                     : " and " + healed;
             }
+            if (pushedSquares > 0)
+                next.status += " and pushed targets " + std::to_string(pushedSquares) +
+                    " square(s)";
+            if (pushCollisionDamage > 0)
+                next.status += " and dealt " + std::to_string(pushCollisionDamage) +
+                    " extra collision damage";
             if (effectiveDisabledTurns > 0)
                 next.status += " and disabled surviving targets for " +
                     std::to_string(effectiveDisabledTurns) + " turn(s)";

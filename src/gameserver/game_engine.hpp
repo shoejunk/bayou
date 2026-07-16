@@ -613,6 +613,8 @@ private:
         std::vector<int> defeatedOwners;
         bool anyTargetDestroyed = false;
         bool anyTargetWasHidden = false;
+        int pushedSquares = 0;
+        int pushCollisionDamage = 0;
 
         if (action.attacks)
         {
@@ -649,6 +651,21 @@ private:
                             removePiece(damagedPiece->id);
                         }
                     }
+                    const PushResult pushResult = applyActionPush(
+                        pieces,
+                        targetId,
+                        action.stagingRow,
+                        action.stagingColumn,
+                        action.push);
+                    pushedSquares += pushResult.movedSquares;
+                    pushCollisionDamage += pushResult.preventedSquares;
+                    if (Piece* pushedTarget = pieceById(targetId);
+                        pushedTarget != nullptr && pushedTarget->health <= 0)
+                    {
+                        anyTargetDestroyed = true;
+                        defeatedOwners.push_back(pushedTarget->owner);
+                        removePiece(pushedTarget->id);
+                    }
                 }
             }
             if (damagedTargetNames.empty() && healedTargetNames.empty()) return;
@@ -680,8 +697,15 @@ private:
             }
             else
             {
-                survivingAttacker->row = action.stagingRow;
-                survivingAttacker->column = action.stagingColumn;
+                if (pieceFootprintFree(
+                        pieces,
+                        *survivingAttacker,
+                        action.stagingRow,
+                        action.stagingColumn))
+                {
+                    survivingAttacker->row = action.stagingRow;
+                    survivingAttacker->column = action.stagingColumn;
+                }
             }
         }
         survivingAttacker->disabledTurns =
@@ -746,6 +770,16 @@ private:
                 result += result.empty()
                     ? fmt::format("{} {}", attackerName, healed)
                     : " and " + healed;
+            }
+            if (pushedSquares > 0)
+            {
+                result += fmt::format(" and pushed targets {} square(s)", pushedSquares);
+            }
+            if (pushCollisionDamage > 0)
+            {
+                result += fmt::format(
+                    " and dealt {} extra collision damage",
+                    pushCollisionDamage);
             }
             if (effectiveDisabledTurns > 0)
             {

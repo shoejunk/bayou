@@ -225,6 +225,7 @@ struct ActionResolution
     int heal = 0;
     int statusTurns = 0;
     int cooldownTurns = 0;
+    int push = 0;
     int stagingRow = 0;
     int stagingColumn = 0;
 };
@@ -445,6 +446,7 @@ inline ActionResolution resolvePieceAction(
         candidate.heal = action.heal;
         candidate.statusTurns = action.statusTurns;
         candidate.cooldownTurns = action.cooldownTurns;
+        candidate.push = action.push;
         candidate.stagingRow = piece.row;
         candidate.stagingColumn = piece.column;
 
@@ -541,7 +543,7 @@ inline ActionResolution resolvePieceAction(
             candidate.attacks = true;
             for (const Piece* target : footprintTargets)
                 addActionTarget(candidate, *target);
-            if (!jumping && !action.passThrough)
+            if (!jumping)
             {
                 const int stepRow = (deltaRow > 0) - (deltaRow < 0);
                 const int stepColumn = (deltaColumn > 0) - (deltaColumn < 0);
@@ -582,7 +584,7 @@ inline ActionResolution resolvePieceAction(
                 candidate.legal = !candidate.targetIds.empty();
                 candidate.attacks = candidate.legal;
                 candidate.moves = action.canMove;
-                if (!jumping && !action.passThrough)
+                if (candidate.moves && !jumping)
                 {
                     const int stepRow = (deltaRow > 0) - (deltaRow < 0);
                     const int stepColumn = (deltaColumn > 0) - (deltaColumn < 0);
@@ -602,7 +604,7 @@ inline ActionResolution resolvePieceAction(
                 candidate.attacks = true;
                 candidate.moves = action.canMove;
                 addActionTarget(candidate, *destination);
-                if (!jumping && !action.passThrough)
+                if (candidate.moves && !jumping)
                 {
                     const int stepRow = (deltaRow > 0) - (deltaRow < 0);
                     const int stepColumn = (deltaColumn > 0) - (deltaColumn < 0);
@@ -624,10 +626,10 @@ inline ActionResolution resolvePieceAction(
         }
 
         const int candidateImpact = candidate.attacks
-            ? std::max(candidate.damage, candidate.heal) + candidate.statusTurns
+            ? std::max(candidate.damage, candidate.heal) + candidate.statusTurns + candidate.push
             : 0;
         const int bestImpact = best.attacks
-            ? std::max(best.damage, best.heal) + best.statusTurns
+            ? std::max(best.damage, best.heal) + best.statusTurns + best.push
             : 0;
         if (!best.legal || candidateImpact > bestImpact)
         {
@@ -791,6 +793,7 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
     outcome.action.targetIds.clear();
     outcome.action.damage = 0;
     outcome.action.heal = 0;
+    outcome.action.push = 0;
     outcome.action.statusTurns = 0;
     outcome.action.moves = stopRow != piece.row || stopColumn != piece.column;
     outcome.destinationRow = stopRow;
@@ -859,6 +862,77 @@ inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
         std::max(second.column - (first.column + first.width - 1),
                  first.column - (second.column + second.width - 1)));
     return std::max(rowGap, columnGap) == 1;
+}
+
+struct PushResult
+{
+    int movedSquares = 0;
+    int preventedSquares = 0;
+};
+
+// Pushes a surviving enemy directly away from the attack's staging square.
+// Each axis is reduced to -1, 0, or 1, selecting one of the eight board
+// directions. For large pieces, the target square closest to staging is used.
+// Knight offsets therefore push diagonally, toward the nearest eight-way
+// approximation of the L-shaped attack vector.
+inline PushResult applyActionPush(
+    std::vector<Piece>& pieces,
+    int targetId,
+    int stagingRow,
+    int stagingColumn,
+    int distance)
+{
+    PushResult result;
+    const int requestedSquares = std::max(0, distance);
+    if (requestedSquares == 0)
+    {
+        return result;
+    }
+
+    const auto targetIt = std::find_if(
+        pieces.begin(),
+        pieces.end(),
+        [targetId](const Piece& piece) { return piece.id == targetId; });
+    if (targetIt == pieces.end())
+    {
+        return result;
+    }
+
+    Piece& target = *targetIt;
+    const int nearestTargetRow = std::clamp(
+        stagingRow, target.row, target.row + target.height - 1);
+    const int nearestTargetColumn = std::clamp(
+        stagingColumn, target.column, target.column + target.width - 1);
+    const int stepRow = (nearestTargetRow > stagingRow) - (nearestTargetRow < stagingRow);
+    const int stepColumn =
+        (nearestTargetColumn > stagingColumn) - (nearestTargetColumn < stagingColumn);
+
+    if (stepRow == 0 && stepColumn == 0)
+    {
+        result.preventedSquares = requestedSquares;
+        applyActionDamage(target, result.preventedSquares, 0);
+        return result;
+    }
+
+    while (result.movedSquares < requestedSquares)
+    {
+        const int nextRow = target.row + stepRow;
+        const int nextColumn = target.column + stepColumn;
+        if (!pieceFootprintFree(pieces, target, nextRow, nextColumn))
+        {
+            break;
+        }
+        target.row = nextRow;
+        target.column = nextColumn;
+        ++result.movedSquares;
+    }
+
+    result.preventedSquares = requestedSquares - result.movedSquares;
+    if (result.preventedSquares > 0)
+    {
+        applyActionDamage(target, result.preventedSquares, 0);
+    }
+    return result;
 }
 
 struct DamageAssignment

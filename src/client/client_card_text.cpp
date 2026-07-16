@@ -140,6 +140,10 @@ std::string actionDescription(const game_data::ActionProfile& action, std::size_
         {
             parts.push_back("healing: " + std::to_string(action.heal));
         }
+        if (action.push > 0)
+        {
+            parts.push_back("push: " + std::to_string(action.push));
+        }
     }
     if (action.statusTurns > 0)
     {

@@ -547,6 +547,7 @@ int main(int argc, char** argv)
     passThroughAttack.minRange = 3;
     passThroughAttack.maxRange = 3;
     passThroughAttack.damage = 1;
+    passThroughAttack.push = 3;
     passThroughAttack.canMove = true;
     passThroughAttack.canAttack = true;
     passThroughAttack.passThrough = true;
@@ -566,9 +567,50 @@ int main(int argc, char** argv)
     const ActionResolution passThroughResult =
         resolvePieceAction(passThroughPieces, holes, passThroughPieces[0], 3, 6);
     check(passThroughResult.legal && passThroughResult.moves && passThroughResult.attacks &&
-              passThroughResult.stagingRow == profilePiece.row &&
-              passThroughResult.stagingColumn == profilePiece.column,
-          "failed pass-through attack returns the attacker to its original square");
+              passThroughResult.push == 3 &&
+              passThroughResult.stagingRow == 3 &&
+              passThroughResult.stagingColumn == 5,
+          "pass-through attacking slide stages on the last square before its target");
+
+    Piece pushTarget;
+    pushTarget.id = 12;
+    pushTarget.owner = 2;
+    pushTarget.row = 3;
+    pushTarget.column = 4;
+    pushTarget.maxHealth = 10;
+    pushTarget.health = 10;
+    Piece pushBlocker;
+    pushBlocker.id = 13;
+    pushBlocker.owner = 2;
+    pushBlocker.row = 3;
+    pushBlocker.column = 6;
+    std::vector<Piece> pushPieces = {pushTarget, pushBlocker};
+    const PushResult blockedPush = applyActionPush(pushPieces, pushTarget.id, 3, 3, 3);
+    check(blockedPush.movedSquares == 1 && blockedPush.preventedSquares == 2 &&
+              pushPieces[0].row == 3 && pushPieces[0].column == 5 &&
+              pushPieces[0].health == 8,
+          "blocked push moves as far as possible and deals damage for every prevented square");
+
+    Piece diagonalPushTarget = pushTarget;
+    diagonalPushTarget.id = 14;
+    diagonalPushTarget.row = 4;
+    diagonalPushTarget.column = 5;
+    std::vector<Piece> diagonalPushPieces = {diagonalPushTarget};
+    const PushResult knightDirectionPush =
+        applyActionPush(diagonalPushPieces, diagonalPushTarget.id, 3, 3, 1);
+    check(knightDirectionPush.movedSquares == 1 &&
+              diagonalPushPieces[0].row == 5 && diagonalPushPieces[0].column == 6,
+          "knight-shaped attack vectors push diagonally in the nearest eight-way direction");
+
+    Piece edgePushTarget = pushTarget;
+    edgePushTarget.id = 15;
+    edgePushTarget.row = 0;
+    edgePushTarget.column = 0;
+    std::vector<Piece> edgePushPieces = {edgePushTarget};
+    const PushResult edgePush = applyActionPush(edgePushPieces, edgePushTarget.id, 1, 1, 3);
+    check(edgePush.movedSquares == 0 && edgePush.preventedSquares == 3 &&
+              edgePushPieces[0].health == 7,
+          "board edge prevents the remaining push distance and converts it to damage");
 
     ActionProfile stateOne = horizontal;
     stateOne.state = 1;
@@ -622,8 +664,10 @@ int main(int argc, char** argv)
     check(!raisedMove.legal,
           "raised gun cannot move");
     check(raisedAttack.legal && !raisedAttack.moves && raisedAttack.attacks &&
-              raisedAttack.damage == 3,
-          "raised gun can deal damage without moving");
+              raisedAttack.damage == 3 &&
+              raisedAttack.stagingRow == gunner.row &&
+              raisedAttack.stagingColumn == gunner.column,
+          "raised gun can deal damage without moving and stages at the attacker's square");
 
     Piece healer = gunner;
     healer.id = 24;
@@ -787,6 +831,7 @@ int main(int argc, char** argv)
         false,
         0,
         0,
+        3,
     });
     const GameCard decodedCard = toGameCard(encodedCard);
     check(decodedCard.actions.size() == 1 &&
@@ -796,6 +841,7 @@ int main(int argc, char** argv)
               decodedCard.actions[0].name == "Diagonal Charge" &&
               decodedCard.actions[0].damage == 2 &&
               decodedCard.actions[0].heal == 0 &&
+              decodedCard.actions[0].push == 3 &&
               decodedCard.actions[0].canMove &&
               decodedCard.actions[0].canAttack &&
               decodedCard.fidgetAnimPath == "animations/fidget/test.png" &&
@@ -810,8 +856,9 @@ int main(int argc, char** argv)
     card_data::writeAction(actionPacket, encodedHealingAction);
     card_data::Action roundTrippedAction;
     check(card_data::readAction(actionPacket, roundTrippedAction) &&
-              roundTrippedAction.damage == 0 && roundTrippedAction.heal == 4,
-          "card-server action serialization keeps healing separate from damage");
+              roundTrippedAction.damage == 0 && roundTrippedAction.heal == 4 &&
+              roundTrippedAction.push == 3,
+          "card-server action serialization keeps healing and push data");
 
     sf::Packet legacyCardListPacket;
     legacyCardListPacket << static_cast<std::uint32_t>(1);
@@ -872,6 +919,7 @@ int main(int argc, char** argv)
               roundTrippedCard.actions[0].name == "Diagonal Charge" &&
               roundTrippedCard.actions[0].damage == 2 &&
               roundTrippedCard.actions[0].heal == 3 &&
+              roundTrippedCard.actions[0].push == 3 &&
               roundTrippedCard.traits == encodedCard.traits &&
               roundTrippedCard.keywords == encodedCard.keywords &&
               roundTrippedCard.tokenPath == "characters/test.png" &&
@@ -924,6 +972,7 @@ int main(int argc, char** argv)
     {
         serializedPiece.actions[0].name = "Serialized Action";
         serializedPiece.actions[0].heal = 2;
+        serializedPiece.actions[0].push = 3;
     }
     sf::Packet piecePacket;
     writePiece(piecePacket, serializedPiece);
@@ -932,6 +981,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.actions.size() == 1 &&
               roundTrippedPiece.actions[0].name == "Serialized Action" &&
               roundTrippedPiece.actions[0].heal == 2 &&
+              roundTrippedPiece.actions[0].push == 3 &&
               roundTrippedPiece.traits == serializedPiece.traits &&
               roundTrippedPiece.keywords == serializedPiece.keywords &&
               roundTrippedPiece.tokenPath == "characters/test.png" &&
@@ -1060,6 +1110,45 @@ int main(int argc, char** argv)
         [](const Piece& piece) { return piece.name == "Seedling"; }));
     check(seedlingCount == 1,
           "trail does not summon when an action attacks without moving the piece");
+
+    card_data::Card pushHeroCard;
+    pushHeroCard.title = "Push Hero";
+    pushHeroCard.type = "Hero";
+    pushHeroCard.integerValues = {{"health", 10}};
+    card_data::Action pushShot;
+    pushShot.name = "Force Shot";
+    pushShot.kind = "ranged";
+    pushShot.pattern = "none";
+    pushShot.minRange = 1;
+    pushShot.maxRange = 7;
+    pushShot.damage = 1;
+    pushShot.push = 3;
+    pushShot.canMove = false;
+    pushShot.canAttack = true;
+    pushHeroCard.actions = {pushShot};
+    card_data::Card pushVictimCard = pushHeroCard;
+    pushVictimCard.title = "Push Victim";
+    pushVictimCard.actions.clear();
+
+    GameEngine pushEngine(31, {pushHeroCard, pushVictimCard});
+    pushEngine.submitDeck(1, {pushHeroCard});
+    pushEngine.submitDeck(2, {pushVictimCard});
+    const auto pushAttackerHome = homeSquares(1)[0];
+    const auto pushVictimHome = homeSquares(2)[0];
+    pushEngine.placeHero(1, 0, pushAttackerHome.first, pushAttackerHome.second);
+    pushEngine.placeHero(2, 0, pushVictimHome.first, pushVictimHome.second);
+    const int pushAttackerId = pushEngine.boardPieces().front().id;
+    pushEngine.attackPiece(1, pushAttackerId, pushVictimHome.first, pushVictimHome.second);
+    const auto pushedVictim = std::find_if(
+        pushEngine.boardPieces().begin(),
+        pushEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Push Victim"; });
+    check(pushedVictim != pushEngine.boardPieces().end() &&
+              pushedVictim->health == 6 &&
+              pushedVictim->row == pushVictimHome.first &&
+              pushedVictim->column == pushVictimHome.second &&
+              pushEngine.snapshotFor(1).status.find("3 extra collision damage") != std::string::npos,
+          "authoritative attacks apply blocked push damage after their base damage");
 
     auto commandTestHero = [](const std::string& title, bool commands) {
         card_data::Card card;
