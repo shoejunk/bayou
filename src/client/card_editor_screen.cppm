@@ -51,12 +51,15 @@ constexpr float EditorPanelWidth = 520.0f;
 constexpr float PreviewPanelX = 856.0f;
 constexpr float PreviewPanelY = 100.0f;
 constexpr float PreviewPanelWidth = 400.0f;
+constexpr float ActionEditorPanelWidth = PreviewPanelX + PreviewPanelWidth - EditorPanelX;
 constexpr float ListRowStartY = 176.0f;
 constexpr float ListRowHeight = 56.0f;
 constexpr std::size_t VisibleCardRows = 8;
 constexpr std::size_t VisibleActionRows = 8;
-constexpr std::size_t VisibleTargetFilterRows = 4;
-constexpr float TargetFilterTop = 526.0f;
+constexpr std::size_t VisibleActionDropdownRows = 5;
+constexpr std::size_t VisibleTargetFilterRows = 12;
+constexpr float ActionDropdownRowHeight = 32.0f;
+constexpr float TargetFilterTop = 224.0f;
 constexpr float TargetFilterRowHeight = 36.0f;
 
 const sf::Color Ink(244, 234, 208);
@@ -404,28 +407,68 @@ public:
             return shouldClose;
         }
 
+        std::optional<std::size_t> activeActionReference;
+        std::string previousActionReferenceValue;
         if (!focusOrder.empty())
         {
             const std::string previousImagePath = imageField.getValue();
+            if (editorMode == EditorMode::Cards)
+            {
+                activeActionReference = actionReferenceIndex(focusOrder[focusIndex]);
+                if (activeActionReference)
+                {
+                    previousActionReferenceValue = actionRefFields[*activeActionReference].getValue();
+                }
+            }
             focusOrder[focusIndex]->handleEvent(event, window);
             if (imageField.isActive() && imageField.getValue() != previousImagePath)
             {
                 loadPreviewImage();
             }
+            if (activeActionReference &&
+                actionRefFields[*activeActionReference].getValue() != previousActionReferenceValue)
+            {
+                openActionDropdown(*activeActionReference, true);
+            }
         }
 
         if (const auto* keyEvent = event.getIf<sf::Event::KeyPressed>())
         {
-            if (keyEvent->code == sf::Keyboard::Key::Escape)
+            bool handledDropdownKey = false;
+            if (editorMode == EditorMode::Cards && activeActionReference)
+            {
+                if (keyEvent->code == sf::Keyboard::Key::Escape && openActionDropdownIndex)
+                {
+                    closeActionDropdown();
+                    handledDropdownKey = true;
+                }
+                else if (keyEvent->code == sf::Keyboard::Key::Up ||
+                         keyEvent->code == sf::Keyboard::Key::Down)
+                {
+                    if (!openActionDropdownIndex)
+                    {
+                        openActionDropdown(*activeActionReference, false);
+                    }
+                    moveActionDropdownSelection(keyEvent->code == sf::Keyboard::Key::Down ? 1 : -1);
+                    handledDropdownKey = true;
+                }
+                else if (keyEvent->code == sf::Keyboard::Key::Enter && openActionDropdownIndex)
+                {
+                    chooseActionDropdownItem(actionDropdownSelection);
+                    handledDropdownKey = true;
+                }
+            }
+
+            if (!handledDropdownKey && keyEvent->code == sf::Keyboard::Key::Escape)
             {
                 shouldClose = requestTransition(PendingTransition::CloseScreen);
             }
-            else if (keyEvent->code == sf::Keyboard::Key::Tab)
+            else if (!handledDropdownKey && keyEvent->code == sf::Keyboard::Key::Tab)
             {
                 moveFocus(keyEvent->shift ? -1 : 1);
                 ensureActiveFieldVisible();
             }
-            else if (keyEvent->code == sf::Keyboard::Key::Enter)
+            else if (!handledDropdownKey && keyEvent->code == sf::Keyboard::Key::Enter)
             {
                 if (editorMode == EditorMode::Cards)
                 {
@@ -453,7 +496,12 @@ public:
         if (const auto* wheel = event.getIf<sf::Event::MouseWheelScrolled>())
         {
             const sf::Vector2f mouse = window.mapPixelToCoords(wheel->position);
-            if (isInListPanel(mouse))
+            const std::optional<ActionDropdownLayout> dropdownLayout = actionDropdownLayout();
+            if (editorMode == EditorMode::Cards && dropdownLayout && dropdownLayout->bounds.contains(mouse))
+            {
+                moveActionDropdownSelection(wheel->delta < 0.0f ? 1 : -1);
+            }
+            else if (isInListPanel(mouse))
             {
                 if (editorMode == EditorMode::Cards)
                 {
@@ -511,6 +559,8 @@ public:
         editorTabs.update(mouse);
         if (editorMode == EditorMode::Actions)
         {
+            hoveredActionDropdownItem.reset();
+            hoveredActionLink.reset();
             layoutActionFields();
             addActionTargetFilterButton.update(mouse);
             for (EditorButton& button : removeActionTargetFilterButtons)
@@ -522,6 +572,17 @@ public:
                 focusOrder[focusIndex]->updateCursor(deltaTime);
             }
             return;
+        }
+        hoveredActionDropdownItem = actionDropdownItemAt(mouse);
+        hoveredActionLink.reset();
+        for (std::size_t i = 0; i < actionRefFields.size(); ++i)
+        {
+            if (isVisibleInArrayViewport(actionRefFields[i].bounds()) && linkedActionIndex(i) &&
+                actionLinkButtonBounds(i).contains(mouse))
+            {
+                hoveredActionLink = i;
+                break;
+            }
         }
         addTraitButton.update(mouse);
         addKeywordButton.update(mouse);
@@ -593,7 +654,6 @@ public:
             else
             {
                 drawActionEditorPanel(window);
-                drawActionPreviewPanel(window);
             }
             if (unsavedChangesPopupVisible)
             {
@@ -650,6 +710,13 @@ private:
         std::vector<InputBox> valueFields;
     };
 
+    struct ActionDropdownLayout
+    {
+        sf::FloatRect bounds;
+        std::size_t firstRow = 0;
+        std::size_t visibleRows = 0;
+    };
+
     static constexpr float ArrayViewportTop = 372.0f;
     static constexpr float ArrayViewportBottom = 676.0f;
     static constexpr float ArrayViewportHeight = ArrayViewportBottom - ArrayViewportTop;
@@ -694,6 +761,14 @@ private:
     std::vector<InputBox> stringValueFields;
     std::vector<StringListEditor> listEditors;
     std::vector<InputBox> actionRefFields;
+    std::optional<std::size_t> openActionDropdownIndex;
+    std::size_t actionDropdownOffset = 0;
+    std::size_t actionDropdownSelection = 0;
+    bool actionDropdownFiltering = false;
+    std::optional<std::size_t> hoveredActionDropdownItem;
+    std::optional<std::size_t> hoveredActionLink;
+    sf::Texture actionLinkTexture;
+    bool hasActionLinkTexture = false;
     InputBox actionNameField;
     InputBox actionStateField;
     InputBox actionKindField;
@@ -1068,7 +1143,7 @@ private:
         addStringButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addListButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addActionRefButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
-        addActionTargetFilterButton = EditorButton(font, "+", {1184.0f, 492.0f}, {32.0f, 28.0f}, AccentDark);
+        addActionTargetFilterButton = EditorButton(font, "+", {1184.0f, 164.0f}, {32.0f, 28.0f}, AccentDark);
         saveChangesButton = EditorButton(font, "Save", {414.0f, 412.0f}, {136.0f, 42.0f}, AccentDark);
         discardChangesButton = EditorButton(font, "Discard", {572.0f, 412.0f}, {136.0f, 42.0f}, Warn);
         keepEditingButton = EditorButton(font, "Keep Editing", {730.0f, 412.0f}, {154.0f, 42.0f}, sf::Color(67, 48, 33));
@@ -1090,6 +1165,11 @@ private:
         actionStatusTurnsField = makeCompactField("0", {210.0f, 32.0f});
         actionCooldownTurnsField = makeCompactField("0", {210.0f, 32.0f});
         actionPushField = makeCompactField("0", {210.0f, 32.0f});
+        if (const std::optional<std::filesystem::path> path = resolveAssetImagePath("ui/action-link.png"))
+        {
+            hasActionLinkTexture = actionLinkTexture.loadFromFile(*path);
+            actionLinkTexture.setSmooth(true);
+        }
         rebuildFocusOrder();
         activateField(&titleField);
     }
@@ -1098,6 +1178,13 @@ private:
     {
         InputBox field(font, "", {0.0f, 0.0f}, size);
         field.setValue(value);
+        return field;
+    }
+
+    InputBox makeActionReferenceField(const std::string& value)
+    {
+        InputBox field = makeCompactField(value, {392.0f, 32.0f});
+        field.setRightContentInset(28.0f);
         return field;
     }
 
@@ -1151,7 +1238,7 @@ private:
         }
         for (const std::string& actionName : card.actionNames)
         {
-            actionRefFields.push_back(makeCompactField(actionName, {392.0f, 32.0f}));
+            actionRefFields.push_back(makeActionReferenceField(actionName));
         }
     }
 
@@ -1236,6 +1323,216 @@ private:
                 focusIndex = i;
             }
         }
+    }
+
+    std::optional<std::size_t> actionReferenceIndex(const InputBox* field) const
+    {
+        for (std::size_t i = 0; i < actionRefFields.size(); ++i)
+        {
+            if (&actionRefFields[i] == field)
+            {
+                return i;
+            }
+        }
+        return std::nullopt;
+    }
+
+    std::optional<std::size_t> linkedActionIndex(std::size_t referenceIndex) const
+    {
+        if (referenceIndex >= actionRefFields.size())
+        {
+            return std::nullopt;
+        }
+        const std::string name = trim(actionRefFields[referenceIndex].getValue());
+        const auto found = std::find_if(actions.begin(), actions.end(), [&](const card_data::Action& action) {
+            return action.name == name;
+        });
+        if (found == actions.end())
+        {
+            return std::nullopt;
+        }
+        return static_cast<std::size_t>(found - actions.begin());
+    }
+
+    std::vector<std::size_t> filteredActionIndices() const
+    {
+        std::vector<std::size_t> matches;
+        if (!openActionDropdownIndex || *openActionDropdownIndex >= actionRefFields.size())
+        {
+            return matches;
+        }
+
+        const std::string query = lowerKey(trim(actionRefFields[*openActionDropdownIndex].getValue()));
+        for (std::size_t i = 0; i < actions.size(); ++i)
+        {
+            if (!actionDropdownFiltering || query.empty() || lowerKey(actions[i].name).find(query) != std::string::npos)
+            {
+                matches.push_back(i);
+            }
+        }
+        return matches;
+    }
+
+    std::optional<ActionDropdownLayout> actionDropdownLayout() const
+    {
+        if (!openActionDropdownIndex || *openActionDropdownIndex >= actionRefFields.size())
+        {
+            return std::nullopt;
+        }
+        const sf::FloatRect fieldBounds = actionRefFields[*openActionDropdownIndex].bounds();
+        if (!isVisibleInArrayViewport(fieldBounds))
+        {
+            return std::nullopt;
+        }
+
+        const std::vector<std::size_t> matches = filteredActionIndices();
+        const std::size_t desiredRows = std::max<std::size_t>(
+            1,
+            std::min<std::size_t>(VisibleActionDropdownRows, matches.size()));
+        const float belowSpace = std::max(
+            0.0f,
+            ArrayViewportBottom - (fieldBounds.position.y + fieldBounds.size.y + 2.0f));
+        const float aboveSpace = std::max(
+            0.0f,
+            fieldBounds.position.y - ArrayViewportTop - 2.0f);
+        const std::size_t belowRows = static_cast<std::size_t>(belowSpace / ActionDropdownRowHeight);
+        const std::size_t aboveRows = static_cast<std::size_t>(aboveSpace / ActionDropdownRowHeight);
+        const bool placeBelow = belowRows >= desiredRows || belowRows >= aboveRows;
+        const std::size_t availableRows = placeBelow ? belowRows : aboveRows;
+        if (availableRows == 0)
+        {
+            return std::nullopt;
+        }
+
+        ActionDropdownLayout layout;
+        layout.visibleRows = std::min(desiredRows, availableRows);
+        const std::size_t maximumOffset = matches.size() > layout.visibleRows
+            ? matches.size() - layout.visibleRows
+            : 0;
+        layout.firstRow = std::min(actionDropdownOffset, maximumOffset);
+        const float height = static_cast<float>(layout.visibleRows) * ActionDropdownRowHeight;
+        const float y = placeBelow
+            ? fieldBounds.position.y + fieldBounds.size.y + 2.0f
+            : fieldBounds.position.y - height - 2.0f;
+        layout.bounds = sf::FloatRect({fieldBounds.position.x, y}, {fieldBounds.size.x, height});
+        return layout;
+    }
+
+    void closeActionDropdown()
+    {
+        openActionDropdownIndex.reset();
+        actionDropdownOffset = 0;
+        actionDropdownSelection = 0;
+        actionDropdownFiltering = false;
+        hoveredActionDropdownItem.reset();
+    }
+
+    void ensureActionDropdownSelectionVisible()
+    {
+        const std::vector<std::size_t> matches = filteredActionIndices();
+        if (matches.empty())
+        {
+            actionDropdownSelection = 0;
+            actionDropdownOffset = 0;
+            return;
+        }
+        actionDropdownSelection = std::min(actionDropdownSelection, matches.size() - 1);
+        const std::optional<ActionDropdownLayout> layout = actionDropdownLayout();
+        if (!layout)
+        {
+            return;
+        }
+        if (actionDropdownSelection < actionDropdownOffset)
+        {
+            actionDropdownOffset = actionDropdownSelection;
+        }
+        else if (actionDropdownSelection >= actionDropdownOffset + layout->visibleRows)
+        {
+            actionDropdownOffset = actionDropdownSelection - layout->visibleRows + 1;
+        }
+    }
+
+    void openActionDropdown(std::size_t referenceIndex, bool filterByCurrentValue)
+    {
+        if (referenceIndex >= actionRefFields.size())
+        {
+            closeActionDropdown();
+            return;
+        }
+        openActionDropdownIndex = referenceIndex;
+        actionDropdownFiltering = filterByCurrentValue;
+        actionDropdownOffset = 0;
+        actionDropdownSelection = 0;
+        if (!filterByCurrentValue)
+        {
+            if (const std::optional<std::size_t> linkedIndex = linkedActionIndex(referenceIndex))
+            {
+                const std::vector<std::size_t> matches = filteredActionIndices();
+                const auto found = std::find(matches.begin(), matches.end(), *linkedIndex);
+                if (found != matches.end())
+                {
+                    actionDropdownSelection = static_cast<std::size_t>(found - matches.begin());
+                }
+            }
+        }
+        ensureActionDropdownSelectionVisible();
+    }
+
+    void moveActionDropdownSelection(int delta)
+    {
+        const std::vector<std::size_t> matches = filteredActionIndices();
+        if (matches.empty())
+        {
+            return;
+        }
+        const int next = std::clamp(
+            static_cast<int>(actionDropdownSelection) + delta,
+            0,
+            static_cast<int>(matches.size()) - 1);
+        actionDropdownSelection = static_cast<std::size_t>(next);
+        ensureActionDropdownSelectionVisible();
+    }
+
+    void chooseActionDropdownItem(std::size_t filteredIndex)
+    {
+        const std::vector<std::size_t> matches = filteredActionIndices();
+        if (!openActionDropdownIndex || *openActionDropdownIndex >= actionRefFields.size() ||
+            filteredIndex >= matches.size())
+        {
+            return;
+        }
+        actionRefFields[*openActionDropdownIndex].setValue(actions[matches[filteredIndex]].name);
+        closeActionDropdown();
+    }
+
+    std::optional<std::size_t> actionDropdownItemAt(sf::Vector2f mouse) const
+    {
+        const std::optional<ActionDropdownLayout> layout = actionDropdownLayout();
+        if (!layout || !layout->bounds.contains(mouse))
+        {
+            return std::nullopt;
+        }
+        const std::vector<std::size_t> matches = filteredActionIndices();
+        if (matches.empty())
+        {
+            return std::nullopt;
+        }
+        const std::size_t row = static_cast<std::size_t>(
+            (mouse.y - layout->bounds.position.y) / ActionDropdownRowHeight);
+        const std::size_t filteredIndex = layout->firstRow + row;
+        if (row >= layout->visibleRows || filteredIndex >= matches.size())
+        {
+            return std::nullopt;
+        }
+        return filteredIndex;
+    }
+
+    sf::FloatRect actionLinkButtonBounds(std::size_t referenceIndex) const
+    {
+        const sf::FloatRect fieldBounds = actionRefFields[referenceIndex].bounds();
+        return sf::FloatRect(
+            {fieldBounds.position.x + fieldBounds.size.x + 6.0f, fieldBounds.position.y + 2.0f},
+            {32.0f, 28.0f});
     }
 
     static void appendSnapshotValue(std::string& snapshot, const std::string& value)
@@ -1355,6 +1652,7 @@ private:
 
     void setEditorMode(EditorMode mode)
     {
+        closeActionDropdown();
         editorMode = mode;
         editorTabs.setActive(static_cast<std::size_t>(editorMode));
         rebuildFocusOrder();
@@ -1421,6 +1719,7 @@ private:
             });
             if (found != actions.end())
             {
+                setEditorMode(EditorMode::Actions);
                 selectAction(static_cast<std::size_t>(found - actions.begin()));
             }
             else
@@ -1589,6 +1888,7 @@ private:
 
     void createNewAction()
     {
+        closeActionDropdown();
         selectedAction.reset();
         actionNameField.setValue("");
         actionStateField.setValue("0");
@@ -1620,6 +1920,7 @@ private:
         {
             return;
         }
+        closeActionDropdown();
         selectedAction = index;
         ensureActionVisible(index);
         const card_data::Action& action = actions[index];
@@ -1776,6 +2077,7 @@ private:
 
     void createNewCard()
     {
+        closeActionDropdown();
         selectedCard.reset();
         titleField.setValue("");
         imageField.setValue("");
@@ -1802,6 +2104,8 @@ private:
         {
             return;
         }
+
+        closeActionDropdown();
 
         selectedCard = index;
         ensureCardVisible(index);
@@ -2085,7 +2389,7 @@ private:
 
     bool isInActionTargetFilterViewport(sf::Vector2f point) const
     {
-        return point.x >= 878.0f && point.x <= 1220.0f &&
+        return point.x >= 864.0f && point.x <= 1232.0f &&
             point.y >= TargetFilterTop &&
             point.y <= TargetFilterTop + TargetFilterRowHeight * VisibleTargetFilterRows;
     }
@@ -2151,7 +2455,7 @@ private:
             const float y = TargetFilterTop +
                 (static_cast<float>(i) - static_cast<float>(actionTargetFilterOffset)) *
                     TargetFilterRowHeight;
-            actionTargetFilterFields[i].setPosition({882.0f, y});
+            actionTargetFilterFields[i].setPosition({870.0f, y});
             if (isActionTargetFilterVisible(i))
             {
                 removeActionTargetFilterButtons.emplace_back(
@@ -2199,7 +2503,7 @@ private:
         float y = ArrayViewportTop - editorScroll;
         auto addSection = [&](const std::string& heading, EditorButton& addButton) {
             arraySectionLabels.push_back({heading, {340.0f, y}});
-            addButton.setPosition({778.0f, y + 1.0f});
+            addButton.setPosition({778.0f, y + 2.0f});
             y += 30.0f;
         };
 
@@ -2401,10 +2705,11 @@ private:
 
     void addActionReference()
     {
-        actionRefFields.push_back(makeCompactField("", {392.0f, 32.0f}));
+        actionRefFields.push_back(makeActionReferenceField(""));
         rebuildFocusOrder();
         activateField(&actionRefFields.back());
         ensureActiveFieldVisible();
+        openActionDropdown(actionRefFields.size() - 1, false);
     }
 
     void addActionTargetFilter()
@@ -2481,6 +2786,7 @@ private:
     {
         if (index < actionRefFields.size())
         {
+            closeActionDropdown();
             actionRefFields.erase(actionRefFields.begin() + static_cast<std::ptrdiff_t>(index));
             rebuildFocusOrder();
             activateField(&titleField);
@@ -2603,9 +2909,17 @@ private:
 
     void moveFocus(int delta)
     {
+        closeActionDropdown();
         focusOrder[focusIndex]->setActive(false);
         focusIndex = static_cast<std::size_t>((static_cast<int>(focusIndex) + delta + static_cast<int>(focusOrder.size())) % static_cast<int>(focusOrder.size()));
         focusOrder[focusIndex]->setActive(true);
+        if (editorMode == EditorMode::Cards)
+        {
+            if (const std::optional<std::size_t> referenceIndex = actionReferenceIndex(focusOrder[focusIndex]))
+            {
+                openActionDropdown(*referenceIndex, false);
+            }
+        }
     }
 
     bool handleClick(sf::Vector2f mouse)
@@ -2613,6 +2927,27 @@ private:
         if (editorMode == EditorMode::Cards)
         {
             layoutArrayControls();
+            if (const std::optional<std::size_t> dropdownItem = actionDropdownItemAt(mouse))
+            {
+                chooseActionDropdownItem(*dropdownItem);
+                return false;
+            }
+            if (const std::optional<ActionDropdownLayout> layout = actionDropdownLayout();
+                layout && layout->bounds.contains(mouse))
+            {
+                return false;
+            }
+            for (std::size_t i = 0; i < actionRefFields.size(); ++i)
+            {
+                if (!isVisibleInArrayViewport(actionRefFields[i].bounds()) || !linkedActionIndex(i) ||
+                    !actionLinkButtonBounds(i).contains(mouse))
+                {
+                    continue;
+                }
+                const std::string actionName = actions[*linkedActionIndex(i)].name;
+                closeActionDropdown();
+                return requestTransition(PendingTransition::SelectAction, actionName);
+            }
         }
 
         if (instructionsButton.contains(mouse))
@@ -2636,6 +2971,7 @@ private:
             {
                 return false;
             }
+            closeActionDropdown();
             return requestTransition(requestedMode == EditorMode::Cards
                 ? PendingTransition::ShowCards
                 : PendingTransition::ShowActions);
@@ -2837,6 +3173,14 @@ private:
                 activateField(field);
                 field->beginMouseSelection(mouse, sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
                                                    sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift));
+                if (const std::optional<std::size_t> referenceIndex = actionReferenceIndex(field))
+                {
+                    openActionDropdown(*referenceIndex, false);
+                }
+                else
+                {
+                    closeActionDropdown();
+                }
                 return false;
             }
         }
@@ -2852,6 +3196,7 @@ private:
         }
         if (titleField.contains(mouse))
         {
+            closeActionDropdown();
             activateField(&titleField);
             titleField.beginMouseSelection(mouse, sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
                                                   sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift));
@@ -2859,6 +3204,7 @@ private:
         }
         if (imageField.contains(mouse))
         {
+            closeActionDropdown();
             activateField(&imageField);
             imageField.beginMouseSelection(mouse, sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
                                                   sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift));
@@ -2866,6 +3212,7 @@ private:
         }
         if (typeField.contains(mouse))
         {
+            closeActionDropdown();
             activateField(&typeField);
             typeField.beginMouseSelection(mouse, sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
                                                  sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift));
@@ -2875,6 +3222,7 @@ private:
         {
             field->setActive(false);
         }
+        closeActionDropdown();
         return false;
     }
 
@@ -3058,7 +3406,7 @@ private:
         y += 12.0f;
 
         y = drawInstructionSection(window, "4. Actions", y);
-        y = drawInstructionParagraph(window, "Create reusable actions in the Actions tab, then add their exact names to the card's Actions section. Damage, movement pattern, and range live on each action, not on the card.", y, Muted);
+        y = drawInstructionParagraph(window, "Create reusable actions in the Actions tab, then choose them in the card's Actions section. Click or focus an action field to open the list; typing filters it. The chain-link button opens that action in the Actions tab. Damage, movement pattern, and range live on each action, not on the card.", y, Muted);
         y += 5.0f;
         y = drawInstructionBullet(window, "Pattern ortho, diag, omni, horizontal, or vertical moves along that board geometry up to the action's maximum range.", y);
         y = drawInstructionBullet(window, "Pattern jump uses the fixed knight-style L shape. Pattern none is used for ranged, teleport, and tunnel actions that do not need slide geometry.", y);
@@ -3206,6 +3554,153 @@ private:
         drawText(window, font, status, 16, {340.0f, 702.0f}, statusColor, 174.0f);
     }
 
+    void drawActionReferenceField(sf::RenderWindow& window, std::size_t referenceIndex)
+    {
+        InputBox& field = actionRefFields[referenceIndex];
+        if (!isVisibleInArrayViewport(field.bounds()))
+        {
+            return;
+        }
+        field.draw(window);
+        const sf::FloatRect bounds = field.bounds();
+        const float centerX = bounds.position.x + bounds.size.x - 15.0f;
+        const float centerY = bounds.position.y + bounds.size.y * 0.5f + 1.0f;
+        sf::ConvexShape arrow(3);
+        arrow.setPoint(0, {centerX - 5.0f, centerY - 3.0f});
+        arrow.setPoint(1, {centerX + 5.0f, centerY - 3.0f});
+        arrow.setPoint(2, {centerX, centerY + 3.0f});
+        arrow.setFillColor(openActionDropdownIndex && *openActionDropdownIndex == referenceIndex
+            ? Accent
+            : Muted);
+        window.draw(arrow);
+    }
+
+    void drawActionLinkButton(sf::RenderWindow& window, std::size_t referenceIndex)
+    {
+        if (!isVisibleInArrayViewport(actionRefFields[referenceIndex].bounds()))
+        {
+            return;
+        }
+        const bool enabled = linkedActionIndex(referenceIndex).has_value();
+        const bool hovered = enabled && hoveredActionLink && *hoveredActionLink == referenceIndex;
+        const sf::FloatRect bounds = actionLinkButtonBounds(referenceIndex);
+        bayou::client::drawBeveledPlate(
+            window,
+            bounds.position,
+            bounds.size,
+            enabled
+                ? (hovered ? sf::Color(112, 75, 35) : AccentDark)
+                : sf::Color(41, 45, 45, 220),
+            enabled
+                ? (hovered ? sf::Color(239, 190, 98) : sf::Color(181, 126, 60))
+                : sf::Color(77, 83, 83),
+            hovered,
+            5.0f);
+        if (!hasActionLinkTexture)
+        {
+            return;
+        }
+
+        sf::Sprite sprite(actionLinkTexture);
+        const sf::Vector2u textureSize = actionLinkTexture.getSize();
+        const float scale = std::min(
+            22.0f / static_cast<float>(textureSize.x),
+            22.0f / static_cast<float>(textureSize.y));
+        sprite.setScale({scale, scale});
+        const sf::Vector2f spriteSize(
+            static_cast<float>(textureSize.x) * scale,
+            static_cast<float>(textureSize.y) * scale);
+        sprite.setPosition({
+            bounds.position.x + (bounds.size.x - spriteSize.x) * 0.5f,
+            bounds.position.y + (bounds.size.y - spriteSize.y) * 0.5f});
+        if (!enabled)
+        {
+            sprite.setColor(sf::Color(112, 112, 106, 105));
+        }
+        window.draw(sprite);
+    }
+
+    void drawActionDropdown(sf::RenderWindow& window)
+    {
+        const std::optional<ActionDropdownLayout> layout = actionDropdownLayout();
+        if (!layout)
+        {
+            return;
+        }
+        sf::RectangleShape panel(layout->bounds.size);
+        panel.setPosition(layout->bounds.position);
+        panel.setFillColor(sf::Color(7, 13, 14, 252));
+        panel.setOutlineThickness(2.0f);
+        panel.setOutlineColor(Accent);
+        window.draw(panel);
+
+        const std::vector<std::size_t> matches = filteredActionIndices();
+        if (matches.empty())
+        {
+            drawText(
+                window,
+                font,
+                actions.empty() ? "No saved actions" : "No matching actions",
+                15,
+                {layout->bounds.position.x + 12.0f, layout->bounds.position.y + 7.0f},
+                Muted);
+            return;
+        }
+
+        for (std::size_t row = 0; row < layout->visibleRows; ++row)
+        {
+            const std::size_t filteredIndex = layout->firstRow + row;
+            if (filteredIndex >= matches.size())
+            {
+                break;
+            }
+            const float y = layout->bounds.position.y + static_cast<float>(row) * ActionDropdownRowHeight;
+            const bool highlighted = filteredIndex == actionDropdownSelection ||
+                (hoveredActionDropdownItem && *hoveredActionDropdownItem == filteredIndex);
+            if (highlighted)
+            {
+                sf::RectangleShape highlight(
+                    {layout->bounds.size.x - 4.0f, ActionDropdownRowHeight - 2.0f});
+                highlight.setPosition({layout->bounds.position.x + 2.0f, y + 1.0f});
+                highlight.setFillColor(sf::Color(76, 49, 25, 248));
+                window.draw(highlight);
+            }
+            const card_data::Action& action = actions[matches[filteredIndex]];
+            drawText(window, font, action.name, 15, {layout->bounds.position.x + 10.0f, y + 6.0f}, Ink, 232.0f);
+            drawText(
+                window,
+                font,
+                action.kind + " / " + action.pattern,
+                12,
+                {layout->bounds.position.x + 250.0f, y + 9.0f},
+                Muted,
+                128.0f);
+            if (row + 1 < layout->visibleRows)
+            {
+                sf::RectangleShape separator({layout->bounds.size.x - 8.0f, 1.0f});
+                separator.setPosition({layout->bounds.position.x + 4.0f, y + ActionDropdownRowHeight - 1.0f});
+                separator.setFillColor(sf::Color(91, 64, 37));
+                window.draw(separator);
+            }
+        }
+
+        if (matches.size() > layout->visibleRows)
+        {
+            const float trackHeight = layout->bounds.size.y - 8.0f;
+            const float thumbHeight = std::max(
+                12.0f,
+                trackHeight * static_cast<float>(layout->visibleRows) / static_cast<float>(matches.size()));
+            const std::size_t maximumOffset = matches.size() - layout->visibleRows;
+            const float thumbY = layout->bounds.position.y + 4.0f +
+                (trackHeight - thumbHeight) * static_cast<float>(layout->firstRow) /
+                    static_cast<float>(maximumOffset);
+            sf::RectangleShape thumb({3.0f, thumbHeight});
+            thumb.setPosition({layout->bounds.position.x + layout->bounds.size.x - 6.0f, thumbY});
+            thumb.setFillColor(Accent);
+            window.draw(thumb);
+        }
+    }
+
     void drawArrayEditor(sf::RenderWindow& window)
     {
         layoutArrayControls();
@@ -3256,9 +3751,9 @@ private:
                 drawVisibleField(window, field);
             }
         }
-        for (InputBox& field : actionRefFields)
+        for (std::size_t i = 0; i < actionRefFields.size(); ++i)
         {
-            drawVisibleField(window, field);
+            drawActionReferenceField(window, i);
         }
         for (EditorButton& button : removeTraitButtons)
         {
@@ -3295,6 +3790,11 @@ private:
         {
             drawVisibleButton(window, button);
         }
+        for (std::size_t i = 0; i < actionRefFields.size(); ++i)
+        {
+            drawActionLinkButton(window, i);
+        }
+        drawActionDropdown(window);
     }
 
     void layoutActionFields()
@@ -3318,7 +3818,7 @@ private:
 
     void drawActionEditorPanel(sf::RenderWindow& window)
     {
-        drawRoundedPanel(window, {EditorPanelX, EditorPanelY}, {EditorPanelWidth, PanelHeight}, Panel);
+        drawRoundedPanel(window, {EditorPanelX, EditorPanelY}, {ActionEditorPanelWidth, PanelHeight}, Panel);
         drawText(window, font, "Edit Action", 22, {340.0f, 124.0f}, Ink);
         drawText(window, font, "Boolean fields use 1 or 0.", 14, {610.0f, 131.0f}, Muted, 206.0f);
         actionNameField.draw(window);
@@ -3350,34 +3850,33 @@ private:
                 field->draw(window);
             }
         }
-        deleteButton.draw(window);
-        saveActionButton.draw(window);
-        drawText(window, font, status, 16, {340.0f, 702.0f}, statusColor, 174.0f);
-    }
 
-    void drawActionPreviewPanel(sf::RenderWindow& window)
-    {
-        drawRoundedPanel(window, {PreviewPanelX, PreviewPanelY}, {PreviewPanelWidth, PanelHeight}, Panel);
-        const card_data::Action action = actionFromForm();
-        drawText(window, font, "Action Reference", 22, {882.0f, 124.0f}, Ink);
-        drawText(window, font, action.name.empty() ? "Untitled Action" : action.name, 21, {882.0f, 168.0f}, Accent, 336.0f);
-        drawText(window, font, fmt::format("state {}  |  {} / {}", action.state, action.kind, action.pattern), 17, {882.0f, 212.0f}, Ink, 336.0f);
-        drawText(window, font, fmt::format("range {}-{}  |  damage {}  |  heal {}", action.minRange, action.maxRange, action.damage, action.heal), 17, {882.0f, 252.0f}, Ink, 336.0f);
-        std::vector<std::string> flags;
-        if (action.canMove) flags.push_back("move");
-        if (action.canAttack) flags.push_back("attack");
-        if (action.passThrough) flags.push_back("pass");
-        if (action.lineOfSight) flags.push_back("los");
-        drawText(window, font, "Flags", 15, {882.0f, 306.0f}, Muted);
-        drawText(window, font, flags.empty() ? "none" : joinStrings(flags, ", "), 17, {882.0f, 330.0f}, Ink, 336.0f);
-        drawText(window, font, fmt::format("Status: {} turns", action.statusTurns), 17, {882.0f, 382.0f}, Ink);
-        drawText(window, font, fmt::format("Cooldown: {} turns", action.cooldownTurns), 17, {882.0f, 420.0f}, Ink);
-        drawText(window, font, fmt::format("Push: {} squares", action.push), 17, {882.0f, 458.0f}, Ink);
-        drawText(window, font, "Target filter (all required)", 15, {882.0f, 498.0f}, Muted, 270.0f);
+        sf::RectangleShape divider({1.0f, 524.0f});
+        divider.setPosition({846.0f, 152.0f});
+        divider.setFillColor(Line);
+        window.draw(divider);
+
+        drawText(window, font, "Target filter", 22, {870.0f, 164.0f}, Ink);
+        drawText(
+            window,
+            font,
+            "Every entry must match a target trait or keyword.",
+            14,
+            {870.0f, 198.0f},
+            Muted,
+            306.0f);
         addActionTargetFilterButton.draw(window);
+
+        sf::RectangleShape targetFilterArea(
+            {368.0f, TargetFilterRowHeight * VisibleTargetFilterRows + 8.0f});
+        targetFilterArea.setPosition({864.0f, TargetFilterTop - 4.0f});
+        targetFilterArea.setFillColor(sf::Color(8, 18, 20, 246));
+        targetFilterArea.setOutlineThickness(1.0f);
+        targetFilterArea.setOutlineColor(Line);
+        window.draw(targetFilterArea);
         if (actionTargetFilterFields.empty())
         {
-            drawText(window, font, "Any target", 16, {882.0f, TargetFilterTop + 6.0f}, Ink, 294.0f);
+            drawText(window, font, "Any target", 16, {870.0f, TargetFilterTop + 6.0f}, Ink, 294.0f);
         }
         for (std::size_t i = actionTargetFilterOffset;
              i < actionTargetFilterFields.size() &&
@@ -3401,10 +3900,31 @@ private:
                 fmt::format("{}-{} of {}  mouse wheel", actionTargetFilterOffset + 1,
                             lastVisible, actionTargetFilterFields.size()),
                 12,
-                {882.0f, 676.0f},
+                {870.0f, 672.0f},
                 Muted,
-                334.0f);
+                306.0f);
+
+            const float trackHeight = TargetFilterRowHeight * VisibleTargetFilterRows;
+            sf::RectangleShape track({5.0f, trackHeight});
+            track.setPosition({1224.0f, TargetFilterTop});
+            track.setFillColor(sf::Color(49, 57, 70));
+            window.draw(track);
+            const float thumbHeight = std::max(
+                TargetFilterRowHeight,
+                trackHeight * static_cast<float>(VisibleTargetFilterRows) /
+                    static_cast<float>(actionTargetFilterFields.size()));
+            const std::size_t maxOffset = actionTargetFilterFields.size() - VisibleTargetFilterRows;
+            const float thumbY = TargetFilterTop +
+                (trackHeight - thumbHeight) * static_cast<float>(actionTargetFilterOffset) /
+                    static_cast<float>(maxOffset);
+            sf::RectangleShape thumb({5.0f, thumbHeight});
+            thumb.setPosition({1224.0f, thumbY});
+            thumb.setFillColor(Accent);
+            window.draw(thumb);
         }
+        deleteButton.draw(window);
+        saveActionButton.draw(window);
+        drawText(window, font, status, 16, {340.0f, 702.0f}, statusColor, 174.0f);
     }
 
     void drawVisibleField(sf::RenderWindow& window, InputBox& field)
