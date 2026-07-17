@@ -425,10 +425,13 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.abilityLabels = cardList(card, "abilityLabels");
     g.abilityUses = cardInt(card, "abilityUses", 0);
 
-    for (const card_data::Action& definition : card.actions)
+    for (std::size_t i = 0; i < card.actions.size(); ++i)
     {
+        const card_data::Action& definition = card.actions[i];
         ActionProfile action;
-        action.name = definition.name;
+        action.name = i < card.actionDisplayNames.size() && !card.actionDisplayNames[i].empty()
+            ? card.actionDisplayNames[i]
+            : definition.name;
         action.state = definition.state;
         action.kind = parseActionKind(definition.kind);
         action.pattern = parseMovePattern(definition.pattern);

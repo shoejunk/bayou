@@ -3472,20 +3472,81 @@ int main(int argc, char** argv)
             size.x - 36.0f);
     };
 
-    auto deckEditorCardDetailsHeight = [&](const std::vector<std::pair<std::string, sf::Color>>& details) {
+    auto detailRowsHeight = [&](const DetailRows& details) {
         float height = 0.0f;
-        for (const auto& [description, color] : details)
+        for (const DetailRow& row : details)
         {
-            (void)color;
+            if (row.action)
+            {
+                height += 54.0f;
+                continue;
+            }
             height += static_cast<float>(
-                wrapText(font, description, 14, PiecePopupTextWidth - PiecePopupScrollTextXInset * 2.0f).size()) * 18.0f;
+                wrapText(font, row.text, 14, PiecePopupTextWidth - PiecePopupScrollTextXInset * 2.0f).size()) * 18.0f;
             height += 8.0f;
         }
         return height + PiecePopupScrollTextYInset;
     };
 
-    auto deckEditorCardDetailsMaxScroll = [&](const std::vector<std::pair<std::string, sf::Color>>& details) {
-        return std::max(0.0f, deckEditorCardDetailsHeight(details) - PiecePopupScrollHeight);
+    auto detailRowsMaxScroll = [&](const DetailRows& details) {
+        return std::max(0.0f, detailRowsHeight(details) - PiecePopupScrollHeight);
+    };
+
+    auto drawDetailRows = [&](const DetailRows& details, float y) {
+        const float left = PiecePopupTextX + PiecePopupScrollTextXInset;
+        const float width = PiecePopupTextWidth - PiecePopupScrollTextXInset * 2.0f;
+        auto measuredTextWidth = [&](const std::string& value, unsigned int size) {
+            sf::Text measuring(font, value, size);
+            return measuring.getLocalBounds().size.x;
+        };
+        auto drawInlineIcon = [&](const std::string& path, float x, float iconY) {
+            if (sf::Texture* icon = textures.load(path))
+            {
+                drawContainSprite(window, *icon, {{x, iconY}, {18.0f, 18.0f}});
+            }
+        };
+
+        for (const DetailRow& row : details)
+        {
+            if (!row.action)
+            {
+                y = drawWrappedText(window, font, row.text, 14, {left, y}, row.color, width);
+                y += 8.0f;
+                continue;
+            }
+
+            const ActionDescription& action = *row.action;
+            drawText(window, font, action.name, 15, {left, y}, sf::Color(248, 239, 216), width);
+            y += 21.0f;
+
+            float x = left;
+            drawText(window, font, action.type, 13, {x, y + 1.0f}, row.color, width);
+            x += measuredTextWidth(action.type, 13) + 8.0f;
+
+            drawInlineIcon(action.moveIconPath, x, y);
+            x += 21.0f;
+            drawText(window, font, action.range, 13, {x, y + 1.0f}, row.color);
+            x += measuredTextWidth(action.range, 13) + 5.0f;
+
+            auto drawAmount = [&](const std::string& iconPath, int amount) {
+                if (amount <= 0)
+                {
+                    return;
+                }
+                x += 5.0f;
+                drawInlineIcon(iconPath, x, y);
+                x += 21.0f;
+                const std::string value = std::to_string(amount);
+                drawText(window, font, value, 13, {x, y + 1.0f}, row.color);
+                x += measuredTextWidth(value, 13);
+            };
+            drawAmount("ui/damage.png", action.damage);
+            drawAmount("ui/heal.png", action.heal);
+            drawAmount("ui/stun.png", action.stun);
+            drawAmount("ui/cooldown.png", action.cooldown);
+            y += 33.0f;
+        }
+        return y;
     };
 
     #include "screens/deck_editor_popup.inl"
@@ -6124,11 +6185,11 @@ int main(int argc, char** argv)
                     }
                     if (card)
                     {
-                        const std::vector<std::pair<std::string, sf::Color>> details = deckEditorCardDetails(*card);
+                        const DetailRows details = deckEditorCardDetails(*card);
                         inspectedDeckEditorCardScroll = std::clamp(
                             inspectedDeckEditorCardScroll - wheel->delta * 34.0f,
                             0.0f,
-                            deckEditorCardDetailsMaxScroll(details));
+                            detailRowsMaxScroll(details));
                     }
                 }
                 else if (!inspectedDeckEditorCardTitle &&
@@ -6157,7 +6218,7 @@ int main(int argc, char** argv)
                 const sf::Vector2f wheelPos = window.mapPixelToCoords(wheel->position);
                 if (isInsideRect(wheelPos, PiecePopupTextX, PiecePopupScrollY, PiecePopupTextWidth, PiecePopupScrollHeight))
                 {
-                    std::vector<std::pair<std::string, sf::Color>> actionDescriptions;
+                    DetailRows actionDescriptions;
                     if (inspectedHandIndex && *inspectedHandIndex < gameSnapshot.hand.size())
                     {
                         actionDescriptions = cardPopupActionDescriptions(gameSnapshot.hand[*inspectedHandIndex]);

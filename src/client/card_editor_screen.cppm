@@ -760,6 +760,7 @@ private:
     std::vector<InputBox> stringKeyFields;
     std::vector<InputBox> stringValueFields;
     std::vector<StringListEditor> listEditors;
+    std::vector<InputBox> actionDisplayNameFields;
     std::vector<InputBox> actionRefFields;
     std::optional<std::size_t> openActionDropdownIndex;
     std::size_t actionDropdownOffset = 0;
@@ -1183,9 +1184,14 @@ private:
 
     InputBox makeActionReferenceField(const std::string& value)
     {
-        InputBox field = makeCompactField(value, {392.0f, 32.0f});
+        InputBox field = makeCompactField(value, {210.0f, 32.0f});
         field.setRightContentInset(28.0f);
         return field;
+    }
+
+    InputBox makeActionDisplayNameField(const std::string& value)
+    {
+        return makeCompactField(value, {176.0f, 32.0f});
     }
 
     EditorButton makeMiniButton(const std::string& label, sf::Color color)
@@ -1202,6 +1208,7 @@ private:
         stringKeyFields.clear();
         stringValueFields.clear();
         listEditors.clear();
+        actionDisplayNameFields.clear();
         actionRefFields.clear();
 
         for (const std::string& trait : card.traits)
@@ -1236,8 +1243,14 @@ private:
             }
             listEditors.push_back(std::move(editor));
         }
-        for (const std::string& actionName : card.actionNames)
+        for (std::size_t i = 0; i < card.actionNames.size(); ++i)
         {
+            const std::string& actionName = card.actionNames[i];
+            const std::string displayName = i < card.actionDisplayNames.size() &&
+                    !card.actionDisplayNames[i].empty()
+                ? card.actionDisplayNames[i]
+                : actionName;
+            actionDisplayNameFields.push_back(makeActionDisplayNameField(displayName));
             actionRefFields.push_back(makeActionReferenceField(actionName));
         }
     }
@@ -1300,9 +1313,13 @@ private:
                 focusOrder.push_back(&field);
             }
         }
-        for (InputBox& field : actionRefFields)
+        for (std::size_t i = 0; i < actionRefFields.size(); ++i)
         {
-            focusOrder.push_back(&field);
+            if (i < actionDisplayNameFields.size())
+            {
+                focusOrder.push_back(&actionDisplayNameFields[i]);
+            }
+            focusOrder.push_back(&actionRefFields[i]);
         }
         focusIndex = std::min(focusIndex, focusOrder.empty() ? 0 : focusOrder.size() - 1);
     }
@@ -1501,7 +1518,14 @@ private:
         {
             return;
         }
-        actionRefFields[*openActionDropdownIndex].setValue(actions[matches[filteredIndex]].name);
+        const std::size_t referenceIndex = *openActionDropdownIndex;
+        const std::string& actionName = actions[matches[filteredIndex]].name;
+        actionRefFields[referenceIndex].setValue(actionName);
+        if (referenceIndex < actionDisplayNameFields.size() &&
+            trim(actionDisplayNameFields[referenceIndex].getValue()).empty())
+        {
+            actionDisplayNameFields[referenceIndex].setValue(actionName);
+        }
         closeActionDropdown();
     }
 
@@ -1569,6 +1593,7 @@ private:
             appendSnapshotValue(snapshot, editor.keyField.getValue());
             appendFields(editor.valueFields);
         }
+        appendFields(actionDisplayNameFields);
         appendFields(actionRefFields);
         return snapshot;
     }
@@ -2089,6 +2114,7 @@ private:
         stringKeyFields.clear();
         stringValueFields.clear();
         listEditors.clear();
+        actionDisplayNameFields.clear();
         actionRefFields.clear();
         editorScroll = 0.0f;
         rebuildFocusOrder();
@@ -2183,12 +2209,16 @@ private:
             }
             card.stringLists.push_back(item);
         }
-        for (const InputBox& field : actionRefFields)
+        for (std::size_t i = 0; i < actionRefFields.size(); ++i)
         {
-            const std::string actionName = trim(field.getValue());
+            const std::string actionName = trim(actionRefFields[i].getValue());
             if (!actionName.empty())
             {
                 card.actionNames.push_back(actionName);
+                const std::string displayName = i < actionDisplayNameFields.size()
+                    ? trim(actionDisplayNameFields[i].getValue())
+                    : std::string();
+                card.actionDisplayNames.push_back(displayName.empty() ? actionName : displayName);
             }
         }
         return card;
@@ -2615,9 +2645,19 @@ private:
             arraySectionLabels.push_back({"No action references", {354.0f, y + 6.0f}});
             y += 34.0f;
         }
-        for (InputBox& field : actionRefFields)
+        else
         {
-            field.setPosition({340.0f, y});
+            arraySectionLabels.push_back({"Action name", {340.0f, y}});
+            arraySectionLabels.push_back({"Reusable action", {526.0f, y}});
+            y += 22.0f;
+        }
+        for (std::size_t i = 0; i < actionRefFields.size(); ++i)
+        {
+            if (i < actionDisplayNameFields.size())
+            {
+                actionDisplayNameFields[i].setPosition({340.0f, y});
+            }
+            actionRefFields[i].setPosition({526.0f, y});
             EditorButton button = makeMiniButton("X", Warn);
             button.setPosition({778.0f, y + 2.0f});
             removeActionRefButtons.push_back(std::move(button));
@@ -2705,6 +2745,7 @@ private:
 
     void addActionReference()
     {
+        actionDisplayNameFields.push_back(makeActionDisplayNameField(""));
         actionRefFields.push_back(makeActionReferenceField(""));
         rebuildFocusOrder();
         activateField(&actionRefFields.back());
@@ -2787,6 +2828,11 @@ private:
         if (index < actionRefFields.size())
         {
             closeActionDropdown();
+            if (index < actionDisplayNameFields.size())
+            {
+                actionDisplayNameFields.erase(
+                    actionDisplayNameFields.begin() + static_cast<std::ptrdiff_t>(index));
+            }
             actionRefFields.erase(actionRefFields.begin() + static_cast<std::ptrdiff_t>(index));
             rebuildFocusOrder();
             activateField(&titleField);
@@ -2895,6 +2941,13 @@ private:
                 {
                     return &field;
                 }
+            }
+        }
+        for (InputBox& field : actionDisplayNameFields)
+        {
+            if (isVisibleInArrayViewport(field.bounds()) && field.contains(mouse))
+            {
+                return &field;
             }
         }
         for (InputBox& field : actionRefFields)
@@ -3406,7 +3459,7 @@ private:
         y += 12.0f;
 
         y = drawInstructionSection(window, "4. Actions", y);
-        y = drawInstructionParagraph(window, "Create reusable actions in the Actions tab, then choose them in the card's Actions section. Click or focus an action field to open the list; typing filters it. The chain-link button opens that action in the Actions tab. Damage, movement pattern, and range live on each action, not on the card.", y, Muted);
+        y = drawInstructionParagraph(window, "Create reusable actions in the Actions tab, then add them in the card's Actions section. Card name is flavor text shown for that card; Reusable action chooses the shared logic. Click or focus the reusable-action field to open the list; typing filters it. The chain-link button opens that action in the Actions tab.", y, Muted);
         y += 5.0f;
         y = drawInstructionBullet(window, "Pattern ortho, diag, omni, horizontal, or vertical moves along that board geometry up to the action's maximum range.", y);
         y = drawInstructionBullet(window, "Pattern jump uses the fixed knight-style L shape. Pattern none is used for ranged, teleport, and tunnel actions that do not need slide geometry.", y);
@@ -3432,7 +3485,7 @@ private:
         y = drawInstructionBullet(window, "Keywords are stored separately from traits. Relentless lets a piece act again immediately whenever it destroys another piece. Bodyguard passively redirects damage from adjacent friendly non-Bodyguard pieces to itself; multiple Bodyguards split that damage as evenly as possible. Trail passively creates the Unit named by the summon string field where this piece started whenever it moves.", y);
         y = drawInstructionBullet(window, "ability: transform, dematerialize, dig, summon, or command. Transform-style abilities switch action states; dig creates a tunnel hole; summon creates the unit named by the summon string field in the space in front; command lets one ready adjacent friendly piece take any normal action without ending the turn.", y);
         y = drawInstructionBullet(window, "summon: exact Unit card title created by the active summon ability or passive Trail keyword. Player 1's active summon goes to the right and Player 2's to the left; Trail summons into the moving piece's former position. Summoned units cannot act until their owner's next turn.", y);
-        y = drawInstructionBullet(window, "Cards store ordered references to reusable action objects. Use the Actions section on the card form to choose them.", y);
+        y = drawInstructionBullet(window, "Cards store ordered references to reusable action objects plus a separate display name for each reference, so the same logic can have different fantasy names on different cards.", y);
         y = drawInstructionBullet(window, "abilityLabels is an ordered String List containing the button label for each action state.", y);
         y = drawInstructionBullet(window, "Other String Lists are free-form named lists shown in card details.", y);
         y = drawInstructionBullet(window, "Unknown Integer or String Fields are stored and displayed, but they do not change gameplay unless code is added to read them.", y);
@@ -3666,15 +3719,22 @@ private:
                 window.draw(highlight);
             }
             const card_data::Action& action = actions[matches[filteredIndex]];
-            drawText(window, font, action.name, 15, {layout->bounds.position.x + 10.0f, y + 6.0f}, Ink, 232.0f);
+            drawText(
+                window,
+                font,
+                action.name,
+                14,
+                {layout->bounds.position.x + 10.0f, y + 4.0f},
+                Ink,
+                layout->bounds.size.x - 20.0f);
             drawText(
                 window,
                 font,
                 action.kind + " / " + action.pattern,
-                12,
-                {layout->bounds.position.x + 250.0f, y + 9.0f},
+                11,
+                {layout->bounds.position.x + 10.0f, y + 24.0f},
                 Muted,
-                128.0f);
+                layout->bounds.size.x - 20.0f);
             if (row + 1 < layout->visibleRows)
             {
                 sf::RectangleShape separator({layout->bounds.size.x - 8.0f, 1.0f});
@@ -3750,6 +3810,10 @@ private:
             {
                 drawVisibleField(window, field);
             }
+        }
+        for (InputBox& field : actionDisplayNameFields)
+        {
+            drawVisibleField(window, field);
         }
         for (std::size_t i = 0; i < actionRefFields.size(); ++i)
         {

@@ -837,6 +837,7 @@ int main(int argc, char** argv)
     encodedCard.integerValues = {{"attack", 9}, {"range", 5}, {"FidgetAnimFrames", 3}, {"Tax", 4}};
     encodedCard.stringValues = {{"FidgetAnim", "animations/fidget/test.png"}};
     encodedCard.actionNames = {"Diagonal Charge"};
+    encodedCard.actionDisplayNames = {"Shadow Lunge"};
     encodedCard.actions.push_back({
         "Diagonal Charge",
         0,
@@ -860,7 +861,7 @@ int main(int argc, char** argv)
               decodedCard.traits == encodedCard.traits &&
               decodedCard.keywords == encodedCard.keywords &&
               decodedCard.attackingMove &&
-              decodedCard.actions[0].name == "Diagonal Charge" &&
+              decodedCard.actions[0].name == "Shadow Lunge" &&
               decodedCard.actions[0].damage == 2 &&
               decodedCard.actions[0].heal == 0 &&
               decodedCard.actions[0].push == 3 &&
@@ -871,6 +872,14 @@ int main(int argc, char** argv)
               decodedCard.fidgetAnimFrames == 3 &&
               decodedCard.tax == 4,
           "referenced action object resolves into gameplay data without a legacy fallback attack");
+
+    sf::Packet cardDefinitionPacket;
+    card_data::writeCard(cardDefinitionPacket, encodedCard);
+    card_data::Card roundTrippedDefinition;
+    check(card_data::readCard(cardDefinitionPacket, roundTrippedDefinition) &&
+              roundTrippedDefinition.actionNames == encodedCard.actionNames &&
+              roundTrippedDefinition.actionDisplayNames == encodedCard.actionDisplayNames,
+          "card serialization keeps per-card action display names separate from reusable references");
 
     card_data::Action encodedHealingAction = encodedCard.actions[0];
     encodedHealingAction.damage = 0;
@@ -941,7 +950,7 @@ int main(int argc, char** argv)
     GameCard roundTrippedCard;
     check(readGameCard(cardPacket, roundTrippedCard) &&
               roundTrippedCard.actions.size() == 1 &&
-              roundTrippedCard.actions[0].name == "Diagonal Charge" &&
+              roundTrippedCard.actions[0].name == "Shadow Lunge" &&
               roundTrippedCard.actions[0].damage == 2 &&
               roundTrippedCard.actions[0].heal == 3 &&
               roundTrippedCard.actions[0].push == 3 &&

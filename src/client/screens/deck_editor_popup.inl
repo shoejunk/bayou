@@ -16,7 +16,7 @@
             return;
         }
 
-        const std::vector<std::pair<std::string, sf::Color>> details = deckEditorCardDetails(*card);
+        const DetailRows details = deckEditorCardDetails(*card);
 
         sf::RectangleShape overlay({800.0f, 600.0f});
         overlay.setFillColor(sf::Color(0, 0, 0, 150));
@@ -90,7 +90,7 @@
         inspectedDeckEditorCardScroll = std::clamp(
             inspectedDeckEditorCardScroll,
             0.0f,
-            deckEditorCardDetailsMaxScroll(details));
+            detailRowsMaxScroll(details));
 
         drawText(window, font, "Details", 17, {PiecePopupTextX, PiecePopupActionHeadingY}, sf::Color::White);
 
@@ -112,23 +112,11 @@
             {PiecePopupTextWidth / 800.0f, PiecePopupScrollHeight / 600.0f}));
         window.setView(detailView);
 
-        y = PiecePopupScrollY + PiecePopupScrollTextYInset;
-        for (const auto& [description, color] : details)
-        {
-            y = drawWrappedText(
-                window,
-                font,
-                description,
-                14,
-                {PiecePopupTextX + PiecePopupScrollTextXInset, y},
-                color,
-                PiecePopupTextWidth - PiecePopupScrollTextXInset * 2.0f);
-            y += 8.0f;
-        }
+        y = drawDetailRows(details, PiecePopupScrollY + PiecePopupScrollTextYInset);
 
         window.setView(previousView);
 
-        const float maxScroll = deckEditorCardDetailsMaxScroll(details);
+        const float maxScroll = detailRowsMaxScroll(details);
         if (maxScroll > 0.0f)
         {
             const float trackX = PiecePopupX + PiecePopupWidth - 22.0f;

@@ -264,11 +264,18 @@ private:
             "CREATE TABLE IF NOT EXISTS card_actions ("
             "title TEXT NOT NULL,"
             "action_name TEXT NOT NULL,"
+            "display_name TEXT NOT NULL,"
             "item_index INTEGER NOT NULL,"
             "PRIMARY KEY(title, item_index),"
             "FOREIGN KEY(title) REFERENCES cards(title) ON DELETE CASCADE,"
             "FOREIGN KEY(action_name) REFERENCES actions(name)"
             ")");
+        if (!columnExists("card_actions", "display_name"))
+        {
+            database->exec("ALTER TABLE card_actions ADD COLUMN display_name TEXT NOT NULL DEFAULT ''");
+        }
+        database->exec(
+            "UPDATE card_actions SET display_name = action_name WHERE display_name = ''");
         migrateLegacyActions();
     }
 
@@ -699,7 +706,7 @@ private:
         SQLite::Statement exists(*database, "SELECT 1 FROM actions WHERE name = ?");
         SQLite::Statement insert(
             *database,
-            "INSERT INTO card_actions (title, action_name, item_index) VALUES (?, ?, ?)");
+            "INSERT INTO card_actions (title, action_name, display_name, item_index) VALUES (?, ?, ?, ?)");
         for (std::size_t i = 0; i < card.actionNames.size(); ++i)
         {
             exists.reset();
@@ -711,7 +718,12 @@ private:
             insert.reset();
             insert.bind(1, card.title);
             insert.bind(2, card.actionNames[i]);
-            insert.bind(3, static_cast<int>(i));
+            const std::string displayName = i < card.actionDisplayNames.size() &&
+                    !card.actionDisplayNames[i].empty()
+                ? card.actionDisplayNames[i]
+                : card.actionNames[i];
+            insert.bind(3, displayName);
+            insert.bind(4, static_cast<int>(i));
             insert.exec();
         }
     }
@@ -833,10 +845,12 @@ private:
             insertAction.exec();
             SQLite::Statement insertReference(
                 *database,
-                "INSERT OR IGNORE INTO card_actions (title, action_name, item_index) VALUES (?, ?, ?)");
+                "INSERT OR IGNORE INTO card_actions (title, action_name, display_name, item_index) "
+                "VALUES (?, ?, ?, ?)");
             insertReference.bind(1, title);
             insertReference.bind(2, name);
-            insertReference.bind(3, itemIndex);
+            insertReference.bind(3, name);
+            insertReference.bind(4, itemIndex);
             insertReference.exec();
         }
         database->exec("DELETE FROM card_string_lists WHERE key = 'actions'");

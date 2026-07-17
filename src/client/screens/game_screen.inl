@@ -53,7 +53,7 @@
     };
 
     auto piecePopupActionDescriptions = [&](const game_data::Piece& piece) {
-        std::vector<std::pair<std::string, sf::Color>> descriptions;
+        DetailRows descriptions;
         if (piece.growTurnsRemaining > 0)
         {
             descriptions.push_back({"Growing: " + std::to_string(piece.growTurnsRemaining) + " turns",
@@ -93,9 +93,12 @@
         }
         for (std::size_t i = 0; i < piece.actions.size(); ++i)
         {
-            descriptions.push_back({
-                actionDescription(piece.actions[i], i),
-                piece.actions[i].state == piece.actionState ? sf::Color(143, 220, 205) : sf::Color(190, 198, 214)});
+            descriptions.push_back(actionDetailRow(
+                piece.actions[i],
+                i,
+                piece.actions[i].state == piece.actionState
+                    ? sf::Color(143, 220, 205)
+                    : sf::Color(190, 198, 214)));
         }
         return descriptions;
     };
@@ -128,7 +131,7 @@
     };
 
     auto cardPopupActionDescriptions = [&](const game_data::GameCard& card) {
-        std::vector<std::pair<std::string, sf::Color>> descriptions;
+        DetailRows descriptions;
         descriptions.push_back({cardPlayDescription(card), sf::Color(210, 216, 228)});
         if (card.type == "Unit" || card.type == "Hero")
         {
@@ -138,25 +141,17 @@
             }
             for (std::size_t i = 0; i < card.actions.size(); ++i)
             {
-                descriptions.push_back({actionDescription(card.actions[i], i), sf::Color(143, 220, 205)});
+                descriptions.push_back(actionDetailRow(card.actions[i], i));
             }
         }
         return descriptions;
     };
 
-    auto popupActionContentHeight = [&](const std::vector<std::pair<std::string, sf::Color>>& descriptions) {
-        float height = 0.0f;
-        for (const auto& [description, color] : descriptions)
-        {
-            (void)color;
-            height += static_cast<float>(
-                wrapText(font, description, 14, PiecePopupTextWidth - PiecePopupScrollTextXInset * 2.0f).size()) * 18.0f;
-            height += 8.0f;
-        }
-        return height + PiecePopupScrollTextYInset;
+    auto popupActionContentHeight = [&](const DetailRows& descriptions) {
+        return detailRowsHeight(descriptions);
     };
 
-    auto popupMaxScroll = [&](const std::vector<std::pair<std::string, sf::Color>>& descriptions) {
+    auto popupMaxScroll = [&](const DetailRows& descriptions) {
         return std::max(0.0f, popupActionContentHeight(descriptions) - PiecePopupScrollHeight);
     };
 
@@ -230,7 +225,7 @@
             }
         }
 
-        const std::vector<std::pair<std::string, sf::Color>> actionDescriptions =
+        const DetailRows actionDescriptions =
             piece ? piecePopupActionDescriptions(*piece) : cardPopupActionDescriptions(*card);
 
         if (!piece && !card)
@@ -382,19 +377,7 @@
             {PiecePopupTextWidth / 800.0f, PiecePopupScrollHeight / 600.0f}));
         window.setView(actionView);
 
-        y = PiecePopupScrollY + PiecePopupScrollTextYInset;
-        for (const auto& [description, color] : actionDescriptions)
-        {
-            y = drawWrappedText(
-                window,
-                font,
-                description,
-                14,
-                {PiecePopupTextX + PiecePopupScrollTextXInset, y},
-                color,
-                PiecePopupTextWidth - PiecePopupScrollTextXInset * 2.0f);
-            y += 8.0f;
-        }
+        y = drawDetailRows(actionDescriptions, PiecePopupScrollY + PiecePopupScrollTextYInset);
 
         window.setView(previousView);
 

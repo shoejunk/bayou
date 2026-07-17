@@ -138,6 +138,17 @@ std::vector<std::string> loadActionNames(SQLite::Database& database, const std::
         "SELECT action_name FROM card_actions WHERE title = ? ORDER BY item_index",
         title);
 }
+
+std::vector<std::string> loadActionDisplayNames(SQLite::Database& database, const std::string& title)
+{
+    const std::string valueExpression = columnExists(database, "card_actions", "display_name")
+        ? "COALESCE(NULLIF(display_name, ''), action_name)"
+        : "action_name";
+    return loadStringColumn(
+        database,
+        "SELECT " + valueExpression + " FROM card_actions WHERE title = ? ORDER BY item_index",
+        title);
+}
 }
 
 std::vector<card_data::Action> loadActions(SQLite::Database& database)
@@ -238,6 +249,7 @@ std::vector<card_data::Card> loadCards(SQLite::Database& database)
         card.stringValues = loadStringValues(database, card.title);
         card.stringLists = loadStringLists(database, card.title);
         card.actionNames = loadActionNames(database, card.title);
+        card.actionDisplayNames = loadActionDisplayNames(database, card.title);
         card.actions = loadCardActions(database, card.title);
         cards.push_back(std::move(card));
     }

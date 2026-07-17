@@ -1,40 +1,55 @@
 #include "client_card_text.hpp"
 
+#include <algorithm>
+
 namespace bayou::client
 {
 namespace
 {
-std::string actionKindName(std::uint8_t kind)
+std::string actionTypeName(const game_data::ActionProfile& action)
 {
-    switch (static_cast<game_data::ActionKind>(kind))
+    const bool ranged = static_cast<game_data::ActionKind>(action.kind) == game_data::ActionKind::Ranged;
+    const bool healing = action.heal > 0 && action.damage == 0;
+    if (ranged)
     {
-        case game_data::ActionKind::Ranged: return "Ranged";
-        case game_data::ActionKind::Hop: return "Hop";
-        case game_data::ActionKind::Teleport: return "Teleport";
-        case game_data::ActionKind::Tunnel: return "Tunnel";
-        case game_data::ActionKind::Capture: return "Capture";
-        default: return "Slide";
+        return healing ? "Ranged Heal" : "Ranged Attack";
     }
+    if (action.canMove)
+    {
+        if (healing)
+        {
+            return "Heal Move";
+        }
+        if (action.damage > 0 || action.canAttack)
+        {
+            return "Attack Move";
+        }
+        return "Move";
+    }
+    return healing ? "Heal" : "Attack";
 }
 
-std::string actionPatternName(const game_data::ActionProfile& action)
+std::string actionMoveIconPath(const game_data::ActionProfile& action)
 {
-    if (static_cast<game_data::MovePattern>(action.pattern) == game_data::MovePattern::None)
+    if (static_cast<game_data::ActionKind>(action.kind) == game_data::ActionKind::Hop)
     {
-        return static_cast<game_data::ActionKind>(action.kind) == game_data::ActionKind::Ranged
-            ? "Any direction"
-            : "No pattern";
+        return "ui/hopping-move.png";
     }
-    return game_data::movePatternName(action.pattern);
+    switch (static_cast<game_data::MovePattern>(action.pattern))
+    {
+        case game_data::MovePattern::Ortho: return "ui/ortho-move.png";
+        case game_data::MovePattern::Diag: return "ui/diagonal-move.png";
+        case game_data::MovePattern::Omni: return "ui/omni-move.png";
+        case game_data::MovePattern::Jump: return "ui/l-shaped-move.png";
+        default: return "ui/move.png";
+    }
 }
 
 std::string actionRangeText(const game_data::ActionProfile& action)
 {
-    if (action.minRange == action.maxRange)
-    {
-        return "range " + std::to_string(action.maxRange);
-    }
-    return "range " + std::to_string(action.minRange) + "-" + std::to_string(action.maxRange);
+    return action.minRange > 1
+        ? std::to_string(action.minRange) + "-" + std::to_string(action.maxRange)
+        : std::to_string(action.maxRange);
 }
 
 bool isHiddenCardDetailKey(const std::string& key)
@@ -107,66 +122,28 @@ std::string joinStrings(const std::vector<std::string>& values, const std::strin
     return result;
 }
 
-std::string actionDescription(const game_data::ActionProfile& action, std::size_t index)
+ActionDescription actionDescription(const game_data::ActionProfile& action, std::size_t index)
 {
-    (void)index;
-    std::vector<std::string> parts;
-    if (action.state != 0)
-    {
-        parts.push_back("state " + std::to_string(action.state));
-    }
-    parts.push_back(actionKindName(action.kind));
-    parts.push_back(actionPatternName(action));
-    parts.push_back(actionRangeText(action));
-    if (action.canMove && action.canAttack)
-    {
-        parts.push_back("attack move");
-    }
-    else if (action.canMove)
-    {
-        parts.push_back("move");
-    }
-    else if (action.canAttack)
-    {
-        parts.push_back("attack");
-    }
-    if (action.canAttack)
-    {
-        if (action.damage > 0)
-        {
-            parts.push_back("damage: " + std::to_string(action.damage));
-        }
-        if (action.heal > 0)
-        {
-            parts.push_back("healing: " + std::to_string(action.heal));
-        }
-        if (action.push > 0)
-        {
-            parts.push_back("push: " + std::to_string(action.push));
-        }
-    }
-    if (action.statusTurns > 0)
-    {
-        parts.push_back("disables " + std::to_string(action.statusTurns) + " turn(s)");
-    }
-    if (action.cooldownTurns > 0)
-    {
-        parts.push_back("cooldown: " + std::to_string(action.cooldownTurns));
-    }
-    if (action.passThrough)
-    {
-        parts.push_back("passes through blockers");
-    }
-    if (action.lineOfSight)
-    {
-        parts.push_back("line of sight");
-    }
-    if (!action.targetFilter.empty())
-    {
-        parts.push_back("targets with: " + joinStrings(action.targetFilter, " + "));
-    }
+    ActionDescription description;
+    description.name = action.name.empty()
+        ? "Action " + std::to_string(index + 1)
+        : action.name;
+    description.type = actionTypeName(action);
+    description.moveIconPath = actionMoveIconPath(action);
+    description.range = actionRangeText(action);
+    description.damage = std::max(0, action.damage);
+    description.heal = std::max(0, action.heal);
+    description.stun = std::max(0, action.statusTurns);
+    description.cooldown = std::max(0, action.cooldownTurns);
+    return description;
+}
 
-    return joinStrings(parts, ", ");
+DetailRow actionDetailRow(
+    const game_data::ActionProfile& action,
+    std::size_t index,
+    sf::Color color)
+{
+    return {"", color, actionDescription(action, index)};
 }
 
 DetailRows deckEditorCardDetails(const card_data::Card& card)
@@ -208,7 +185,7 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
         }
         for (std::size_t i = 0; i < gameCard.actions.size(); ++i)
         {
-            details.push_back({actionDescription(gameCard.actions[i], i), sf::Color(143, 220, 205)});
+            details.push_back(actionDetailRow(gameCard.actions[i], i));
         }
     }
     else

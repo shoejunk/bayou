@@ -12,7 +12,7 @@ namespace card_data
 // crafted packet cannot trigger a huge allocation.
 constexpr std::uint32_t MaxSerializedItems = 4096;
 constexpr std::uint32_t CardListSchemaMarker = 0xffffffffu;
-constexpr std::uint32_t CardListSchemaVersion = 5;
+constexpr std::uint32_t CardListSchemaVersion = 6;
 
 struct KeyIntPair
 {
@@ -63,6 +63,7 @@ struct Card
     std::vector<KeyStringPair> stringValues;
     std::vector<KeyStringList> stringLists;
     std::vector<std::string> actionNames;
+    std::vector<std::string> actionDisplayNames;
     std::vector<Action> actions;
 };
 
@@ -201,6 +202,7 @@ inline void writeCard(sf::Packet& packet, const Card& card)
     }
 
     writeStringVector(packet, card.actionNames);
+    writeStringVector(packet, card.actionDisplayNames);
     packet << static_cast<std::uint32_t>(card.actions.size());
     for (const Action& action : card.actions)
     {
@@ -213,7 +215,8 @@ inline bool readCardRemaining(
     Card& card,
     bool actionIncludesHeal = true,
     bool actionIncludesPush = true,
-    bool actionIncludesTargetFilter = true)
+    bool actionIncludesTargetFilter = true,
+    bool includesActionDisplayNames = true)
 {
     std::uint32_t integerCount = 0;
     packet >> integerCount;
@@ -276,6 +279,17 @@ inline bool readCardRemaining(
     {
         return false;
     }
+    if (includesActionDisplayNames)
+    {
+        if (!readStringVector(packet, card.actionDisplayNames))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        card.actionDisplayNames = card.actionNames;
+    }
 
     std::uint32_t actionCount = 0;
     packet >> actionCount;
@@ -321,7 +335,7 @@ inline bool readLegacyCard(sf::Packet& packet, Card& card)
         return false;
     }
     card.keywords.clear();
-    return readCardRemaining(packet, card, false, false, false);
+    return readCardRemaining(packet, card, false, false, false, false);
 }
 
 inline bool readListedCard(sf::Packet& packet, Card& card, bool legacyFormat)
