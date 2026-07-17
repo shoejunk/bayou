@@ -481,6 +481,9 @@ constexpr float PasswordIconInset = 42.0f;
 constexpr std::uint32_t AdminUsersPageSize = 6;
 constexpr float AdminUserRowY = 174.0f;
 constexpr float AdminUserRowHeight = 43.0f;
+constexpr float AdminCardRowY = 276.0f;
+constexpr float AdminCardRowHeight = 36.0f;
+constexpr std::size_t VisibleAdminCardRows = 5;
 
 constexpr float LibraryX = 430.0f;
 constexpr float LibraryY = 276.0f;
@@ -833,6 +836,7 @@ int main(int argc, char** argv)
     InputBox deckNameInput({304.0f, 154.0f}, {210.0f, 40.0f}, "", font);
     InputBox adminSearchInput({120.0f, 94.0f}, {520.0f, 36.0f}, "", font);
     InputBox adminGoldInput({234.0f, 460.0f}, {130.0f, 36.0f}, "Gold amount", font);
+    InputBox adminCardInput({240.0f, 224.0f}, {320.0f, 36.0f}, "Card name", font);
 
     CheckboxControl rememberMeCheckbox({300.0f, 286.0f}, "Remember me", font, rememberCheckTexture);
     Button loginSubmitButton({300.0f, 342.0f}, {200.0f, 50.0f}, "Login", font);
@@ -911,7 +915,10 @@ int main(int argc, char** argv)
     Button adminRevokeButton({42.0f, 458.0f}, {150.0f, 42.0f}, "Revoke Admin", font);
     Button adminGrantGoldButton({378.0f, 458.0f}, {150.0f, 42.0f}, "Grant Gold", font);
     Button adminRemoveGoldButton({542.0f, 458.0f}, {150.0f, 42.0f}, "Remove Gold", font);
+    Button adminAddCardButton({42.0f, 514.0f}, {176.0f, 40.0f}, "Add Card", font);
     Button adminDeleteButton({600.0f, 514.0f}, {176.0f, 40.0f}, "Delete User", font);
+    Button cancelAddCardButton({250.0f, 476.0f}, {130.0f, 42.0f}, "Cancel", font);
+    Button confirmAddCardButton({420.0f, 476.0f}, {130.0f, 42.0f}, "Add Card", font);
     Button cancelDeleteUserButton({250.0f, 366.0f}, {130.0f, 42.0f}, "Cancel", font);
     Button confirmDeleteUserButton({420.0f, 366.0f}, {130.0f, 42.0f}, "Delete", font);
     Button cancelExitDesktopButton({250.0f, 356.0f}, {130.0f, 42.0f}, "Cancel", font);
@@ -956,6 +963,8 @@ int main(int argc, char** argv)
     std::optional<std::future<AdminUsersLoadResult>> pendingAdminUsersLoad;
     std::optional<std::future<AdminUserPrivilegeResult>> pendingAdminPrivilege;
     std::optional<std::future<AdminUserGoldResult>> pendingAdminGold;
+    std::optional<std::future<AdminUserCardResult>> pendingAdminUserCard;
+    std::optional<std::future<CardListResult>> pendingAdminCardListLoad;
     std::optional<std::future<AdminUserDeleteResult>> pendingAdminUserDelete;
     std::optional<std::future<AccountCommandResult>> pendingPasswordChange;
     bool coinPurchasePolling = false;
@@ -992,6 +1001,7 @@ int main(int argc, char** argv)
     std::vector<deck_data::Deck> playerDecks;
     std::vector<account_data::CollectionCard> playerCollection;
     std::vector<network::AdminUserSummary> adminUsers;
+    std::vector<card_data::Card> adminCardLibrary;
     deck_data::Deck editingDeck;
     std::string activeDeckOriginalName;
     int playerCoins = 0;
@@ -1002,6 +1012,8 @@ int main(int argc, char** argv)
     std::uint32_t adminUsersPageSize = AdminUsersPageSize;
     std::uint32_t adminUsersTotalCount = 0;
     std::optional<std::size_t> selectedAdminUser;
+    bool addCardPopupVisible = false;
+    std::string adminCardLoadError;
     bool deleteUserPopupVisible = false;
     std::string adminUserDeleteTarget;
     std::optional<std::size_t> selectedDeck;
@@ -1176,6 +1188,7 @@ int main(int argc, char** argv)
         deckNameInput.setActive(false);
         adminSearchInput.setActive(false);
         adminGoldInput.setActive(false);
+        adminCardInput.setActive(false);
     };
 
     auto focusLoginInput = [&](int index) {
@@ -1633,6 +1646,7 @@ int main(int argc, char** argv)
         cardLibrary.clear();
         filteredCardLibrary.clear();
         allCardLibrary.clear();
+        adminCardLibrary.clear();
         collectionTypeFilterChecked.fill(true);
         collectionTraitFilterChecked.fill(true);
         deckEditorMode = DeckEditorMode::DeckList;
@@ -1650,12 +1664,15 @@ int main(int argc, char** argv)
         adminUsersPage = 0;
         adminUsersTotalCount = 0;
         selectedAdminUser.reset();
+        addCardPopupVisible = false;
         deleteUserPopupVisible = false;
         exitDesktopPopupVisible = false;
         deckUnsavedChangesPopupVisible = false;
         adminUserDeleteTarget.clear();
         adminSearchInput.clear();
         adminGoldInput.clear();
+        adminCardInput.clear();
+        adminCardLoadError.clear();
         coinPurchasePolling = false;
         selectedDeck.reset();
         selectedDeckCard.reset();
@@ -1742,6 +1759,7 @@ int main(int argc, char** argv)
         adminUsers.clear();
         selectedAdminUser.reset();
         deleteUserPopupVisible = false;
+        addCardPopupVisible = false;
         adminUserDeleteTarget.clear();
         setMessageY(messageText, 566.0f);
         setMessage(messageText, "Loading users...", sf::Color::Yellow);
@@ -1752,6 +1770,11 @@ int main(int argc, char** argv)
             adminSearchQuery,
             adminUsersPage,
             adminUsersPageSize);
+        if (adminCardLibrary.empty() && !pendingAdminCardListLoad)
+        {
+            adminCardLoadError.clear();
+            pendingAdminCardListLoad = std::async(std::launch::async, fetchCards);
+        }
     };
 
     auto searchAdminUsers = [&]() {
@@ -1858,6 +1881,77 @@ int main(int argc, char** argv)
         {
             setMessage(messageText, "Gold amount is out of range", sf::Color::Red);
         }
+    };
+
+    auto visibleAdminCardTitles = [&]() {
+        std::vector<std::string> titles;
+        const std::string query = game_data::normalizedAbility(adminCardInput.getContent());
+        for (const card_data::Card& card : adminCardLibrary)
+        {
+            if (game_data::isTokenCard(card) ||
+                (!query.empty() && game_data::normalizedTrait(card.title).find(query) == std::string::npos))
+            {
+                continue;
+            }
+            titles.push_back(card.title);
+        }
+        std::sort(titles.begin(), titles.end(), [](const std::string& left, const std::string& right) {
+            return game_data::normalizedTrait(left) < game_data::normalizedTrait(right);
+        });
+        if (titles.size() > VisibleAdminCardRows)
+        {
+            titles.resize(VisibleAdminCardRows);
+        }
+        return titles;
+    };
+
+    auto openAddCardPopup = [&]() {
+        if (!selectedAdminUser || *selectedAdminUser >= adminUsers.size())
+        {
+            return;
+        }
+        addCardPopupVisible = true;
+        adminCardInput.clear();
+        clearFocus();
+        adminCardInput.setActive(true);
+    };
+
+    auto dismissAddCardPopup = [&]() {
+        addCardPopupVisible = false;
+        adminCardInput.clear();
+        adminCardInput.setActive(false);
+    };
+
+    auto confirmAddCard = [&]() {
+        if (pendingAdminUserCard || !selectedAdminUser || *selectedAdminUser >= adminUsers.size())
+        {
+            return;
+        }
+
+        const std::string requestedTitle = game_data::normalizedAbility(adminCardInput.getContent());
+        const auto card = std::find_if(
+            adminCardLibrary.begin(),
+            adminCardLibrary.end(),
+            [&](const card_data::Card& candidate) {
+                return !game_data::isTokenCard(candidate) &&
+                    game_data::normalizedTrait(candidate.title) == requestedTitle;
+            });
+        if (card == adminCardLibrary.end())
+        {
+            setMessage(messageText, "Choose a card from the list", sf::Color::Red);
+            return;
+        }
+
+        const std::string targetUsername = adminUsers[*selectedAdminUser].username;
+        const std::string cardTitle = card->title;
+        pendingAdminUserCard = std::async(
+            std::launch::async,
+            addCardToAdminUser,
+            activeAccessToken,
+            targetUsername,
+            cardTitle);
+        adminCardInput.setActive(false);
+        setMessage(messageText, "Adding card...", sf::Color::Yellow);
     };
 
     auto openDeleteUserPopup = [&]() {
@@ -3930,6 +4024,7 @@ int main(int argc, char** argv)
             }
         }
         acting->disabledTurns = std::max(acting->disabledTurns, action.cooldownTurns);
+        acting->actionState = action.nextState;
         acting->hasActed = false;
 
         if (commandedAction)
@@ -4080,6 +4175,7 @@ int main(int argc, char** argv)
             for (const game_data::ActionProfile& action : piece->actions)
             {
                 stateCount = std::max(stateCount, action.state + 1);
+                stateCount = std::max(stateCount, game_data::actionNextState(action) + 1);
             }
             piece->actionState = (piece->actionState + 1) % stateCount;
             piece->hidden = piece->ability == "dematerialize" && piece->actionState != 0;
@@ -4945,6 +5041,22 @@ int main(int argc, char** argv)
             }
         }
 
+        if (pendingAdminCardListLoad &&
+            pendingAdminCardListLoad->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            CardListResult result = pendingAdminCardListLoad->get();
+            pendingAdminCardListLoad.reset();
+            if (result.success)
+            {
+                adminCardLibrary = std::move(result.cards);
+                adminCardLoadError.clear();
+            }
+            else
+            {
+                adminCardLoadError = result.message;
+            }
+        }
+
         if (pendingAdminPrivilege &&
             pendingAdminPrivilege->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
@@ -4988,6 +5100,28 @@ int main(int argc, char** argv)
                 if (result.success && target != adminUsers.end())
                 {
                     target->gold = result.targetGold;
+                }
+                setMessage(
+                    messageText,
+                    result.message,
+                    result.success ? sf::Color(120, 220, 150) : sf::Color::Red);
+            }
+        }
+
+        if (pendingAdminUserCard &&
+            pendingAdminUserCard->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            AdminUserCardResult result = pendingAdminUserCard->get();
+            pendingAdminUserCard.reset();
+            if (!loggedInUsername.empty() && currentState == GameState::AdminUsers)
+            {
+                if (result.success)
+                {
+                    dismissAddCardPopup();
+                }
+                else if (addCardPopupVisible)
+                {
+                    adminCardInput.setActive(true);
                 }
                 setMessage(
                     messageText,
@@ -5643,6 +5777,39 @@ int main(int argc, char** argv)
                             dismissDeleteUserPopup();
                         }
                     }
+                    else if (addCardPopupVisible)
+                    {
+                        if (confirmAddCardButton.isClicked(clickPos))
+                        {
+                            confirmAddCard();
+                        }
+                        else if (cancelAddCardButton.isClicked(clickPos))
+                        {
+                            dismissAddCardPopup();
+                        }
+                        else if (adminCardInput.contains(clickPos))
+                        {
+                            clearFocus();
+                            adminCardInput.setActive(true);
+                        }
+                        else
+                        {
+                            const std::vector<std::string> cardTitles = visibleAdminCardTitles();
+                            if (const std::optional<std::size_t> cardIndex = rowIndexAt(
+                                    clickPos,
+                                    220.0f,
+                                    AdminCardRowY,
+                                    360.0f,
+                                    AdminCardRowHeight,
+                                    VisibleAdminCardRows,
+                                    0,
+                                    cardTitles.size()))
+                            {
+                                adminCardInput.setContent(cardTitles[*cardIndex]);
+                                adminCardInput.setActive(true);
+                            }
+                        }
+                    }
                     else if (adminBackButton.isClicked(clickPos))
                     {
                         showAuthenticatedScreen();
@@ -5698,6 +5865,10 @@ int main(int argc, char** argv)
                         {
                             clearFocus();
                             adminGoldInput.setActive(true);
+                        }
+                        else if (adminAddCardButton.isClicked(clickPos))
+                        {
+                            openAddCardPopup();
                         }
                         else if (targetUsername != loggedInUsername && adminDeleteButton.isClicked(clickPos))
                         {
@@ -6264,7 +6435,11 @@ int main(int argc, char** argv)
                 newPasswordInput.handleEvent(*event, window);
                 confirmNewPasswordInput.handleEvent(*event, window);
             }
-            if (currentState == GameState::AdminUsers && !deleteUserPopupVisible)
+            if (currentState == GameState::AdminUsers && addCardPopupVisible)
+            {
+                adminCardInput.handleEvent(*event, window);
+            }
+            else if (currentState == GameState::AdminUsers && !deleteUserPopupVisible)
             {
                 adminSearchInput.handleEvent(*event, window);
                 adminGoldInput.handleEvent(*event, window);
@@ -6352,6 +6527,10 @@ int main(int argc, char** argv)
                     else if (currentState == GameState::AdminUsers && deleteUserPopupVisible)
                     {
                         dismissDeleteUserPopup();
+                    }
+                    else if (currentState == GameState::AdminUsers && addCardPopupVisible)
+                    {
+                        dismissAddCardPopup();
                     }
                     else if (currentState == GameState::AdminUsers)
                     {
@@ -6448,7 +6627,14 @@ int main(int argc, char** argv)
                 {
                     confirmUserDeletion();
                 }
-                else if (currentState == GameState::AdminUsers && !deleteUserPopupVisible)
+                else if (currentState == GameState::AdminUsers &&
+                         addCardPopupVisible &&
+                         keyPressed->code == sf::Keyboard::Key::Enter)
+                {
+                    confirmAddCard();
+                }
+                else if (currentState == GameState::AdminUsers &&
+                         !deleteUserPopupVisible && !addCardPopupVisible)
                 {
                     if (keyPressed->code == sf::Keyboard::Key::Enter)
                     {
@@ -6619,6 +6805,14 @@ int main(int argc, char** argv)
                 cancelDeleteUserButton.update(mousePos);
                 confirmDeleteUserButton.update(mousePos);
             }
+            else if (addCardPopupVisible)
+            {
+                cancelAddCardButton.update(mousePos);
+                if (!pendingAdminUserCard)
+                {
+                    confirmAddCardButton.update(mousePos);
+                }
+            }
             else
             {
                 adminTabs.update(mousePos);
@@ -6628,6 +6822,7 @@ int main(int argc, char** argv)
                 adminNextPageButton.update(mousePos);
                 if (selectedAdminUser && *selectedAdminUser < adminUsers.size())
                 {
+                    adminAddCardButton.update(mousePos);
                     adminGrantGoldButton.update(mousePos);
                     adminRemoveGoldButton.update(mousePos);
                     if (adminUsers[*selectedAdminUser].isAdmin)
@@ -6649,6 +6844,7 @@ int main(int argc, char** argv)
             }
             adminSearchInput.updateCursor(deltaTime);
             adminGoldInput.updateCursor(deltaTime);
+            adminCardInput.updateCursor(deltaTime);
         }
         else if (currentState == GameState::DeckSelect)
         {

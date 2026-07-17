@@ -89,7 +89,9 @@ enum class MessageType : std::uint8_t
     AdminStarterDeckRequest,
     AdminStarterDeckResponse,
     AdminStarterDeckSaveRequest,
-    AdminStarterDeckSaveResponse
+    AdminStarterDeckSaveResponse,
+    AdminUserCardRequest,
+    AdminUserCardResponse
 };
 
 struct CreateAccountRequest
@@ -202,6 +204,18 @@ struct AdminUserDeleteRequest
 };
 
 struct AdminUserDeleteResponse
+{
+    bool success = false;
+    std::string message;
+};
+
+struct AdminUserCardRequest
+{
+    std::string targetUsername;
+    std::string cardTitle;
+};
+
+struct AdminUserCardResponse
 {
     bool success = false;
     std::string message;

@@ -635,6 +635,8 @@ int main(int argc, char** argv)
     profilePiece.actionState = 1;
     check(resolvePieceAction({profilePiece}, holes, profilePiece, 3, 4).legal,
           "active transform state actions are available");
+    check(resolvePieceAction({profilePiece}, holes, profilePiece, 3, 4).nextState == 1,
+          "actions default their next state to their current state");
 
     Piece gunner;
     gunner.id = 20;
@@ -884,11 +886,13 @@ int main(int argc, char** argv)
     card_data::Action encodedHealingAction = encodedCard.actions[0];
     encodedHealingAction.damage = 0;
     encodedHealingAction.heal = 4;
+    encodedHealingAction.nextState = 2;
     sf::Packet actionPacket;
     card_data::writeAction(actionPacket, encodedHealingAction);
     card_data::Action roundTrippedAction;
     check(card_data::readAction(actionPacket, roundTrippedAction) &&
               roundTrippedAction.damage == 0 && roundTrippedAction.heal == 4 &&
+              roundTrippedAction.nextState == 2 &&
               roundTrippedAction.push == 3 &&
               roundTrippedAction.targetFilter == encodedHealingAction.targetFilter,
           "card-server action serialization keeps healing, push, and target-filter data");
@@ -918,9 +922,30 @@ int main(int argc, char** argv)
     card_data::writeCardListHeader(currentCardListHeader, 3);
     std::uint32_t currentCardCount = 0;
     bool currentCardFormatIsLegacy = true;
-    check(card_data::readCardListHeader(currentCardListHeader, currentCardCount, currentCardFormatIsLegacy) &&
-              currentCardCount == 3 && !currentCardFormatIsLegacy,
+    bool currentActionsIncludeNextState = false;
+    check(card_data::readCardListHeader(
+              currentCardListHeader,
+              currentCardCount,
+              currentCardFormatIsLegacy,
+              &currentActionsIncludeNextState) &&
+              currentCardCount == 3 && !currentCardFormatIsLegacy &&
+              currentActionsIncludeNextState,
           "versioned card-list headers select the traits-and-keywords format");
+
+    sf::Packet previousCardListHeader;
+    previousCardListHeader << card_data::CardListSchemaMarker << static_cast<std::uint32_t>(6)
+                           << static_cast<std::uint32_t>(0);
+    std::uint32_t previousCardCount = 1;
+    bool previousCardFormatIsLegacy = true;
+    bool previousActionsIncludeNextState = true;
+    check(card_data::readCardListHeader(
+              previousCardListHeader,
+              previousCardCount,
+              previousCardFormatIsLegacy,
+              &previousActionsIncludeNextState) &&
+              previousCardCount == 0 && !previousCardFormatIsLegacy &&
+              !previousActionsIncludeNextState,
+          "schema-six card lists remain readable with next state defaulting to state");
 
     GameCard serializedCard = decodedCard;
     serializedCard.tokenPath = "characters/test.png";
@@ -945,6 +970,7 @@ int main(int argc, char** argv)
     serializedCard.gatherResources = 6;
     serializedCard.tax = 4;
     serializedCard.actions[0].heal = 3;
+    serializedCard.actions[0].nextState = 4;
     sf::Packet cardPacket;
     writeGameCard(cardPacket, serializedCard);
     GameCard roundTrippedCard;
@@ -953,6 +979,7 @@ int main(int argc, char** argv)
               roundTrippedCard.actions[0].name == "Shadow Lunge" &&
               roundTrippedCard.actions[0].damage == 2 &&
               roundTrippedCard.actions[0].heal == 3 &&
+              roundTrippedCard.actions[0].nextState == 4 &&
               roundTrippedCard.actions[0].push == 3 &&
               roundTrippedCard.actions[0].targetFilter == serializedCard.actions[0].targetFilter &&
               roundTrippedCard.traits == encodedCard.traits &&
@@ -1010,6 +1037,7 @@ int main(int argc, char** argv)
         serializedPiece.actions[0].name = "Serialized Action";
         serializedPiece.actions[0].heal = 2;
         serializedPiece.actions[0].push = 3;
+        serializedPiece.actions[0].nextState = 5;
         serializedPiece.actions[0].targetFilter = {"fey", "warded"};
     }
     sf::Packet piecePacket;
@@ -1020,6 +1048,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.actions[0].name == "Serialized Action" &&
               roundTrippedPiece.actions[0].heal == 2 &&
               roundTrippedPiece.actions[0].push == 3 &&
+              roundTrippedPiece.actions[0].nextState == 5 &&
               roundTrippedPiece.actions[0].targetFilter == serializedPiece.actions[0].targetFilter &&
               roundTrippedPiece.traits == serializedPiece.traits &&
               roundTrippedPiece.keywords == serializedPiece.keywords &&
@@ -1150,6 +1179,35 @@ int main(int argc, char** argv)
         [](const Piece& piece) { return piece.name == "Seedling"; }));
     check(seedlingCount == 1,
           "trail does not summon when an action attacks without moving the piece");
+
+    card_data::Card stateHeroCard;
+    stateHeroCard.title = "State Hero";
+    stateHeroCard.type = "Hero";
+    stateHeroCard.integerValues = {{"health", 5}};
+    card_data::Action readyStep;
+    readyStep.name = "Ready Step";
+    readyStep.maxRange = 1;
+    readyStep.nextState = 1;
+    card_data::Action spentStep = readyStep;
+    spentStep.name = "Spent Step";
+    spentStep.state = 1;
+    spentStep.nextState = card_data::DefaultNextState;
+    stateHeroCard.actions = {readyStep, spentStep};
+    card_data::Card stateEnemyCard = trailEnemyCard;
+    stateEnemyCard.title = "State Enemy";
+
+    GameEngine stateEngine(29, {stateHeroCard, stateEnemyCard});
+    stateEngine.submitDeck(1, {stateHeroCard});
+    stateEngine.submitDeck(2, {stateEnemyCard});
+    stateEngine.placeHero(1, 0, trailOrigin.first, trailOrigin.second);
+    stateEngine.placeHero(2, 0, trailEnemyOrigin.first, trailEnemyOrigin.second);
+    const int stateHeroId = stateEngine.boardPieces().front().id;
+    stateEngine.movePiece(1, stateHeroId, trailOrigin.first, trailOrigin.second + 1);
+    const Piece* changedStateHero = stateEngine.boardPieces().empty()
+        ? nullptr
+        : &stateEngine.boardPieces().front();
+    check(changedStateHero != nullptr && changedStateHero->actionState == 1,
+          "using an action changes the piece to that action's next state");
 
     card_data::Card pushHeroCard;
     pushHeroCard.title = "Push Hero";

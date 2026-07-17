@@ -772,6 +772,7 @@ private:
     bool hasActionLinkTexture = false;
     InputBox actionNameField;
     InputBox actionStateField;
+    InputBox actionNextStateField;
     InputBox actionKindField;
     InputBox actionPatternField;
     InputBox actionMinRangeField;
@@ -899,7 +900,9 @@ private:
 
         std::uint32_t count = 0;
         bool legacyFormat = false;
-        if (!card_data::readCardListHeader(response, count, legacyFormat))
+        bool actionIncludesNextState = false;
+        if (!card_data::readCardListHeader(
+                response, count, legacyFormat, &actionIncludesNextState))
         {
             socket.disconnect();
             return {false, "Unsupported card list payload"};
@@ -910,7 +913,8 @@ private:
         for (std::uint32_t i = 0; i < count; ++i)
         {
             card_data::Card card;
-            if (!card_data::readListedCard(response, card, legacyFormat))
+            if (!card_data::readListedCard(
+                    response, card, legacyFormat, actionIncludesNextState))
             {
                 socket.disconnect();
                 return {false, "Invalid card list payload"};
@@ -1153,6 +1157,7 @@ private:
         typeField = InputBox(font, "Type", {340.0f, 308.0f}, {470.0f, 42.0f});
         actionNameField = InputBox(font, "Name", {340.0f, 168.0f}, {470.0f, 42.0f});
         actionStateField = makeCompactField("0", {210.0f, 32.0f});
+        actionNextStateField = makeCompactField("0", {210.0f, 32.0f});
         actionKindField = makeCompactField("slide", {210.0f, 32.0f});
         actionPatternField = makeCompactField("omni", {210.0f, 32.0f});
         actionMinRangeField = makeCompactField("1", {210.0f, 32.0f});
@@ -1263,6 +1268,7 @@ private:
             focusOrder = {
                 &actionNameField,
                 &actionStateField,
+                &actionNextStateField,
                 &actionKindField,
                 &actionPatternField,
                 &actionMinRangeField,
@@ -1604,6 +1610,7 @@ private:
         const std::vector<const InputBox*> fields = {
             &actionNameField,
             &actionStateField,
+            &actionNextStateField,
             &actionKindField,
             &actionPatternField,
             &actionMinRangeField,
@@ -1887,6 +1894,7 @@ private:
         card_data::Action action;
         action.name = trim(actionNameField.getValue());
         action.state = formInt(actionStateField, 0);
+        action.nextState = formInt(actionNextStateField, action.state);
         action.kind = lowerKey(trim(actionKindField.getValue()));
         action.pattern = lowerKey(trim(actionPatternField.getValue()));
         action.minRange = formInt(actionMinRangeField, 1);
@@ -1917,6 +1925,7 @@ private:
         selectedAction.reset();
         actionNameField.setValue("");
         actionStateField.setValue("0");
+        actionNextStateField.setValue("0");
         actionKindField.setValue("slide");
         actionPatternField.setValue("omni");
         actionMinRangeField.setValue("1");
@@ -1951,6 +1960,7 @@ private:
         const card_data::Action& action = actions[index];
         actionNameField.setValue(action.name);
         actionStateField.setValue(std::to_string(action.state));
+        actionNextStateField.setValue(std::to_string(card_data::actionNextState(action)));
         actionKindField.setValue(action.kind);
         actionPatternField.setValue(action.pattern);
         actionMinRangeField.setValue(std::to_string(action.minRange));
@@ -3486,6 +3496,7 @@ private:
         y = drawInstructionBullet(window, "ability: transform, dematerialize, dig, summon, or command. Transform-style abilities switch action states; dig creates a tunnel hole; summon creates the unit named by the summon string field in the space in front; command lets one ready adjacent friendly piece take any normal action without ending the turn.", y);
         y = drawInstructionBullet(window, "summon: exact Unit card title created by the active summon ability or passive Trail keyword. Player 1's active summon goes to the right and Player 2's to the left; Trail summons into the moving piece's former position. Summoned units cannot act until their owner's next turn.", y);
         y = drawInstructionBullet(window, "Cards store ordered references to reusable action objects plus a separate display name for each reference, so the same logic can have different fantasy names on different cards.", y);
+        y = drawInstructionBullet(window, "An action is available in its state and changes the piece to nextState after use. nextState defaults to the action's state, so ordinary actions keep the piece unchanged.", y);
         y = drawInstructionBullet(window, "abilityLabels is an ordered String List containing the button label for each action state.", y);
         y = drawInstructionBullet(window, "Other String Lists are free-form named lists shown in card details.", y);
         y = drawInstructionBullet(window, "Unknown Integer or String Fields are stored and displayed, but they do not change gameplay unless code is added to read them.", y);
@@ -3864,19 +3875,20 @@ private:
     void layoutActionFields()
     {
         actionStateField.setPosition({340.0f, 232.0f});
-        actionKindField.setPosition({600.0f, 232.0f});
-        actionPatternField.setPosition({340.0f, 290.0f});
-        actionMinRangeField.setPosition({600.0f, 290.0f});
-        actionMaxRangeField.setPosition({340.0f, 348.0f});
-        actionDamageField.setPosition({600.0f, 348.0f});
-        actionHealField.setPosition({340.0f, 406.0f});
-        actionCanMoveField.setPosition({600.0f, 406.0f});
-        actionCanAttackField.setPosition({340.0f, 464.0f});
-        actionPassThroughField.setPosition({600.0f, 464.0f});
-        actionLineOfSightField.setPosition({340.0f, 522.0f});
-        actionStatusTurnsField.setPosition({600.0f, 522.0f});
-        actionCooldownTurnsField.setPosition({340.0f, 580.0f});
-        actionPushField.setPosition({600.0f, 580.0f});
+        actionNextStateField.setPosition({600.0f, 232.0f});
+        actionKindField.setPosition({340.0f, 290.0f});
+        actionPatternField.setPosition({600.0f, 290.0f});
+        actionMinRangeField.setPosition({340.0f, 348.0f});
+        actionMaxRangeField.setPosition({600.0f, 348.0f});
+        actionDamageField.setPosition({340.0f, 406.0f});
+        actionHealField.setPosition({600.0f, 406.0f});
+        actionCanMoveField.setPosition({340.0f, 464.0f});
+        actionCanAttackField.setPosition({600.0f, 464.0f});
+        actionPassThroughField.setPosition({340.0f, 522.0f});
+        actionLineOfSightField.setPosition({600.0f, 522.0f});
+        actionStatusTurnsField.setPosition({340.0f, 580.0f});
+        actionCooldownTurnsField.setPosition({600.0f, 580.0f});
+        actionPushField.setPosition({340.0f, 638.0f});
         layoutActionTargetFilterControls();
     }
 
@@ -3889,19 +3901,20 @@ private:
         layoutActionFields();
         const std::vector<std::pair<std::string, sf::Vector2f>> labels = {
             {"State", {340.0f, 208.0f}},
-            {"Kind", {600.0f, 208.0f}},
-            {"Pattern", {340.0f, 266.0f}},
-            {"Minimum range", {600.0f, 266.0f}},
-            {"Maximum range", {340.0f, 324.0f}},
-            {"Damage", {600.0f, 324.0f}},
-            {"Heal", {340.0f, 382.0f}},
-            {"Can move", {600.0f, 382.0f}},
-            {"Can attack", {340.0f, 440.0f}},
-            {"Pass through", {600.0f, 440.0f}},
-            {"Line of sight", {340.0f, 498.0f}},
-            {"Status turns", {600.0f, 498.0f}},
-            {"Cooldown turns", {340.0f, 556.0f}},
-            {"Push", {600.0f, 556.0f}},
+            {"Next state", {600.0f, 208.0f}},
+            {"Kind", {340.0f, 266.0f}},
+            {"Pattern", {600.0f, 266.0f}},
+            {"Minimum range", {340.0f, 324.0f}},
+            {"Maximum range", {600.0f, 324.0f}},
+            {"Damage", {340.0f, 382.0f}},
+            {"Heal", {600.0f, 382.0f}},
+            {"Can move", {340.0f, 440.0f}},
+            {"Can attack", {600.0f, 440.0f}},
+            {"Pass through", {340.0f, 498.0f}},
+            {"Line of sight", {600.0f, 498.0f}},
+            {"Status turns", {340.0f, 556.0f}},
+            {"Cooldown turns", {600.0f, 556.0f}},
+            {"Push", {340.0f, 614.0f}},
         };
         for (const auto& [label, position] : labels)
         {

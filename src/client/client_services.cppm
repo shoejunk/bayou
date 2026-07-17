@@ -144,6 +144,14 @@ struct AdminUserDeleteResult
     std::string targetUsername;
 };
 
+struct AdminUserCardResult
+{
+    bool success = false;
+    std::string message;
+    std::string targetUsername;
+    std::string cardTitle;
+};
+
 
 void sendDisconnect(bayou::tls::Socket& socket)
 {
@@ -347,7 +355,9 @@ CardListResult fetchCards()
 
     std::uint32_t count = 0;
     bool legacyFormat = false;
-    if (!card_data::readCardListHeader(response, count, legacyFormat))
+    bool actionIncludesNextState = false;
+    if (!card_data::readCardListHeader(
+            response, count, legacyFormat, &actionIncludesNextState))
     {
         socket.disconnect();
         return {false, "Unsupported card list payload"};
@@ -358,7 +368,8 @@ CardListResult fetchCards()
     for (std::uint32_t i = 0; i < count; ++i)
     {
         card_data::Card card;
-        if (!card_data::readListedCard(response, card, legacyFormat))
+        if (!card_data::readListedCard(
+                response, card, legacyFormat, actionIncludesNextState))
         {
             socket.disconnect();
             return {false, "Invalid card list payload"};
@@ -885,6 +896,52 @@ AdminUserDeleteResult deleteAdminUser(
 
     sendDisconnect(socket);
     return {success, message, targetUsername};
+}
+
+AdminUserCardResult addCardToAdminUser(
+    const std::string& accessToken,
+    const std::string& targetUsername,
+    const std::string& cardTitle)
+{
+    bayou::tls::Socket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {
+            false,
+            "Failed to connect to account server " + endpointText(clientConfig().account),
+            targetUsername,
+            cardTitle};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::AdminUserCardRequest);
+    request << accessToken << targetUsername << cardTitle;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send add card request", targetUsername, cardTitle};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No add card response", targetUsername, cardTitle};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    response >> responseType >> success >> message;
+    if (!response ||
+        static_cast<network::MessageType>(responseType) != network::MessageType::AdminUserCardResponse)
+    {
+        socket.disconnect();
+        return {false, "Unexpected add card response", targetUsername, cardTitle};
+    }
+
+    sendDisconnect(socket);
+    return {success, message, targetUsername, cardTitle};
 }
 
 DeckCommandResult saveStarterDeckToAccount(const std::string& accessToken, const deck_data::Deck& deck)

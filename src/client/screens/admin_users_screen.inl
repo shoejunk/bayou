@@ -52,6 +52,7 @@
             adminGoldInput.draw(window);
             adminGrantGoldButton.draw(window);
             adminRemoveGoldButton.draw(window);
+            adminAddCardButton.draw(window);
             const bool targetIsAdmin = adminUsers[*selectedAdminUser].isAdmin;
             if (targetIsAdmin)
             {
@@ -80,8 +81,6 @@
                 adminDeleteButton.draw(window);
             }
         }
-        window.draw(messageText);
-
         if (deleteUserPopupVisible)
         {
             sf::RectangleShape overlay({800.0f, 600.0f});
@@ -96,5 +95,64 @@
             cancelDeleteUserButton.draw(window);
             confirmDeleteUserButton.draw(window);
         }
+        else if (addCardPopupVisible && selectedAdminUser && *selectedAdminUser < adminUsers.size())
+        {
+            sf::RectangleShape overlay({800.0f, 600.0f});
+            overlay.setFillColor(sf::Color(0, 0, 0, 170));
+            window.draw(overlay);
+            drawPanel(window, {190.0f, 112.0f}, {420.0f, 430.0f});
+            drawText(window, font, "Add Card", 28, {220.0f, 136.0f}, sf::Color(248, 224, 172), 360.0f);
+            drawText(
+                window,
+                font,
+                "Add one copy to " + adminUsers[*selectedAdminUser].username + "'s collection",
+                15,
+                {220.0f, 178.0f},
+                sf::Color(220, 224, 230),
+                360.0f);
+            adminCardInput.draw(window);
+
+            if (pendingAdminCardListLoad)
+            {
+                drawText(window, font, "Loading cards...", 16, {220.0f, 284.0f}, sf::Color(248, 214, 112));
+            }
+            else if (!adminCardLoadError.empty())
+            {
+                drawText(window, font, adminCardLoadError, 14, {220.0f, 284.0f}, sf::Color(230, 120, 110), 360.0f);
+            }
+            else
+            {
+                const std::vector<std::string> cardTitles = visibleAdminCardTitles();
+                for (std::size_t i = 0; i < cardTitles.size(); ++i)
+                {
+                    const std::string normalizedSelection =
+                        game_data::normalizedAbility(adminCardInput.getContent());
+                    const bool selected = game_data::normalizedTrait(cardTitles[i]) == normalizedSelection;
+                    const auto card = std::find_if(
+                        adminCardLibrary.begin(),
+                        adminCardLibrary.end(),
+                        [&](const card_data::Card& candidate) { return candidate.title == cardTitles[i]; });
+                    drawRow(
+                        window,
+                        font,
+                        {220.0f, AdminCardRowY + static_cast<float>(i) * AdminCardRowHeight},
+                        {360.0f, 32.0f},
+                        cardTitles[i],
+                        card == adminCardLibrary.end() ? std::string{} : card->type,
+                        selected);
+                }
+                if (cardTitles.empty())
+                {
+                    drawText(window, font, "No matching collectible cards", 15, {220.0f, 284.0f}, sf::Color(178, 186, 202));
+                }
+            }
+
+            cancelAddCardButton.draw(window);
+            if (!pendingAdminUserCard)
+            {
+                confirmAddCardButton.draw(window);
+            }
+        }
+        window.draw(messageText);
     };
 

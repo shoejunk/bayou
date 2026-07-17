@@ -280,6 +280,7 @@ public:
             for (const ActionProfile& action : piece->actions)
             {
                 stateCount = std::max(stateCount, action.state + 1);
+                stateCount = std::max(stateCount, actionNextState(action) + 1);
             }
             piece->actionState = (piece->actionState + 1) % stateCount;
             piece->hidden = piece->ability == "dematerialize" && piece->actionState != 0;
@@ -710,6 +711,7 @@ private:
         }
         survivingAttacker->disabledTurns =
             std::max(survivingAttacker->disabledTurns, action.cooldownTurns);
+        survivingAttacker->actionState = action.nextState;
         const bool gainsRelentlessAction = anyTargetDestroyed &&
             hasKeyword(survivingAttacker->keywords, "relentless");
         survivingAttacker->hasActed = !gainsRelentlessAction;

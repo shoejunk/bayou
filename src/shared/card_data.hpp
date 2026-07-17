@@ -12,7 +12,8 @@ namespace card_data
 // crafted packet cannot trigger a huge allocation.
 constexpr std::uint32_t MaxSerializedItems = 4096;
 constexpr std::uint32_t CardListSchemaMarker = 0xffffffffu;
-constexpr std::uint32_t CardListSchemaVersion = 6;
+constexpr std::uint32_t CardListSchemaVersion = 7;
+constexpr int DefaultNextState = (-2147483647 - 1);
 
 struct KeyIntPair
 {
@@ -50,7 +51,13 @@ struct Action
     int cooldownTurns = 0;
     int push = 0;
     std::vector<std::string> targetFilter;
+    int nextState = DefaultNextState;
 };
+
+inline int actionNextState(const Action& action)
+{
+    return action.nextState == DefaultNextState ? action.state : action.nextState;
+}
 
 struct Card
 {
@@ -103,7 +110,7 @@ inline bool readStringVector(sf::Packet& packet, std::vector<std::string>& value
 
 inline void writeAction(sf::Packet& packet, const Action& action)
 {
-    packet << action.name << action.state << action.kind << action.pattern
+    packet << action.name << action.state << actionNextState(action) << action.kind << action.pattern
            << action.minRange << action.maxRange << action.damage << action.heal
            << action.canMove << action.canAttack << action.passThrough << action.lineOfSight
            << action.statusTurns << action.cooldownTurns << action.push;
@@ -115,9 +122,19 @@ inline bool readAction(
     Action& action,
     bool includesHeal = true,
     bool includesPush = true,
-    bool includesTargetFilter = true)
+    bool includesTargetFilter = true,
+    bool includesNextState = true)
 {
-    packet >> action.name >> action.state >> action.kind >> action.pattern
+    packet >> action.name >> action.state;
+    if (includesNextState)
+    {
+        packet >> action.nextState;
+    }
+    else
+    {
+        action.nextState = action.state;
+    }
+    packet >> action.kind >> action.pattern
            >> action.minRange >> action.maxRange >> action.damage;
     if (includesHeal)
     {
@@ -151,7 +168,11 @@ inline void writeCardListHeader(sf::Packet& packet, std::uint32_t count)
     packet << CardListSchemaMarker << CardListSchemaVersion << count;
 }
 
-inline bool readCardListHeader(sf::Packet& packet, std::uint32_t& count, bool& legacyFormat)
+inline bool readCardListHeader(
+    sf::Packet& packet,
+    std::uint32_t& count,
+    bool& legacyFormat,
+    bool* actionIncludesNextState = nullptr)
 {
     std::uint32_t markerOrCount = 0;
     packet >> markerOrCount;
@@ -165,11 +186,21 @@ inline bool readCardListHeader(sf::Packet& packet, std::uint32_t& count, bool& l
         std::uint32_t version = 0;
         packet >> version >> count;
         legacyFormat = false;
-        return static_cast<bool>(packet) && version == CardListSchemaVersion && count <= MaxSerializedItems;
+        if (actionIncludesNextState != nullptr)
+        {
+            *actionIncludesNextState = version >= CardListSchemaVersion;
+        }
+        return static_cast<bool>(packet) &&
+            (version == 6 || version == CardListSchemaVersion) &&
+            count <= MaxSerializedItems;
     }
 
     count = markerOrCount;
     legacyFormat = true;
+    if (actionIncludesNextState != nullptr)
+    {
+        *actionIncludesNextState = false;
+    }
     return count <= MaxSerializedItems;
 }
 
@@ -216,7 +247,8 @@ inline bool readCardRemaining(
     bool actionIncludesHeal = true,
     bool actionIncludesPush = true,
     bool actionIncludesTargetFilter = true,
-    bool includesActionDisplayNames = true)
+    bool includesActionDisplayNames = true,
+    bool actionIncludesNextState = true)
 {
     std::uint32_t integerCount = 0;
     packet >> integerCount;
@@ -307,7 +339,8 @@ inline bool readCardRemaining(
                 action,
                 actionIncludesHeal,
                 actionIncludesPush,
-                actionIncludesTargetFilter))
+                actionIncludesTargetFilter,
+                actionIncludesNextState))
         {
             return false;
         }
@@ -317,14 +350,14 @@ inline bool readCardRemaining(
     return true;
 }
 
-inline bool readCard(sf::Packet& packet, Card& card)
+inline bool readCard(sf::Packet& packet, Card& card, bool actionIncludesNextState = true)
 {
     packet >> card.title >> card.type >> card.imagePath;
     if (!packet || !readStringVector(packet, card.traits) || !readStringVector(packet, card.keywords))
     {
         return false;
     }
-    return readCardRemaining(packet, card);
+    return readCardRemaining(packet, card, true, true, true, true, actionIncludesNextState);
 }
 
 inline bool readLegacyCard(sf::Packet& packet, Card& card)
@@ -335,11 +368,15 @@ inline bool readLegacyCard(sf::Packet& packet, Card& card)
         return false;
     }
     card.keywords.clear();
-    return readCardRemaining(packet, card, false, false, false, false);
+    return readCardRemaining(packet, card, false, false, false, false, false);
 }
 
-inline bool readListedCard(sf::Packet& packet, Card& card, bool legacyFormat)
+inline bool readListedCard(
+    sf::Packet& packet,
+    Card& card,
+    bool legacyFormat,
+    bool actionIncludesNextState = true)
 {
-    return legacyFormat ? readLegacyCard(packet, card) : readCard(packet, card);
+    return legacyFormat ? readLegacyCard(packet, card) : readCard(packet, card, actionIncludesNextState);
 }
 }

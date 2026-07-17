@@ -219,6 +219,7 @@ struct ActionResolution
     bool moves = false;
     bool attacks = false;
     int actionIndex = -1;
+    int nextState = 0;
     int targetId = 0;
     std::vector<int> targetIds;
     int damage = 0;
@@ -453,6 +454,7 @@ inline ActionResolution resolvePieceAction(
 
         ActionResolution candidate;
         candidate.actionIndex = static_cast<int>(index);
+        candidate.nextState = actionNextState(action);
         candidate.damage = action.damage;
         candidate.heal = action.heal;
         candidate.statusTurns = action.statusTurns;

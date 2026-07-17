@@ -388,6 +388,13 @@ private:
                     handleAdminStarterDeckSave(*client, accessToken, deck);
                     break;
                 }
+                case MessageType::AdminUserCardRequest:
+                {
+                    std::string accessToken, targetUsername, cardTitle;
+                    packet >> accessToken >> targetUsername >> cardTitle;
+                    handleAdminUserCard(*client, accessToken, targetUsername, cardTitle);
+                    break;
+                }
                 case MessageType::ChangePasswordRequest:
                 {
                     std::string accessToken, currentPassword, newPassword;
@@ -1246,6 +1253,64 @@ private:
             response.clear();
             response << static_cast<uint8_t>(MessageType::AdminUserGoldResponse);
             response << false << std::string("Database error while updating player gold") << 0;
+        }
+
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleAdminUserCard(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        const std::string& targetUsername,
+        const std::string& cardTitle)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::AdminUserCardResponse);
+
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username || !isAdmin(*username))
+            {
+                response << false << std::string("Admin access required");
+            }
+            else if (targetUsername.empty())
+            {
+                response << false << std::string("Target username cannot be empty");
+            }
+            else if (!accountExists(targetUsername))
+            {
+                response << false << std::string("Username not found");
+            }
+            else
+            {
+                const std::vector<account_catalog::ShopCardEntry> collectibleCards =
+                    account_catalog::loadShopCards();
+                const auto card = std::find_if(
+                    collectibleCards.begin(),
+                    collectibleCards.end(),
+                    [&](const account_catalog::ShopCardEntry& candidate) {
+                        return candidate.title == cardTitle;
+                    });
+                if (card == collectibleCards.end())
+                {
+                    response << false << std::string("Card not found or cannot be collected");
+                }
+                else
+                {
+                    account_decks::addCollectionCopies(*database, targetUsername, cardTitle, 1);
+                    response << true << ("Added " + cardTitle + " to " + targetUsername + "'s collection");
+                    fmt::println("{} added card '{}' to {}'s collection", *username, cardTitle, targetUsername);
+                }
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while adding card to player collection: {}", error.what());
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::AdminUserCardResponse);
+            response << false << std::string("Database error while adding card to player collection");
         }
 
         [[maybe_unused]] auto result = client.send(response);

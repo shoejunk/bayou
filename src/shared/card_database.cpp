@@ -59,6 +59,7 @@ card_data::Action actionFromQuery(SQLite::Statement& query)
     action.statusTurns = query.getColumn(12).getInt();
     action.cooldownTurns = query.getColumn(13).getInt();
     action.push = std::max(0, query.getColumn(14).getInt());
+    action.nextState = query.getColumn(15).getInt();
     return action;
 }
 
@@ -156,17 +157,19 @@ std::vector<card_data::Action> loadActions(SQLite::Database& database)
     std::vector<card_data::Action> actions;
     const bool hasHeal = columnExists(database, "actions", "heal");
     const bool hasPush = columnExists(database, "actions", "push");
+    const bool hasNextState = columnExists(database, "actions", "next_state");
     const bool hasTargetFilters = tableExists(database, "action_target_filters");
     const std::string healExpression = hasHeal
         ? "heal"
         : "CASE WHEN damage < 0 THEN -damage ELSE 0 END";
     const std::string pushExpression = hasPush ? "push" : "0";
+    const std::string nextStateExpression = hasNextState ? "next_state" : "state";
     SQLite::Statement query(
         database,
         "SELECT name, state, kind, pattern, min_range, max_range, "
         "CASE WHEN damage < 0 THEN 0 ELSE damage END, " + healExpression +
         ", can_move, can_attack, pass_through, line_of_sight, status_turns, cooldown_turns, " +
-        pushExpression + " FROM actions ORDER BY name");
+        pushExpression + ", " + nextStateExpression + " FROM actions ORDER BY name");
     while (query.executeStep())
     {
         card_data::Action action = actionFromQuery(query);
@@ -184,17 +187,19 @@ std::vector<card_data::Action> loadCardActions(SQLite::Database& database, const
     std::vector<card_data::Action> actions;
     const bool hasHeal = columnExists(database, "actions", "heal");
     const bool hasPush = columnExists(database, "actions", "push");
+    const bool hasNextState = columnExists(database, "actions", "next_state");
     const bool hasTargetFilters = tableExists(database, "action_target_filters");
     const std::string healExpression = hasHeal
         ? "a.heal"
         : "CASE WHEN a.damage < 0 THEN -a.damage ELSE 0 END";
     const std::string pushExpression = hasPush ? "a.push" : "0";
+    const std::string nextStateExpression = hasNextState ? "a.next_state" : "a.state";
     SQLite::Statement query(
         database,
         "SELECT a.name, a.state, a.kind, a.pattern, a.min_range, a.max_range, "
         "CASE WHEN a.damage < 0 THEN 0 ELSE a.damage END, " + healExpression +
         ", a.can_move, a.can_attack, a.pass_through, a.line_of_sight, a.status_turns, a.cooldown_turns, " +
-        pushExpression +
+        pushExpression + ", " + nextStateExpression +
         " FROM card_actions ca JOIN actions a ON a.name = ca.action_name "
         "WHERE ca.title = ? ORDER BY ca.item_index");
     query.bind(1, title);

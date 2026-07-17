@@ -200,6 +200,7 @@ struct ActionProfile
     std::uint8_t kind = static_cast<std::uint8_t>(ActionKind::Slide);
     std::uint8_t pattern = static_cast<std::uint8_t>(MovePattern::Omni);
     int state = 0;
+    int nextState = card_data::DefaultNextState;
     int minRange = 1;
     int maxRange = 1;
     int damage = 0;
@@ -213,6 +214,11 @@ struct ActionProfile
     int push = 0;
     std::vector<std::string> targetFilter;
 };
+
+inline int actionNextState(const ActionProfile& action)
+{
+    return action.nextState == card_data::DefaultNextState ? action.state : action.nextState;
+}
 
 inline std::uint8_t parseMovePattern(const std::string& value)
 {
@@ -433,6 +439,7 @@ inline GameCard toGameCard(const card_data::Card& card)
             ? card.actionDisplayNames[i]
             : definition.name;
         action.state = definition.state;
+        action.nextState = card_data::actionNextState(definition);
         action.kind = parseActionKind(definition.kind);
         action.pattern = parseMovePattern(definition.pattern);
         action.minRange = definition.minRange;
@@ -749,7 +756,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
     packet << static_cast<std::uint32_t>(card.actions.size());
     for (const ActionProfile& action : card.actions)
     {
-        packet << action.name << action.kind << action.pattern << action.state << action.minRange << action.maxRange
+        packet << action.name << action.kind << action.pattern << action.state << actionNextState(action) << action.minRange << action.maxRange
                << action.damage << action.heal << action.statusTurns << action.cooldownTurns
                << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
         card_data::writeStringVector(packet, action.targetFilter);
@@ -784,7 +791,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
     for (std::uint32_t i = 0; i < actionCount; ++i)
     {
         ActionProfile action;
-        packet >> action.name >> action.kind >> action.pattern >> action.state >> action.minRange >> action.maxRange
+        packet >> action.name >> action.kind >> action.pattern >> action.state >> action.nextState >> action.minRange >> action.maxRange
                >> action.damage >> action.heal >> action.statusTurns >> action.cooldownTurns
                >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight >> action.push;
         if (!packet || !card_data::readStringVector(packet, action.targetFilter))
@@ -821,7 +828,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
     packet << static_cast<std::uint32_t>(piece.actions.size());
     for (const ActionProfile& action : piece.actions)
     {
-        packet << action.name << action.kind << action.pattern << action.state << action.minRange << action.maxRange
+        packet << action.name << action.kind << action.pattern << action.state << actionNextState(action) << action.minRange << action.maxRange
                << action.damage << action.heal << action.statusTurns << action.cooldownTurns
                << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
         card_data::writeStringVector(packet, action.targetFilter);
@@ -855,7 +862,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
     for (std::uint32_t i = 0; i < actionCount; ++i)
     {
         ActionProfile action;
-        packet >> action.name >> action.kind >> action.pattern >> action.state >> action.minRange >> action.maxRange
+        packet >> action.name >> action.kind >> action.pattern >> action.state >> action.nextState >> action.minRange >> action.maxRange
                >> action.damage >> action.heal >> action.statusTurns >> action.cooldownTurns
                >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight >> action.push;
         if (!packet || !card_data::readStringVector(packet, action.targetFilter))

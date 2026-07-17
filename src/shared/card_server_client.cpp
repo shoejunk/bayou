@@ -82,7 +82,9 @@ std::vector<card_data::Card> loadFromCardServer(
     }
     std::uint32_t count = 0;
     bool legacyFormat = false;
-    if (!card_data::readCardListHeader(response, count, legacyFormat))
+    bool actionIncludesNextState = false;
+    if (!card_data::readCardListHeader(
+            response, count, legacyFormat, &actionIncludesNextState))
     {
         error = "card server returned an unsupported card list payload";
         return {};
@@ -93,7 +95,8 @@ std::vector<card_data::Card> loadFromCardServer(
     for (std::uint32_t i = 0; i < count; ++i)
     {
         card_data::Card card;
-        if (!card_data::readListedCard(response, card, legacyFormat))
+        if (!card_data::readListedCard(
+                response, card, legacyFormat, actionIncludesNextState))
         {
             error = "card server returned an invalid card payload";
             return {};
