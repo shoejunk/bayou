@@ -46,6 +46,13 @@ health: 20
 ---
 60
 
+Braun Stonefist
+movement: 5 * 7 * 2 = 70
+damage: 40
+health: 40
+---
+150
+
 Mog
 movement: queen (30)
 range: 5

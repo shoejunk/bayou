@@ -211,6 +211,7 @@ struct ActionProfile
     bool passThrough = false;
     bool lineOfSight = false;
     int push = 0;
+    std::vector<std::string> targetFilter;
 };
 
 inline std::uint8_t parseMovePattern(const std::string& value)
@@ -442,6 +443,7 @@ inline GameCard toGameCard(const card_data::Card& card)
         action.statusTurns = definition.statusTurns;
         action.cooldownTurns = definition.cooldownTurns;
         action.push = std::max(0, definition.push);
+        action.targetFilter = definition.targetFilter;
         g.actions.push_back(action);
         if (actionLooksLikeAttackingMove(definition))
         {
@@ -747,6 +749,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
         packet << action.name << action.kind << action.pattern << action.state << action.minRange << action.maxRange
                << action.damage << action.heal << action.statusTurns << action.cooldownTurns
                << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
+        card_data::writeStringVector(packet, action.targetFilter);
     }
     packet << card.ability << card.summonTitle;
     card_data::writeStringVector(packet, card.abilityLabels);
@@ -781,7 +784,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
         packet >> action.name >> action.kind >> action.pattern >> action.state >> action.minRange >> action.maxRange
                >> action.damage >> action.heal >> action.statusTurns >> action.cooldownTurns
                >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight >> action.push;
-        if (!packet)
+        if (!packet || !card_data::readStringVector(packet, action.targetFilter))
         {
             return false;
         }
@@ -818,6 +821,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
         packet << action.name << action.kind << action.pattern << action.state << action.minRange << action.maxRange
                << action.damage << action.heal << action.statusTurns << action.cooldownTurns
                << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
+        card_data::writeStringVector(packet, action.targetFilter);
     }
     card_data::writeStringVector(packet, piece.abilityLabels);
 }
@@ -851,7 +855,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
         packet >> action.name >> action.kind >> action.pattern >> action.state >> action.minRange >> action.maxRange
                >> action.damage >> action.heal >> action.statusTurns >> action.cooldownTurns
                >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight >> action.push;
-        if (!packet)
+        if (!packet || !card_data::readStringVector(packet, action.targetFilter))
         {
             return false;
         }

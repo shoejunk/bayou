@@ -246,8 +246,19 @@ inline bool actionCanTarget(
     const Piece& piece,
     const Piece& target,
     int damage,
-    int heal)
+    int heal,
+    const std::vector<std::string>& targetFilter)
 {
+    const bool matchesFilter = std::all_of(
+        targetFilter.begin(),
+        targetFilter.end(),
+        [&](const std::string& required) {
+            return hasKeyword(target.traits, required) || hasKeyword(target.keywords, required);
+        });
+    if (!matchesFilter)
+    {
+        return false;
+    }
     if (target.owner == piece.owner)
     {
         return heal > 0 && target.health < target.maxHealth;
@@ -489,7 +500,7 @@ inline ActionResolution resolvePieceAction(
                     candidate.legal = true;
                     candidate.moves = true;
                     if (action.canAttack &&
-                        actionCanTarget(piece, *pivot, action.damage, action.heal))
+                        actionCanTarget(piece, *pivot, action.damage, action.heal, action.targetFilter))
                     {
                         candidate.attacks = true;
                         addActionTarget(candidate, *pivot);
@@ -500,7 +511,8 @@ inline ActionResolution resolvePieceAction(
         else if (kind == ActionKind::Ranged)
         {
             if (action.canAttack && destination != nullptr &&
-                actionCanTarget(piece, *destination, action.damage, action.heal) &&
+                actionCanTarget(
+                    piece, *destination, action.damage, action.heal, action.targetFilter) &&
                 rangedActionReachesTarget(pieces, piece, *destination, action))
             {
                 candidate.legal = true;
@@ -532,7 +544,8 @@ inline ActionResolution resolvePieceAction(
             if (footprintTargets.empty() || std::any_of(
                     footprintTargets.begin(), footprintTargets.end(),
                     [&](const Piece* target) {
-                        return !actionCanTarget(piece, *target, action.damage, action.heal);
+                        return !actionCanTarget(
+                            piece, *target, action.damage, action.heal, action.targetFilter);
                     }))
             {
                 continue;
@@ -575,7 +588,8 @@ inline ActionResolution resolvePieceAction(
             const bool invalidTargetOverlap = std::any_of(
                 footprintTargets.begin(), footprintTargets.end(),
                 [&](const Piece* target) {
-                    return !actionCanTarget(piece, *target, action.damage, action.heal);
+                    return !actionCanTarget(
+                        piece, *target, action.damage, action.heal, action.targetFilter);
                 });
             if (!invalidTargetOverlap && action.canAttack && !footprintTargets.empty())
             {
@@ -598,7 +612,8 @@ inline ActionResolution resolvePieceAction(
                 candidate.moves = true;
             }
             else if (destination != nullptr && action.canAttack &&
-                     actionCanTarget(piece, *destination, action.damage, action.heal))
+                     actionCanTarget(
+                         piece, *destination, action.damage, action.heal, action.targetFilter))
             {
                 candidate.legal = true;
                 candidate.attacks = true;

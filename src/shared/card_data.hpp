@@ -12,7 +12,7 @@ namespace card_data
 // crafted packet cannot trigger a huge allocation.
 constexpr std::uint32_t MaxSerializedItems = 4096;
 constexpr std::uint32_t CardListSchemaMarker = 0xffffffffu;
-constexpr std::uint32_t CardListSchemaVersion = 4;
+constexpr std::uint32_t CardListSchemaVersion = 5;
 
 struct KeyIntPair
 {
@@ -49,6 +49,7 @@ struct Action
     int statusTurns = 0;
     int cooldownTurns = 0;
     int push = 0;
+    std::vector<std::string> targetFilter;
 };
 
 struct Card
@@ -105,13 +106,15 @@ inline void writeAction(sf::Packet& packet, const Action& action)
            << action.minRange << action.maxRange << action.damage << action.heal
            << action.canMove << action.canAttack << action.passThrough << action.lineOfSight
            << action.statusTurns << action.cooldownTurns << action.push;
+    writeStringVector(packet, action.targetFilter);
 }
 
 inline bool readAction(
     sf::Packet& packet,
     Action& action,
     bool includesHeal = true,
-    bool includesPush = true)
+    bool includesPush = true,
+    bool includesTargetFilter = true)
 {
     packet >> action.name >> action.state >> action.kind >> action.pattern
            >> action.minRange >> action.maxRange >> action.damage;
@@ -130,7 +133,16 @@ inline bool readAction(
     {
         packet >> action.push;
     }
-    return static_cast<bool>(packet);
+    if (!packet)
+    {
+        return false;
+    }
+    if (includesTargetFilter)
+    {
+        return readStringVector(packet, action.targetFilter);
+    }
+    action.targetFilter.clear();
+    return true;
 }
 
 inline void writeCardListHeader(sf::Packet& packet, std::uint32_t count)
@@ -200,7 +212,8 @@ inline bool readCardRemaining(
     sf::Packet& packet,
     Card& card,
     bool actionIncludesHeal = true,
-    bool actionIncludesPush = true)
+    bool actionIncludesPush = true,
+    bool actionIncludesTargetFilter = true)
 {
     std::uint32_t integerCount = 0;
     packet >> integerCount;
@@ -275,7 +288,12 @@ inline bool readCardRemaining(
     for (std::uint32_t i = 0; i < actionCount; ++i)
     {
         Action action;
-        if (!readAction(packet, action, actionIncludesHeal, actionIncludesPush))
+        if (!readAction(
+                packet,
+                action,
+                actionIncludesHeal,
+                actionIncludesPush,
+                actionIncludesTargetFilter))
         {
             return false;
         }
@@ -303,7 +321,7 @@ inline bool readLegacyCard(sf::Packet& packet, Card& card)
         return false;
     }
     card.keywords.clear();
-    return readCardRemaining(packet, card, false, false);
+    return readCardRemaining(packet, card, false, false, false);
 }
 
 inline bool readListedCard(sf::Packet& packet, Card& card, bool legacyFormat)

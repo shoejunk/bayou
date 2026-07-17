@@ -77,6 +77,16 @@ std::vector<std::string> loadStringColumn(
     return values;
 }
 
+std::vector<std::string> loadActionTargetFilter(
+    SQLite::Database& database,
+    const std::string& actionName)
+{
+    return loadStringColumn(
+        database,
+        "SELECT value FROM action_target_filters WHERE action_name = ? ORDER BY item_index",
+        actionName);
+}
+
 std::vector<card_data::KeyIntPair> loadIntegerValues(SQLite::Database& database, const std::string& title)
 {
     std::vector<card_data::KeyIntPair> values;
@@ -135,6 +145,7 @@ std::vector<card_data::Action> loadActions(SQLite::Database& database)
     std::vector<card_data::Action> actions;
     const bool hasHeal = columnExists(database, "actions", "heal");
     const bool hasPush = columnExists(database, "actions", "push");
+    const bool hasTargetFilters = tableExists(database, "action_target_filters");
     const std::string healExpression = hasHeal
         ? "heal"
         : "CASE WHEN damage < 0 THEN -damage ELSE 0 END";
@@ -147,7 +158,12 @@ std::vector<card_data::Action> loadActions(SQLite::Database& database)
         pushExpression + " FROM actions ORDER BY name");
     while (query.executeStep())
     {
-        actions.push_back(actionFromQuery(query));
+        card_data::Action action = actionFromQuery(query);
+        if (hasTargetFilters)
+        {
+            action.targetFilter = loadActionTargetFilter(database, action.name);
+        }
+        actions.push_back(std::move(action));
     }
     return actions;
 }
@@ -157,6 +173,7 @@ std::vector<card_data::Action> loadCardActions(SQLite::Database& database, const
     std::vector<card_data::Action> actions;
     const bool hasHeal = columnExists(database, "actions", "heal");
     const bool hasPush = columnExists(database, "actions", "push");
+    const bool hasTargetFilters = tableExists(database, "action_target_filters");
     const std::string healExpression = hasHeal
         ? "a.heal"
         : "CASE WHEN a.damage < 0 THEN -a.damage ELSE 0 END";
@@ -172,7 +189,12 @@ std::vector<card_data::Action> loadCardActions(SQLite::Database& database, const
     query.bind(1, title);
     while (query.executeStep())
     {
-        actions.push_back(actionFromQuery(query));
+        card_data::Action action = actionFromQuery(query);
+        if (hasTargetFilters)
+        {
+            action.targetFilter = loadActionTargetFilter(database, action.name);
+        }
+        actions.push_back(std::move(action));
     }
     return actions;
 }

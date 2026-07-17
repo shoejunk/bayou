@@ -161,6 +161,10 @@ std::string actionDescription(const game_data::ActionProfile& action, std::size_
     {
         parts.push_back("line of sight");
     }
+    if (!action.targetFilter.empty())
+    {
+        parts.push_back("targets with: " + joinStrings(action.targetFilter, " + "));
+    }
 
     return joinStrings(parts, ", ");
 }

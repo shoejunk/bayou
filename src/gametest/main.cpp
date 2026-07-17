@@ -324,6 +324,14 @@ int main(int argc, char** argv)
     std::vector<Piece> rangedPieces{largeRangedAttacker, rangedTarget};
     check(resolvePieceAction(rangedPieces, footprintBoard, rangedPieces[0], 2, 4).legal,
           "large ranged attacker measures range from its closest footprint square");
+    rangedPieces[0].actions[0].targetFilter = {"CoRrUpT", "armored"};
+    rangedPieces[1].traits = {"corrupt"};
+    rangedPieces[1].keywords = {"ARMORED"};
+    check(resolvePieceAction(rangedPieces, footprintBoard, rangedPieces[0], 2, 4).legal,
+          "attack target filters match across traits and keywords case-insensitively");
+    rangedPieces[1].keywords.clear();
+    check(!resolvePieceAction(rangedPieces, footprintBoard, rangedPieces[0], 2, 4).legal,
+          "attack target filters require every listed string");
     rangedPieces[1].actions = {rangedProfile};
     rangedPieces[1].owner = 1;
     rangedPieces[0].owner = 2;
@@ -513,15 +521,21 @@ int main(int argc, char** argv)
     paralyze.canMove = true;
     paralyze.canAttack = true;
     paralyze.statusTurns = 2;
+    paralyze.targetFilter = {"fey"};
     profilePiece.actions = {paralyze};
     Piece adjacentEnemy = hopTarget;
     adjacentEnemy.row = 4;
     adjacentEnemy.column = 4;
+    adjacentEnemy.keywords = {"Fey"};
     const std::vector<Piece> paralyzePieces = {profilePiece, adjacentEnemy};
     const ActionResolution paralyzeResult =
         resolvePieceAction(paralyzePieces, holes, paralyzePieces[0], 4, 4);
     check(paralyzeResult.legal && paralyzeResult.attacks && paralyzeResult.statusTurns == 2,
-          "status-only attacking movement is legal");
+          "status-only actions accept targets matching their target filter");
+    Piece unfilteredEnemy = adjacentEnemy;
+    unfilteredEnemy.keywords.clear();
+    check(!resolvePieceAction({profilePiece, unfilteredEnemy}, holes, profilePiece, 4, 4).legal,
+          "status-only actions reject targets missing their target filter");
 
     ActionProfile capture;
     capture.kind = static_cast<std::uint8_t>(ActionKind::Capture);
@@ -677,6 +691,7 @@ int main(int argc, char** argv)
     healingAction.state = 0;
     healingAction.damage = 0;
     healingAction.heal = 3;
+    healingAction.targetFilter = {"fey", "warded"};
     ActionProfile weakHealingAction = healingAction;
     weakHealingAction.heal = 1;
     healer.actions = {weakHealingAction, healingAction};
@@ -685,6 +700,8 @@ int main(int argc, char** argv)
     woundedFriendly.owner = 1;
     woundedFriendly.maxHealth = 5;
     woundedFriendly.health = 4;
+    woundedFriendly.traits = {"Fey"};
+    woundedFriendly.keywords = {"Warded"};
     Piece healingEnemy = gunTarget;
     healingEnemy.id = 26;
     healingEnemy.owner = 2;
@@ -696,7 +713,11 @@ int main(int argc, char** argv)
     check(healingResult.legal && healingResult.attacks &&
               healingResult.targetId == woundedFriendly.id &&
               healingResult.damage == 0 && healingResult.heal == 3,
-          "positive action healing targets a friendly piece");
+          "positive action healing targets a friendly piece matching every filter entry");
+    healingPieces[1].keywords.clear();
+    check(!resolvePieceAction(healingPieces, holes, healingPieces[0], 3, 4).legal,
+          "healing actions reject a friendly piece missing a target filter entry");
+    healingPieces[1].keywords = {"Warded"};
     check(!resolvePieceAction(healingPieces, holes, healingPieces[0], 4, 3).legal,
           "healing-only actions cannot target an enemy piece");
     applyActionHealing(healingPieces[1], healingResult.heal, healingResult.statusTurns);
@@ -833,6 +854,7 @@ int main(int argc, char** argv)
         0,
         3,
     });
+    encodedCard.actions[0].targetFilter = {"corrupt", "armored"};
     const GameCard decodedCard = toGameCard(encodedCard);
     check(decodedCard.actions.size() == 1 &&
               decodedCard.traits == encodedCard.traits &&
@@ -842,6 +864,7 @@ int main(int argc, char** argv)
               decodedCard.actions[0].damage == 2 &&
               decodedCard.actions[0].heal == 0 &&
               decodedCard.actions[0].push == 3 &&
+              decodedCard.actions[0].targetFilter == encodedCard.actions[0].targetFilter &&
               decodedCard.actions[0].canMove &&
               decodedCard.actions[0].canAttack &&
               decodedCard.fidgetAnimPath == "animations/fidget/test.png" &&
@@ -857,8 +880,9 @@ int main(int argc, char** argv)
     card_data::Action roundTrippedAction;
     check(card_data::readAction(actionPacket, roundTrippedAction) &&
               roundTrippedAction.damage == 0 && roundTrippedAction.heal == 4 &&
-              roundTrippedAction.push == 3,
-          "card-server action serialization keeps healing and push data");
+              roundTrippedAction.push == 3 &&
+              roundTrippedAction.targetFilter == encodedHealingAction.targetFilter,
+          "card-server action serialization keeps healing, push, and target-filter data");
 
     sf::Packet legacyCardListPacket;
     legacyCardListPacket << static_cast<std::uint32_t>(1);
@@ -921,6 +945,7 @@ int main(int argc, char** argv)
               roundTrippedCard.actions[0].damage == 2 &&
               roundTrippedCard.actions[0].heal == 3 &&
               roundTrippedCard.actions[0].push == 3 &&
+              roundTrippedCard.actions[0].targetFilter == serializedCard.actions[0].targetFilter &&
               roundTrippedCard.traits == encodedCard.traits &&
               roundTrippedCard.keywords == encodedCard.keywords &&
               roundTrippedCard.tokenPath == "characters/test.png" &&
@@ -976,6 +1001,7 @@ int main(int argc, char** argv)
         serializedPiece.actions[0].name = "Serialized Action";
         serializedPiece.actions[0].heal = 2;
         serializedPiece.actions[0].push = 3;
+        serializedPiece.actions[0].targetFilter = {"fey", "warded"};
     }
     sf::Packet piecePacket;
     writePiece(piecePacket, serializedPiece);
@@ -985,6 +1011,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.actions[0].name == "Serialized Action" &&
               roundTrippedPiece.actions[0].heal == 2 &&
               roundTrippedPiece.actions[0].push == 3 &&
+              roundTrippedPiece.actions[0].targetFilter == serializedPiece.actions[0].targetFilter &&
               roundTrippedPiece.traits == serializedPiece.traits &&
               roundTrippedPiece.keywords == serializedPiece.keywords &&
               roundTrippedPiece.tokenPath == "characters/test.png" &&

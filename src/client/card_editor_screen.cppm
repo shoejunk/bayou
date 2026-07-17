@@ -55,6 +55,9 @@ constexpr float ListRowStartY = 176.0f;
 constexpr float ListRowHeight = 56.0f;
 constexpr std::size_t VisibleCardRows = 8;
 constexpr std::size_t VisibleActionRows = 8;
+constexpr std::size_t VisibleTargetFilterRows = 4;
+constexpr float TargetFilterTop = 526.0f;
+constexpr float TargetFilterRowHeight = 36.0f;
 
 const sf::Color Ink(244, 234, 208);
 const sf::Color Muted(181, 166, 137);
@@ -465,6 +468,10 @@ public:
             {
                 scrollEditorForm(wheel->delta < 0.0f ? 1 : -1);
             }
+            else if (editorMode == EditorMode::Actions && isInActionTargetFilterViewport(mouse))
+            {
+                scrollActionTargetFilters(wheel->delta < 0.0f ? 1 : -1);
+            }
         }
 
         window.setView(previousView);
@@ -505,6 +512,11 @@ public:
         if (editorMode == EditorMode::Actions)
         {
             layoutActionFields();
+            addActionTargetFilterButton.update(mouse);
+            for (EditorButton& button : removeActionTargetFilterButtons)
+            {
+                button.update(mouse);
+            }
             if (!focusOrder.empty() && focusIndex < focusOrder.size())
             {
                 focusOrder[focusIndex]->updateCursor(deltaTime);
@@ -651,6 +663,7 @@ private:
     std::vector<card_data::Action> actions;
     std::optional<std::size_t> selectedAction;
     std::size_t actionListOffset = 0;
+    std::size_t actionTargetFilterOffset = 0;
     std::string status = "Ready";
     sf::Color statusColor = Muted;
     std::vector<InputBox*> focusOrder;
@@ -662,7 +675,7 @@ private:
     bool hasPreviewImage = false;
     bool instructionsVisible = false;
     float instructionScroll = 0.0f;
-    float instructionContentHeight = 1840.0f;
+    float instructionContentHeight = 1920.0f;
     bool unsavedChangesPopupVisible = false;
     PendingTransition pendingTransition = PendingTransition::None;
     std::string pendingSelectionName;
@@ -696,6 +709,7 @@ private:
     InputBox actionStatusTurnsField;
     InputBox actionCooldownTurnsField;
     InputBox actionPushField;
+    std::vector<InputBox> actionTargetFilterFields;
     EditorButton backButton;
     EditorButton instructionsButton;
     EditorButton instructionsBackButton;
@@ -713,6 +727,7 @@ private:
     EditorButton addStringButton;
     EditorButton addListButton;
     EditorButton addActionRefButton;
+    EditorButton addActionTargetFilterButton;
     EditorButton saveChangesButton;
     EditorButton discardChangesButton;
     EditorButton keepEditingButton;
@@ -724,6 +739,7 @@ private:
     std::vector<EditorButton> addListValueButtons;
     std::vector<std::vector<EditorButton>> removeListValueButtons;
     std::vector<EditorButton> removeActionRefButtons;
+    std::vector<EditorButton> removeActionTargetFilterButtons;
 
     sf::View makeEditorView(const sf::RenderWindow& window) const
     {
@@ -1052,6 +1068,7 @@ private:
         addStringButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addListButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addActionRefButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
+        addActionTargetFilterButton = EditorButton(font, "+", {1184.0f, 492.0f}, {32.0f, 28.0f}, AccentDark);
         saveChangesButton = EditorButton(font, "Save", {414.0f, 412.0f}, {136.0f, 42.0f}, AccentDark);
         discardChangesButton = EditorButton(font, "Discard", {572.0f, 412.0f}, {136.0f, 42.0f}, Warn);
         keepEditingButton = EditorButton(font, "Keep Editing", {730.0f, 412.0f}, {154.0f, 42.0f}, sf::Color(67, 48, 33));
@@ -1160,6 +1177,10 @@ private:
                 &actionCooldownTurnsField,
                 &actionPushField,
             };
+            for (InputBox& field : actionTargetFilterFields)
+            {
+                focusOrder.push_back(&field);
+            }
             focusIndex = std::min(focusIndex, focusOrder.size() - 1);
             return;
         }
@@ -1278,6 +1299,11 @@ private:
         for (const InputBox* field : fields)
         {
             appendSnapshotValue(snapshot, field->getValue());
+        }
+        appendSnapshotValue(snapshot, std::to_string(actionTargetFilterFields.size()));
+        for (const InputBox& field : actionTargetFilterFields)
+        {
+            appendSnapshotValue(snapshot, field.getValue());
         }
         return snapshot;
     }
@@ -1550,6 +1576,14 @@ private:
         action.statusTurns = formInt(actionStatusTurnsField, 0);
         action.cooldownTurns = formInt(actionCooldownTurnsField, 0);
         action.push = std::max(0, formInt(actionPushField, 0));
+        for (const InputBox& field : actionTargetFilterFields)
+        {
+            const std::string value = trim(field.getValue());
+            if (!value.empty())
+            {
+                action.targetFilter.push_back(value);
+            }
+        }
         return action;
     }
 
@@ -1571,6 +1605,9 @@ private:
         actionStatusTurnsField.setValue("0");
         actionCooldownTurnsField.setValue("0");
         actionPushField.setValue("0");
+        actionTargetFilterFields.clear();
+        actionTargetFilterOffset = 0;
+        removeActionTargetFilterButtons.clear();
         rebuildFocusOrder();
         activateField(&actionNameField);
         rememberActionForm();
@@ -1601,6 +1638,12 @@ private:
         actionStatusTurnsField.setValue(std::to_string(action.statusTurns));
         actionCooldownTurnsField.setValue(std::to_string(action.cooldownTurns));
         actionPushField.setValue(std::to_string(action.push));
+        actionTargetFilterFields.clear();
+        for (const std::string& value : action.targetFilter)
+        {
+            actionTargetFilterFields.push_back(makeCompactField(value, {294.0f, 32.0f}));
+        }
+        actionTargetFilterOffset = 0;
         rebuildFocusOrder();
         activateField(&actionNameField);
         rememberActionForm();
@@ -2040,6 +2083,83 @@ private:
             std::clamp(static_cast<int>(actionListOffset) + rows, 0, maxOffset));
     }
 
+    bool isInActionTargetFilterViewport(sf::Vector2f point) const
+    {
+        return point.x >= 878.0f && point.x <= 1220.0f &&
+            point.y >= TargetFilterTop &&
+            point.y <= TargetFilterTop + TargetFilterRowHeight * VisibleTargetFilterRows;
+    }
+
+    bool isActionTargetFilterVisible(std::size_t index) const
+    {
+        return index >= actionTargetFilterOffset &&
+            index < actionTargetFilterOffset + VisibleTargetFilterRows;
+    }
+
+    void clampActionTargetFilterOffset()
+    {
+        const std::size_t maxOffset = actionTargetFilterFields.size() > VisibleTargetFilterRows
+            ? actionTargetFilterFields.size() - VisibleTargetFilterRows
+            : 0;
+        actionTargetFilterOffset = std::min(actionTargetFilterOffset, maxOffset);
+    }
+
+    void scrollActionTargetFilters(int rows)
+    {
+        clampActionTargetFilterOffset();
+        const int maxOffset = static_cast<int>(
+            actionTargetFilterFields.size() > VisibleTargetFilterRows
+                ? actionTargetFilterFields.size() - VisibleTargetFilterRows
+                : 0);
+        actionTargetFilterOffset = static_cast<std::size_t>(std::clamp(
+            static_cast<int>(actionTargetFilterOffset) + rows, 0, maxOffset));
+        layoutActionTargetFilterControls();
+    }
+
+    void ensureActionTargetFilterVisible(std::size_t index)
+    {
+        if (index < actionTargetFilterOffset)
+        {
+            actionTargetFilterOffset = index;
+        }
+        else if (index >= actionTargetFilterOffset + VisibleTargetFilterRows)
+        {
+            actionTargetFilterOffset = index - VisibleTargetFilterRows + 1;
+        }
+        clampActionTargetFilterOffset();
+        layoutActionTargetFilterControls();
+    }
+
+    std::optional<std::size_t> actionTargetFilterIndex(const InputBox* field) const
+    {
+        for (std::size_t i = 0; i < actionTargetFilterFields.size(); ++i)
+        {
+            if (&actionTargetFilterFields[i] == field)
+            {
+                return i;
+            }
+        }
+        return std::nullopt;
+    }
+
+    void layoutActionTargetFilterControls()
+    {
+        clampActionTargetFilterOffset();
+        removeActionTargetFilterButtons.clear();
+        for (std::size_t i = 0; i < actionTargetFilterFields.size(); ++i)
+        {
+            const float y = TargetFilterTop +
+                (static_cast<float>(i) - static_cast<float>(actionTargetFilterOffset)) *
+                    TargetFilterRowHeight;
+            actionTargetFilterFields[i].setPosition({882.0f, y});
+            if (isActionTargetFilterVisible(i))
+            {
+                removeActionTargetFilterButtons.emplace_back(
+                    font, "x", sf::Vector2f{1184.0f, y + 2.0f}, sf::Vector2f{32.0f, 28.0f}, Warn);
+            }
+        }
+    }
+
     bool isInArrayViewport(sf::Vector2f point) const
     {
         return point.x >= 330.0f && point.x <= 824.0f && point.y >= ArrayViewportTop && point.y <= ArrayViewportBottom;
@@ -2287,6 +2407,14 @@ private:
         ensureActiveFieldVisible();
     }
 
+    void addActionTargetFilter()
+    {
+        actionTargetFilterFields.push_back(makeCompactField("", {294.0f, 32.0f}));
+        rebuildFocusOrder();
+        activateField(&actionTargetFilterFields.back());
+        ensureActionTargetFilterVisible(actionTargetFilterFields.size() - 1);
+    }
+
     void removeTrait(std::size_t index)
     {
         if (index < traitFields.size())
@@ -2359,10 +2487,33 @@ private:
         }
     }
 
+    void removeActionTargetFilter(std::size_t index)
+    {
+        if (index < actionTargetFilterFields.size())
+        {
+            actionTargetFilterFields.erase(
+                actionTargetFilterFields.begin() + static_cast<std::ptrdiff_t>(index));
+            clampActionTargetFilterOffset();
+            rebuildFocusOrder();
+            activateField(&actionNameField);
+            layoutActionTargetFilterControls();
+        }
+    }
+
     void ensureActiveFieldVisible()
     {
         if (focusOrder.empty())
         {
+            return;
+        }
+
+        if (editorMode == EditorMode::Actions)
+        {
+            if (const std::optional<std::size_t> filterIndex =
+                    actionTargetFilterIndex(focusOrder[focusIndex]))
+            {
+                ensureActionTargetFilterVisible(*filterIndex);
+            }
             return;
         }
 
@@ -2542,6 +2693,19 @@ private:
         if (editorMode == EditorMode::Actions)
         {
             layoutActionFields();
+            if (addActionTargetFilterButton.contains(mouse))
+            {
+                addActionTargetFilter();
+                return false;
+            }
+            for (std::size_t i = 0; i < removeActionTargetFilterButtons.size(); ++i)
+            {
+                if (removeActionTargetFilterButtons[i].contains(mouse))
+                {
+                    removeActionTargetFilter(actionTargetFilterOffset + i);
+                    return false;
+                }
+            }
             const std::optional<std::size_t> actionIndex = actionIndexAt(mouse);
             if (actionIndex)
             {
@@ -2553,6 +2717,11 @@ private:
             }
             for (InputBox* field : focusOrder)
             {
+                if (const std::optional<std::size_t> filterIndex = actionTargetFilterIndex(field);
+                    filterIndex && !isActionTargetFilterVisible(*filterIndex))
+                {
+                    continue;
+                }
                 if (field->contains(mouse))
                 {
                     activateField(field);
@@ -2894,6 +3063,7 @@ private:
         y = drawInstructionBullet(window, "Pattern ortho, diag, omni, horizontal, or vertical moves along that board geometry up to the action's maximum range.", y);
         y = drawInstructionBullet(window, "Pattern jump uses the fixed knight-style L shape. Pattern none is used for ranged, teleport, and tunnel actions that do not need slide geometry.", y);
         y = drawInstructionBullet(window, "Can move lets the action target an empty destination. With Can attack enabled, positive Damage targets and hurts enemies, while positive Heal targets and restores friendlies up to maximum health. Damage and Heal must not be negative.", y);
+        y = drawInstructionBullet(window, "Target filter entries restrict attacks, healing, and status effects. A target must match every listed string across its Traits and Keywords; an empty filter accepts any otherwise-valid target.", y);
         y = drawInstructionBullet(window, "Push moves each surviving enemy target up to that many squares directly away from the attack's staging square. Blocked push distance becomes 1 extra damage per prevented square.", y);
         y = drawInstructionBullet(window, "Minimum and maximum range are per action, so a card can mix short moves, long moves, ranged attacks, and state-specific actions.", y);
         y = drawInstructionParagraph(window, "For blocking slide and capture actions, every square along the path must be empty. Pass-through ignores blockers. Line of sight applies blocker checks to ranged attacks.", y + 5.0f, sf::Color(198, 210, 224));
@@ -3143,6 +3313,7 @@ private:
         actionStatusTurnsField.setPosition({600.0f, 522.0f});
         actionCooldownTurnsField.setPosition({340.0f, 580.0f});
         actionPushField.setPosition({600.0f, 580.0f});
+        layoutActionTargetFilterControls();
     }
 
     void drawActionEditorPanel(sf::RenderWindow& window)
@@ -3174,7 +3345,7 @@ private:
         }
         for (InputBox* field : focusOrder)
         {
-            if (field != &actionNameField)
+            if (field != &actionNameField && !actionTargetFilterIndex(field))
             {
                 field->draw(window);
             }
@@ -3202,11 +3373,38 @@ private:
         drawText(window, font, fmt::format("Status: {} turns", action.statusTurns), 17, {882.0f, 382.0f}, Ink);
         drawText(window, font, fmt::format("Cooldown: {} turns", action.cooldownTurns), 17, {882.0f, 420.0f}, Ink);
         drawText(window, font, fmt::format("Push: {} squares", action.push), 17, {882.0f, 458.0f}, Ink);
-        drawText(window, font, "Cards reference this object by its unique name.", 15, {882.0f, 500.0f}, Muted, 336.0f);
-        drawText(window, font, "Kinds: slide, ranged, hop, teleport, tunnel,", 14, {882.0f, 540.0f}, Muted, 336.0f);
-        drawText(window, font, "capture", 14, {882.0f, 560.0f}, Muted, 336.0f);
-        drawText(window, font, "Patterns: none, ortho, diag, omni, jump,", 14, {882.0f, 590.0f}, Muted, 336.0f);
-        drawText(window, font, "horizontal, vertical", 14, {882.0f, 612.0f}, Muted, 336.0f);
+        drawText(window, font, "Target filter (all required)", 15, {882.0f, 498.0f}, Muted, 270.0f);
+        addActionTargetFilterButton.draw(window);
+        if (actionTargetFilterFields.empty())
+        {
+            drawText(window, font, "Any target", 16, {882.0f, TargetFilterTop + 6.0f}, Ink, 294.0f);
+        }
+        for (std::size_t i = actionTargetFilterOffset;
+             i < actionTargetFilterFields.size() &&
+                 i < actionTargetFilterOffset + VisibleTargetFilterRows;
+             ++i)
+        {
+            actionTargetFilterFields[i].draw(window);
+        }
+        for (EditorButton& button : removeActionTargetFilterButtons)
+        {
+            button.draw(window);
+        }
+        if (actionTargetFilterFields.size() > VisibleTargetFilterRows)
+        {
+            const std::size_t lastVisible = std::min(
+                actionTargetFilterFields.size(),
+                actionTargetFilterOffset + VisibleTargetFilterRows);
+            drawText(
+                window,
+                font,
+                fmt::format("{}-{} of {}  mouse wheel", actionTargetFilterOffset + 1,
+                            lastVisible, actionTargetFilterFields.size()),
+                12,
+                {882.0f, 676.0f},
+                Muted,
+                334.0f);
+        }
     }
 
     void drawVisibleField(sf::RenderWindow& window, InputBox& field)

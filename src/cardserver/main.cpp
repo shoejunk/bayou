@@ -253,6 +253,14 @@ private:
         database->exec(
             "UPDATE actions SET heal = MAX(heal, -damage), damage = 0 WHERE damage < 0");
         database->exec(
+            "CREATE TABLE IF NOT EXISTS action_target_filters ("
+            "action_name TEXT NOT NULL,"
+            "item_index INTEGER NOT NULL,"
+            "value TEXT NOT NULL,"
+            "PRIMARY KEY(action_name, item_index),"
+            "FOREIGN KEY(action_name) REFERENCES actions(name) ON DELETE CASCADE"
+            ")");
+        database->exec(
             "CREATE TABLE IF NOT EXISTS card_actions ("
             "title TEXT NOT NULL,"
             "action_name TEXT NOT NULL,"
@@ -515,9 +523,15 @@ private:
                 sendCommandResponse(client, MessageType::ActionDeleteResponse, false, "Action is still referenced by a card");
                 return;
             }
+            SQLite::Transaction transaction(*database);
+            SQLite::Statement removeFilters(
+                *database, "DELETE FROM action_target_filters WHERE action_name = ?");
+            removeFilters.bind(1, name);
+            removeFilters.exec();
             SQLite::Statement statement(*database, "DELETE FROM actions WHERE name = ?");
             statement.bind(1, name);
             statement.exec();
+            transaction.commit();
             sendCommandResponse(client, MessageType::ActionDeleteResponse, true, "Action deleted");
         }
         catch (const std::exception& error)
@@ -752,6 +766,22 @@ private:
         bindAction(upsert, action);
         upsert.exec();
 
+        SQLite::Statement removeFilters(
+            *database, "DELETE FROM action_target_filters WHERE action_name = ?");
+        removeFilters.bind(1, action.name);
+        removeFilters.exec();
+        SQLite::Statement insertFilter(
+            *database,
+            "INSERT INTO action_target_filters (action_name, item_index, value) VALUES (?, ?, ?)");
+        for (std::size_t i = 0; i < action.targetFilter.size(); ++i)
+        {
+            insertFilter.reset();
+            insertFilter.bind(1, action.name);
+            insertFilter.bind(2, static_cast<int>(i));
+            insertFilter.bind(3, action.targetFilter[i]);
+            insertFilter.exec();
+        }
+
         if (!originalName.empty() && originalName != action.name)
         {
             SQLite::Statement updateReferences(
@@ -760,6 +790,10 @@ private:
             updateReferences.bind(1, action.name);
             updateReferences.bind(2, originalName);
             updateReferences.exec();
+            SQLite::Statement removeOldFilters(
+                *database, "DELETE FROM action_target_filters WHERE action_name = ?");
+            removeOldFilters.bind(1, originalName);
+            removeOldFilters.exec();
             SQLite::Statement removeOld(*database, "DELETE FROM actions WHERE name = ?");
             removeOld.bind(1, originalName);
             removeOld.exec();
