@@ -1184,6 +1184,7 @@ int main(int argc, char** argv)
     stateHeroCard.title = "State Hero";
     stateHeroCard.type = "Hero";
     stateHeroCard.integerValues = {{"health", 5}};
+    stateHeroCard.stringValues = {{"ability", "dematerialize"}};
     card_data::Action readyStep;
     readyStep.name = "Ready Step";
     readyStep.maxRange = 1;
@@ -1191,7 +1192,7 @@ int main(int argc, char** argv)
     card_data::Action spentStep = readyStep;
     spentStep.name = "Spent Step";
     spentStep.state = 1;
-    spentStep.nextState = card_data::DefaultNextState;
+    spentStep.nextState = 0;
     stateHeroCard.actions = {readyStep, spentStep};
     card_data::Card stateEnemyCard = trailEnemyCard;
     stateEnemyCard.title = "State Enemy";
@@ -1206,8 +1207,28 @@ int main(int argc, char** argv)
     const Piece* changedStateHero = stateEngine.boardPieces().empty()
         ? nullptr
         : &stateEngine.boardPieces().front();
-    check(changedStateHero != nullptr && changedStateHero->actionState == 1,
-          "using an action changes the piece to that action's next state");
+    const Snapshot hiddenStateSnapshot = stateEngine.snapshotFor(2);
+    const bool hiddenFromOpponent = std::none_of(
+        hiddenStateSnapshot.pieces.begin(),
+        hiddenStateSnapshot.pieces.end(),
+        [stateHeroId](const Piece& piece) { return piece.id == stateHeroId; });
+    check(changedStateHero != nullptr && changedStateHero->actionState == 1 &&
+              changedStateHero->hidden && hiddenFromOpponent,
+          "an action entering a dematerialized state hides the piece from its opponent");
+
+    stateEngine.endTurn(2);
+    stateEngine.movePiece(1, stateHeroId, trailOrigin.first, trailOrigin.second + 2);
+    changedStateHero = stateEngine.boardPieces().empty()
+        ? nullptr
+        : &stateEngine.boardPieces().front();
+    const Snapshot materializedStateSnapshot = stateEngine.snapshotFor(2);
+    const bool visibleToOpponent = std::any_of(
+        materializedStateSnapshot.pieces.begin(),
+        materializedStateSnapshot.pieces.end(),
+        [stateHeroId](const Piece& piece) { return piece.id == stateHeroId; });
+    check(changedStateHero != nullptr && changedStateHero->actionState == 0 &&
+              !changedStateHero->hidden && visibleToOpponent,
+          "an action returning to state zero fully materializes the piece");
 
     card_data::Card pushHeroCard;
     pushHeroCard.title = "Push Hero";

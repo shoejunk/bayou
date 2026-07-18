@@ -4024,7 +4024,7 @@ int main(int argc, char** argv)
             }
         }
         acting->disabledTurns = std::max(acting->disabledTurns, action.cooldownTurns);
-        acting->actionState = action.nextState;
+        game_data::setPieceActionState(*acting, action.nextState);
         acting->hasActed = false;
 
         if (commandedAction)
@@ -4177,8 +4177,8 @@ int main(int argc, char** argv)
                 stateCount = std::max(stateCount, action.state + 1);
                 stateCount = std::max(stateCount, game_data::actionNextState(action) + 1);
             }
-            piece->actionState = (piece->actionState + 1) % stateCount;
-            piece->hidden = piece->ability == "dematerialize" && piece->actionState != 0;
+            game_data::setPieceActionState(
+                *piece, (piece->actionState + 1) % stateCount);
         }
         else if (piece->ability == "summon")
         {

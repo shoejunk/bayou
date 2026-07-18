@@ -818,12 +818,21 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
     return outcome;
 }
 
+// Applies every gameplay side effect associated with entering an action state.
+// In particular, dematerialize uses state zero as materialized and every other
+// state as hidden, regardless of whether the transition came from an ability or
+// an action's nextState.
+inline void setPieceActionState(Piece& piece, int state)
+{
+    piece.actionState = state;
+    piece.hidden = normalizedAbility(piece.ability) == "dematerialize" && state != 0;
+}
+
 // Materializes a piece that was struck or bumped into while dematerialized and
 // stuns it. Damage-based status (if any) is applied separately by the attack.
 inline void materializeRevealedPiece(Piece& piece)
 {
-    piece.hidden = false;
-    piece.actionState = 0;
+    setPieceActionState(piece, 0);
     applyDamageStatus(piece, 0, HiddenRevealStunTurns);
 }
 
