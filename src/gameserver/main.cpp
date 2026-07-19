@@ -603,6 +603,7 @@ public:
             static_cast<unsigned int>(matchId) ^
             static_cast<unsigned int>(std::chrono::steady_clock::now().time_since_epoch().count());
         GameEngine engine(seed, cardCatalog);
+        engine.enableTimers();
 
         if (!receiveDeck(*playerOne, engine))
         {
@@ -966,9 +967,24 @@ private:
 
     void runGameLoop(GameEngine& engine, JoinedPlayer& one, JoinedPlayer& two)
     {
+        auto lastTimerUpdate = std::chrono::steady_clock::now();
+        auto lastTimerBroadcast = lastTimerUpdate;
+        constexpr auto TimerBroadcastInterval = std::chrono::seconds(1);
+
         while (true)
         {
-            bool changed = false;
+            const auto now = std::chrono::steady_clock::now();
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - lastTimerUpdate);
+            bool changed = engine.updateTimers(elapsed.count());
+            lastTimerUpdate += elapsed;
+
+            if (engine.phase() == Phase::GameOver)
+            {
+                broadcast(engine, one, two);
+                finishRankedMatch(engine, one, two);
+                return;
+            }
 
             for (JoinedPlayer* player : {&one, &two})
             {
@@ -990,9 +1006,13 @@ private:
                 }
             }
 
-            if (changed)
+            const bool timerRefreshDue =
+                engine.phase() == Phase::Playing &&
+                now - lastTimerBroadcast >= TimerBroadcastInterval;
+            if (changed || timerRefreshDue)
             {
                 broadcast(engine, one, two);
+                lastTimerBroadcast = now;
                 if (engine.phase() == Phase::GameOver)
                 {
                     finishRankedMatch(engine, one, two);

@@ -716,6 +716,7 @@ struct PlayerSnapshot
     int heroesAlive = 0;
     int drawPileCount = 0;
     int discardsThisTurn = 0;
+    std::int64_t clockRemainingMs = 0;
 };
 
 // The full view of the game tailored to one recipient (their hand is included,
@@ -728,6 +729,8 @@ struct Snapshot
     int winner = 0;  // 0 = none
     int commandingPieceId = 0;  // nonzero while Command is waiting for an adjacent friendly action
     int relentlessPieceId = 0;  // nonzero while a killing Relentless piece may act again
+    bool timersEnabled = false;
+    std::int64_t turnRemainingMs = 0;
     std::array<PlayerSnapshot, 2> players{};
     std::array<std::uint8_t, BoardSquares> control{};  // 0 neutral, 1, 2
     std::array<std::uint8_t, BoardSquares> holes{};
@@ -878,14 +881,14 @@ inline void writePlayerSnapshot(sf::Packet& packet, const PlayerSnapshot& player
 {
     packet << player.resources << player.controlledSquares << player.handCount
            << player.heroesToPlace << player.heroesAlive << player.drawPileCount
-           << player.discardsThisTurn;
+           << player.discardsThisTurn << player.clockRemainingMs;
 }
 
 inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 {
     packet >> player.resources >> player.controlledSquares >> player.handCount
            >> player.heroesToPlace >> player.heroesAlive >> player.drawPileCount
-           >> player.discardsThisTurn;
+           >> player.discardsThisTurn >> player.clockRemainingMs;
     return static_cast<bool>(packet);
 }
 
@@ -893,7 +896,8 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
 {
     packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner
-           << snapshot.commandingPieceId << snapshot.relentlessPieceId;
+           << snapshot.commandingPieceId << snapshot.relentlessPieceId
+           << snapshot.timersEnabled << snapshot.turnRemainingMs;
     writePlayerSnapshot(packet, snapshot.players[0]);
     writePlayerSnapshot(packet, snapshot.players[1]);
 
@@ -924,7 +928,8 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
 inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot)
 {
     packet >> snapshot.phase >> snapshot.activePlayer >> snapshot.yourPlayer >> snapshot.winner
-           >> snapshot.commandingPieceId >> snapshot.relentlessPieceId;
+           >> snapshot.commandingPieceId >> snapshot.relentlessPieceId
+           >> snapshot.timersEnabled >> snapshot.turnRemainingMs;
     if (!packet || !readPlayerSnapshot(packet, snapshot.players[0]) ||
         !readPlayerSnapshot(packet, snapshot.players[1]))
     {

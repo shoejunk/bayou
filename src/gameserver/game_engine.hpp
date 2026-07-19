@@ -18,6 +18,11 @@ using namespace game_data;
 class GameEngine
 {
 public:
+    static constexpr std::int64_t RegularClockMs = 15 * 60 * 1000;
+    static constexpr std::int64_t FullTurnTimerMs = 2 * 60 * 1000;
+    static constexpr std::int64_t ReducedTurnTimerMs = 60 * 1000;
+    static constexpr std::int64_t MinimumTurnTimerMs = 30 * 1000;
+
     struct EnginePlayer
     {
         int number = 0;
@@ -52,6 +57,81 @@ public:
     const std::array<std::uint8_t, BoardSquares>& boardControl() const { return control; }
     const std::array<std::uint8_t, BoardSquares>& boardHoles() const { return holes; }
     const EnginePlayer& playerState(int playerNumber) const { return playerRef(playerNumber); }
+
+    void enableTimers()
+    {
+        timersEnabled = true;
+        playerClockRemainingMs.fill(RegularClockMs);
+        turnTimerLevels.fill(0);
+        turnRemainingMs = FullTurnTimerMs;
+    }
+
+    bool timersAreEnabled() const { return timersEnabled; }
+
+    // Advances authoritative game time. Returns true only when a timer caused
+    // a turn transition or ended the game; ordinary clock countdowns are
+    // exposed through snapshots without being game-state transitions.
+    bool updateTimers(std::int64_t elapsedMs)
+    {
+        if (!timersEnabled || phaseValue != Phase::Playing || elapsedMs <= 0)
+        {
+            return false;
+        }
+
+        bool transitioned = false;
+        while (elapsedMs > 0 && phaseValue == Phase::Playing)
+        {
+            const std::size_t activeIndex = static_cast<std::size_t>(activePlayer - 1);
+            const std::int64_t untilEvent = std::min(
+                playerClockRemainingMs[activeIndex],
+                turnRemainingMs);
+            const std::int64_t consumed = std::min(elapsedMs, untilEvent);
+            playerClockRemainingMs[activeIndex] -= consumed;
+            turnRemainingMs -= consumed;
+            elapsedMs -= consumed;
+
+            // The match clock is decisive when both deadlines land together.
+            if (playerClockRemainingMs[activeIndex] <= 0)
+            {
+                playerClockRemainingMs[activeIndex] = 0;
+                winnerValue = activePlayer == 1 ? 2 : 1;
+                phaseValue = Phase::GameOver;
+                status = fmt::format(
+                    "Player {} ran out of time. Player {} wins!",
+                    activePlayer,
+                    winnerValue);
+                return true;
+            }
+
+            if (turnRemainingMs <= 0)
+            {
+                const int timedOutPlayer = activePlayer;
+                std::size_t& level = turnTimerLevels[activeIndex];
+                level = std::min<std::size_t>(level + 1, 2);
+                advanceTurn(fmt::format(
+                    "Player {}'s turn timer expired.",
+                    timedOutPlayer));
+                transitioned = true;
+            }
+        }
+        return transitioned;
+    }
+
+    // A successful play, piece action, ability, or discard restores that
+    // player's next turn to two minutes. If the action keeps the turn (such as
+    // a discard or Command), the current turn timer is restored immediately.
+    void recordPlayerMove(int playerNumber)
+    {
+        if (!timersEnabled || playerNumber < 1 || playerNumber > 2)
+        {
+            return;
+        }
+        turnTimerLevels[static_cast<std::size_t>(playerNumber - 1)] = 0;
+        if (phaseValue == Phase::Playing && activePlayer == playerNumber)
+        {
+            turnRemainingMs = FullTurnTimerMs;
+        }
+    }
 
     // Splits a submitted deck into a shuffled draw pile and a hero roster.
     void submitDeck(int playerNumber, const std::vector<card_data::Card>& cards)
@@ -183,6 +263,7 @@ public:
 
         player.resources -= card.cost;
         player.hand.erase(player.hand.begin() + handIndex);
+        recordPlayerMove(playerNumber);
         advanceTurn(fmt::format("Player {} played {}.", playerNumber, card.title));
         return true;
     }
@@ -217,20 +298,42 @@ public:
         player.drawPile.insert(player.drawPile.begin(), card);
         ++player.discardsThisTurn;
         status = fmt::format("Player {} discarded {} to the bottom of the deck.", playerNumber, card.title);
+        recordPlayerMove(playerNumber);
         return true;
     }
 
     bool movePiece(int playerNumber, int pieceId, int toRow, int toColumn)
     {
-        return performPieceAction(playerNumber, pieceId, toRow, toColumn);
+        const bool accepted = performPieceAction(playerNumber, pieceId, toRow, toColumn);
+        if (accepted)
+        {
+            recordPlayerMove(playerNumber);
+        }
+        return accepted;
     }
 
     bool attackPiece(int playerNumber, int attackerId, int targetRow, int targetColumn)
     {
-        return performPieceAction(playerNumber, attackerId, targetRow, targetColumn);
+        const bool accepted = performPieceAction(playerNumber, attackerId, targetRow, targetColumn);
+        if (accepted)
+        {
+            recordPlayerMove(playerNumber);
+        }
+        return accepted;
     }
 
     bool useAbility(int playerNumber, int pieceId)
+    {
+        const bool accepted = useAbilityWithoutRecordingMove(playerNumber, pieceId);
+        if (accepted)
+        {
+            recordPlayerMove(playerNumber);
+        }
+        return accepted;
+    }
+
+private:
+    bool useAbilityWithoutRecordingMove(int playerNumber, int pieceId)
     {
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
         {
@@ -353,6 +456,7 @@ public:
         return true;
     }
 
+public:
     bool endTurn(int playerNumber)
     {
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
@@ -374,6 +478,8 @@ public:
         snapshot.winner = winnerValue;
         snapshot.commandingPieceId = commandingPieceId;
         snapshot.relentlessPieceId = relentlessPieceId;
+        snapshot.timersEnabled = timersEnabled;
+        snapshot.turnRemainingMs = turnRemainingMs;
         snapshot.control = control;
         snapshot.holes = holes;
         snapshot.pieces.clear();
@@ -407,6 +513,7 @@ public:
             view.heroesAlive = heroesAlive(p + 1);
             view.drawPileCount = static_cast<int>(player.drawPile.size());
             view.discardsThisTurn = player.discardsThisTurn;
+            view.clockRemainingMs = playerClockRemainingMs[static_cast<std::size_t>(p)];
         }
 
         return snapshot;
@@ -437,6 +544,10 @@ private:
     int commandingPieceId = 0;
     int relentlessPieceId = 0;
     bool relentlessActionKeepsTurn = false;
+    bool timersEnabled = false;
+    std::array<std::int64_t, 2> playerClockRemainingMs{RegularClockMs, RegularClockMs};
+    std::array<std::size_t, 2> turnTimerLevels{};
+    std::int64_t turnRemainingMs = FullTurnTimerMs;
     std::string status = "Waiting for both decks...";
 
     EnginePlayer& playerRef(int playerNumber)
@@ -900,6 +1011,15 @@ private:
 
     void startTurn(int playerNumber)
     {
+        if (timersEnabled)
+        {
+            static constexpr std::array<std::int64_t, 3> TurnTimerDurations{
+                FullTurnTimerMs,
+                ReducedTurnTimerMs,
+                MinimumTurnTimerMs};
+            turnRemainingMs = TurnTimerDurations[turnTimerLevels[
+                static_cast<std::size_t>(playerNumber - 1)]];
+        }
         EnginePlayer& player = playerRef(playerNumber);
         player.discardsThisTurn = 0;
         const int controlledIncome = controlledCount(playerNumber);

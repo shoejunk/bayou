@@ -1079,6 +1079,9 @@ int main(int argc, char** argv)
     Snapshot serializedSnapshot;
     serializedSnapshot.commandingPieceId = 43;
     serializedSnapshot.relentlessPieceId = 44;
+    serializedSnapshot.timersEnabled = true;
+    serializedSnapshot.turnRemainingMs = 54'321;
+    serializedSnapshot.players[0].clockRemainingMs = 876'543;
     serializedSnapshot.status = "Command pending";
     sf::Packet snapshotPacket;
     writeSnapshot(snapshotPacket, serializedSnapshot);
@@ -1086,8 +1089,11 @@ int main(int argc, char** argv)
     check(readSnapshot(snapshotPacket, roundTrippedSnapshot) &&
               roundTrippedSnapshot.commandingPieceId == 43 &&
               roundTrippedSnapshot.relentlessPieceId == 44 &&
+              roundTrippedSnapshot.timersEnabled &&
+              roundTrippedSnapshot.turnRemainingMs == 54'321 &&
+              roundTrippedSnapshot.players[0].clockRemainingMs == 876'543 &&
               roundTrippedSnapshot.status == "Command pending",
-          "pending command and Relentless states survive snapshot serialization");
+          "pending actions and game timers survive snapshot serialization");
 
     card_data::Card taxHeroCard;
     taxHeroCard.title = "Tax Hero";
@@ -1097,6 +1103,65 @@ int main(int argc, char** argv)
     plainHeroCard.title = "Plain Hero";
     plainHeroCard.type = "Hero";
     plainHeroCard.integerValues = {{"health", 4}};
+
+    GameEngine timerEngine(13, {plainHeroCard});
+    timerEngine.enableTimers();
+    timerEngine.submitDeck(1, {plainHeroCard});
+    timerEngine.submitDeck(2, {plainHeroCard});
+    timerEngine.placeHero(1, 0, homeSquares(1)[0].first, homeSquares(1)[0].second);
+    timerEngine.placeHero(2, 0, homeSquares(2)[0].first, homeSquares(2)[0].second);
+    Snapshot timerSnapshot = timerEngine.snapshotFor(1);
+    check(timerSnapshot.timersEnabled &&
+              timerSnapshot.players[0].clockRemainingMs == GameEngine::RegularClockMs &&
+              timerSnapshot.players[1].clockRemainingMs == GameEngine::RegularClockMs &&
+              timerSnapshot.turnRemainingMs == GameEngine::FullTurnTimerMs,
+          "regular games start with two 15-minute clocks and a two-minute turn timer");
+
+    timerEngine.updateTimers(GameEngine::FullTurnTimerMs);
+    timerSnapshot = timerEngine.snapshotFor(1);
+    check(timerSnapshot.activePlayer == 2 &&
+              timerSnapshot.players[0].clockRemainingMs ==
+                  GameEngine::RegularClockMs - GameEngine::FullTurnTimerMs,
+          "a turn timeout ends the turn and charges only the active player's game clock");
+    timerEngine.endTurn(2);
+    check(timerEngine.snapshotFor(1).turnRemainingMs == GameEngine::ReducedTurnTimerMs,
+          "the turn after a timeout is reduced to one minute");
+    timerEngine.updateTimers(GameEngine::ReducedTurnTimerMs);
+    timerEngine.endTurn(2);
+    check(timerEngine.snapshotFor(1).turnRemainingMs == GameEngine::MinimumTurnTimerMs,
+          "a second consecutive timeout reduces the player's turns to 30 seconds");
+    const auto timerMoveDestination = homeSquares(1)[0];
+    const bool timerMoveAccepted = timerEngine.movePiece(
+        1,
+        timerEngine.boardPieces().front().id,
+        timerMoveDestination.first,
+        timerMoveDestination.second + 1);
+    timerEngine.endTurn(2);
+    check(timerMoveAccepted &&
+              timerEngine.snapshotFor(1).turnRemainingMs == GameEngine::FullTurnTimerMs,
+          "a successful move restores the player's two-minute turn timer");
+    timerEngine.endTurn(1);
+    timerEngine.endTurn(2);
+    check(timerEngine.snapshotFor(1).turnRemainingMs == GameEngine::FullTurnTimerMs,
+          "the restored two-minute timer carries into the player's next turn");
+
+    while (timerEngine.phase() == Phase::Playing)
+    {
+        if (timerEngine.currentPlayer() == 2)
+        {
+            timerEngine.endTurn(2);
+            continue;
+        }
+        const Snapshot beforeTimeout = timerEngine.snapshotFor(1);
+        timerEngine.updateTimers(std::min(
+            beforeTimeout.turnRemainingMs,
+            beforeTimeout.players[0].clockRemainingMs));
+    }
+    timerSnapshot = timerEngine.snapshotFor(1);
+    check(timerSnapshot.winner == 2 && timerSnapshot.players[0].clockRemainingMs == 0 &&
+              timerSnapshot.status.find("ran out of time") != std::string::npos,
+          "running out of the 15-minute game clock loses the game");
+
     GameEngine taxEngine(17, {taxHeroCard, plainHeroCard});
     taxEngine.submitDeck(1, {taxHeroCard});
     taxEngine.submitDeck(2, {plainHeroCard});
@@ -1904,6 +1969,12 @@ int main(int argc, char** argv)
 
     check(s1.phase == static_cast<std::uint8_t>(Phase::Playing), "phase advanced to Playing after all heroes placed");
     check(s1.activePlayer == 1, "player 1 acts first");
+    check(s1.timersEnabled && s1.turnRemainingMs > 0 &&
+              s1.turnRemainingMs <= GameEngine::FullTurnTimerMs &&
+              s1.players[0].clockRemainingMs > 0 &&
+              s1.players[0].clockRemainingMs <= GameEngine::RegularClockMs &&
+              s1.players[1].clockRemainingMs == GameEngine::RegularClockMs,
+          "regular match snapshots include the active chess and turn clocks");
 
     int p1Heroes = 0;
     int p2Heroes = 0;

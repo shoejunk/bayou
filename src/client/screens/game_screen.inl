@@ -1154,6 +1154,33 @@
         drawText(window, font, "Turn: " + activePlayerName, 16, {BoardOriginX, GameTurnLabelY},
                  ownerColor(activePlayer), GameTurnReadoutWidth);
 
+        auto timerText = [](std::int64_t milliseconds) {
+            const std::int64_t totalSeconds =
+                (std::max<std::int64_t>(0, milliseconds) + 999) / 1000;
+            const std::int64_t minutes = totalSeconds / 60;
+            const std::int64_t seconds = totalSeconds % 60;
+            return std::to_string(minutes) + ":" +
+                (seconds < 10 ? "0" : "") + std::to_string(seconds);
+        };
+        if (gameSnapshot.timersEnabled)
+        {
+            const std::string turnTimer =
+                "Turn time: " + timerText(gameSnapshot.turnRemainingMs);
+            const sf::Text turnTimerMeasure(font, turnTimer, 16);
+            const sf::FloatRect turnTimerBounds = turnTimerMeasure.getLocalBounds();
+            drawText(
+                window,
+                font,
+                turnTimer,
+                16,
+                {BoardOriginX + BoardBottomWidth -
+                     (turnTimerBounds.position.x + turnTimerBounds.size.x),
+                 GameTurnLabelY},
+                gameSnapshot.turnRemainingMs <= 30'000
+                    ? sf::Color(245, 115, 105)
+                    : sf::Color(248, 224, 172));
+        }
+
         auto playerReadout = [&](int playerNumber, const game_data::PlayerSnapshot& player) {
             const std::string resources = storyMode
                 ? "story"
@@ -1161,6 +1188,12 @@
             const std::string control = storyMode
                 ? "story"
                 : std::to_string(player.controlledSquares);
+            if (gameSnapshot.timersEnabled)
+            {
+                return "Player " + std::to_string(playerNumber) + "  Clock: " +
+                    timerText(player.clockRemainingMs) + "  R: " + resources +
+                    "  Control: " + control;
+            }
             return "Player " + std::to_string(playerNumber) + "  Resources: " + resources +
                 "  Control: " + control;
         };
