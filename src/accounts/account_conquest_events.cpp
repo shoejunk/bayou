@@ -877,8 +877,8 @@ void createTurnConflicts(SQLite::Database& database, const EventRow& event, std:
         "INSERT INTO conquest_battles "
         "(event_id, turn, kind, status, region_id, deck_one_id, deck_two_id, "
         " player_one, player_two, origin_one, origin_two, destination_one, destination_two, "
-        " seed, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        " seed, created_at, timer_started_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
     for (std::size_t firstIndex = 0; firstIndex < decks.size(); ++firstIndex)
     {
@@ -928,6 +928,7 @@ void createTurnConflicts(SQLite::Database& database, const EventRow& event, std:
             insert.bind(13, second.destinationRegionId);
             insert.bind(14, static_cast<std::int64_t>(newBattleSeed()));
             insert.bind(15, now);
+            insert.bind(16, now);
             insert.exec();
         }
     }
@@ -1175,12 +1176,24 @@ void initializeSchema(SQLite::Database& database, std::int64_t now)
         "winner TEXT NOT NULL DEFAULT '',"
         "winner_deck_id INTEGER,"
         "created_at INTEGER NOT NULL,"
+        "timer_started_at INTEGER,"
         "completed_at INTEGER,"
         "UNIQUE(event_id, turn, deck_one_id, deck_two_id),"
         "FOREIGN KEY(event_id) REFERENCES conquest_events(id) ON DELETE CASCADE,"
         "FOREIGN KEY(deck_one_id) REFERENCES conquest_event_decks(id) ON DELETE CASCADE,"
         "FOREIGN KEY(deck_two_id) REFERENCES conquest_event_decks(id) ON DELETE CASCADE"
         ")");
+    if (!tableHasColumn(database, "conquest_battles", "timer_started_at"))
+    {
+        database.exec("ALTER TABLE conquest_battles ADD COLUMN timer_started_at INTEGER");
+    }
+    {
+        SQLite::Statement initializeBattleTimers(
+            database,
+            "UPDATE conquest_battles SET timer_started_at = ? WHERE timer_started_at IS NULL");
+        initializeBattleTimers.bind(1, now);
+        initializeBattleTimers.exec();
+    }
     database.exec(
         "CREATE TABLE IF NOT EXISTS conquest_battle_actions ("
         "battle_id INTEGER NOT NULL,"
@@ -2114,7 +2127,7 @@ std::optional<conquest_data::BattleData> loadBattleData(
     SQLite::Transaction transaction(database);
     SQLite::Statement battle(
         database,
-        "SELECT event_id, status, deck_one_id, deck_two_id, player_one, player_two, seed "
+        "SELECT event_id, status, deck_one_id, deck_two_id, player_one, player_two, seed, created_at, timer_started_at "
         "FROM conquest_battles WHERE id = ?");
     battle.bind(1, databaseId(battleId));
     if (!battle.executeStep())
@@ -2133,6 +2146,8 @@ std::optional<conquest_data::BattleData> loadBattleData(
     const std::int64_t deckTwoId = battle.getColumn(3).getInt64();
     const std::string playerOne = battle.getColumn(4).getString();
     const std::string playerTwo = battle.getColumn(5).getString();
+    const std::int64_t loadedAt = effectiveNow(0);
+    const std::int64_t timerStartedAt = battle.getColumn(8).getInt64();
     if (username == playerOne)
     {
         playerNumber = 1;
@@ -2163,6 +2178,9 @@ std::optional<conquest_data::BattleData> loadBattleData(
     conquest_data::BattleData data;
     data.battleId = battleId;
     data.seed = static_cast<std::uint32_t>(battle.getColumn(6).getInt64());
+    data.createdAt = battle.getColumn(7).getInt64();
+    data.timerStartedAt = timerStartedAt;
+    data.loadedAt = std::max(loadedAt, timerStartedAt);
     data.playerOne = playerOne;
     data.playerTwo = playerTwo;
     data.deckOne = *deckOne;
@@ -2202,7 +2220,7 @@ std::optional<conquest_data::BattleData> loadBattleData(
 
     SQLite::Statement actions(
         database,
-        "SELECT sequence, player_number, action_type, argument_one, argument_two, argument_three "
+        "SELECT sequence, player_number, action_type, argument_one, argument_two, argument_three, created_at "
         "FROM conquest_battle_actions WHERE battle_id = ? ORDER BY sequence");
     actions.bind(1, databaseId(battleId));
     while (actions.executeStep())
@@ -2219,7 +2237,8 @@ std::optional<conquest_data::BattleData> loadBattleData(
             static_cast<std::uint8_t>(actions.getColumn(2).getInt()),
             actions.getColumn(3).getInt(),
             actions.getColumn(4).getInt(),
-            actions.getColumn(5).getInt()});
+            actions.getColumn(5).getInt(),
+            actions.getColumn(6).getInt64()});
     }
     transaction.commit();
     return data;

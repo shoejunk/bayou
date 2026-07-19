@@ -142,12 +142,16 @@ struct BattleAction
     int argumentOne = 0;
     int argumentTwo = 0;
     int argumentThree = 0;
+    std::int64_t createdAt = 0;
 };
 
 struct BattleData
 {
     std::uint64_t battleId = 0;
     std::uint32_t seed = 0;
+    std::int64_t createdAt = 0;
+    std::int64_t timerStartedAt = 0;
+    std::int64_t loadedAt = 0;
     std::string playerOne;
     std::string playerTwo;
     deck_data::Deck deckOne;
@@ -400,19 +404,22 @@ inline bool readMoveOrder(sf::Packet& packet, MoveOrder& value)
 inline void writeBattleAction(sf::Packet& packet, const BattleAction& value)
 {
     packet << value.sequence << value.playerNumber << value.actionType
-           << value.argumentOne << value.argumentTwo << value.argumentThree;
+           << value.argumentOne << value.argumentTwo << value.argumentThree
+           << value.createdAt;
 }
 
 inline bool readBattleAction(sf::Packet& packet, BattleAction& value)
 {
     packet >> value.sequence >> value.playerNumber >> value.actionType
-           >> value.argumentOne >> value.argumentTwo >> value.argumentThree;
+           >> value.argumentOne >> value.argumentTwo >> value.argumentThree
+           >> value.createdAt;
     return packet && (value.playerNumber == 1 || value.playerNumber == 2);
 }
 
 inline void writeBattleData(sf::Packet& packet, const BattleData& value)
 {
-    packet << value.battleId << value.seed << value.playerOne << value.playerTwo;
+    packet << value.battleId << value.seed << value.createdAt << value.timerStartedAt << value.loadedAt
+           << value.playerOne << value.playerTwo;
     deck_data::writeDeck(packet, value.deckOne);
     deck_data::writeDeck(packet, value.deckTwo);
     packet << static_cast<std::uint32_t>(value.cardsOne.size());
@@ -459,8 +466,11 @@ inline bool readBattleData(sf::Packet& packet, BattleData& value)
     };
 
     std::uint32_t actionCount = 0;
-    packet >> value.battleId >> value.seed >> value.playerOne >> value.playerTwo;
-    if (!packet || !validText(value.playerOne) || !validText(value.playerTwo) ||
+    packet >> value.battleId >> value.seed >> value.createdAt >> value.timerStartedAt >> value.loadedAt
+           >> value.playerOne >> value.playerTwo;
+    if (!packet || value.createdAt <= 0 || value.timerStartedAt < value.createdAt ||
+        value.loadedAt < value.timerStartedAt ||
+        !validText(value.playerOne) || !validText(value.playerTwo) ||
         !deck_data::readDeck(packet, value.deckOne) ||
         !deck_data::readDeck(packet, value.deckTwo) ||
         !readCards(value.cardsOne, MaxConquestBattleCards) ||

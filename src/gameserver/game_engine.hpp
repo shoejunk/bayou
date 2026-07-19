@@ -22,6 +22,10 @@ public:
     static constexpr std::int64_t FullTurnTimerMs = 2 * 60 * 1000;
     static constexpr std::int64_t ReducedTurnTimerMs = 60 * 1000;
     static constexpr std::int64_t MinimumTurnTimerMs = 30 * 1000;
+    static constexpr std::int64_t ConquestClockMs = 3LL * 24 * 60 * 60 * 1000;
+    static constexpr std::int64_t ConquestFullTurnTimerMs = 24LL * 60 * 60 * 1000;
+    static constexpr std::int64_t ConquestReducedTurnTimerMs = 12LL * 60 * 60 * 1000;
+    static constexpr std::int64_t ConquestMinimumTurnTimerMs = 6LL * 60 * 60 * 1000;
 
     struct EnginePlayer
     {
@@ -60,13 +64,41 @@ public:
 
     void enableTimers()
     {
+        enableTimers(
+            RegularClockMs,
+            FullTurnTimerMs,
+            ReducedTurnTimerMs,
+            MinimumTurnTimerMs);
+    }
+
+    void enableTimers(
+        std::int64_t clockMs,
+        std::int64_t fullTurnTimerMs,
+        std::int64_t reducedTurnTimerMs,
+        std::int64_t minimumTurnTimerMs)
+    {
         timersEnabled = true;
-        playerClockRemainingMs.fill(RegularClockMs);
+        playerClockRemainingMs.fill(clockMs);
         turnTimerLevels.fill(0);
-        turnRemainingMs = FullTurnTimerMs;
+        turnTimerDurations = {
+            fullTurnTimerMs,
+            reducedTurnTimerMs,
+            minimumTurnTimerMs};
+        turnRemainingMs = turnTimerDurations[0];
     }
 
     bool timersAreEnabled() const { return timersEnabled; }
+
+    std::int64_t timeUntilNextTimerEventMs() const
+    {
+        if (!timersEnabled || phaseValue != Phase::Playing)
+        {
+            return 0;
+        }
+        return std::min(
+            playerClockRemainingMs[static_cast<std::size_t>(activePlayer - 1)],
+            turnRemainingMs);
+    }
 
     // Advances authoritative game time. Returns true only when a timer caused
     // a turn transition or ended the game; ordinary clock countdowns are
@@ -129,7 +161,7 @@ public:
         turnTimerLevels[static_cast<std::size_t>(playerNumber - 1)] = 0;
         if (phaseValue == Phase::Playing && activePlayer == playerNumber)
         {
-            turnRemainingMs = FullTurnTimerMs;
+            turnRemainingMs = turnTimerDurations[0];
         }
     }
 
@@ -547,6 +579,10 @@ private:
     bool timersEnabled = false;
     std::array<std::int64_t, 2> playerClockRemainingMs{RegularClockMs, RegularClockMs};
     std::array<std::size_t, 2> turnTimerLevels{};
+    std::array<std::int64_t, 3> turnTimerDurations{
+        FullTurnTimerMs,
+        ReducedTurnTimerMs,
+        MinimumTurnTimerMs};
     std::int64_t turnRemainingMs = FullTurnTimerMs;
     std::string status = "Waiting for both decks...";
 
@@ -1013,11 +1049,7 @@ private:
     {
         if (timersEnabled)
         {
-            static constexpr std::array<std::int64_t, 3> TurnTimerDurations{
-                FullTurnTimerMs,
-                ReducedTurnTimerMs,
-                MinimumTurnTimerMs};
-            turnRemainingMs = TurnTimerDurations[turnTimerLevels[
+            turnRemainingMs = turnTimerDurations[turnTimerLevels[
                 static_cast<std::size_t>(playerNumber - 1)]];
         }
         EnginePlayer& player = playerRef(playerNumber);

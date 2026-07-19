@@ -930,6 +930,9 @@ void testFrozenBattleDataActionsAndResult()
             capability,
             error);
     require(data.has_value(), "loading frozen BattleData failed: " + error);
+    require(data->createdAt > 0 && data->timerStartedAt >= data->createdAt &&
+            data->loadedAt >= data->timerStartedAt,
+        "BattleData did not include a valid durable clock origin");
     require(alphaNumber == 1 || alphaNumber == 2, "participant number was not assigned");
     require(
         capability.size() == conquest_data::ConquestBattleCapabilityHexLength,
@@ -1012,6 +1015,11 @@ void testFrozenBattleDataActionsAndResult()
     require(
         reloaded->actions[0].sequence == 1 && reloaded->actions[1].sequence == 2,
         "durable actions were not loaded in sequence order");
+    require(
+        reloaded->actions[0].createdAt >= reloaded->createdAt &&
+            reloaded->actions[1].createdAt >= reloaded->actions[0].createdAt &&
+            reloaded->loadedAt >= reloaded->actions[1].createdAt,
+        "durable battle action timestamps were not loaded in clock order");
 
     requireCommand(
         account_conquest_events::applyBattleResultWithCapability(

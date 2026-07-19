@@ -1162,6 +1162,58 @@ int main(int argc, char** argv)
               timerSnapshot.status.find("ran out of time") != std::string::npos,
           "running out of the 15-minute game clock loses the game");
 
+    GameEngine conquestTimerEngine(14, {plainHeroCard});
+    conquestTimerEngine.enableTimers(
+        GameEngine::ConquestClockMs,
+        GameEngine::ConquestFullTurnTimerMs,
+        GameEngine::ConquestReducedTurnTimerMs,
+        GameEngine::ConquestMinimumTurnTimerMs);
+    conquestTimerEngine.submitDeck(1, {plainHeroCard});
+    conquestTimerEngine.submitDeck(2, {plainHeroCard});
+    conquestTimerEngine.placeHero(1, 0, homeSquares(1)[0].first, homeSquares(1)[0].second);
+    conquestTimerEngine.placeHero(2, 0, homeSquares(2)[0].first, homeSquares(2)[0].second);
+    Snapshot conquestTimerSnapshot = conquestTimerEngine.snapshotFor(1);
+    check(conquestTimerSnapshot.players[0].clockRemainingMs == GameEngine::ConquestClockMs &&
+              conquestTimerSnapshot.players[1].clockRemainingMs == GameEngine::ConquestClockMs &&
+              conquestTimerSnapshot.turnRemainingMs == GameEngine::ConquestFullTurnTimerMs &&
+              conquestTimerEngine.timeUntilNextTimerEventMs() ==
+                  GameEngine::ConquestFullTurnTimerMs,
+          "Conquest games start with two three-day clocks and a one-day turn timer");
+    conquestTimerEngine.updateTimers(GameEngine::ConquestFullTurnTimerMs);
+    conquestTimerEngine.endTurn(2);
+    check(conquestTimerEngine.snapshotFor(1).turnRemainingMs ==
+              GameEngine::ConquestReducedTurnTimerMs,
+          "a Conquest timeout reduces that player's next turn to 12 hours");
+    conquestTimerEngine.updateTimers(GameEngine::ConquestReducedTurnTimerMs);
+    conquestTimerEngine.endTurn(2);
+    check(conquestTimerEngine.snapshotFor(1).turnRemainingMs ==
+              GameEngine::ConquestMinimumTurnTimerMs,
+          "a second Conquest timeout reduces that player's turns to six hours");
+    const auto conquestMoveDestination = homeSquares(1)[0];
+    const bool conquestMoveAccepted = conquestTimerEngine.movePiece(
+        1,
+        conquestTimerEngine.boardPieces().front().id,
+        conquestMoveDestination.first,
+        conquestMoveDestination.second + 1);
+    conquestTimerEngine.endTurn(2);
+    check(conquestMoveAccepted && conquestTimerEngine.snapshotFor(1).turnRemainingMs ==
+              GameEngine::ConquestFullTurnTimerMs,
+          "a successful Conquest move restores that player's one-day turn timer");
+    while (conquestTimerEngine.phase() == Phase::Playing)
+    {
+        if (conquestTimerEngine.currentPlayer() == 2)
+        {
+            conquestTimerEngine.endTurn(2);
+            continue;
+        }
+        conquestTimerEngine.updateTimers(
+            conquestTimerEngine.timeUntilNextTimerEventMs());
+    }
+    conquestTimerSnapshot = conquestTimerEngine.snapshotFor(1);
+    check(conquestTimerSnapshot.winner == 2 &&
+              conquestTimerSnapshot.players[0].clockRemainingMs == 0,
+          "running out of the three-day Conquest clock loses the battle");
+
     GameEngine taxEngine(17, {taxHeroCard, plainHeroCard});
     taxEngine.submitDeck(1, {taxHeroCard});
     taxEngine.submitDeck(2, {plainHeroCard});

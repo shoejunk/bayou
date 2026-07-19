@@ -1059,6 +1059,7 @@ int main(int argc, char** argv)
     std::vector<card_data::Card> matchDeck;     // resolved deck submitted to the game
     std::vector<card_data::Card> matchHeroes;   // hero cards in placement order
     game_data::Snapshot gameSnapshot;
+    std::chrono::steady_clock::time_point gameSnapshotReceivedAt{};
     bool haveSnapshot = false;
     bool sandboxMode = false;
     bool storyMode = false;
@@ -2121,6 +2122,7 @@ int main(int argc, char** argv)
         gameHandOffset = 0;
         nextSandboxPieceId = 1;
         gameSnapshot = {};
+        gameSnapshotReceivedAt = {};
         selectedPieceId.reset();
         selectedHandIndex.reset();
         inspectedPieceId.reset();
@@ -3211,6 +3213,7 @@ int main(int argc, char** argv)
         refreshSandboxPlayerSnapshots(nextSnapshot);
         updatePieceMoveAnimations(nextSnapshot);
         gameSnapshot = std::move(nextSnapshot);
+        gameSnapshotReceivedAt = std::chrono::steady_clock::now();
         haveSnapshot = true;
         clampListOffset(gameHandOffset, gameSnapshot.hand.size(), VisibleGameHandCards);
         if (selectedHandIndex && *selectedHandIndex >= gameSnapshot.hand.size())
@@ -4654,6 +4657,7 @@ int main(int argc, char** argv)
                 {
                     updatePieceMoveAnimations(snapshot);
                     gameSnapshot = snapshot;
+                    gameSnapshotReceivedAt = std::chrono::steady_clock::now();
                     haveSnapshot = true;
                     if (gameSnapshot.relentlessPieceId != 0 &&
                         gameSnapshot.activePlayer == gameSnapshot.yourPlayer)

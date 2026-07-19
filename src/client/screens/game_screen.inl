@@ -1157,15 +1157,46 @@
         auto timerText = [](std::int64_t milliseconds) {
             const std::int64_t totalSeconds =
                 (std::max<std::int64_t>(0, milliseconds) + 999) / 1000;
+            const auto twoDigits = [](std::int64_t value) {
+                return (value < 10 ? "0" : "") + std::to_string(value);
+            };
+            const std::int64_t days = totalSeconds / (24 * 60 * 60);
+            const std::int64_t hours = (totalSeconds / (60 * 60)) % 24;
             const std::int64_t minutes = totalSeconds / 60;
             const std::int64_t seconds = totalSeconds % 60;
+            if (days > 0)
+            {
+                return std::to_string(days) + "d " + twoDigits(hours) + ":" +
+                    twoDigits(minutes % 60) + ":" + twoDigits(seconds);
+            }
+            if (hours > 0)
+            {
+                return std::to_string(hours) + ":" + twoDigits(minutes % 60) +
+                    ":" + twoDigits(seconds);
+            }
             return std::to_string(minutes) + ":" +
-                (seconds < 10 ? "0" : "") + std::to_string(seconds);
+                twoDigits(seconds);
+        };
+        // Display-only interpolation between authoritative server snapshots.
+        // Turn transitions, clock deductions, and timeout wins remain entirely
+        // server-side; no locally projected value is sent back with an action.
+        const std::int64_t snapshotAgeMs = gameSnapshotReceivedAt ==
+                std::chrono::steady_clock::time_point{}
+            ? 0
+            : std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::steady_clock::now() - gameSnapshotReceivedAt).count();
+        const auto liveTimer = [&](std::int64_t remainingMs, bool ticking) {
+            return std::max<std::int64_t>(
+                0,
+                remainingMs - (ticking ? snapshotAgeMs : 0));
         };
         if (gameSnapshot.timersEnabled)
         {
+            const std::int64_t liveTurnRemainingMs = liveTimer(
+                gameSnapshot.turnRemainingMs,
+                phase == game_data::Phase::Playing);
             const std::string turnTimer =
-                "Turn time: " + timerText(gameSnapshot.turnRemainingMs);
+                "Turn time: " + timerText(liveTurnRemainingMs);
             const sf::Text turnTimerMeasure(font, turnTimer, 16);
             const sf::FloatRect turnTimerBounds = turnTimerMeasure.getLocalBounds();
             drawText(
@@ -1176,7 +1207,7 @@
                 {BoardOriginX + BoardBottomWidth -
                      (turnTimerBounds.position.x + turnTimerBounds.size.x),
                  GameTurnLabelY},
-                gameSnapshot.turnRemainingMs <= 30'000
+                liveTurnRemainingMs <= 30'000
                     ? sf::Color(245, 115, 105)
                     : sf::Color(248, 224, 172));
         }
@@ -1191,7 +1222,10 @@
             if (gameSnapshot.timersEnabled)
             {
                 return "Player " + std::to_string(playerNumber) + "  Clock: " +
-                    timerText(player.clockRemainingMs) + "  R: " + resources +
+                    timerText(liveTimer(
+                        player.clockRemainingMs,
+                        phase == game_data::Phase::Playing &&
+                            playerNumber == gameSnapshot.activePlayer)) + "  R: " + resources +
                     "  Control: " + control;
             }
             return "Player " + std::to_string(playerNumber) + "  Resources: " + resources +

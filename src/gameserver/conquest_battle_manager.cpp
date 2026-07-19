@@ -38,6 +38,7 @@ constexpr auto CompletedSessionGrace = std::chrono::seconds(2);
 constexpr auto ResultRetryInterval = std::chrono::seconds(5);
 constexpr auto AccountRpcTimeout = std::chrono::seconds(10);
 constexpr auto ClientSendTimeout = std::chrono::seconds(2);
+constexpr auto TimerSnapshotInterval = std::chrono::minutes(1);
 constexpr int MaxPacketsPerConnectionPerPoll = 16;
 
 struct BattleDataResult
@@ -486,6 +487,8 @@ private:
         {
             return data.battleId == candidate.battleId &&
                 data.seed == candidate.seed &&
+                data.createdAt == candidate.createdAt &&
+                data.timerStartedAt == candidate.timerStartedAt &&
                 data.playerOne == candidate.playerOne &&
                 data.playerTwo == candidate.playerTwo &&
                 sameDeck(data.deckOne, candidate.deckOne) &&
@@ -563,6 +566,9 @@ private:
         std::atomic<bool> finished{false};
         std::chrono::steady_clock::time_point nextResultAttempt{};
         std::chrono::steady_clock::time_point completedRetireAt{};
+        std::chrono::steady_clock::time_point lastTimerUpdate =
+            std::chrono::steady_clock::now();
+        std::chrono::steady_clock::time_point lastTimerBroadcast = lastTimerUpdate;
 
         void run()
         {
@@ -572,9 +578,16 @@ private:
                 std::vector<Connection> arriving;
                 {
                     std::unique_lock<std::mutex> lock(queueMutex);
-                    const auto waitTime = connections.empty()
-                        ? IdlePollInterval
-                        : ActivePollInterval;
+                    std::chrono::milliseconds waitTime = ActivePollInterval;
+                    if (connections.empty())
+                    {
+                        const std::int64_t untilTimerEvent =
+                            engine->timeUntilNextTimerEventMs();
+                        waitTime = untilTimerEvent > 0
+                            ? std::chrono::milliseconds(untilTimerEvent)
+                            : std::chrono::duration_cast<std::chrono::milliseconds>(
+                                  IdlePollInterval);
+                    }
                     wake.wait_for(lock, waitTime, [&]() {
                         return stopping || !pendingConnections.empty();
                     });
@@ -583,6 +596,27 @@ private:
                         break;
                     }
                     arriving.swap(pendingConnections);
+                }
+
+                const auto timerNow = std::chrono::steady_clock::now();
+                const auto timerElapsed =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        timerNow - lastTimerUpdate);
+                const bool timerTransition = engine->updateTimers(timerElapsed.count());
+                lastTimerUpdate += timerElapsed;
+                if (timerTransition)
+                {
+                    if (engine->phase() == game_data::Phase::GameOver)
+                    {
+                        nextResultAttempt = {};
+                    }
+                    broadcastSnapshots();
+                }
+                else if (!connections.empty() &&
+                         engine->phase() == game_data::Phase::Playing &&
+                         timerNow - lastTimerBroadcast >= TimerSnapshotInterval)
+                {
+                    broadcastSnapshots();
                 }
 
                 for (Connection& connection : arriving)
@@ -616,7 +650,10 @@ private:
                 const bool awaitingDurableResult =
                     engine->phase() == game_data::Phase::GameOver &&
                     !resultSubmitted && !resultTerminalFailure;
-                if (connections.empty() && !awaitingDurableResult)
+                const bool awaitingTimer =
+                    engine->phase() == game_data::Phase::Playing &&
+                    engine->timersAreEnabled();
+                if (connections.empty() && !awaitingDurableResult && !awaitingTimer)
                 {
                     const auto now = std::chrono::steady_clock::now();
                     if (idleSince == std::chrono::steady_clock::time_point{})
@@ -696,6 +733,7 @@ private:
 
             connections.push_back(std::move(connection));
             sendSnapshot(connections.back());
+            lastTimerBroadcast = std::chrono::steady_clock::now();
         }
 
         void pollConnection(Connection& connection)
@@ -930,6 +968,10 @@ private:
             {
                 sendSnapshot(connection);
             }
+            if (!connections.empty())
+            {
+                lastTimerBroadcast = std::chrono::steady_clock::now();
+            }
         }
 
         void removeDisconnected()
@@ -1093,10 +1135,17 @@ private:
         const std::vector<card_data::Card>& replayCatalog =
             battle.catalog.empty() ? cardCatalog : battle.catalog;
         auto engine = std::make_unique<GameEngine>(battle.seed, replayCatalog);
+        engine->enableTimers(
+            GameEngine::ConquestClockMs,
+            GameEngine::ConquestFullTurnTimerMs,
+            GameEngine::ConquestReducedTurnTimerMs,
+            GameEngine::ConquestMinimumTurnTimerMs);
         engine->submitDeck(1, deckOne);
         engine->submitDeck(2, deckTwo);
 
         std::uint32_t expectedSequence = 1;
+        std::int64_t previousActionTimestamp = battle.createdAt;
+        std::int64_t timerTimestamp = battle.timerStartedAt;
         for (const conquest_data::BattleAction& action : battle.actions)
         {
             if (action.sequence != expectedSequence)
@@ -1104,6 +1153,16 @@ private:
                 error = "Conquest battle action log has a sequence gap";
                 return nullptr;
             }
+            if (action.createdAt < previousActionTimestamp ||
+                action.createdAt > battle.loadedAt)
+            {
+                error = "Conquest battle action log has invalid timestamps";
+                return nullptr;
+            }
+            const std::int64_t timedActionAt = std::max(
+                action.createdAt,
+                battle.timerStartedAt);
+            engine->updateTimers((timedActionAt - timerTimestamp) * 1000);
             if (engine->phase() == game_data::Phase::GameOver)
             {
                 error = "Conquest battle action log continues after GameOver";
@@ -1114,8 +1173,11 @@ private:
                 error = "Conquest battle action log is invalid: " + error;
                 return nullptr;
             }
+            previousActionTimestamp = action.createdAt;
+            timerTimestamp = timedActionAt;
             ++expectedSequence;
         }
+        engine->updateTimers((battle.loadedAt - timerTimestamp) * 1000);
         game_action::adjudicateConquestActionLimit(
             *engine,
             battle.actions.size(),
