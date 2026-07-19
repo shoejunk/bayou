@@ -483,6 +483,74 @@ sf::Socket::Status Socket::send(const sf::Packet& packet)
     return statusFor(error);
 }
 
+sf::Socket::Status Socket::send(
+    const sf::Packet& packet,
+    std::chrono::milliseconds timeout)
+{
+    if (!impl->session || !impl->socket.is_open())
+    {
+        return sf::Socket::Status::Disconnected;
+    }
+    if (timeout <= std::chrono::milliseconds::zero() ||
+        packet.getDataSize() > MaxPacketBytes ||
+        packet.getDataSize() > std::numeric_limits<std::uint32_t>::max())
+    {
+        return sf::Socket::Status::Error;
+    }
+
+    const auto header = encodeSize(static_cast<std::uint32_t>(packet.getDataSize()));
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    asio::error_code error;
+    impl->socket.non_blocking(true, error);
+    if (error)
+    {
+        return statusFor(error);
+    }
+
+    bool timedOut = false;
+    const auto writeAll = [&](const unsigned char* data, std::size_t size) {
+        std::size_t offset = 0;
+        while (offset < size)
+        {
+            const int result = mbedtls_ssl_write(&impl->session->ssl, data + offset, size - offset);
+            if (result > 0)
+            {
+                offset += static_cast<std::size_t>(result);
+                continue;
+            }
+            if (result != MBEDTLS_ERR_SSL_WANT_READ && result != MBEDTLS_ERR_SSL_WANT_WRITE)
+            {
+                return false;
+            }
+            if (std::chrono::steady_clock::now() >= deadline)
+            {
+                timedOut = true;
+                return false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        return true;
+    };
+
+    const bool sent = writeAll(header.data(), header.size()) &&
+        writeAll(static_cast<const unsigned char*>(packet.getData()), packet.getDataSize());
+    if (!sent)
+    {
+        // A partially written length-framed packet cannot be retried safely on
+        // this connection. Closing it lets the higher layer reconnect/resume.
+        disconnect();
+        return timedOut ? sf::Socket::Status::NotReady : sf::Socket::Status::Error;
+    }
+
+    impl->socket.non_blocking(!impl->blocking, error);
+    if (error)
+    {
+        disconnect();
+        return sf::Socket::Status::Error;
+    }
+    return sf::Socket::Status::Done;
+}
+
 sf::Socket::Status Socket::receive(sf::Packet& packet)
 {
     if (!impl->session || !impl->socket.is_open())
@@ -574,7 +642,32 @@ std::optional<sf::IpAddress> Socket::getRemoteAddress() const
     }
     asio::error_code error;
     const auto endpoint = impl->socket.remote_endpoint(error);
-    return error ? std::nullopt : sf::IpAddress::resolve(endpoint.address().to_string());
+    if (error)
+    {
+        return std::nullopt;
+    }
+
+    const asio::ip::address address = endpoint.address();
+    if (address.is_v4())
+    {
+        return sf::IpAddress::resolve(address.to_string());
+    }
+
+    // The listener is dual-stack, so IPv4 peers normally appear as mapped
+    // IPv6 addresses (for example ::ffff:127.0.0.1). SFML's IpAddress is
+    // IPv4-only and cannot resolve that spelling directly.
+    const asio::ip::address_v6 ipv6 = address.to_v6();
+    if (ipv6.is_loopback())
+    {
+        return sf::IpAddress::LocalHost;
+    }
+    if (!ipv6.is_v4_mapped())
+    {
+        return std::nullopt;
+    }
+
+    const asio::ip::address_v6::bytes_type bytes = ipv6.to_bytes();
+    return sf::IpAddress(bytes[12], bytes[13], bytes[14], bytes[15]);
 }
 
 unsigned short Socket::getRemotePort() const

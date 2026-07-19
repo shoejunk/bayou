@@ -26,6 +26,7 @@ sf::Texture* TextureStore::load(const std::string& assetPath)
     auto texture = std::make_shared<sf::Texture>();
     if (!resolvedPath || !texture->loadFromFile(*resolvedPath))
     {
+        cache.emplace(key, nullptr);
         return nullptr;
     }
 

@@ -86,24 +86,24 @@ public:
         }
     }
 
-    void placeHero(int playerNumber, int heroIndex, int row, int column)
+    bool placeHero(int playerNumber, int heroIndex, int row, int column)
     {
         if (phaseValue != Phase::HeroPlacement)
         {
-            return;
+            return false;
         }
 
         EnginePlayer& player = playerRef(playerNumber);
         if (heroIndex < 0 || heroIndex >= static_cast<int>(player.heroesToPlace.size()))
         {
-            return;
+            return false;
         }
 
         const GameCard& hero = player.heroesToPlace[static_cast<std::size_t>(heroIndex)];
         if (!footprintCanDeploy(playerNumber, hero, row, column, true))
         {
             setStatusFor(playerNumber, "Heroes must go on an empty starting square.");
-            return;
+            return false;
         }
 
         spawnPiece(
@@ -118,31 +118,32 @@ public:
         {
             beginPlay();
         }
+        return true;
     }
 
-    void playCard(int playerNumber, int handIndex, int targetRow, int targetColumn)
+    bool playCard(int playerNumber, int handIndex, int targetRow, int targetColumn)
     {
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
         {
-            return;
+            return false;
         }
         if (relentlessPieceId != 0)
         {
             setStatusFor(playerNumber, "The Relentless piece must act again or you must pass.");
-            return;
+            return false;
         }
 
         EnginePlayer& player = playerRef(playerNumber);
         if (handIndex < 0 || handIndex >= static_cast<int>(player.hand.size()))
         {
-            return;
+            return false;
         }
 
         const GameCard card = player.hand[static_cast<std::size_t>(handIndex)];
         if (card.cost > player.resources)
         {
             setStatusFor(playerNumber, "Not enough Resources to play that card.");
-            return;
+            return false;
         }
 
         const std::vector<std::string> missingTraits =
@@ -157,7 +158,7 @@ public:
             }
             message += " to play that card.";
             setStatusFor(playerNumber, message);
-            return;
+            return false;
         }
 
         if (card.type == "Unit")
@@ -165,7 +166,7 @@ public:
             if (!footprintCanDeploy(playerNumber, card, targetRow, targetColumn, false))
             {
                 setStatusFor(playerNumber, "Units deploy onto an empty square you control.");
-                return;
+                return false;
             }
 
             spawnPiece(playerNumber, card, targetRow, targetColumn, false);
@@ -176,37 +177,38 @@ public:
         {
             if (!resolveSpell(playerNumber, card, targetRow, targetColumn))
             {
-                return;
+                return false;
             }
         }
 
         player.resources -= card.cost;
         player.hand.erase(player.hand.begin() + handIndex);
         advanceTurn(fmt::format("Player {} played {}.", playerNumber, card.title));
+        return true;
     }
 
     // Discarding sends the card to the bottom of the draw pile without ending the turn.
-    void discardCard(int playerNumber, int handIndex)
+    bool discardCard(int playerNumber, int handIndex)
     {
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
         {
-            return;
+            return false;
         }
         if (relentlessPieceId != 0)
         {
             setStatusFor(playerNumber, "The Relentless piece must act again or you must pass.");
-            return;
+            return false;
         }
 
         EnginePlayer& player = playerRef(playerNumber);
         if (handIndex < 0 || handIndex >= static_cast<int>(player.hand.size()))
         {
-            return;
+            return false;
         }
         if (player.discardsThisTurn >= MaxDiscardsPerTurn)
         {
             setStatusFor(playerNumber, "You can discard only one card each turn.");
-            return;
+            return false;
         }
 
         const GameCard card = player.hand[static_cast<std::size_t>(handIndex)];
@@ -215,35 +217,36 @@ public:
         player.drawPile.insert(player.drawPile.begin(), card);
         ++player.discardsThisTurn;
         status = fmt::format("Player {} discarded {} to the bottom of the deck.", playerNumber, card.title);
+        return true;
     }
 
-    void movePiece(int playerNumber, int pieceId, int toRow, int toColumn)
+    bool movePiece(int playerNumber, int pieceId, int toRow, int toColumn)
     {
-        performPieceAction(playerNumber, pieceId, toRow, toColumn);
+        return performPieceAction(playerNumber, pieceId, toRow, toColumn);
     }
 
-    void attackPiece(int playerNumber, int attackerId, int targetRow, int targetColumn)
+    bool attackPiece(int playerNumber, int attackerId, int targetRow, int targetColumn)
     {
-        performPieceAction(playerNumber, attackerId, targetRow, targetColumn);
+        return performPieceAction(playerNumber, attackerId, targetRow, targetColumn);
     }
 
-    void useAbility(int playerNumber, int pieceId)
+    bool useAbility(int playerNumber, int pieceId)
     {
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
         {
-            return;
+            return false;
         }
 
         Piece* piece = pieceById(pieceId);
         if (piece == nullptr || piece->owner != playerNumber || piece->hasActed ||
             !pieceAbilityAvailable(pieces, *piece))
         {
-            return;
+            return false;
         }
         if (relentlessPieceId != 0 && piece->id != relentlessPieceId)
         {
             setStatusFor(playerNumber, "Only the Relentless piece may take the immediate action.");
-            return;
+            return false;
         }
 
         const Piece* commander = commandingPieceId != 0 ? pieceById(commandingPieceId) : nullptr;
@@ -254,7 +257,7 @@ public:
         if (commandedAction && !pieceCanReceiveCommand(*commander, *piece))
         {
             setStatusFor(playerNumber, "Command must activate a ready adjacent friendly piece.");
-            return;
+            return false;
         }
 
         const std::string abilityLabel = pieceAbilityLabel(*piece);
@@ -266,7 +269,7 @@ public:
             if (piece->abilityUses == 0)
             {
                 setStatusFor(playerNumber, "That piece has already dug its hole.");
-                return;
+                return false;
             }
             holes[static_cast<std::size_t>(squareIndex(piece->row, piece->column))] = 1;
             if (piece->abilityUses > 0)
@@ -290,13 +293,13 @@ public:
             if (summonCard == nullptr || summonCard->type != "Unit")
             {
                 setStatusFor(playerNumber, "That summon does not name a valid unit.");
-                return;
+                return false;
             }
             const auto [row, column] = summonDestination(*piece);
             if (!pieceSummonDestinationFree(pieces, *piece))
             {
                 setStatusFor(playerNumber, "That summon needs an empty space in front.");
-                return;
+                return false;
             }
             spawnPiece(playerNumber, *summonCard, row, column, false);
             pieces.back().hasActed = true;
@@ -310,17 +313,17 @@ public:
             status = fmt::format(
                 "{} used Command. Activate one adjacent friendly piece.",
                 actingPieceName);
-            return;
+            return true;
         }
         else
         {
-            return;
+            return false;
         }
 
         Piece* actingPiece = pieceById(actingPieceId);
         if (actingPiece == nullptr)
         {
-            return;
+            return true;
         }
         actingPiece->hasActed = true;
         if (relentlessAction)
@@ -347,16 +350,18 @@ public:
         {
             advanceTurn(fmt::format("{} used {}.", actingPieceName, abilityLabel));
         }
+        return true;
     }
 
-    void endTurn(int playerNumber)
+    bool endTurn(int playerNumber)
     {
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
         {
-            return;
+            return false;
         }
 
         advanceTurn(fmt::format("Player {} passed.", playerNumber));
+        return true;
     }
 
     // Builds the view tailored to one player (their hand only).
@@ -559,22 +564,22 @@ private:
         return found == summonCatalog.end() ? nullptr : &*found;
     }
 
-    void performPieceAction(int playerNumber, int pieceId, int toRow, int toColumn)
+    bool performPieceAction(int playerNumber, int pieceId, int toRow, int toColumn)
     {
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
         {
-            return;
+            return false;
         }
 
         Piece* piece = pieceById(pieceId);
         if (piece == nullptr || piece->owner != playerNumber || piece->hasActed)
         {
-            return;
+            return false;
         }
         if (relentlessPieceId != 0 && piece->id != relentlessPieceId)
         {
             setStatusFor(playerNumber, "Only the Relentless piece may take the immediate action.");
-            return;
+            return false;
         }
 
         const Piece* commander = commandingPieceId != 0 ? pieceById(commandingPieceId) : nullptr;
@@ -586,7 +591,7 @@ private:
         if (commandedAction && !pieceCanReceiveCommand(*commander, *piece))
         {
             setStatusFor(playerNumber, "Command must activate a ready adjacent friendly piece.");
-            return;
+            return false;
         }
 
         // Resolve against the acting player's view of the board so hidden
@@ -598,7 +603,7 @@ private:
         if (!action.legal)
         {
             setStatusFor(playerNumber, "That piece cannot act there.");
-            return;
+            return false;
         }
         const int destinationRow = outcome.destinationRow;
         const int destinationColumn = outcome.destinationColumn;
@@ -668,7 +673,7 @@ private:
                     }
                 }
             }
-            if (damagedTargetNames.empty() && healedTargetNames.empty()) return;
+            if (damagedTargetNames.empty() && healedTargetNames.empty()) return false;
         }
 
         // A hidden piece that was struck or bumped into materializes stunned.
@@ -685,7 +690,7 @@ private:
         Piece* survivingAttacker = pieceById(attackerId);
         if (survivingAttacker == nullptr)
         {
-            return;
+            return true;
         }
 
         if (action.moves)
@@ -735,7 +740,7 @@ private:
             checkForWinner(defeatedOwner);
             if (phaseValue == Phase::GameOver)
             {
-                return;
+                return true;
             }
         }
 
@@ -835,6 +840,7 @@ private:
             relentlessActionKeepsTurn = false;
             advanceTurn(result);
         }
+        return true;
     }
 
     void spawnPiece(int playerNumber, const GameCard& card, int row, int column, bool isHero)

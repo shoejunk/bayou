@@ -50,6 +50,8 @@ import button;
 import card_editor_screen;
 import client_controls;
 import client_services;
+import conquest_screen;
+import conquest_services;
 import inputbox;
 import network;
 
@@ -655,6 +657,7 @@ enum class GameState
     Shop,
     AdminUsers,
     CardEditor,
+    Conquest,
     Game
 };
 
@@ -847,6 +850,7 @@ int main(int argc, char** argv)
     Button playAiButton({150.0f, 520.0f}, {160.0f, 45.0f}, "Play vs AI", font);
     Button storyButton({300.0f, 136.0f}, {200.0f, 40.0f}, "Story", font);
     Button playButton({300.0f, 184.0f}, {200.0f, 40.0f}, "Play", font);
+    Button conquestButton({300.0f, 208.0f}, {200.0f, 40.0f}, "Conquest", font);
     Button sandboxButton({300.0f, 184.0f}, {200.0f, 40.0f}, "Sandbox", font);
     Button deckEditorButton({300.0f, 232.0f}, {200.0f, 40.0f}, "Deck Editor", font);
     Button shopButton({300.0f, 280.0f}, {200.0f, 40.0f}, "Shop", font);
@@ -934,6 +938,7 @@ int main(int argc, char** argv)
         font,
         {clientConfig().card.host, clientConfig().card.port},
         fontPath->parent_path());
+    ConquestScreen conquestScreen(font, textures);
     AudioSystem audioSystem;
     activeAudioSystem = &audioSystem;
     setButtonClickHandler(playButtonClickSound);
@@ -967,11 +972,18 @@ int main(int argc, char** argv)
     std::optional<std::future<CardListResult>> pendingAdminCardListLoad;
     std::optional<std::future<AdminUserDeleteResult>> pendingAdminUserDelete;
     std::optional<std::future<AccountCommandResult>> pendingPasswordChange;
+    std::optional<std::future<ConquestBattleJoinResult>> pendingConquestBattleJoin;
+    std::string pendingConquestBattleAccessToken;
+    std::string pendingConquestBattleUsername;
+    std::uint64_t conquestScreenGeneration = 0;
+    std::uint64_t pendingConquestBattleGeneration = 0;
+    std::uint64_t pendingConquestBattleEventId = 0;
     bool coinPurchasePolling = false;
     int coinPurchaseStartingCoins = 0;
     float nextCoinPurchasePollAt = 0.0f;
     float coinPurchasePollDeadline = 0.0f;
     std::shared_ptr<bayou::tls::Socket> activeGameSocket;
+    bool conquestBattleMode = false;
     std::string loggedInUsername;
     std::string activeAccessToken;
     std::string activeRememberToken;
@@ -1248,9 +1260,9 @@ int main(int argc, char** argv)
     };
 
     auto layoutAuthenticatedButtons = [&]() {
-        float y = loggedInIsAdmin ? 104.0f : 128.0f;
+        float y = loggedInIsAdmin ? 80.0f : 108.0f;
         constexpr float x = 300.0f;
-        constexpr float gap = 10.0f;
+        constexpr float gap = 6.0f;
         constexpr float height = 40.0f;
 
         auto place = [&](Button& button) {
@@ -1260,6 +1272,7 @@ int main(int argc, char** argv)
 
         place(storyButton);
         place(playButton);
+        place(conquestButton);
         place(sandboxButton);
         place(deckEditorButton);
         place(shopButton);
@@ -2083,9 +2096,12 @@ int main(int argc, char** argv)
         returnToMenu();
     };
 
-    auto showGameScreen = [&](std::shared_ptr<bayou::tls::Socket> gameSocket) {
+    auto showGameScreen = [&](std::shared_ptr<bayou::tls::Socket> gameSocket,
+                              bool isConquestBattle = false) {
         activeGameSocket = std::move(gameSocket);
+        conquestBattleMode = isConquestBattle;
         currentState = GameState::Game;
+        leaveGameButton.setLabel(isConquestBattle ? "Map" : "Leave");
         title.setString("");
         centerText(title, 400.0f);
         setMessage(messageText, "", sf::Color::Red);
@@ -2126,11 +2142,44 @@ int main(int argc, char** argv)
         pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
 
-        // Submit our deck, then switch the socket to non-blocking polling.
+        // Ranked games submit the selected deck. A Conquest session restores
+        // its frozen army deck on the coordinator before this socket is handed
+        // to the client, so submitting again would corrupt the replay.
         if (activeGameSocket)
         {
-            sendSubmitDeck(*activeGameSocket, matchDeck);
+            if (!isConquestBattle)
+            {
+                sendSubmitDeck(*activeGameSocket, matchDeck);
+            }
             activeGameSocket->setBlocking(false);
+        }
+    };
+
+    auto handleConquestScreenAction = [&]() {
+        const std::optional<ConquestScreenAction> action = conquestScreen.takeAction();
+        if (!action)
+        {
+            return;
+        }
+        if (action->kind == ConquestScreenAction::Kind::Close)
+        {
+            ++conquestScreenGeneration;
+            showAuthenticatedScreen();
+            return;
+        }
+        if (!pendingConquestBattleJoin)
+        {
+            conquestScreen.setStatus("Reconnecting to the tactical battle...", true);
+            const std::uint64_t battleId = action->battleId;
+            pendingConquestBattleAccessToken = activeAccessToken;
+            pendingConquestBattleUsername = loggedInUsername;
+            pendingConquestBattleGeneration = conquestScreenGeneration;
+            pendingConquestBattleEventId = action->eventId;
+            pendingConquestBattleJoin.emplace(std::async(
+                std::launch::async,
+                [token = activeAccessToken, battleId] {
+                    return joinConquestBattle(token, battleId);
+                }));
         }
     };
 
@@ -4590,7 +4639,8 @@ int main(int argc, char** argv)
             return;
         }
         sf::Packet packet;
-        while (activeGameSocket->receive(packet) == sf::Socket::Status::Done)
+        sf::Socket::Status receiveStatus = activeGameSocket->receive(packet);
+        while (receiveStatus == sf::Socket::Status::Done)
         {
             std::uint8_t type = 0;
             packet >> type;
@@ -4613,7 +4663,9 @@ int main(int argc, char** argv)
                             game_data::Phase::GameOver &&
                         !gameResultReceived)
                     {
-                        gameRewardText = "Finalizing match rewards...";
+                        gameRewardText = conquestBattleMode
+                            ? "Battle resolved. Return to the Conquest map."
+                            : "Finalizing match rewards...";
                     }
                     if (static_cast<game_data::Phase>(gameSnapshot.phase) ==
                             game_data::Phase::GameOver &&
@@ -4665,16 +4717,40 @@ int main(int argc, char** argv)
                 }
             }
             packet.clear();
+            receiveStatus = activeGameSocket->receive(packet);
+        }
+
+        if (conquestBattleMode &&
+            (receiveStatus == sf::Socket::Status::Disconnected ||
+             receiveStatus == sf::Socket::Status::Error))
+        {
+            activeGameSocket->disconnect();
+            activeGameSocket.reset();
+            conquestBattleMode = false;
+            leaveGameButton.setLabel("Leave");
+            currentState = GameState::Conquest;
+            conquestScreen.setStatus("Battle connection closed; map state refreshed.", true);
+            conquestScreen.refresh();
         }
     };
 
     auto leaveGame = [&]() {
         const bool wasSandbox = sandboxMode;
+        const bool wasConquestBattle = conquestBattleMode;
         if (activeGameSocket)
         {
-            sendDisconnect(*activeGameSocket);
+            if (wasConquestBattle)
+            {
+                leaveConquestBattle(*activeGameSocket);
+            }
+            else
+            {
+                sendDisconnect(*activeGameSocket);
+            }
             activeGameSocket.reset();
         }
+        conquestBattleMode = false;
+        leaveGameButton.setLabel("Leave");
         haveSnapshot = false;
         gameSnapshot = {};
         selectedPieceId.reset();
@@ -4707,7 +4783,12 @@ int main(int argc, char** argv)
         sandboxPlacementPlayer = 1;
         nextSandboxPieceId = 1;
         gameHandOffset = 0;
-        if (wasSandbox)
+        if (wasConquestBattle)
+        {
+            currentState = GameState::Conquest;
+            conquestScreen.refresh();
+        }
+        else if (wasSandbox)
         {
             showAuthenticatedScreen();
         }
@@ -5407,11 +5488,52 @@ int main(int argc, char** argv)
             }
         }
 
+        if (pendingConquestBattleJoin &&
+            pendingConquestBattleJoin->wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready)
+        {
+            ConquestBattleJoinResult result = pendingConquestBattleJoin->get();
+            pendingConquestBattleJoin.reset();
+            const bool sameAuthenticatedSession =
+                !pendingConquestBattleAccessToken.empty() &&
+                pendingConquestBattleAccessToken == activeAccessToken &&
+                pendingConquestBattleUsername == loggedInUsername &&
+                pendingConquestBattleGeneration == conquestScreenGeneration &&
+                pendingConquestBattleEventId != 0 &&
+                pendingConquestBattleEventId == conquestScreen.activeEventId();
+            pendingConquestBattleAccessToken.clear();
+            pendingConquestBattleUsername.clear();
+            if (result.success && currentState == GameState::Conquest && sameAuthenticatedSession)
+            {
+                showGameScreen(std::move(result.socket), true);
+            }
+            else
+            {
+                if (result.socket)
+                {
+                    leaveConquestBattle(*result.socket);
+                }
+                if (currentState == GameState::Conquest)
+                {
+                    conquestScreen.setStatus(result.message, false);
+                    conquestScreen.refresh();
+                }
+            }
+        }
+
         while (const std::optional event = window.pollEvent())
         {
             if (event->is<sf::Event::Closed>())
             {
                 window.close();
+                continue;
+            }
+
+            if (currentState == GameState::Conquest)
+            {
+                conquestScreen.handleEvent(*event, window);
+                handleConquestScreenAction();
+                continue;
             }
 
             if (const auto* mousePressed = event->getIf<sf::Event::MouseButtonPressed>();
@@ -5721,6 +5843,15 @@ int main(int argc, char** argv)
                     else if (playButton.isClicked(clickPos))
                     {
                         showDeckSelect();
+                    }
+                    else if (conquestButton.isClicked(clickPos))
+                    {
+                        ++conquestScreenGeneration;
+                        conquestScreen.open(
+                            activeAccessToken, loggedInUsername, loggedInIsAdmin);
+                        currentState = GameState::Conquest;
+                        title.setString("");
+                        clearFocus();
                     }
                     else if (sandboxButton.isClicked(clickPos))
                     {
@@ -6786,6 +6917,7 @@ int main(int argc, char** argv)
             {
                 storyButton.update(mousePos);
                 playButton.update(mousePos);
+                conquestButton.update(mousePos);
                 sandboxButton.update(mousePos);
                 deckEditorButton.update(mousePos);
                 shopButton.update(mousePos);
@@ -6909,6 +7041,11 @@ int main(int argc, char** argv)
         {
             cardEditorScreen.update(window, deltaTime);
         }
+        else if (currentState == GameState::Conquest)
+        {
+            conquestScreen.update(mousePos, deltaTime);
+            handleConquestScreenAction();
+        }
         else if (currentState == GameState::Shop)
         {
             shopBackButton.update(mousePos);
@@ -6968,6 +7105,7 @@ int main(int argc, char** argv)
             currentState != GameState::Shop &&
             currentState != GameState::AdminUsers &&
             currentState != GameState::CardEditor &&
+            currentState != GameState::Conquest &&
             currentState != GameState::Game)
         {
             drawTitlePlaque(window, font, title.getString().toAnsiString(), {400.0f, 64.0f}, {360.0f, 70.0f});
@@ -7110,6 +7248,7 @@ int main(int argc, char** argv)
             drawText(window, font, std::to_string(playerCoins), 18, {58.0f, 75.0f}, sf::Color(248, 239, 216), 120.0f);
             storyButton.draw(window);
             playButton.draw(window);
+            conquestButton.draw(window);
             sandboxButton.draw(window);
             deckEditorButton.draw(window);
             shopButton.draw(window);
@@ -7154,6 +7293,10 @@ int main(int argc, char** argv)
         else if (currentState == GameState::CardEditor)
         {
             cardEditorScreen.render(window);
+        }
+        else if (currentState == GameState::Conquest)
+        {
+            conquestScreen.draw(window);
         }
         else if (currentState == GameState::Game)
         {

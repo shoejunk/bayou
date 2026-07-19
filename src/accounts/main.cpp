@@ -5,6 +5,8 @@
 #include <sodium.h>
 
 #include "account_catalog.hpp"
+#include "account_conquest.hpp"
+#include "account_conquest_events.hpp"
 #include "account_decks.hpp"
 #include "account_rate_limiter.hpp"
 #include "account_security.hpp"
@@ -13,6 +15,8 @@
 #include "../shared/account_data.hpp"
 #include "../shared/card_server_client.hpp"
 #include "../shared/card_source_config.hpp"
+#include "../shared/conquest_data.hpp"
+#include "../shared/conquest_event_data.hpp"
 #include "../shared/deck_data.hpp"
 #include "../shared/listener_retry.hpp"
 #include "../shared/ranking.hpp"
@@ -22,6 +26,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <condition_variable>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
@@ -46,6 +51,12 @@ constexpr int AiWinRewardCoins = 1;
 constexpr int ShopCardCost = 5;
 constexpr auto ClientRequestTimeout = std::chrono::seconds(30);
 
+bool isLoopbackAddress(const std::string& address)
+{
+    return address == "127.0.0.1" || address == "::1" ||
+        address == "0:0:0:0:0:0:0:1" || address == "::ffff:127.0.0.1";
+}
+
 }
 
 class AccountServer
@@ -63,6 +74,7 @@ public:
         try
         {
             database = std::make_unique<SQLite::Database>("accounts.db", SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
+            database->setBusyTimeout(5000);
             initializeDatabase();
             fmt::println("Using accounts database: accounts.db");
         }
@@ -113,6 +125,7 @@ public:
     void stop()
     {
         running = false;
+        conquestChanged.notify_all();
         listener->close();
     }
 
@@ -120,6 +133,9 @@ private:
     std::unique_ptr<bayou::tls::Listener> listener;
     std::unique_ptr<SQLite::Database> database;
     std::mutex databaseMutex;
+    std::mutex conquestChangeMutex;
+    std::condition_variable conquestChanged;
+    std::atomic<std::uint64_t> conquestChangeGeneration{0};
     account_rate_limiter::AccountRateLimiter loginRateLimiter;
     std::mt19937 rng{std::random_device{}()};
     std::atomic<bool> running{false};
@@ -178,6 +194,47 @@ private:
             "FOREIGN KEY(username) REFERENCES accounts(username) ON DELETE CASCADE"
             ")");
         database->exec(
+            "CREATE TABLE IF NOT EXISTS conquest_decks ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "username TEXT NOT NULL,"
+            "name TEXT NOT NULL,"
+            "revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),"
+            "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+            "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+            "UNIQUE(username, name),"
+            "UNIQUE(username, id),"
+            "FOREIGN KEY(username) REFERENCES accounts(username) ON DELETE CASCADE"
+            ")");
+        database->exec(
+            "CREATE TABLE IF NOT EXISTS conquest_deck_cards ("
+            "deck_id INTEGER NOT NULL,"
+            "card_index INTEGER NOT NULL CHECK(card_index >= 0),"
+            "card_title TEXT NOT NULL,"
+            "PRIMARY KEY(deck_id, card_index),"
+            "FOREIGN KEY(deck_id) REFERENCES conquest_decks(id) ON DELETE CASCADE"
+            ")");
+        database->exec(
+            "CREATE INDEX IF NOT EXISTS conquest_deck_cards_title_idx "
+            "ON conquest_deck_cards(card_title)");
+        database->exec(
+            "CREATE TABLE IF NOT EXISTS conquest_armies ("
+            "username TEXT PRIMARY KEY NOT NULL,"
+            "revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),"
+            "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+            "FOREIGN KEY(username) REFERENCES accounts(username) ON DELETE CASCADE"
+            ")");
+        database->exec(
+            "CREATE TABLE IF NOT EXISTS conquest_army_decks ("
+            "username TEXT NOT NULL,"
+            "slot_index INTEGER NOT NULL CHECK(slot_index >= 0 AND slot_index < 10),"
+            "deck_id INTEGER NOT NULL,"
+            "PRIMARY KEY(username, slot_index),"
+            "UNIQUE(username, deck_id),"
+            "FOREIGN KEY(username) REFERENCES conquest_armies(username) ON DELETE CASCADE,"
+            "FOREIGN KEY(username, deck_id) "
+            "REFERENCES conquest_decks(username, id) ON DELETE CASCADE"
+            ")");
+        database->exec(
             "CREATE TABLE IF NOT EXISTS remember_tokens ("
             "token_hash TEXT PRIMARY KEY NOT NULL,"
             "username TEXT NOT NULL,"
@@ -219,7 +276,9 @@ private:
             "DELETE FROM ranked_matches "
             "WHERE player_one = OLD.username OR player_two = OLD.username; "
             "END");
+        account_conquest_events::initializeSchema(*database);
         account_decks::purgeTokenCards(*database);
+        account_conquest::purgeTokenCards(*database);
     }
 
     void handleClient(std::unique_ptr<bayou::tls::Socket> client)
@@ -393,6 +452,262 @@ private:
                     std::string accessToken, targetUsername, cardTitle;
                     packet >> accessToken >> targetUsername >> cardTitle;
                     handleAdminUserCard(*client, accessToken, targetUsername, cardTitle);
+                    break;
+                }
+                case MessageType::ConquestLoadoutRequest:
+                {
+                    std::string accessToken;
+                    packet >> accessToken;
+                    if (!packet)
+                    {
+                        sendConquestLoadoutResponse(
+                            *client, false, "Invalid Conquest loadout request", {}, {});
+                        break;
+                    }
+                    handleConquestLoadout(*client, accessToken);
+                    break;
+                }
+                case MessageType::ConquestDeckSaveRequest:
+                {
+                    std::string accessToken;
+                    conquest_data::ConquestDeck deck;
+                    packet >> accessToken;
+                    if (!packet || !conquest_data::readConquestDeck(packet, deck))
+                    {
+                        sendConquestDeckResponse(
+                            *client, false, "Invalid Conquest deck save payload", {});
+                        break;
+                    }
+                    handleConquestDeckSave(*client, accessToken, std::move(deck));
+                    break;
+                }
+                case MessageType::ConquestDeckDeleteRequest:
+                {
+                    std::string accessToken;
+                    std::int64_t deckId = 0;
+                    std::uint32_t revision = 0;
+                    packet >> accessToken >> deckId >> revision;
+                    if (!packet)
+                    {
+                        sendDeckCommandResponse(
+                            *client,
+                            MessageType::ConquestDeckDeleteResponse,
+                            false,
+                            "Invalid Conquest deck delete payload");
+                        break;
+                    }
+                    handleConquestDeckDelete(*client, accessToken, deckId, revision);
+                    break;
+                }
+                case MessageType::ConquestArmySaveRequest:
+                {
+                    std::string accessToken;
+                    conquest_data::ConquestArmy army;
+                    packet >> accessToken;
+                    if (!packet || !conquest_data::readConquestArmy(packet, army))
+                    {
+                        sendConquestArmyResponse(
+                            *client, false, "Invalid Conquest army save payload", {});
+                        break;
+                    }
+                    handleConquestArmySave(*client, accessToken, std::move(army));
+                    break;
+                }
+                case MessageType::ConquestEventListRequest:
+                {
+                    std::string accessToken;
+                    packet >> accessToken;
+                    handleConquestEventList(*client, accessToken);
+                    break;
+                }
+                case MessageType::ConquestEventStateRequest:
+                {
+                    std::string accessToken;
+                    std::uint64_t eventId = 0;
+                    packet >> accessToken >> eventId;
+                    handleConquestEventState(*client, accessToken, eventId);
+                    break;
+                }
+                case MessageType::ConquestEventWatchRequest:
+                {
+                    std::string accessToken;
+                    std::uint64_t eventId = 0;
+                    std::uint64_t stateFingerprint = 0;
+                    packet >> accessToken >> eventId >> stateFingerprint;
+                    if (!packet)
+                    {
+                        sendConquestCommandResponse(
+                            *client, MessageType::ConquestEventWatchResponse,
+                            false, "Invalid Conquest event watch request");
+                        break;
+                    }
+                    handleConquestEventWatch(
+                        *client, accessToken, eventId, stateFingerprint);
+                    break;
+                }
+                case MessageType::ConquestEventJoinRequest:
+                {
+                    std::string accessToken;
+                    std::uint64_t eventId = 0;
+                    std::uint32_t count = 0;
+                    packet >> accessToken >> eventId >> count;
+                    std::vector<conquest_data::StartingPlacement> placements;
+                    if (!packet || count == 0 || count > 2)
+                    {
+                        sendConquestCommandResponse(
+                            *client, MessageType::ConquestEventJoinResponse,
+                            false, "Invalid Conquest placement payload");
+                        break;
+                    }
+                    placements.resize(count);
+                    bool valid = true;
+                    for (conquest_data::StartingPlacement& placement : placements)
+                    {
+                        valid = valid && conquest_data::readStartingPlacement(packet, placement);
+                    }
+                    if (!valid)
+                    {
+                        sendConquestCommandResponse(
+                            *client, MessageType::ConquestEventJoinResponse,
+                            false, "Invalid Conquest placement payload");
+                        break;
+                    }
+                    handleConquestEventJoin(
+                        *client, accessToken, eventId, placements);
+                    notifyConquestChanged();
+                    break;
+                }
+                case MessageType::ConquestOrdersSubmitRequest:
+                {
+                    std::string accessToken;
+                    std::uint64_t eventId = 0;
+                    std::uint32_t count = 0;
+                    packet >> accessToken >> eventId >> count;
+                    std::vector<conquest_data::MoveOrder> orders;
+                    if (!packet || count > conquest_data::MaxConquestOrders)
+                    {
+                        sendConquestCommandResponse(
+                            *client, MessageType::ConquestOrdersSubmitResponse,
+                            false, "Invalid Conquest orders payload");
+                        break;
+                    }
+                    orders.resize(count);
+                    bool valid = true;
+                    for (conquest_data::MoveOrder& order : orders)
+                    {
+                        valid = valid && conquest_data::readMoveOrder(packet, order);
+                    }
+                    if (!valid)
+                    {
+                        sendConquestCommandResponse(
+                            *client, MessageType::ConquestOrdersSubmitResponse,
+                            false, "Invalid Conquest orders payload");
+                        break;
+                    }
+                    handleConquestOrdersSubmit(*client, accessToken, eventId, orders);
+                    notifyConquestChanged();
+                    break;
+                }
+                case MessageType::ConquestReinforceRequest:
+                {
+                    std::string accessToken;
+                    std::uint64_t eventId = 0;
+                    std::uint64_t eventDeckId = 0;
+                    int regionId = 0;
+                    packet >> accessToken >> eventId >> eventDeckId >> regionId;
+                    handleConquestReinforce(
+                        *client, accessToken, eventId, eventDeckId, regionId);
+                    notifyConquestChanged();
+                    break;
+                }
+                case MessageType::AdminConquestEventStartRequest:
+                {
+                    std::string accessToken;
+                    std::uint64_t eventId = 0;
+                    packet >> accessToken >> eventId;
+                    if (!packet)
+                    {
+                        sendConquestCommandResponse(
+                            *client, MessageType::AdminConquestEventStartResponse,
+                            false, "Invalid Conquest start request");
+                        break;
+                    }
+                    handleAdminConquestEventStart(*client, accessToken, eventId);
+                    notifyConquestChanged();
+                    break;
+                }
+                case MessageType::ConquestBattleDataRequest:
+                {
+                    std::uint64_t battleId = 0;
+                    std::string accessToken;
+                    packet >> battleId >> accessToken;
+                    if (!isLoopbackAddress(remoteAddress))
+                    {
+                        sendConquestBattleDataResponse(
+                            *client, false, "Internal service access required", 0, {}, {});
+                        break;
+                    }
+                    handleConquestBattleData(*client, battleId, accessToken);
+                    break;
+                }
+                case MessageType::ConquestBattleReloadRequest:
+                {
+                    std::uint64_t battleId = 0;
+                    std::string capability;
+                    packet >> battleId >> capability;
+                    if (!packet || !isLoopbackAddress(remoteAddress))
+                    {
+                        sendConquestBattleReloadResponse(
+                            *client,
+                            false,
+                            isLoopbackAddress(remoteAddress)
+                                ? "Invalid Conquest battle reload request"
+                                : "Internal service access required",
+                            {});
+                        break;
+                    }
+                    handleConquestBattleReload(*client, battleId, capability);
+                    break;
+                }
+                case MessageType::ConquestBattleActionRequest:
+                {
+                    std::uint64_t battleId = 0;
+                    std::string capability;
+                    conquest_data::BattleAction action;
+                    packet >> battleId >> capability;
+                    if (!isLoopbackAddress(remoteAddress) ||
+                        !conquest_data::readBattleAction(packet, action))
+                    {
+                        sendConquestBattleActionResponse(
+                            *client, false,
+                            isLoopbackAddress(remoteAddress)
+                                ? "Invalid Conquest battle action"
+                                : "Internal service access required",
+                            0);
+                        break;
+                    }
+                    handleConquestBattleAction(*client, battleId, capability, action);
+                    break;
+                }
+                case MessageType::SubmitConquestBattleResult:
+                {
+                    std::uint64_t battleId = 0;
+                    std::string capability;
+                    int winnerPlayerNumber = 0;
+                    packet >> battleId >> capability >> winnerPlayerNumber;
+                    if (!packet || !isLoopbackAddress(remoteAddress))
+                    {
+                        sendConquestCommandResponse(
+                            *client, MessageType::SubmitConquestBattleResultResponse,
+                            false,
+                            isLoopbackAddress(remoteAddress)
+                                ? "Invalid Conquest battle result request"
+                                : "Internal service access required");
+                        break;
+                    }
+                    handleSubmitConquestBattleResult(
+                        *client, battleId, capability, winnerPlayerNumber);
+                    notifyConquestChanged();
                     break;
                 }
                 case MessageType::ChangePasswordRequest:
@@ -638,6 +953,550 @@ private:
         {
             fmt::println("Database error while deleting deck: {}", error.what());
             sendDeckCommandResponse(client, MessageType::DeckDeleteResponse, false, "Database error while deleting deck");
+        }
+    }
+
+    void handleConquestLoadout(
+        bayou::tls::Socket& client,
+        const std::string& accessToken)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username =
+                account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username)
+            {
+                sendConquestLoadoutResponse(
+                    client, false, "Authentication required", {}, {});
+                return;
+            }
+
+            const std::vector<conquest_data::ConquestDeck> decks =
+                account_conquest::loadDecks(*database, *username);
+            const conquest_data::ConquestArmy army =
+                account_conquest::loadArmy(*database, *username);
+            if (decks.size() > conquest_data::MaxSerializedConquestDecks ||
+                army.deckIds.size() > conquest_data::MaxConquestArmyDecks)
+            {
+                sendConquestLoadoutResponse(
+                    client, false, "Conquest loadout is too large", {}, {});
+                return;
+            }
+
+            sendConquestLoadoutResponse(
+                client, true, "Conquest loadout loaded", decks, army);
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while loading Conquest loadout: {}", error.what());
+            sendConquestLoadoutResponse(
+                client, false, "Database error while loading Conquest loadout", {}, {});
+        }
+    }
+
+    void handleConquestDeckSave(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        conquest_data::ConquestDeck deck)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username =
+                account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username)
+            {
+                sendConquestDeckResponse(
+                    client, false, "Authentication required", deck);
+                return;
+            }
+
+            if (const std::optional<std::string> error =
+                    account_conquest::saveDeck(*database, *username, deck))
+            {
+                sendConquestDeckResponse(client, false, *error, deck);
+                return;
+            }
+
+            sendConquestDeckResponse(client, true, "Conquest deck saved", deck);
+            fmt::println(
+                "Saved Conquest deck '{}' ({}) for user {}",
+                deck.deck.name,
+                deck.id,
+                *username);
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while saving Conquest deck: {}", error.what());
+            sendConquestDeckResponse(
+                client, false, "Database error while saving Conquest deck", deck);
+        }
+    }
+
+    void handleConquestDeckDelete(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        std::int64_t deckId,
+        std::uint32_t expectedRevision)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username =
+                account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username)
+            {
+                sendDeckCommandResponse(
+                    client,
+                    MessageType::ConquestDeckDeleteResponse,
+                    false,
+                    "Authentication required");
+                return;
+            }
+
+            if (const std::optional<std::string> error = account_conquest::deleteDeck(
+                    *database, *username, deckId, expectedRevision))
+            {
+                sendDeckCommandResponse(
+                    client, MessageType::ConquestDeckDeleteResponse, false, *error);
+                return;
+            }
+
+            sendDeckCommandResponse(
+                client,
+                MessageType::ConquestDeckDeleteResponse,
+                true,
+                "Conquest deck deleted");
+            fmt::println("Deleted Conquest deck {} for user {}", deckId, *username);
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while deleting Conquest deck: {}", error.what());
+            sendDeckCommandResponse(
+                client,
+                MessageType::ConquestDeckDeleteResponse,
+                false,
+                "Database error while deleting Conquest deck");
+        }
+    }
+
+    void handleConquestArmySave(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        conquest_data::ConquestArmy army)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username =
+                account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username)
+            {
+                sendConquestArmyResponse(
+                    client, false, "Authentication required", army);
+                return;
+            }
+
+            if (const std::optional<std::string> error =
+                    account_conquest::saveArmy(*database, *username, army))
+            {
+                sendConquestArmyResponse(client, false, *error, army);
+                return;
+            }
+
+            sendConquestArmyResponse(client, true, "Conquest army saved", army);
+            fmt::println(
+                "Saved Conquest army for user {} ({} decks)",
+                *username,
+                army.deckIds.size());
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while saving Conquest army: {}", error.what());
+            sendConquestArmyResponse(
+                client, false, "Database error while saving Conquest army", army);
+        }
+    }
+
+    void handleConquestEventList(
+        bayou::tls::Socket& client,
+        const std::string& accessToken)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username =
+                account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username)
+            {
+                sendConquestEventListResponse(
+                    client, false, "Authentication required", {});
+                return;
+            }
+            const std::vector<conquest_data::EventSummary> events =
+                account_conquest_events::listEvents(*database, *username);
+            sendConquestEventListResponse(
+                client, true, "Conquest events loaded", events);
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while loading Conquest events: {}", error.what());
+            sendConquestEventListResponse(
+                client, false, "Database error while loading Conquest events", {});
+        }
+    }
+
+    void handleConquestEventState(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        std::uint64_t eventId)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username =
+                account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username)
+            {
+                sendConquestEventStateResponse(
+                    client, false, "Authentication required", {});
+                return;
+            }
+            std::string error;
+            const std::optional<conquest_data::EventState> state =
+                account_conquest_events::loadEventState(
+                    *database, eventId, *username, error);
+            if (!state)
+            {
+                sendConquestEventStateResponse(
+                    client, false,
+                    error.empty() ? "Conquest event could not be loaded" : error,
+                    {});
+                return;
+            }
+            sendConquestEventStateResponse(
+                client, true, "Conquest event loaded", *state);
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while loading Conquest event: {}", error.what());
+            sendConquestEventStateResponse(
+                client, false, "Database error while loading Conquest event", {});
+        }
+    }
+
+    void handleConquestEventWatch(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        std::uint64_t eventId,
+        std::uint64_t knownStateFingerprint)
+    {
+        try
+        {
+            const std::uint64_t observedGeneration =
+                conquestChangeGeneration.load(std::memory_order_acquire);
+            std::string username;
+            conquest_data::EventState state;
+            {
+                std::lock_guard<std::mutex> lock(databaseMutex);
+                const std::optional<std::string> authenticated =
+                    account_tokens::authenticateAccessToken(*database, accessToken);
+                if (!authenticated)
+                {
+                    sendConquestCommandResponse(
+                        client, MessageType::ConquestEventWatchResponse,
+                        false, "Authentication required");
+                    return;
+                }
+                username = *authenticated;
+                std::string error;
+                const std::optional<conquest_data::EventState> loaded =
+                    account_conquest_events::loadEventState(
+                        *database, eventId, username, error);
+                if (!loaded)
+                {
+                    sendConquestCommandResponse(
+                        client, MessageType::ConquestEventWatchResponse,
+                        false,
+                        error.empty() ? "Conquest event could not be watched" : error);
+                    return;
+                }
+                state = *loaded;
+            }
+
+            if (conquest_data::eventStateFingerprint(state) == knownStateFingerprint)
+            {
+                auto wakeAt = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+                const std::int64_t wallNow = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                const std::int64_t eventDeadline =
+                    state.summary.phase == conquest_data::EventPhase::Registration
+                        ? state.summary.registrationEndsAt
+                        : state.summary.turnEndsAt;
+                if (eventDeadline > wallNow)
+                {
+                    wakeAt = std::min(
+                        wakeAt,
+                        std::chrono::steady_clock::now() +
+                            std::chrono::seconds(eventDeadline - wallNow));
+                }
+
+                std::unique_lock<std::mutex> lock(conquestChangeMutex);
+                conquestChanged.wait_until(lock, wakeAt, [&] {
+                    return !running.load() ||
+                        conquestChangeGeneration.load(std::memory_order_acquire) !=
+                            observedGeneration;
+                });
+            }
+
+            sendConquestCommandResponse(
+                client, MessageType::ConquestEventWatchResponse,
+                true, "Conquest event changed");
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while watching Conquest event: {}", error.what());
+            sendConquestCommandResponse(
+                client, MessageType::ConquestEventWatchResponse,
+                false, "Database error while watching Conquest event");
+        }
+    }
+
+    void notifyConquestChanged()
+    {
+        conquestChangeGeneration.fetch_add(1, std::memory_order_release);
+        conquestChanged.notify_all();
+    }
+
+    void handleConquestEventJoin(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        std::uint64_t eventId,
+        const std::vector<conquest_data::StartingPlacement>& placements)
+    {
+        handleAuthenticatedConquestCommand(
+            client,
+            MessageType::ConquestEventJoinResponse,
+            accessToken,
+            [&](const std::string& username) {
+                return account_conquest_events::joinEvent(
+                    *database, eventId, username, placements);
+            });
+    }
+
+    void handleConquestOrdersSubmit(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        std::uint64_t eventId,
+        const std::vector<conquest_data::MoveOrder>& orders)
+    {
+        handleAuthenticatedConquestCommand(
+            client,
+            MessageType::ConquestOrdersSubmitResponse,
+            accessToken,
+            [&](const std::string& username) {
+                return account_conquest_events::submitOrders(
+                    *database, eventId, username, orders);
+            });
+    }
+
+    void handleConquestReinforce(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        std::uint64_t eventId,
+        std::uint64_t eventDeckId,
+        int regionId)
+    {
+        handleAuthenticatedConquestCommand(
+            client,
+            MessageType::ConquestReinforceResponse,
+            accessToken,
+            [&](const std::string& username) {
+                return account_conquest_events::deployReinforcement(
+                    *database, eventId, username, eventDeckId, regionId);
+            });
+    }
+
+    void handleAdminConquestEventStart(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        std::uint64_t eventId)
+    {
+        handleAuthenticatedConquestCommand(
+            client,
+            MessageType::AdminConquestEventStartResponse,
+            accessToken,
+            [&](const std::string& username) {
+                return account_conquest_events::forceStartEvent(
+                    *database, eventId, username);
+            });
+    }
+
+    void handleConquestBattleData(
+        bayou::tls::Socket& client,
+        std::uint64_t battleId,
+        const std::string& accessToken)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username =
+                account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username)
+            {
+                sendConquestBattleDataResponse(
+                    client, false, "Authentication required", 0, {}, {});
+                return;
+            }
+            int playerNumber = 0;
+            std::string capability;
+            std::string error;
+            const std::optional<conquest_data::BattleData> data =
+                account_conquest_events::loadBattleDataForCoordinator(
+                    *database,
+                    battleId,
+                    *username,
+                    playerNumber,
+                    capability,
+                    error);
+            if (!data)
+            {
+                sendConquestBattleDataResponse(
+                    client, false,
+                    error.empty() ? "Conquest battle could not be loaded" : error,
+                    0, {}, {});
+                return;
+            }
+            sendConquestBattleDataResponse(
+                client,
+                true,
+                "Conquest battle loaded",
+                playerNumber,
+                capability,
+                *data);
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while loading Conquest battle: {}", error.what());
+            sendConquestBattleDataResponse(
+                client,
+                false,
+                "Database error while loading Conquest battle",
+                0,
+                {},
+                {});
+        }
+    }
+
+    void handleConquestBattleReload(
+        bayou::tls::Socket& client,
+        std::uint64_t battleId,
+        const std::string& capability)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            std::string error;
+            const std::optional<conquest_data::BattleData> data =
+                account_conquest_events::reloadBattleDataForCoordinator(
+                    *database, battleId, capability, error);
+            if (!data)
+            {
+                sendConquestBattleReloadResponse(
+                    client,
+                    false,
+                    error.empty() ? "Conquest battle could not be reloaded" : error,
+                    {});
+                return;
+            }
+            sendConquestBattleReloadResponse(
+                client, true, "Conquest battle reloaded", *data);
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while reloading Conquest battle: {}", error.what());
+            sendConquestBattleReloadResponse(
+                client, false, "Database error while reloading Conquest battle", {});
+        }
+    }
+
+    void handleConquestBattleAction(
+        bayou::tls::Socket& client,
+        std::uint64_t battleId,
+        const std::string& capability,
+        const conquest_data::BattleAction& action)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const account_conquest_events::CommandResult result =
+                account_conquest_events::appendBattleActionWithCapability(
+                    *database, battleId, capability, action);
+            sendConquestBattleActionResponse(
+                client, result.success, result.message,
+                result.success ? action.sequence : 0);
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while storing Conquest action: {}", error.what());
+            sendConquestBattleActionResponse(
+                client, false, "Database error while storing Conquest action", 0);
+        }
+    }
+
+    void handleSubmitConquestBattleResult(
+        bayou::tls::Socket& client,
+        std::uint64_t battleId,
+        const std::string& capability,
+        int winnerPlayerNumber)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const account_conquest_events::CommandResult result =
+                account_conquest_events::applyBattleResultWithCapability(
+                    *database, battleId, capability, winnerPlayerNumber);
+            sendConquestCommandResponse(
+                client, MessageType::SubmitConquestBattleResultResponse,
+                result.success, result.message);
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while applying Conquest battle result: {}", error.what());
+            sendConquestCommandResponse(
+                client, MessageType::SubmitConquestBattleResultResponse,
+                false, "Database error while applying Conquest battle result");
+        }
+    }
+
+    template <typename Command>
+    void handleAuthenticatedConquestCommand(
+        bayou::tls::Socket& client,
+        MessageType responseType,
+        const std::string& accessToken,
+        Command&& command)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username =
+                account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username)
+            {
+                sendConquestCommandResponse(
+                    client, responseType, false, "Authentication required");
+                return;
+            }
+            const account_conquest_events::CommandResult result = command(*username);
+            sendConquestCommandResponse(
+                client, responseType, result.success, result.message);
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while applying Conquest command: {}", error.what());
+            sendConquestCommandResponse(
+                client, responseType, false, "Database error while applying Conquest command");
         }
     }
 
@@ -1619,6 +2478,164 @@ private:
         sf::Packet response;
         response << static_cast<uint8_t>(responseType);
         response << success << message;
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void sendConquestLoadoutResponse(
+        bayou::tls::Socket& client,
+        bool success,
+        const std::string& message,
+        const std::vector<conquest_data::ConquestDeck>& decks,
+        const conquest_data::ConquestArmy& army)
+    {
+        const bool payloadFits =
+            decks.size() <= conquest_data::MaxSerializedConquestDecks &&
+            army.deckIds.size() <= conquest_data::MaxConquestArmyDecks;
+
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::ConquestLoadoutResponse);
+        response << (success && payloadFits)
+                 << (payloadFits ? message : std::string("Conquest loadout is too large"));
+        const bool wrotePayload = payloadFits &&
+            conquest_data::writeConquestDeckList(response, decks) &&
+            conquest_data::writeConquestArmy(response, army);
+        if (!wrotePayload)
+        {
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::ConquestLoadoutResponse);
+            response << false << std::string("Conquest loadout is too large");
+            [[maybe_unused]] const bool wroteDecks =
+                conquest_data::writeConquestDeckList(response, {});
+            [[maybe_unused]] const bool wroteArmy =
+                conquest_data::writeConquestArmy(response, {});
+        }
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void sendConquestDeckResponse(
+        bayou::tls::Socket& client,
+        bool success,
+        const std::string& message,
+        const conquest_data::ConquestDeck& deck)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::ConquestDeckSaveResponse);
+        response << success << message;
+        if (!conquest_data::writeConquestDeck(response, deck))
+        {
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::ConquestDeckSaveResponse);
+            response << false << std::string("Conquest deck payload is too large");
+            [[maybe_unused]] const bool wroteEmptyDeck =
+                conquest_data::writeConquestDeck(response, {});
+        }
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void sendConquestArmyResponse(
+        bayou::tls::Socket& client,
+        bool success,
+        const std::string& message,
+        const conquest_data::ConquestArmy& army)
+    {
+        const bool payloadFits =
+            army.deckIds.size() <= conquest_data::MaxConquestArmyDecks;
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::ConquestArmySaveResponse);
+        response << (success && payloadFits)
+                 << (payloadFits ? message : std::string("Conquest army is too large"));
+        [[maybe_unused]] const bool wroteArmy = conquest_data::writeConquestArmy(
+            response, payloadFits ? army : conquest_data::ConquestArmy{});
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    static void sendConquestCommandResponse(
+        bayou::tls::Socket& client,
+        MessageType responseType,
+        bool success,
+        const std::string& message)
+    {
+        sf::Packet response;
+        response << static_cast<std::uint8_t>(responseType)
+                 << success << message;
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    static void sendConquestEventListResponse(
+        bayou::tls::Socket& client,
+        bool success,
+        const std::string& message,
+        const std::vector<conquest_data::EventSummary>& events)
+    {
+        const bool payloadFits = events.size() <= conquest_data::MaxConquestEvents;
+        sf::Packet response;
+        response << static_cast<std::uint8_t>(MessageType::ConquestEventListResponse)
+                 << (success && payloadFits)
+                 << (payloadFits ? message : std::string("Too many Conquest events"));
+        const std::uint32_t count = payloadFits
+            ? static_cast<std::uint32_t>(events.size())
+            : 0;
+        response << count;
+        if (payloadFits)
+        {
+            for (const conquest_data::EventSummary& event : events)
+            {
+                conquest_data::writeEventSummary(response, event);
+            }
+        }
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    static void sendConquestEventStateResponse(
+        bayou::tls::Socket& client,
+        bool success,
+        const std::string& message,
+        const conquest_data::EventState& state)
+    {
+        sf::Packet response;
+        response << static_cast<std::uint8_t>(MessageType::ConquestEventStateResponse)
+                 << success << message;
+        conquest_data::writeEventState(response, state);
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    static void sendConquestBattleDataResponse(
+        bayou::tls::Socket& client,
+        bool success,
+        const std::string& message,
+        int playerNumber,
+        const std::string& capability,
+        const conquest_data::BattleData& data)
+    {
+        sf::Packet response;
+        response << static_cast<std::uint8_t>(MessageType::ConquestBattleDataResponse)
+                 << success << message << playerNumber << capability;
+        conquest_data::writeBattleData(response, data);
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    static void sendConquestBattleReloadResponse(
+        bayou::tls::Socket& client,
+        bool success,
+        const std::string& message,
+        const conquest_data::BattleData& data)
+    {
+        sf::Packet response;
+        response << static_cast<std::uint8_t>(MessageType::ConquestBattleReloadResponse)
+                 << success << message;
+        conquest_data::writeBattleData(response, data);
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    static void sendConquestBattleActionResponse(
+        bayou::tls::Socket& client,
+        bool success,
+        const std::string& message,
+        std::uint32_t acceptedSequence)
+    {
+        sf::Packet response;
+        response << static_cast<std::uint8_t>(MessageType::ConquestBattleActionResponse)
+                 << success << message << acceptedSequence;
         [[maybe_unused]] auto result = client.send(response);
     }
 

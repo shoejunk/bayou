@@ -4,6 +4,7 @@
 
 #include "ai_deck.hpp"
 #include "ai_player.hpp"
+#include "conquest_battle_manager.hpp"
 #include "game_engine.hpp"
 
 #include <algorithm>
@@ -16,6 +17,7 @@
 #include <filesystem>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -342,6 +344,31 @@ bool spawnGameProcess(
 #endif
 }
 
+std::vector<card_data::Card> loadCoordinatorCardCatalog(
+    const card_source_config::Config& config)
+{
+    try
+    {
+        std::string error;
+        std::vector<card_data::Card> cards = card_server_client::load(config, error);
+        if (!error.empty())
+        {
+            fmt::println("Conquest battle catalog fallback is unavailable: {}", error);
+            return {};
+        }
+        fmt::println("Loaded {} authoritative cards for Conquest battle fallback", cards.size());
+        return cards;
+    }
+    catch (const std::exception& error)
+    {
+        // New battle records carry their own frozen catalog. Failing this
+        // legacy fallback must not prevent the ranked coordinator from
+        // starting or a frozen Conquest battle from resuming.
+        fmt::println("Conquest battle catalog fallback is unavailable: {}", error.what());
+        return {};
+    }
+}
+
 }
 
 // ---------------------------------------------------------------------------
@@ -350,8 +377,12 @@ bool spawnGameProcess(
 class GameServerCoordinator
 {
 public:
-    GameServerCoordinator(unsigned short port, std::filesystem::path configPath)
+    GameServerCoordinator(
+        unsigned short port,
+        std::filesystem::path configPath,
+        const card_source_config::Config& cardSourceConfig)
         : configPath(std::move(configPath)),
+          conquestBattles(loadCoordinatorCardCatalog(cardSourceConfig)),
           listener(std::make_unique<bayou::tls::Listener>())
     {
         if (!listener_retry::listenWithRetry(*listener, port))
@@ -381,34 +412,69 @@ public:
             auto client = std::make_unique<bayou::tls::Socket>();
             if (listener->accept(*client) == sf::Socket::Status::Done)
             {
-                handleClient(*client);
+                // Conquest clients keep their coordinator socket for the
+                // duration of an asynchronous battle. Initial request parsing
+                // therefore runs off the accept loop for every request, so a
+                // slow join cannot delay ranked session creation.
+                std::thread(
+                    &GameServerCoordinator::handleClient,
+                    this,
+                    std::move(client)).detach();
             }
         }
     }
 
 private:
     std::filesystem::path configPath;
+    ConquestBattleManager conquestBattles;
     std::unique_ptr<bayou::tls::Listener> listener;
     std::atomic<bool> running{false};
+    std::mutex gamePortMutex;
     bool listening = false;
     unsigned short nextGamePort = FirstGamePort;
 
-    void handleClient(bayou::tls::Socket& client)
+    void handleClient(std::unique_ptr<bayou::tls::Socket> client)
     {
+        if (!client)
+        {
+            return;
+        }
         sf::Packet packet;
-        if (socket_timeout::receivePacket(client, packet, InitialRequestTimeout) != sf::Socket::Status::Done)
+        if (socket_timeout::receivePacket(*client, packet, InitialRequestTimeout) != sf::Socket::Status::Done)
         {
             return;
         }
 
         uint8_t msgType = 0;
+        packet >> msgType;
+        if (!packet)
+        {
+            return;
+        }
+        const MessageType type = static_cast<MessageType>(msgType);
+        if (type == MessageType::JoinConquestBattle)
+        {
+            std::uint64_t battleId = 0;
+            std::string accessToken;
+            packet >> battleId >> accessToken;
+            if (!packet)
+            {
+                battleId = 0;
+                accessToken.clear();
+            }
+            conquestBattles.handleClient(
+                std::move(client),
+                battleId,
+                std::move(accessToken));
+            return;
+        }
+
         int matchId = 0;
         std::string playerOne;
         std::string playerTwo;
         std::string resultToken;
         std::string playerOneToken;
-        packet >> msgType >> matchId;
-        const MessageType type = static_cast<MessageType>(msgType);
+        packet >> matchId;
         if (type == MessageType::CreateGameSession)
         {
             packet >> playerOne >> playerTwo >> resultToken;
@@ -433,10 +499,14 @@ private:
         // never overflows into port 0 or the well-known service ports. A
         // recycled port that is still held by a running match simply fails to
         // listen in the child process, like any other in-use port.
-        const unsigned short port = nextGamePort;
-        nextGamePort = port >= LastGamePort
-            ? FirstGamePort
-            : static_cast<unsigned short>(port + 1);
+        unsigned short port = 0;
+        {
+            std::lock_guard<std::mutex> lock(gamePortMutex);
+            port = nextGamePort;
+            nextGamePort = port >= LastGamePort
+                ? FirstGamePort
+                : static_cast<unsigned short>(port + 1);
+        }
         const bool started = spawnGameProcess(
             matchId,
             port,
@@ -453,7 +523,7 @@ private:
         response << matchId;
         response << (started ? port : static_cast<unsigned short>(0));
         response << std::string(started ? "Game session created" : "Failed to create game session");
-        [[maybe_unused]] auto result = client.send(response);
+        [[maybe_unused]] auto result = client->send(response);
 
         if (started)
         {
@@ -1106,7 +1176,7 @@ int main(int argc, char* argv[])
 
     fmt::println("Starting Game Server Coordinator...");
 
-    GameServerCoordinator coordinator(GameServerPort, configPath);
+    GameServerCoordinator coordinator(GameServerPort, configPath, *config);
     if (!coordinator.isListening())
     {
         return 1;

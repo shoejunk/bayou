@@ -1457,13 +1457,15 @@
 
             drawSeparatorRule(window, {310.0f, 248.0f}, 180.0f);
 
-            const std::string ratingText = gameResultReceived && gameResultSuccess
-                ? "Rating " +
-                    std::string(gameRatingChange >= 0 ? "+" : "") +
-                    std::to_string(gameRatingChange)
-                : (gameResultReceived
-                    ? "Rating update unavailable"
-                    : "Rating update pending...");
+            const std::string ratingText = conquestBattleMode
+                ? "Conquest battle result recorded"
+                : (gameResultReceived && gameResultSuccess
+                    ? "Rating " +
+                        std::string(gameRatingChange >= 0 ? "+" : "") +
+                        std::to_string(gameRatingChange)
+                    : (gameResultReceived
+                        ? "Rating update unavailable"
+                        : "Rating update pending..."));
             sf::Text ratingLine(font, elideToWidth(font, ratingText, 18, panelSize.x - 40.0f), 18);
             ratingLine.setFillColor(sf::Color(151, 192, 255));
             centerText(ratingLine, {400.0f, 278.0f});
@@ -1478,7 +1480,10 @@
                 window.draw(rewardLine);
             }
 
-            sf::Text hintLine(font, "Press Leave to return.", 13);
+            sf::Text hintLine(
+                font,
+                conquestBattleMode ? "Press Map to return to the campaign." : "Press Leave to return.",
+                13);
             hintLine.setFillColor(sf::Color(172, 178, 190));
             centerText(hintLine, {400.0f, 352.0f});
             window.draw(hintLine);

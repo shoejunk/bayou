@@ -2,6 +2,7 @@
 
 #include <SFML/Network.hpp>
 
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -24,6 +25,12 @@ public:
 
     sf::Socket::Status connect(const sf::IpAddress& address, unsigned short port);
     sf::Socket::Status send(const sf::Packet& packet);
+    // Bounded sends are used by long-lived asynchronous sessions so a peer
+    // that stops reading cannot pin the owning worker forever. A timed-out
+    // partial TLS frame disconnects the socket before returning NotReady.
+    sf::Socket::Status send(
+        const sf::Packet& packet,
+        std::chrono::milliseconds timeout);
     sf::Socket::Status receive(sf::Packet& packet);
 
     void disconnect();

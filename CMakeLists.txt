@@ -115,6 +115,8 @@ if(BAYOU_BUILD_CLIENTS)
                 src/client/button.cppm
                 src/client/client_controls.cppm
                 src/client/client_services.cppm
+                src/client/conquest_services.cppm
+                src/client/conquest_screen.cppm
                 src/client/card_editor_screen.cppm
     )
 
@@ -144,6 +146,8 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
         PUBLIC
             src/accounts/main.cpp
             src/accounts/account_catalog.cpp
+            src/accounts/account_conquest.cpp
+            src/accounts/account_conquest_events.cpp
             src/accounts/account_decks.cpp
             src/accounts/account_rate_limiter.cpp
             src/accounts/account_security.cpp
@@ -155,6 +159,18 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
 
     target_link_libraries(accounts PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network sodium bayou_transport)
     install(TARGETS accounts RUNTIME DESTINATION bin)
+
+    # Deterministic Conquest persistence and strategy-rule test suite.
+    add_executable(conquesttest
+        src/conquesttest/main.cpp
+        src/accounts/account_catalog.cpp
+        src/accounts/account_conquest.cpp
+        src/accounts/account_conquest_events.cpp
+        src/accounts/account_decks.cpp
+    )
+    target_link_libraries(
+        conquesttest
+        PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network sodium)
 endif()
 
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_MATCHMAKING)
@@ -179,6 +195,7 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
             src/gameserver/main.cpp
             src/gameserver/ai_deck.cpp
             src/gameserver/ai_player.cpp
+            src/gameserver/conquest_battle_manager.cpp
             src/accounts/account_catalog.cpp
             src/accounts/account_decks.cpp
             src/shared/card_database.cpp
