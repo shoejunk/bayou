@@ -1018,6 +1018,7 @@ int main(int argc, char** argv)
     std::string activeDeckOriginalName;
     int playerCoins = 0;
     int playerRating = 0;
+    ranking::League playerLeague = ranking::League::Wood;
     bool loggedInIsAdmin = false;
     std::string adminSearchQuery;
     std::uint32_t adminUsersPage = 0;
@@ -1445,6 +1446,7 @@ int main(int argc, char** argv)
     auto applyAccountState = [&](const AccountStateResult& result) {
         playerCoins = result.coins;
         playerRating = result.rating;
+        playerLeague = result.league;
         loggedInIsAdmin = result.isAdmin;
         playerCollection = result.collection;
     };
@@ -1671,6 +1673,7 @@ int main(int argc, char** argv)
         activeDeckOriginalName.clear();
         playerCoins = 0;
         playerRating = 0;
+        playerLeague = ranking::League::Wood;
         loggedInIsAdmin = false;
         adminUsers.clear();
         adminSearchQuery.clear();
@@ -7244,8 +7247,16 @@ int main(int argc, char** argv)
             drawTitlePlaque(window, font, "Gloomthorn", {400.0f, 64.0f}, {360.0f, 70.0f});
             drawText(window, font, signedInLabel(), 18, {24.0f, 20.0f}, sf::Color(246, 238, 218), 240.0f);
             drawText(window, font, "Rating: " + std::to_string(playerRating), 16, {24.0f, 48.0f}, sf::Color(151, 192, 255), 180.0f);
-            drawCoinIcon({24.0f, 76.0f}, 13.0f);
-            drawText(window, font, std::to_string(playerCoins), 18, {58.0f, 75.0f}, sf::Color(248, 239, 216), 120.0f);
+            drawText(
+                window,
+                font,
+                "League: " + std::string(ranking::leagueName(playerLeague)),
+                16,
+                {24.0f, 76.0f},
+                sf::Color(192, 164, 120),
+                180.0f);
+            drawCoinIcon({24.0f, 104.0f}, 13.0f);
+            drawText(window, font, std::to_string(playerCoins), 18, {58.0f, 103.0f}, sf::Color(248, 239, 216), 120.0f);
             storyButton.draw(window);
             playButton.draw(window);
             conquestButton.draw(window);

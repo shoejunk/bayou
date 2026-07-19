@@ -107,6 +107,7 @@ void initializeBaseSchema(SQLite::Database& database)
         "CREATE TABLE accounts ("
         "username TEXT PRIMARY KEY NOT NULL,"
         "password_hash TEXT NOT NULL DEFAULT '',"
+        "coins INTEGER NOT NULL DEFAULT 0,"
         "is_admin INTEGER NOT NULL DEFAULT 0,"
         "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"
         ")");
@@ -200,13 +201,15 @@ public:
     void addAccount(
         const std::string& username,
         int copiesPerCard = 30,
-        bool isAdmin = false)
+        bool isAdmin = false,
+        int coins = 100)
     {
         SQLite::Statement account(
             database,
-            "INSERT INTO accounts (username, password_hash, is_admin) VALUES (?, '', ?)");
+            "INSERT INTO accounts (username, password_hash, coins, is_admin) VALUES (?, '', ?, ?)");
         account.bind(1, username);
-        account.bind(2, isAdmin ? 1 : 0);
+        account.bind(2, coins);
+        account.bind(3, isAdmin ? 1 : 0);
         account.exec();
 
         SQLite::Statement collection(
@@ -220,6 +223,26 @@ public:
             collection.bind(3, copiesPerCard);
             collection.exec();
         }
+    }
+
+    int coins(const std::string& username)
+    {
+        SQLite::Statement query(
+            database,
+            "SELECT coins FROM accounts WHERE username = ?");
+        query.bind(1, username);
+        require(query.executeStep(), "account coin balance was not found");
+        return query.getColumn(0).getInt();
+    }
+
+    void setCoins(const std::string& username, int value)
+    {
+        SQLite::Statement update(
+            database,
+            "UPDATE accounts SET coins = ? WHERE username = ?");
+        update.bind(1, value);
+        update.bind(2, username);
+        require(update.exec() == 1, "account coin balance could not be updated");
     }
 
     void setCopies(const std::string& username, const std::string& title, int copies)
@@ -594,6 +617,62 @@ void testRegistrationAndActiveDeckLock()
         "rejected third entrant changed the participant set");
 }
 
+void testConquestEntryFee()
+{
+    Fixture fixture;
+    fixture.addAccount("alpha", 30, false, 10);
+    const ConquestDeck alpha =
+        fixture.saveDeck("alpha", "Alpha", fixture.standardDeckTitles());
+    fixture.saveArmy("alpha", {alpha.id});
+
+    const account_conquest_events::CommandResult invalidPlacement =
+        account_conquest_events::joinEvent(
+            fixture.database,
+            fixture.eventId,
+            "alpha",
+            {{static_cast<std::uint64_t>(alpha.id), 5}},
+            1'100);
+    require(!invalidPlacement.success, "invalid Conquest placement unexpectedly joined");
+    require(fixture.coins("alpha") == 10, "failed join charged the Conquest entry fee");
+
+    fixture.setCoins("alpha", conquest_data::ConquestEntryFeeCoins - 1);
+    const account_conquest_events::CommandResult insufficientCoins =
+        account_conquest_events::joinEvent(
+            fixture.database,
+            fixture.eventId,
+            "alpha",
+            {{static_cast<std::uint64_t>(alpha.id), 1}},
+            1'100);
+    require(
+        !insufficientCoins.success &&
+            insufficientCoins.message.find("5 coins") != std::string::npos,
+        "underfunded Conquest join was not rejected with the entry fee");
+    require(
+        fixture.coins("alpha") == conquest_data::ConquestEntryFeeCoins - 1,
+        "underfunded Conquest join changed the coin balance");
+
+    fixture.setCoins("alpha", conquest_data::ConquestEntryFeeCoins);
+    requireCommand(
+        account_conquest_events::joinEvent(
+            fixture.database,
+            fixture.eventId,
+            "alpha",
+            {{static_cast<std::uint64_t>(alpha.id), 1}},
+            1'100),
+        "funded Conquest join");
+    require(fixture.coins("alpha") == 0, "successful Conquest join did not charge five coins");
+
+    const account_conquest_events::CommandResult duplicate =
+        account_conquest_events::joinEvent(
+            fixture.database,
+            fixture.eventId,
+            "alpha",
+            {{static_cast<std::uint64_t>(alpha.id), 1}},
+            1'100);
+    require(!duplicate.success, "duplicate Conquest join unexpectedly succeeded");
+    require(fixture.coins("alpha") == 0, "duplicate Conquest join charged another entry fee");
+}
+
 void testAdminForcedStart()
 {
     Fixture fixture;
@@ -952,12 +1031,18 @@ void testFrozenBattleDataActionsAndResult()
         "idempotent battle result retry");
     const EventState advanced = fixture.state("alpha", 2'102);
     require(
-        advanced.summary.phase == EventPhase::Planning && advanced.summary.turn == 2,
-        "completed battle did not advance to the next planning turn");
+        advanced.summary.phase == EventPhase::Complete && advanced.summary.winner == "alpha",
+        "last standing battle winner did not win the conquest");
     const EventDeckState& alphaDeck = findDeck(advanced, "alpha", 0);
     const EventDeckState& bravoDeck = findDeck(advanced, "bravo", 0);
     require(alphaDeck.deployed && alphaDeck.regionId == 5, "winning deck did not complete its move");
     require(bravoDeck.eliminated && !bravoDeck.deployed, "losing deck was not eliminated");
+    const auto bravoPlayer = std::find_if(
+        advanced.players.begin(),
+        advanced.players.end(),
+        [](const conquest_data::PlayerState& player) { return player.username == "bravo"; });
+    require(bravoPlayer != advanced.players.end() && bravoPlayer->eliminated,
+        "player with no surviving map decks was not eliminated from the conquest");
 }
 
 void testReinforcementRules()
@@ -1177,22 +1262,20 @@ void testZeroActiveEventTerminalStates()
         requireCommand(
             account_conquest_events::resolveEvent(
                 fixture.database, fixture.eventId, deadline),
-            "resolving cooldown-pending zero-active event");
+            "resolving zero-active event with reserves");
         const EventState keptAlive = fixture.state("alpha", deadline + 1);
         require(
-            keptAlive.summary.phase == EventPhase::Planning && keptAlive.summary.turn == 2,
-            "earned cooldown-pending reserve did not keep zero-active event alive");
+            keptAlive.summary.phase == EventPhase::Complete,
+            "reserves kept players alive after all of their map decks were defeated");
         const auto alphaPlayer = std::find_if(
             keptAlive.players.begin(),
             keptAlive.players.end(),
             [](const conquest_data::PlayerState& player) { return player.username == "alpha"; });
         require(alphaPlayer != keptAlive.players.end(), "alpha state missing in viable event");
-        require(alphaPlayer->reinforcementsAvailable == 1,
-            "earned zero-active reinforcement entitlement was not preserved");
-        require(alphaPlayer->nextReinforcementAt > deadline,
-            "viability fixture does not actually have a future cooldown");
+        require(alphaPlayer->eliminated && alphaPlayer->reinforcementsAvailable == 0,
+            "defeated player retained Conquest eligibility or reinforcements");
         const std::uint64_t reserveId = findDeck(keptAlive, "alpha", 1).id;
-        const account_conquest_events::CommandResult tooEarly =
+        const account_conquest_events::CommandResult redeploy =
             account_conquest_events::deployReinforcement(
                 fixture.database,
                 fixture.eventId,
@@ -1200,11 +1283,116 @@ void testZeroActiveEventTerminalStates()
                 reserveId,
                 1,
                 deadline + 1);
-        require(!tooEarly.success && tooEarly.message.find("cooldown") != std::string::npos,
-            "cooldown-pending reserve deployed early");
-        require(fixture.state("alpha", deadline + 2).summary.phase == EventPhase::Planning,
-            "failed early deployment completed the viable event");
+        require(!redeploy.success,
+            "defeated player redeployed a reserve after losing the conquest");
     }
+}
+
+void testPlayerEliminationAndLastStandingVictory()
+{
+    Fixture fixture;
+    fixture.addAccount("alpha");
+    fixture.addAccount("bravo");
+    fixture.addAccount("charlie");
+    const ConquestDeck alpha =
+        fixture.saveDeck("alpha", "Alpha Active", fixture.standardDeckTitles());
+    const ConquestDeck bravo =
+        fixture.saveDeck("bravo", "Bravo Active", fixture.standardDeckTitles());
+    const ConquestDeck bravoReserve =
+        fixture.saveDeck("bravo", "Bravo Reserve", fixture.standardDeckTitles());
+    const ConquestDeck charlie =
+        fixture.saveDeck("charlie", "Charlie Active", fixture.standardDeckTitles());
+    fixture.saveArmy("alpha", {alpha.id});
+    fixture.saveArmy("bravo", {bravo.id, bravoReserve.id});
+    fixture.saveArmy("charlie", {charlie.id});
+    requireCommand(
+        account_conquest_events::joinEvent(
+            fixture.database, fixture.eventId, "alpha",
+            {{static_cast<std::uint64_t>(alpha.id), 1}}, 1'100),
+        "alpha joining elimination fixture");
+    requireCommand(
+        account_conquest_events::joinEvent(
+            fixture.database, fixture.eventId, "bravo",
+            {{static_cast<std::uint64_t>(bravo.id), 2}}, 1'100),
+        "bravo joining elimination fixture");
+    requireCommand(
+        account_conquest_events::joinEvent(
+            fixture.database, fixture.eventId, "charlie",
+            {{static_cast<std::uint64_t>(charlie.id), 18}}, 1'100),
+        "charlie joining elimination fixture");
+    fixture.startEvent();
+
+    const EventState firstTurn = fixture.state("bravo", 2'001);
+    const std::uint64_t bravoReserveId = findDeck(firstTurn, "bravo", 1).id;
+    SQLite::Statement defeatBravo(
+        fixture.database,
+        "UPDATE conquest_event_decks SET deployed = 0, eliminated = 1, region_id = 0, "
+        "destination_region_id = 0 WHERE event_id = ? AND owner = 'bravo' AND deployed = 1");
+    defeatBravo.bind(1, static_cast<std::int64_t>(fixture.eventId));
+    require(defeatBravo.exec() == 1, "could not defeat bravo's last map deck");
+    requireCommand(
+        account_conquest_events::resolveEvent(
+            fixture.database, fixture.eventId, firstTurn.summary.turnEndsAt),
+        "resolving player elimination");
+
+    const EventState afterBravo = fixture.state("bravo", firstTurn.summary.turnEndsAt + 1);
+    require(
+        afterBravo.summary.phase == EventPhase::Planning && afterBravo.summary.winner.empty(),
+        "conquest ended before only one player remained");
+    const auto bravoState = std::find_if(
+        afterBravo.players.begin(), afterBravo.players.end(),
+        [](const conquest_data::PlayerState& player) { return player.username == "bravo"; });
+    require(
+        bravoState != afterBravo.players.end() && bravoState->eliminated &&
+            bravoState->reinforcementsAvailable == 0,
+        "player with no map decks remained eligible for conquest play");
+    const account_conquest_events::CommandResult defeatedOrders =
+        account_conquest_events::submitOrders(
+            fixture.database, fixture.eventId, "bravo", {}, firstTurn.summary.turnEndsAt + 2);
+    require(
+        !defeatedOrders.success && defeatedOrders.message.find("defeated") != std::string::npos,
+        "eliminated player submitted Conquest orders");
+    const account_conquest_events::CommandResult defeatedReinforcement =
+        account_conquest_events::deployReinforcement(
+            fixture.database,
+            fixture.eventId,
+            "bravo",
+            bravoReserveId,
+            2,
+            firstTurn.summary.turnEndsAt + 2);
+    require(
+        !defeatedReinforcement.success &&
+            defeatedReinforcement.message.find("defeated") != std::string::npos,
+        "eliminated player deployed a reserve");
+
+    SQLite::Statement defeatCharlie(
+        fixture.database,
+        "UPDATE conquest_event_decks SET deployed = 0, eliminated = 1, region_id = 0, "
+        "destination_region_id = 0 WHERE event_id = ? AND owner = 'charlie' AND deployed = 1");
+    defeatCharlie.bind(1, static_cast<std::int64_t>(fixture.eventId));
+    require(defeatCharlie.exec() == 1, "could not defeat charlie's last map deck");
+    requireCommand(
+        account_conquest_events::resolveEvent(
+            fixture.database, fixture.eventId, afterBravo.summary.turnEndsAt),
+        "resolving last-standing victory");
+    const EventState complete = fixture.state("alpha", afterBravo.summary.turnEndsAt + 1);
+    require(
+        complete.summary.phase == EventPhase::Complete && complete.summary.winner == "alpha",
+        "last standing player did not win the conquest");
+    require(
+        fixture.coins("alpha") ==
+            100 - conquest_data::ConquestEntryFeeCoins +
+                conquest_data::ConquestWinnerRewardCoins,
+        "Conquest winner did not receive exactly 100 coins");
+    requireCommand(
+        account_conquest_events::resolveEvent(
+            fixture.database, fixture.eventId, afterBravo.summary.turnEndsAt + 2),
+        "re-resolving completed Conquest");
+    require(
+        fixture.coins("alpha") ==
+            100 - conquest_data::ConquestEntryFeeCoins +
+                conquest_data::ConquestWinnerRewardCoins,
+        "completed Conquest paid its winner more than once");
 }
 
 void testRecurringEventLifecycleAndHistory()
@@ -1483,12 +1671,14 @@ int main()
         {"Conquest allocation", testConquestAllocationAndRegularDeckIsolation},
         {"Army rules", testArmyRules},
         {"Registration and event locks", testRegistrationAndActiveDeckLock},
+        {"Conquest entry fee", testConquestEntryFee},
         {"Admin forced start", testAdminForcedStart},
         {"Secret vacate/re-enter orders", testSecretVacateAndReenterOrders},
         {"Region and crossing battles", testCollisionAndCrossingBattles},
         {"Frozen battle replay", testFrozenBattleDataActionsAndResult},
         {"Reinforcement rules", testReinforcementRules},
         {"Zero-active event viability", testZeroActiveEventTerminalStates},
+        {"Player elimination and last standing", testPlayerEliminationAndLastStandingVictory},
         {"Recurring event lifecycle", testRecurringEventLifecycleAndHistory},
         {"Conquest action-limit adjudication", testConquestActionLimitAdjudication},
     };

@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "../shared/card_data.hpp"
+#include "../shared/account_data.hpp"
 #include "../shared/deck_data.hpp"
 #include "../shared/game_data.hpp"
 #include "../shared/ranking.hpp"
@@ -1547,6 +1548,26 @@ int main(int argc, char** argv)
         "self-match produces zero rating change");
     check(selfMatchRewards.winnerCoins == 0,
           "self-match produces zero gold");
+    check(
+        ranking::LeagueNames == std::array<std::string_view, 7>{
+            "Wood", "Bronze", "Silver", "Gold", "Diamond", "Master", "Grandmaster"} &&
+            ranking::leagueFromValue(-1) == ranking::League::Wood &&
+            ranking::leagueFromValue(7) == ranking::League::Wood,
+        "league model exposes all leagues and safely defaults to Wood");
+    account_data::AccountState leagueState;
+    leagueState.coins = 3;
+    leagueState.rating = 42;
+    leagueState.league = ranking::League::Grandmaster;
+    leagueState.collection = {{"Test Card", 2}};
+    sf::Packet leaguePacket;
+    account_data::writeAccountState(leaguePacket, leagueState);
+    account_data::AccountState decodedLeagueState;
+    check(
+        account_data::readAccountState(leaguePacket, decodedLeagueState) &&
+            decodedLeagueState.coins == 3 && decodedLeagueState.rating == 42 &&
+            decodedLeagueState.league == ranking::League::Grandmaster &&
+            decodedLeagueState.collection.size() == 1,
+        "account state preserves league over the network");
     check(ranking::matchmakingRange(std::chrono::seconds(0)) == 10,
           "matchmaking starts at +/- 10");
     check(ranking::matchmakingRange(std::chrono::seconds(30)) == 640,

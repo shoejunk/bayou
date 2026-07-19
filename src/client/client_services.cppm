@@ -65,6 +65,7 @@ struct AccountStateResult
     std::string message;
     int coins = 0;
     int rating = 0;
+    ranking::League league = ranking::League::Wood;
     bool isAdmin = false;
     std::vector<account_data::CollectionCard> collection;
 };
@@ -480,6 +481,7 @@ AccountStateResult fetchAccountState(const std::string& accessToken)
         message,
         accountState.coins,
         accountState.rating,
+        accountState.league,
         accountState.isAdmin,
         std::move(accountState.collection)};
 }

@@ -49,6 +49,22 @@ std::int64_t effectiveNow(std::int64_t now)
         std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
+bool tableHasColumn(
+    SQLite::Database& database,
+    const std::string& table,
+    const std::string& column)
+{
+    SQLite::Statement columns(database, "PRAGMA table_info(" + table + ")");
+    while (columns.executeStep())
+    {
+        if (columns.getColumn(1).getString() == column)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool validDatabaseId(std::uint64_t id)
 {
     return id != 0 && id <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
@@ -219,6 +235,7 @@ struct EventRow
     std::int64_t registrationSeconds = DefaultRegistrationSeconds;
     std::int64_t turnSeconds = DefaultTurnSeconds;
     std::int64_t reinforcementCooldownSeconds = DefaultReinforcementCooldownSeconds;
+    std::string winner;
 };
 
 struct StoredDeck
@@ -431,7 +448,7 @@ std::optional<EventRow> loadEventRow(SQLite::Database& database, std::int64_t ev
     SQLite::Statement query(
         database,
         "SELECT id, name, map_id, phase, turn, registration_ends_at, turn_ends_at, "
-        "registration_seconds, turn_seconds, reinforcement_cooldown_seconds "
+        "registration_seconds, turn_seconds, reinforcement_cooldown_seconds, winner "
         "FROM conquest_events WHERE id = ?");
     query.bind(1, eventId);
     if (!query.executeStep())
@@ -456,6 +473,7 @@ std::optional<EventRow> loadEventRow(SQLite::Database& database, std::int64_t ev
     event.registrationSeconds = query.getColumn(7).getInt64();
     event.turnSeconds = query.getColumn(8).getInt64();
     event.reinforcementCooldownSeconds = query.getColumn(9).getInt64();
+    event.winner = query.getColumn(10).getString();
     return event;
 }
 
@@ -507,6 +525,63 @@ bool participantExists(SQLite::Database& database, std::int64_t eventId, const s
     return query.executeStep();
 }
 
+bool playerEliminated(SQLite::Database& database, std::int64_t eventId, const std::string& username)
+{
+    SQLite::Statement query(
+        database,
+        "SELECT eliminated FROM conquest_event_players WHERE event_id = ? AND username = ?");
+    query.bind(1, eventId);
+    query.bind(2, username);
+    return query.executeStep() && query.getColumn(0).getInt() != 0;
+}
+
+std::vector<std::string> standingPlayers(SQLite::Database& database, std::int64_t eventId)
+{
+    std::vector<std::string> players;
+    SQLite::Statement query(
+        database,
+        "SELECT username FROM conquest_event_players "
+        "WHERE event_id = ? AND eliminated = 0 ORDER BY color_index");
+    query.bind(1, eventId);
+    while (query.executeStep())
+    {
+        players.push_back(query.getColumn(0).getString());
+    }
+    return players;
+}
+
+void eliminatePlayerIfDefeated(
+    SQLite::Database& database,
+    std::int64_t eventId,
+    const std::string& username)
+{
+    SQLite::Statement eliminate(
+        database,
+        "UPDATE conquest_event_players SET eliminated = 1, orders_submitted = 1 "
+        "WHERE event_id = ? AND username = ? AND NOT EXISTS ("
+        "SELECT 1 FROM conquest_event_decks active "
+        "WHERE active.event_id = conquest_event_players.event_id "
+        "AND active.owner = conquest_event_players.username "
+        "AND active.deployed = 1 AND active.eliminated = 0)");
+    eliminate.bind(1, eventId);
+    eliminate.bind(2, username);
+    eliminate.exec();
+}
+
+void eliminateDefeatedPlayers(SQLite::Database& database, std::int64_t eventId)
+{
+    SQLite::Statement eliminate(
+        database,
+        "UPDATE conquest_event_players SET eliminated = 1, orders_submitted = 1 "
+        "WHERE event_id = ? AND eliminated = 0 AND NOT EXISTS ("
+        "SELECT 1 FROM conquest_event_decks active "
+        "WHERE active.event_id = conquest_event_players.event_id "
+        "AND active.owner = conquest_event_players.username "
+        "AND active.deployed = 1 AND active.eliminated = 0)");
+    eliminate.bind(1, eventId);
+    eliminate.exec();
+}
+
 int participantCount(SQLite::Database& database, std::int64_t eventId)
 {
     SQLite::Statement query(
@@ -524,7 +599,7 @@ bool planningReady(SQLite::Database& database, const EventRow& event, std::int64
         return true;
     }
 
-    if (participantCount(database, event.id) == 0)
+    if (standingPlayers(database, event.id).empty())
     {
         return false;
     }
@@ -532,29 +607,11 @@ bool planningReady(SQLite::Database& database, const EventRow& event, std::int64
     SQLite::Statement missing(
         database,
         "SELECT COUNT(*) FROM conquest_event_players p "
-        "WHERE p.event_id = ? AND p.orders_submitted = 0 AND ("
+        "WHERE p.event_id = ? AND p.eliminated = 0 AND p.orders_submitted = 0 AND "
         "  EXISTS (SELECT 1 FROM conquest_event_decks active "
         "          WHERE active.event_id = p.event_id AND active.owner = p.username "
-        "            AND active.deployed = 1 AND active.eliminated = 0) "
-        "  OR ("
-        "    EXISTS (SELECT 1 FROM conquest_event_decks reserve "
-        "            WHERE reserve.event_id = p.event_id AND reserve.owner = p.username "
-        "              AND reserve.deployed = 0 AND reserve.eliminated = 0) "
-        "    AND ((SELECT COUNT(*) FROM conquest_regions controlled "
-        "          WHERE controlled.event_id = p.event_id AND controlled.controller = p.username) / 4) "
-        "        > p.reinforcements_used "
-        "    AND p.next_reinforcement_at <= ? "
-        "    AND EXISTS (SELECT 1 FROM conquest_regions edge "
-        "                WHERE edge.event_id = p.event_id AND edge.controller = p.username "
-        "                  AND edge.region_id IN (1,2,3,8,13,18,20,19,14,9,4) "
-        "                  AND NOT EXISTS (SELECT 1 FROM conquest_event_decks occupant "
-        "                                  WHERE occupant.event_id = edge.event_id "
-        "                                    AND occupant.deployed = 1 AND occupant.eliminated = 0 "
-        "                                    AND occupant.region_id = edge.region_id))"
-        "  )"
-        ")");
+        "            AND active.deployed = 1 AND active.eliminated = 0)");
     missing.bind(1, event.id);
-    missing.bind(2, event.turnEndsAt);
     missing.executeStep();
     return missing.getColumn(0).getInt() == 0;
 }
@@ -724,61 +781,37 @@ bool hasPendingBattles(SQLite::Database& database, std::int64_t eventId, int tur
     return query.executeStep();
 }
 
-bool mapFullyControlledByOnePlayer(SQLite::Database& database, std::int64_t eventId)
-{
-    SQLite::Statement query(
-        database,
-        "SELECT COUNT(*), COUNT(DISTINCT controller) FROM conquest_regions "
-        "WHERE event_id = ? AND controller <> ''");
-    query.bind(1, eventId);
-    query.executeStep();
-    return query.getColumn(0).getInt() == static_cast<int>(conquest_map::DarkRealmsRegions.size()) &&
-        query.getColumn(1).getInt() == 1;
-}
-
-bool eventCanStillAdvance(SQLite::Database& database, std::int64_t eventId)
-{
-    SQLite::Statement active(
-        database,
-        "SELECT 1 FROM conquest_event_decks "
-        "WHERE event_id = ? AND deployed = 1 AND eliminated = 0 LIMIT 1");
-    active.bind(1, eventId);
-    if (active.executeStep())
-    {
-        return true;
-    }
-
-    // With no deployed deck, control cannot change. The event remains viable
-    // only if somebody will eventually be able to deploy a saved reserve;
-    // cooldown time may still be in the future, but entitlement and an entry
-    // edge must already exist.
-    SQLite::Statement reinforcement(
-        database,
-        "SELECT 1 FROM conquest_event_players p "
-        "WHERE p.event_id = ? "
-        "AND EXISTS (SELECT 1 FROM conquest_event_decks reserve "
-        "            WHERE reserve.event_id = p.event_id AND reserve.owner = p.username "
-        "              AND reserve.deployed = 0 AND reserve.eliminated = 0) "
-        "AND ((SELECT COUNT(*) FROM conquest_regions controlled "
-        "      WHERE controlled.event_id = p.event_id AND controlled.controller = p.username) / 4) "
-        "    > p.reinforcements_used "
-        "AND EXISTS (SELECT 1 FROM conquest_regions edge "
-        "            WHERE edge.event_id = p.event_id AND edge.controller = p.username "
-        "              AND edge.region_id IN (1,2,3,8,13,18,20,19,14,9,4)) "
-        "LIMIT 1");
-    reinforcement.bind(1, eventId);
-    return reinforcement.executeStep();
-}
-
-void completeEvent(SQLite::Database& database, std::int64_t eventId, std::int64_t now)
+void completeEvent(
+    SQLite::Database& database,
+    std::int64_t eventId,
+    std::int64_t now,
+    const std::string& winner)
 {
     SQLite::Statement complete(
         database,
-        "UPDATE conquest_events SET phase = ?, turn_ends_at = 0, updated_at = ? WHERE id = ?");
+        "UPDATE conquest_events SET phase = ?, turn_ends_at = 0, updated_at = ?, winner = ? "
+        "WHERE id = ? AND phase <> ?");
     complete.bind(1, phaseValue(EventPhase::Complete));
     complete.bind(2, now);
-    complete.bind(3, eventId);
-    complete.exec();
+    complete.bind(3, winner);
+    complete.bind(4, eventId);
+    complete.bind(5, phaseValue(EventPhase::Complete));
+    if (complete.exec() != 1)
+    {
+        return;
+    }
+    if (!winner.empty())
+    {
+        SQLite::Statement award(
+            database,
+            "UPDATE accounts SET coins = coins + ? WHERE username = ?");
+        award.bind(1, conquest_data::ConquestWinnerRewardCoins);
+        award.bind(2, winner);
+        if (award.exec() != 1)
+        {
+            throw std::runtime_error("Conquest winner account is missing");
+        }
+    }
     ensureDefaultSuccessorInTransaction(database, eventId, now);
 }
 
@@ -790,17 +823,13 @@ void finalizeTurnIfReady(SQLite::Database& database, const EventRow& event, std:
     }
 
     settleDecksWithoutPendingBattles(database, event.id, event.turn);
-    if (mapFullyControlledByOnePlayer(database, event.id))
+    eliminateDefeatedPlayers(database, event.id);
+    const std::vector<std::string> standing = standingPlayers(database, event.id);
+    if (standing.size() <= 1)
     {
-        completeEvent(database, event.id, now);
+        completeEvent(database, event.id, now, standing.empty() ? std::string{} : standing.front());
         return;
     }
-    if (!eventCanStillAdvance(database, event.id))
-    {
-        completeEvent(database, event.id, now);
-        return;
-    }
-
     SQLite::Statement nextTurn(
         database,
         "UPDATE conquest_events SET phase = ?, turn = turn + 1, turn_ends_at = ?, updated_at = ? "
@@ -1054,6 +1083,7 @@ void initializeSchema(SQLite::Database& database, std::int64_t now)
         "registration_seconds INTEGER NOT NULL,"
         "turn_seconds INTEGER NOT NULL,"
         "reinforcement_cooldown_seconds INTEGER NOT NULL,"
+        "winner TEXT NOT NULL DEFAULT '',"
         "created_at INTEGER NOT NULL,"
         "updated_at INTEGER NOT NULL"
         ")");
@@ -1065,12 +1095,23 @@ void initializeSchema(SQLite::Database& database, std::int64_t now)
         "orders_submitted INTEGER NOT NULL DEFAULT 0 CHECK(orders_submitted IN (0, 1)),"
         "reinforcements_used INTEGER NOT NULL DEFAULT 0,"
         "next_reinforcement_at INTEGER NOT NULL DEFAULT 0,"
+        "eliminated INTEGER NOT NULL DEFAULT 0 CHECK(eliminated IN (0, 1)),"
         "joined_at INTEGER NOT NULL,"
         "PRIMARY KEY(event_id, username),"
         "UNIQUE(event_id, color_index),"
         "FOREIGN KEY(event_id) REFERENCES conquest_events(id) ON DELETE CASCADE,"
         "FOREIGN KEY(username) REFERENCES accounts(username) ON DELETE CASCADE"
         ")");
+    if (!tableHasColumn(database, "conquest_events", "winner"))
+    {
+        database.exec("ALTER TABLE conquest_events ADD COLUMN winner TEXT NOT NULL DEFAULT ''");
+    }
+    if (!tableHasColumn(database, "conquest_event_players", "eliminated"))
+    {
+        database.exec(
+            "ALTER TABLE conquest_event_players ADD COLUMN eliminated INTEGER NOT NULL DEFAULT 0 "
+            "CHECK(eliminated IN (0, 1))");
+    }
     database.exec(
         "CREATE TABLE IF NOT EXISTS conquest_regions ("
         "event_id INTEGER NOT NULL,"
@@ -1174,6 +1215,17 @@ void initializeSchema(SQLite::Database& database, std::int64_t now)
         "WHERE event_id = OLD.event_id AND controller = OLD.username; "
         "END");
 
+    // Older campaigns allowed a player with no deployed decks to wait for a
+    // reserve. Under elimination rules, reaching zero decks on the map is
+    // terminal for that player, including campaigns upgraded in place.
+    database.exec(
+        "UPDATE conquest_event_players SET eliminated = 1, orders_submitted = 1 "
+        "WHERE event_id IN (SELECT id FROM conquest_events WHERE phase IN (1, 2)) "
+        "AND NOT EXISTS (SELECT 1 FROM conquest_event_decks active "
+        "WHERE active.event_id = conquest_event_players.event_id "
+        "AND active.owner = conquest_event_players.username "
+        "AND active.deployed = 1 AND active.eliminated = 0)");
+
     SQLite::Transaction transaction(database, SQLite::TransactionBehavior::IMMEDIATE);
     SQLite::Statement seed(
         database,
@@ -1257,7 +1309,8 @@ std::vector<conquest_data::EventSummary> listEvents(
         database,
         "SELECT e.id, e.name, e.map_id, e.phase, e.turn, e.registration_ends_at, e.turn_ends_at, "
         "(SELECT COUNT(*) FROM conquest_event_players p WHERE p.event_id = e.id), "
-        "EXISTS(SELECT 1 FROM conquest_event_players p WHERE p.event_id = e.id AND p.username = ?) "
+        "EXISTS(SELECT 1 FROM conquest_event_players p WHERE p.event_id = e.id AND p.username = ?), "
+        "e.winner "
         "FROM conquest_events e "
         "ORDER BY CASE WHEN e.phase = ? THEN 1 ELSE 0 END, e.id DESC LIMIT ?");
     query.bind(1, username);
@@ -1275,6 +1328,7 @@ std::vector<conquest_data::EventSummary> listEvents(
         event.turnEndsAt = query.getColumn(6).getInt64();
         event.participantCount = static_cast<std::uint32_t>(query.getColumn(7).getInt());
         event.joined = query.getColumn(8).getInt() != 0;
+        event.winner = query.getColumn(9).getString();
         events.push_back(std::move(event));
     }
     return events;
@@ -1313,11 +1367,12 @@ std::optional<conquest_data::EventState> loadEventState(
     state.summary.turnEndsAt = event->turnEndsAt;
     state.summary.participantCount = static_cast<std::uint32_t>(participantCount(database, event->id));
     state.summary.joined = participantExists(database, event->id, username);
+    state.summary.winner = event->winner;
 
     SQLite::Statement players(
         database,
         "SELECT p.username, p.color_index, p.orders_submitted, p.reinforcements_used, "
-        "p.next_reinforcement_at, "
+        "p.next_reinforcement_at, p.eliminated, "
         "(SELECT COUNT(*) FROM conquest_regions r WHERE r.event_id = p.event_id AND r.controller = p.username), "
         "(SELECT COUNT(*) FROM conquest_event_decks d WHERE d.event_id = p.event_id AND d.owner = p.username "
         " AND d.deployed = 0 AND d.eliminated = 0) "
@@ -1331,11 +1386,11 @@ std::optional<conquest_data::EventState> loadEventState(
         player.ordersSubmitted = players.getColumn(2).getInt() != 0;
         const int reinforcementsUsed = players.getColumn(3).getInt();
         player.nextReinforcementAt = players.getColumn(4).getInt64();
-        player.controlledRegions = players.getColumn(5).getInt();
-        const int undeployed = players.getColumn(6).getInt();
-        player.reinforcementsAvailable = std::min(
-            undeployed,
-            std::max(0, player.controlledRegions / 4 - reinforcementsUsed));
+        player.eliminated = players.getColumn(5).getInt() != 0;
+        player.controlledRegions = players.getColumn(6).getInt();
+        const int undeployed = players.getColumn(7).getInt();
+        player.reinforcementsAvailable = player.eliminated ? 0 : std::min(
+            undeployed, std::max(0, player.controlledRegions / 4 - reinforcementsUsed));
         state.players.push_back(std::move(player));
     }
 
@@ -1406,7 +1461,8 @@ std::optional<conquest_data::EventState> loadEventState(
         battle.deckTwoName = battles.getColumn(9).getString();
         battle.winner = battles.getColumn(10).getString();
         battle.canJoin = battle.status == BattleStatus::Ready &&
-            (battle.playerOne == username || battle.playerTwo == username);
+            (battle.playerOne == username || battle.playerTwo == username) &&
+            !playerEliminated(database, event->id, username);
         state.battles.push_back(std::move(battle));
     }
     std::reverse(state.battles.begin(), state.battles.end());
@@ -1634,6 +1690,20 @@ CommandResult joinEvent(
     }
     const int colorIndex = static_cast<int>(std::distance(usedColors.begin(), freeColor));
 
+    SQLite::Statement chargeEntryFee(
+        database,
+        "UPDATE accounts SET coins = coins - ? WHERE username = ? AND coins >= ?");
+    chargeEntryFee.bind(1, conquest_data::ConquestEntryFeeCoins);
+    chargeEntryFee.bind(2, username);
+    chargeEntryFee.bind(3, conquest_data::ConquestEntryFeeCoins);
+    if (chargeEntryFee.exec() != 1)
+    {
+        return {
+            false,
+            "Need " + std::to_string(conquest_data::ConquestEntryFeeCoins) +
+                " coins to join the conquest"};
+    }
+
     SQLite::Statement insertPlayer(
         database,
         "INSERT INTO conquest_event_players "
@@ -1702,7 +1772,10 @@ CommandResult joinEvent(
     }
 
     transaction.commit();
-    return {true, "Joined the conquest"};
+    return {
+        true,
+        "Joined the conquest for " +
+            std::to_string(conquest_data::ConquestEntryFeeCoins) + " coins"};
 }
 
 CommandResult submitOrders(
@@ -1736,6 +1809,10 @@ CommandResult submitOrders(
     if (!participantExists(database, event->id, username))
     {
         return {false, "Join the conquest before submitting orders"};
+    }
+    if (playerEliminated(database, event->id, username))
+    {
+        return {false, "Your conquest army has been defeated"};
     }
 
     std::unordered_map<std::int64_t, int> projected;
@@ -1938,6 +2015,10 @@ CommandResult deployReinforcement(
     if (!player.executeStep())
     {
         return {false, "Join the conquest before reinforcing"};
+    }
+    if (playerEliminated(database, event->id, username))
+    {
+        return {false, "Your conquest army has been defeated"};
     }
     if (player.getColumn(0).getInt() != 0)
     {
@@ -2378,6 +2459,7 @@ CommandResult applyBattleResult(
         "destination_region_id = 0, move_resolved = 1 WHERE id = ?");
     eliminate.bind(1, loserDeckId);
     eliminate.exec();
+    eliminatePlayerIfDefeated(database, eventId, winnerPlayerNumber == 1 ? playerTwo : playerOne);
 
     SQLite::Statement cancel(
         database,

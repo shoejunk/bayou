@@ -6,10 +6,50 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <string_view>
 #include <utility>
 
 namespace ranking
 {
+enum class League : std::uint8_t
+{
+    Wood,
+    Bronze,
+    Silver,
+    Gold,
+    Diamond,
+    Master,
+    Grandmaster,
+};
+
+constexpr std::array<std::string_view, 7> LeagueNames = {
+    "Wood",
+    "Bronze",
+    "Silver",
+    "Gold",
+    "Diamond",
+    "Master",
+    "Grandmaster",
+};
+
+constexpr bool isValidLeague(std::uint8_t value)
+{
+    return value < LeagueNames.size();
+}
+
+constexpr League leagueFromValue(int value)
+{
+    return value >= 0 && value < static_cast<int>(LeagueNames.size())
+        ? static_cast<League>(value)
+        : League::Wood;
+}
+
+constexpr std::string_view leagueName(League league)
+{
+    const std::uint8_t value = static_cast<std::uint8_t>(league);
+    return isValidLeague(value) ? LeagueNames[value] : LeagueNames[0];
+}
+
 constexpr int EloOffset = 2000;
 constexpr int EloKFactor = 32;
 constexpr int InitialMatchmakingRange = 10;

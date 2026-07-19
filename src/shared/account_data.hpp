@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "ranking.hpp"
+
 namespace account_data
 {
 // Upper bound on a serialized collection's entry count, checked before
@@ -22,6 +24,7 @@ struct AccountState
 {
     int coins = 0;
     int rating = 0;
+    ranking::League league = ranking::League::Wood;
     bool isAdmin = false;
     std::vector<CollectionCard> collection;
 };
@@ -62,17 +65,20 @@ inline bool readCollection(sf::Packet& packet, std::vector<CollectionCard>& coll
 
 inline void writeAccountState(sf::Packet& packet, const AccountState& state)
 {
-    packet << state.coins << state.rating << state.isAdmin;
+    packet << state.coins << state.rating
+           << static_cast<std::uint8_t>(state.league) << state.isAdmin;
     writeCollection(packet, state.collection);
 }
 
 inline bool readAccountState(sf::Packet& packet, AccountState& state)
 {
-    packet >> state.coins >> state.rating >> state.isAdmin;
-    if (!packet)
+    std::uint8_t league = 0;
+    packet >> state.coins >> state.rating >> league >> state.isAdmin;
+    if (!packet || !ranking::isValidLeague(league))
     {
         return false;
     }
+    state.league = static_cast<ranking::League>(league);
 
     return readCollection(packet, state.collection);
 }

@@ -162,6 +162,10 @@ private:
         {
             database->exec("ALTER TABLE accounts ADD COLUMN rating INTEGER NOT NULL DEFAULT 0");
         }
+        if (!columnExists("accounts", "league"))
+        {
+            database->exec("ALTER TABLE accounts ADD COLUMN league INTEGER NOT NULL DEFAULT 0");
+        }
         database->exec(
             "CREATE TABLE IF NOT EXISTS decks ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -1508,7 +1512,15 @@ private:
             const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
             if (!username)
             {
-                sendAccountStateResponse(client, false, "Authentication required", 0, 0, false, {});
+                sendAccountStateResponse(
+                    client,
+                    false,
+                    "Authentication required",
+                    0,
+                    0,
+                    ranking::League::Wood,
+                    false,
+                    {});
                 return;
             }
 
@@ -1519,6 +1531,7 @@ private:
                 "Account loaded",
                 loadCoins(*username),
                 loadRating(*username),
+                loadLeague(*username),
                 isAdmin(*username),
                 account_decks::loadCollection(*database, *username));
         }
@@ -1526,7 +1539,14 @@ private:
         {
             fmt::println("Database error while loading account state: {}", error.what());
             sendAccountStateResponse(
-                client, false, "Database error while loading account state", 0, 0, false, {});
+                client,
+                false,
+                "Database error while loading account state",
+                0,
+                0,
+                ranking::League::Wood,
+                false,
+                {});
         }
     }
 
@@ -2645,6 +2665,7 @@ private:
         const std::string& message,
         int coins,
         int rating,
+        ranking::League league,
         bool isAdmin,
         const std::vector<account_data::CollectionCard>& collection)
     {
@@ -2652,7 +2673,7 @@ private:
         response << static_cast<uint8_t>(MessageType::AccountStateResponse);
         response << success << message;
         account_data::writeAccountState(
-            response, account_data::AccountState{coins, rating, isAdmin, collection});
+            response, account_data::AccountState{coins, rating, league, isAdmin, collection});
         [[maybe_unused]] auto result = client.send(response);
     }
 
@@ -2717,6 +2738,18 @@ private:
         }
 
         return std::max(0, query.getColumn(0).getInt());
+    }
+
+    ranking::League loadLeague(const std::string& username)
+    {
+        SQLite::Statement query(*database, "SELECT league FROM accounts WHERE username = ? LIMIT 1");
+        query.bind(1, username);
+        if (!query.executeStep())
+        {
+            return ranking::League::Wood;
+        }
+
+        return ranking::leagueFromValue(query.getColumn(0).getInt());
     }
 
     void updatePasswordHash(const std::string& username, const std::string& password)

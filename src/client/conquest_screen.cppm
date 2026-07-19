@@ -1536,6 +1536,12 @@ private:
         {
             return;
         }
+        const conquest_data::PlayerState* player = currentPlayer();
+        if (player && player->eliminated)
+        {
+            setStatus("Your conquest army has been defeated", false);
+            return;
+        }
         std::vector<conquest_data::MoveOrder> orders;
         std::unordered_map<int, std::uint64_t> projectedOccupants;
         for (const conquest_data::EventDeckState& deck : eventState.decks)
@@ -1615,7 +1621,12 @@ private:
         const conquest_data::PlayerState* player = currentPlayer();
         const std::int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
-        if (!player || player->reinforcementsAvailable <= 0)
+        if (!player || player->eliminated)
+        {
+            setStatus("Your conquest army has been defeated", false);
+            return;
+        }
+        if (player->reinforcementsAvailable <= 0)
         {
             setStatus("Control four regions for each reinforcement", false);
             return;
@@ -2011,11 +2022,13 @@ private:
         const conquest_data::PlayerState* player = currentPlayer();
         if (player)
         {
-            drawText(window, font,
-                     std::to_string(player->controlledRegions) + " regions  |  " +
-                         std::to_string(player->reinforcementsAvailable) + " deploys",
-                     12, {598.0f, 115.0f}, Muted);
-            if (player->nextReinforcementAt > 0)
+            const std::string armyStatus = player->eliminated
+                ? "Army defeated"
+                : std::to_string(player->controlledRegions) + " regions  |  " +
+                    std::to_string(player->reinforcementsAvailable) + " deploys";
+            drawText(window, font, armyStatus, 12, {598.0f, 115.0f},
+                     player->eliminated ? Bad : Muted);
+            if (!player->eliminated && player->nextReinforcementAt > 0)
             {
                 const std::int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
@@ -2091,12 +2104,23 @@ private:
         bool actionEnabled = !pendingCommand;
         if (eventState.summary.phase == conquest_data::EventPhase::Registration)
         {
-            actionLabel = joinedEvent() ? "Waiting for Start" : "Join Conquest";
+            actionLabel = joinedEvent()
+                ? "Waiting for Start"
+                : "Join - " + std::to_string(conquest_data::ConquestEntryFeeCoins) + " Coins";
             actionEnabled = actionEnabled && !joinedEvent() && !placements.empty();
         }
         else if (eventState.summary.phase == conquest_data::EventPhase::Planning && joinedEvent())
         {
-            actionLabel = "Submit Orders";
+            const conquest_data::PlayerState* me = currentPlayer();
+            if (me && me->eliminated)
+            {
+                actionLabel = "Eliminated";
+                actionEnabled = false;
+            }
+            else
+            {
+                actionLabel = "Submit Orders";
+            }
         }
         else if (eventState.summary.phase == conquest_data::EventPhase::Resolving)
         {
@@ -2105,7 +2129,12 @@ private:
         }
         else if (eventState.summary.phase == conquest_data::EventPhase::Complete)
         {
-            actionLabel = "Campaign Complete";
+            actionLabel = eventState.summary.winner.empty()
+                ? "Campaign Complete"
+                : eventState.summary.winner == username
+                    ? "You Won +" +
+                        std::to_string(conquest_data::ConquestWinnerRewardCoins)
+                    : eventState.summary.winner + " Won";
             actionEnabled = false;
         }
         else
@@ -2150,7 +2179,7 @@ private:
             const conquest_data::PlayerState* me = currentPlayer();
             const std::int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
-            const bool enabled = !pendingCommand && selectedRegionId && me &&
+            const bool enabled = !pendingCommand && selectedRegionId && me && !me->eliminated &&
                 me->reinforcementsAvailable > 0 && me->nextReinforcementAt <= now;
             drawButton(window, font, rect(606, 520, 158, 32), "Deploy Reserve",
                        hovered(rect(606, 520, 158, 32), mousePosition), enabled);

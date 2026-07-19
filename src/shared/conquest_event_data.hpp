@@ -15,6 +15,8 @@ namespace conquest_data
 
 inline constexpr std::uint32_t MaxConquestEvents = 64;
 inline constexpr std::uint32_t MaxConquestPlayers = 12;
+inline constexpr int ConquestEntryFeeCoins = 5;
+inline constexpr int ConquestWinnerRewardCoins = 100;
 inline constexpr std::uint32_t MaxConquestRegions = 20;
 inline constexpr std::uint32_t MaxConquestEventDecks = 120;
 inline constexpr std::uint32_t MaxConquestBattles = 256;
@@ -58,6 +60,7 @@ struct EventSummary
     std::int64_t turnEndsAt = 0;
     std::uint32_t participantCount = 0;
     bool joined = false;
+    std::string winner;
 };
 
 struct PlayerState
@@ -66,6 +69,7 @@ struct PlayerState
     std::uint8_t colorIndex = 0;
     int controlledRegions = 0;
     bool ordersSubmitted = false;
+    bool eliminated = false;
     int reinforcementsAvailable = 0;
     std::int64_t nextReinforcementAt = 0;
 };
@@ -167,7 +171,7 @@ inline void writeEventSummary(sf::Packet& packet, const EventSummary& value)
     packet << value.id << value.name << value.mapId
            << static_cast<std::uint8_t>(value.phase) << value.turn
            << value.registrationEndsAt << value.turnEndsAt
-           << value.participantCount << value.joined;
+           << value.participantCount << value.joined << value.winner;
 }
 
 inline bool readEventSummary(sf::Packet& packet, EventSummary& value)
@@ -175,9 +179,9 @@ inline bool readEventSummary(sf::Packet& packet, EventSummary& value)
     std::uint8_t phase = 0;
     packet >> value.id >> value.name >> value.mapId >> phase >> value.turn
            >> value.registrationEndsAt >> value.turnEndsAt
-           >> value.participantCount >> value.joined;
+           >> value.participantCount >> value.joined >> value.winner;
     if (!packet || phase > static_cast<std::uint8_t>(EventPhase::Complete) ||
-        !validText(value.name) || !validText(value.mapId))
+        !validText(value.name) || !validText(value.mapId) || !validText(value.winner))
     {
         return false;
     }
@@ -188,14 +192,14 @@ inline bool readEventSummary(sf::Packet& packet, EventSummary& value)
 inline void writePlayerState(sf::Packet& packet, const PlayerState& value)
 {
     packet << value.username << value.colorIndex << value.controlledRegions
-           << value.ordersSubmitted << value.reinforcementsAvailable
+           << value.ordersSubmitted << value.eliminated << value.reinforcementsAvailable
            << value.nextReinforcementAt;
 }
 
 inline bool readPlayerState(sf::Packet& packet, PlayerState& value)
 {
     packet >> value.username >> value.colorIndex >> value.controlledRegions
-           >> value.ordersSubmitted >> value.reinforcementsAvailable
+           >> value.ordersSubmitted >> value.eliminated >> value.reinforcementsAvailable
            >> value.nextReinforcementAt;
     return packet && validText(value.username) && value.colorIndex < MaxConquestPlayers;
 }
