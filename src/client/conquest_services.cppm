@@ -471,6 +471,62 @@ ConquestCommandResult forceStartConquestEvent(
     return result;
 }
 
+ConquestCommandResult createConquestEvent(
+    const std::string& accessToken,
+    const std::string& name,
+    std::int64_t registrationSeconds,
+    std::int64_t turnSeconds,
+    std::int64_t reinforcementCooldownSeconds)
+{
+    bayou::tls::Socket socket;
+    sf::Packet request;
+    if (!beginAccountRequest(
+            socket, request, MessageType::AdminConquestEventCreateRequest, accessToken))
+    {
+        return {false, "Could not reach the account server"};
+    }
+    request << name << registrationSeconds << turnSeconds
+            << reinforcementCooldownSeconds;
+    sf::Packet response;
+    if (!exchange(socket, request, response))
+    {
+        return {false, "No response from the account server"};
+    }
+    ConquestCommandResult result;
+    if (!readHeader(response, MessageType::AdminConquestEventCreateResponse,
+                    result.success, result.message))
+    {
+        return {false, "Invalid Conquest creation response"};
+    }
+    return result;
+}
+
+ConquestCommandResult forceEndConquestEvent(
+    const std::string& accessToken,
+    std::uint64_t eventId)
+{
+    bayou::tls::Socket socket;
+    sf::Packet request;
+    if (!beginAccountRequest(
+            socket, request, MessageType::AdminConquestEventEndRequest, accessToken))
+    {
+        return {false, "Could not reach the account server"};
+    }
+    request << eventId;
+    sf::Packet response;
+    if (!exchange(socket, request, response))
+    {
+        return {false, "No response from the account server"};
+    }
+    ConquestCommandResult result;
+    if (!readHeader(response, MessageType::AdminConquestEventEndResponse,
+                    result.success, result.message))
+    {
+        return {false, "Invalid Conquest end response"};
+    }
+    return result;
+}
+
 ConquestBattleJoinResult joinConquestBattle(
     const std::string& accessToken,
     std::uint64_t battleId)

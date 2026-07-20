@@ -63,6 +63,26 @@ CommandResult forceStartEvent(
     const std::string& username,
     std::int64_t now = 0);
 
+// Creates a Dark Realms registration event with a frozen copy of the current
+// card catalog after verifying the requesting account's admin privilege.
+CommandResult createEvent(
+    SQLite::Database& database,
+    const std::string& username,
+    const std::string& name,
+    std::int64_t registrationSeconds,
+    std::int64_t turnSeconds,
+    std::int64_t reinforcementCooldownSeconds,
+    std::int64_t now = 0);
+
+// Immediately completes an event without a winner reward after verifying the
+// requesting account's admin privilege. Every participant receives their
+// fixed entry fee back exactly once.
+CommandResult forceEndEvent(
+    SQLite::Database& database,
+    std::uint64_t eventId,
+    const std::string& username,
+    std::int64_t now = 0);
+
 CommandResult deployReinforcement(
     SQLite::Database& database,
     std::uint64_t eventId,

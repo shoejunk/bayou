@@ -19,7 +19,6 @@
 #include <set>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -32,11 +31,12 @@ using conquest_data::BattleKind;
 using conquest_data::BattleStatus;
 using conquest_data::EventPhase;
 
-constexpr std::int64_t DefaultRegistrationSeconds = 24 * 60 * 60;
-constexpr std::int64_t DefaultTurnSeconds = 24 * 60 * 60;
-constexpr std::int64_t DefaultReinforcementCooldownSeconds = 24 * 60 * 60;
-constexpr const char* DefaultEventSeedKey = "default-dark-realms";
-constexpr const char* DefaultEventName = "Dark Realms Conquest";
+constexpr std::int64_t DefaultRegistrationSeconds =
+    conquest_data::DefaultConquestScheduleSeconds;
+constexpr std::int64_t DefaultTurnSeconds =
+    conquest_data::DefaultConquestScheduleSeconds;
+constexpr std::int64_t DefaultReinforcementCooldownSeconds =
+    conquest_data::DefaultConquestScheduleSeconds;
 
 std::int64_t effectiveNow(std::int64_t now)
 {
@@ -300,26 +300,6 @@ std::optional<card_data::Card> deserializeCard(const void* data, int size)
     return card;
 }
 
-bool isDefaultEventLineage(std::string_view seedKey)
-{
-    if (seedKey == DefaultEventSeedKey)
-    {
-        return true;
-    }
-
-    const std::string prefix = std::string(DefaultEventSeedKey) + "-after-";
-    if (!seedKey.starts_with(prefix) || seedKey.size() == prefix.size())
-    {
-        return false;
-    }
-    return std::all_of(
-        seedKey.begin() + static_cast<std::ptrdiff_t>(prefix.size()),
-        seedKey.end(),
-        [](char value) {
-            return value >= '0' && value <= '9';
-        });
-}
-
 void populateDarkRealmsEvent(SQLite::Database& database, std::int64_t eventId)
 {
     SQLite::Statement insertRegion(
@@ -371,76 +351,6 @@ void populateDarkRealmsEvent(SQLite::Database& database, std::int64_t eventId)
         insertCatalog.bind(4, blob.data(), static_cast<int>(blob.size()));
         insertCatalog.exec();
     }
-}
-
-void ensureDefaultSuccessorInTransaction(
-    SQLite::Database& database,
-    std::int64_t completedEventId,
-    std::int64_t now)
-{
-    std::string seedKey;
-    std::string mapId;
-    int phase = phaseValue(EventPhase::Registration);
-    std::int64_t registrationSeconds = 0;
-    std::int64_t turnSeconds = 0;
-    std::int64_t reinforcementCooldownSeconds = 0;
-    {
-        SQLite::Statement completed(
-            database,
-            "SELECT seed_key, map_id, phase, registration_seconds, turn_seconds, "
-            "reinforcement_cooldown_seconds FROM conquest_events WHERE id = ?");
-        completed.bind(1, completedEventId);
-        if (!completed.executeStep())
-        {
-            return;
-        }
-        seedKey = completed.getColumn(0).getString();
-        mapId = completed.getColumn(1).getString();
-        phase = completed.getColumn(2).getInt();
-        registrationSeconds = completed.getColumn(3).getInt64();
-        turnSeconds = completed.getColumn(4).getInt64();
-        reinforcementCooldownSeconds = completed.getColumn(5).getInt64();
-    }
-
-    if (!isDefaultEventLineage(seedKey) ||
-        mapId != conquest_map::DarkRealmsId ||
-        phase != phaseValue(EventPhase::Complete))
-    {
-        return;
-    }
-
-    const std::string successorKey =
-        std::string(DefaultEventSeedKey) + "-after-" + std::to_string(completedEventId);
-    const std::string successorName =
-        std::string(DefaultEventName) + " after Event " + std::to_string(completedEventId);
-    SQLite::Statement insert(
-        database,
-        "INSERT INTO conquest_events "
-        "(seed_key, name, map_id, phase, turn, registration_ends_at, turn_ends_at, "
-        " registration_seconds, turn_seconds, reinforcement_cooldown_seconds, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?, ?, ?, ?) "
-        "ON CONFLICT(seed_key) DO NOTHING");
-    insert.bind(1, successorKey);
-    insert.bind(2, successorName);
-    insert.bind(3, std::string(conquest_map::DarkRealmsId));
-    insert.bind(4, phaseValue(EventPhase::Registration));
-    insert.bind(5, now + registrationSeconds);
-    insert.bind(6, registrationSeconds);
-    insert.bind(7, turnSeconds);
-    insert.bind(8, reinforcementCooldownSeconds);
-    insert.bind(9, now);
-    insert.bind(10, now);
-    insert.exec();
-
-    SQLite::Statement successor(
-        database,
-        "SELECT id FROM conquest_events WHERE seed_key = ?");
-    successor.bind(1, successorKey);
-    if (!successor.executeStep())
-    {
-        throw SQLite::Exception("Could not create the next Conquest event");
-    }
-    populateDarkRealmsEvent(database, successor.getColumn(0).getInt64());
 }
 
 std::optional<EventRow> loadEventRow(SQLite::Database& database, std::int64_t eventId)
@@ -781,7 +691,7 @@ bool hasPendingBattles(SQLite::Database& database, std::int64_t eventId, int tur
     return query.executeStep();
 }
 
-void completeEvent(
+bool completeEvent(
     SQLite::Database& database,
     std::int64_t eventId,
     std::int64_t now,
@@ -798,8 +708,19 @@ void completeEvent(
     complete.bind(5, phaseValue(EventPhase::Complete));
     if (complete.exec() != 1)
     {
-        return;
+        return false;
     }
+
+    SQLite::Statement cancelBattles(
+        database,
+        "UPDATE conquest_battles SET status = ? "
+        "WHERE event_id = ? AND status IN (?, ?)");
+    cancelBattles.bind(1, battleStatusValue(BattleStatus::Cancelled));
+    cancelBattles.bind(2, eventId);
+    cancelBattles.bind(3, battleStatusValue(BattleStatus::Queued));
+    cancelBattles.bind(4, battleStatusValue(BattleStatus::Ready));
+    cancelBattles.exec();
+
     if (!winner.empty())
     {
         SQLite::Statement award(
@@ -812,7 +733,7 @@ void completeEvent(
             throw std::runtime_error("Conquest winner account is missing");
         }
     }
-    ensureDefaultSuccessorInTransaction(database, eventId, now);
+    return true;
 }
 
 void finalizeTurnIfReady(SQLite::Database& database, const EventRow& event, std::int64_t now)
@@ -988,6 +909,23 @@ CommandResult resolveEventInTransaction(
         reset.bind(1, event.id);
         reset.exec();
         return {true, "Conquest planning has begun"};
+    }
+
+    // A campaign is over as soon as only one army remains. Do this before
+    // waiting for orders or battles so upgraded/stale events cannot linger in
+    // Planning with an uncontested winner.
+    eliminateDefeatedPlayers(database, event.id);
+    const std::vector<std::string> standing = standingPlayers(database, event.id);
+    if (standing.size() <= 1)
+    {
+        completeEvent(
+            database,
+            event.id,
+            now,
+            standing.empty() ? std::string{} : standing.front());
+        return {true, standing.empty()
+            ? "Conquest ended with no surviving army"
+            : standing.front() + " won the conquest"};
     }
 
     if (event.phase == EventPhase::Planning)
@@ -1218,6 +1156,9 @@ void initializeSchema(SQLite::Database& database, std::int64_t now)
         "CREATE INDEX IF NOT EXISTS conquest_event_decks_position_idx "
         "ON conquest_event_decks(event_id, deployed, eliminated, region_id)");
     database.exec(
+        "CREATE INDEX IF NOT EXISTS conquest_event_players_username_idx "
+        "ON conquest_event_players(username, event_id)");
+    database.exec(
         "CREATE INDEX IF NOT EXISTS conquest_battles_event_status_idx "
         "ON conquest_battles(event_id, turn, status)");
     database.exec(
@@ -1239,62 +1180,6 @@ void initializeSchema(SQLite::Database& database, std::int64_t now)
         "AND active.owner = conquest_event_players.username "
         "AND active.deployed = 1 AND active.eliminated = 0)");
 
-    SQLite::Transaction transaction(database, SQLite::TransactionBehavior::IMMEDIATE);
-    SQLite::Statement seed(
-        database,
-        "INSERT INTO conquest_events "
-        "(seed_key, name, map_id, phase, turn, registration_ends_at, turn_ends_at, "
-        " registration_seconds, turn_seconds, reinforcement_cooldown_seconds, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, 0, ?, 0, ?, ?, ?, ?, ?) "
-        "ON CONFLICT(seed_key) DO NOTHING");
-    seed.bind(1, DefaultEventSeedKey);
-    seed.bind(2, DefaultEventName);
-    seed.bind(3, std::string(conquest_map::DarkRealmsId));
-    seed.bind(4, phaseValue(EventPhase::Registration));
-    seed.bind(5, now + DefaultRegistrationSeconds);
-    seed.bind(6, DefaultRegistrationSeconds);
-    seed.bind(7, DefaultTurnSeconds);
-    seed.bind(8, DefaultReinforcementCooldownSeconds);
-    seed.bind(9, now);
-    seed.bind(10, now);
-    seed.exec();
-
-    SQLite::Statement eventQuery(database, "SELECT id FROM conquest_events WHERE seed_key = ?");
-    eventQuery.bind(1, DefaultEventSeedKey);
-    if (eventQuery.executeStep())
-    {
-        populateDarkRealmsEvent(database, eventQuery.getColumn(0).getInt64());
-    }
-
-    // Backfill a successor when upgrading a database whose last campaign was
-    // completed before recurring Conquest events were introduced. Only the
-    // newest valid default-lineage event may create the next cycle.
-    std::optional<std::int64_t> completedToBackfill;
-    {
-        SQLite::Statement latest(
-            database,
-            "SELECT id, seed_key, phase FROM conquest_events "
-            "WHERE seed_key = ? OR seed_key GLOB ? ORDER BY id DESC");
-        latest.bind(1, DefaultEventSeedKey);
-        latest.bind(2, std::string(DefaultEventSeedKey) + "-after-[0-9]*");
-        while (latest.executeStep())
-        {
-            if (!isDefaultEventLineage(latest.getColumn(1).getString()))
-            {
-                continue;
-            }
-            if (latest.getColumn(2).getInt() == phaseValue(EventPhase::Complete))
-            {
-                completedToBackfill = latest.getColumn(0).getInt64();
-            }
-            break;
-        }
-    }
-    if (completedToBackfill)
-    {
-        ensureDefaultSuccessorInTransaction(database, *completedToBackfill, now);
-    }
-    transaction.commit();
 }
 
 std::vector<conquest_data::EventSummary> listEvents(
@@ -1324,8 +1209,8 @@ std::vector<conquest_data::EventSummary> listEvents(
         "(SELECT COUNT(*) FROM conquest_event_players p WHERE p.event_id = e.id), "
         "EXISTS(SELECT 1 FROM conquest_event_players p WHERE p.event_id = e.id AND p.username = ?), "
         "e.winner "
-        "FROM conquest_events e "
-        "ORDER BY CASE WHEN e.phase = ? THEN 1 ELSE 0 END, e.id DESC LIMIT ?");
+        "FROM conquest_events e WHERE e.phase <> ? "
+        "ORDER BY e.id DESC LIMIT ?");
     query.bind(1, username);
     query.bind(2, phaseValue(EventPhase::Complete));
     query.bind(3, static_cast<int>(conquest_data::MaxConquestEvents));
@@ -1544,6 +1429,22 @@ CommandResult joinEvent(
     if (participantExists(database, event->id, username))
     {
         return {false, "Already joined this conquest"};
+    }
+    SQLite::Statement otherActiveConquest(
+        database,
+        "SELECT active.name FROM conquest_event_players participant "
+        "JOIN conquest_events active ON active.id = participant.event_id "
+        "WHERE participant.username = ? AND participant.event_id <> ? "
+        "AND active.phase <> ? LIMIT 1");
+    otherActiveConquest.bind(1, username);
+    otherActiveConquest.bind(2, event->id);
+    otherActiveConquest.bind(3, phaseValue(EventPhase::Complete));
+    if (otherActiveConquest.executeStep())
+    {
+        return {
+            false,
+            "Already participating in active conquest " +
+                otherActiveConquest.getColumn(0).getString()};
     }
     if (participantCount(database, event->id) >= static_cast<int>(conquest_data::MaxConquestPlayers))
     {
@@ -1981,6 +1882,146 @@ CommandResult forceStartEvent(
         return {true, "Conquest started by an admin"};
     }
     return result;
+}
+
+CommandResult createEvent(
+    SQLite::Database& database,
+    const std::string& username,
+    const std::string& requestedName,
+    std::int64_t registrationSeconds,
+    std::int64_t turnSeconds,
+    std::int64_t reinforcementCooldownSeconds,
+    std::int64_t now)
+{
+    if (username.empty())
+    {
+        return {false, "Invalid conquest creation request"};
+    }
+
+    const std::size_t first = requestedName.find_first_not_of(" \t\r\n");
+    const std::size_t last = requestedName.find_last_not_of(" \t\r\n");
+    const std::string name = first == std::string::npos
+        ? std::string{}
+        : requestedName.substr(first, last - first + 1);
+    if (name.empty())
+    {
+        return {false, "Conquest name is required"};
+    }
+    if (!conquest_data::validText(name))
+    {
+        return {false, "Conquest name is too long"};
+    }
+    const auto validDuration = [](std::int64_t seconds) {
+        return seconds >= conquest_data::MinConquestScheduleSeconds &&
+            seconds <= conquest_data::MaxConquestScheduleSeconds;
+    };
+    if (!validDuration(registrationSeconds) || !validDuration(turnSeconds) ||
+        !validDuration(reinforcementCooldownSeconds))
+    {
+        return {false, "Conquest timing must be between 1 hour and 30 days"};
+    }
+
+    now = effectiveNow(now);
+    SQLite::Transaction transaction(database, SQLite::TransactionBehavior::IMMEDIATE);
+    SQLite::Statement admin(
+        database,
+        "SELECT is_admin FROM accounts WHERE username = ? LIMIT 1");
+    admin.bind(1, username);
+    if (!admin.executeStep() || admin.getColumn(0).getInt() == 0)
+    {
+        return {false, "Admin privilege required"};
+    }
+
+    SQLite::Statement activeCount(
+        database,
+        "SELECT COUNT(*) FROM conquest_events WHERE phase <> ?");
+    activeCount.bind(1, phaseValue(EventPhase::Complete));
+    activeCount.executeStep();
+    if (activeCount.getColumn(0).getInt64() >= conquest_data::MaxConquestEvents)
+    {
+        return {false, "Too many active Conquest events"};
+    }
+
+    SQLite::Statement insert(
+        database,
+        "INSERT INTO conquest_events "
+        "(name, map_id, phase, turn, registration_ends_at, turn_ends_at, "
+        " registration_seconds, turn_seconds, reinforcement_cooldown_seconds, "
+        " created_at, updated_at) "
+        "VALUES (?, ?, ?, 0, ?, 0, ?, ?, ?, ?, ?)");
+    insert.bind(1, name);
+    insert.bind(2, std::string(conquest_map::DarkRealmsId));
+    insert.bind(3, phaseValue(EventPhase::Registration));
+    insert.bind(4, now + registrationSeconds);
+    insert.bind(5, registrationSeconds);
+    insert.bind(6, turnSeconds);
+    insert.bind(7, reinforcementCooldownSeconds);
+    insert.bind(8, now);
+    insert.bind(9, now);
+    insert.exec();
+
+    const std::int64_t eventId = database.getLastInsertRowid();
+    populateDarkRealmsEvent(database, eventId);
+    transaction.commit();
+    return {true, "Conquest created and open for registration"};
+}
+
+CommandResult forceEndEvent(
+    SQLite::Database& database,
+    std::uint64_t eventId,
+    const std::string& username,
+    std::int64_t now)
+{
+    if (!validDatabaseId(eventId) || username.empty())
+    {
+        return {false, "Invalid conquest end request"};
+    }
+
+    now = effectiveNow(now);
+    SQLite::Transaction transaction(database, SQLite::TransactionBehavior::IMMEDIATE);
+    SQLite::Statement admin(
+        database,
+        "SELECT is_admin FROM accounts WHERE username = ? LIMIT 1");
+    admin.bind(1, username);
+    if (!admin.executeStep() || admin.getColumn(0).getInt() == 0)
+    {
+        return {false, "Admin privilege required"};
+    }
+
+    const std::optional<EventRow> event = loadEventRow(database, databaseId(eventId));
+    if (!event)
+    {
+        return {false, "Conquest event not found"};
+    }
+    if (event->phase == EventPhase::Complete)
+    {
+        return {false, "Conquest event is already complete"};
+    }
+
+    const int participants = participantCount(database, event->id);
+    if (!completeEvent(database, event->id, now, {}))
+    {
+        return {false, "Conquest event is already complete"};
+    }
+
+    SQLite::Statement refund(
+        database,
+        "UPDATE accounts SET coins = coins + ? WHERE username IN ("
+        "SELECT username FROM conquest_event_players WHERE event_id = ?)");
+    refund.bind(1, conquest_data::ConquestEntryFeeCoins);
+    refund.bind(2, event->id);
+    if (refund.exec() != participants)
+    {
+        throw std::runtime_error("Could not refund every Conquest participant");
+    }
+
+    transaction.commit();
+    return {
+        true,
+        "Conquest ended; refunded " +
+            std::to_string(conquest_data::ConquestEntryFeeCoins) + " coins to " +
+            std::to_string(participants) +
+            (participants == 1 ? " player" : " players")};
 }
 
 CommandResult deployReinforcement(

@@ -26,6 +26,9 @@ inline constexpr std::uint32_t MaxConquestBattleCards = 64;
 inline constexpr std::uint32_t MaxConquestCatalogCards = 2048;
 inline constexpr std::size_t MaxConquestTextLength = 128;
 inline constexpr std::size_t ConquestBattleCapabilityHexLength = 64;
+inline constexpr std::int64_t MinConquestScheduleSeconds = 60 * 60;
+inline constexpr std::int64_t MaxConquestScheduleSeconds = 30 * 24 * 60 * 60;
+inline constexpr std::int64_t DefaultConquestScheduleSeconds = 24 * 60 * 60;
 
 enum class EventPhase : std::uint8_t
 {

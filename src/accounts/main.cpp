@@ -294,9 +294,16 @@ private:
 
         while (running)
         {
-            if (socket_timeout::receivePacket(*client, packet, ClientRequestTimeout) != sf::Socket::Status::Done)
+            const sf::Socket::Status receiveStatus =
+                socket_timeout::receivePacket(*client, packet, ClientRequestTimeout);
+            if (receiveStatus != sf::Socket::Status::Done)
             {
-                fmt::println("Client disconnected");
+                if (receiveStatus != sf::Socket::Status::Disconnected && running)
+                {
+                    fmt::println(
+                        "Account client receive ended with socket status {}",
+                        static_cast<int>(receiveStatus));
+                }
                 return;
             }
 
@@ -637,6 +644,48 @@ private:
                         break;
                     }
                     handleAdminConquestEventStart(*client, accessToken, eventId);
+                    notifyConquestChanged();
+                    break;
+                }
+                case MessageType::AdminConquestEventCreateRequest:
+                {
+                    std::string accessToken;
+                    std::string name;
+                    std::int64_t registrationSeconds = 0;
+                    std::int64_t turnSeconds = 0;
+                    std::int64_t reinforcementCooldownSeconds = 0;
+                    packet >> accessToken >> name >> registrationSeconds >> turnSeconds
+                           >> reinforcementCooldownSeconds;
+                    if (!packet || !conquest_data::validText(name))
+                    {
+                        sendConquestCommandResponse(
+                            *client, MessageType::AdminConquestEventCreateResponse,
+                            false, "Invalid Conquest creation request");
+                        break;
+                    }
+                    handleAdminConquestEventCreate(
+                        *client,
+                        accessToken,
+                        name,
+                        registrationSeconds,
+                        turnSeconds,
+                        reinforcementCooldownSeconds);
+                    notifyConquestChanged();
+                    break;
+                }
+                case MessageType::AdminConquestEventEndRequest:
+                {
+                    std::string accessToken;
+                    std::uint64_t eventId = 0;
+                    packet >> accessToken >> eventId;
+                    if (!packet)
+                    {
+                        sendConquestCommandResponse(
+                            *client, MessageType::AdminConquestEventEndResponse,
+                            false, "Invalid Conquest end request");
+                        break;
+                    }
+                    handleAdminConquestEventEnd(*client, accessToken, eventId);
                     notifyConquestChanged();
                     break;
                 }
@@ -1333,6 +1382,44 @@ private:
             accessToken,
             [&](const std::string& username) {
                 return account_conquest_events::forceStartEvent(
+                    *database, eventId, username);
+            });
+    }
+
+    void handleAdminConquestEventCreate(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        const std::string& name,
+        std::int64_t registrationSeconds,
+        std::int64_t turnSeconds,
+        std::int64_t reinforcementCooldownSeconds)
+    {
+        handleAuthenticatedConquestCommand(
+            client,
+            MessageType::AdminConquestEventCreateResponse,
+            accessToken,
+            [&](const std::string& username) {
+                return account_conquest_events::createEvent(
+                    *database,
+                    username,
+                    name,
+                    registrationSeconds,
+                    turnSeconds,
+                    reinforcementCooldownSeconds);
+            });
+    }
+
+    void handleAdminConquestEventEnd(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        std::uint64_t eventId)
+    {
+        handleAuthenticatedConquestCommand(
+            client,
+            MessageType::AdminConquestEventEndResponse,
+            accessToken,
+            [&](const std::string& username) {
+                return account_conquest_events::forceEndEvent(
                     *database, eventId, username);
             });
     }

@@ -124,7 +124,11 @@ enum class MessageType : std::uint8_t
     AdminConquestEventStartRequest,
     AdminConquestEventStartResponse,
     ConquestEventWatchRequest,
-    ConquestEventWatchResponse
+    ConquestEventWatchResponse,
+    AdminConquestEventCreateRequest,
+    AdminConquestEventCreateResponse,
+    AdminConquestEventEndRequest,
+    AdminConquestEventEndResponse
 };
 
 struct CreateAccountRequest

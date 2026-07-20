@@ -13,6 +13,7 @@ module;
 #include "../shared/game_data.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -281,6 +282,10 @@ public:
         : font(screenFont)
         , textures(textureStore)
         , deckNameInput({24.0f, 86.0f}, {340.0f, 42.0f}, "Conquest deck name", screenFont)
+        , eventNameInput({48.0f, 158.0f}, {704.0f, 42.0f}, "Conquest name", screenFont)
+        , registrationHoursInput({48.0f, 266.0f}, {200.0f, 42.0f}, "Registration (hours)", screenFont)
+        , turnHoursInput({300.0f, 266.0f}, {200.0f, 42.0f}, "Planning turn (hours)", screenFont)
+        , reinforcementHoursInput({552.0f, 266.0f}, {200.0f, 42.0f}, "Reinforcement (hours)", screenFont)
     {
         mapTexture = textures.load(std::string(conquest_map::DarkRealmsAsset));
     }
@@ -313,9 +318,18 @@ public:
         accessToken = std::move(token);
         username = std::move(accountUsername);
         accountIsAdmin = admin;
+        eventNameInput.clear();
+        eventNameInput.setActive(false);
+        registrationHoursInput.setContent("24");
+        registrationHoursInput.setActive(false);
+        turnHoursInput.setContent("24");
+        turnHoursInput.setActive(false);
+        reinforcementHoursInput.setContent("24");
+        reinforcementHoursInput.setActive(false);
         view = View::Events;
         status.clear();
         statusSuccess = true;
+        forceEndConfirmationVisible = false;
         pendingAction.reset();
         refreshEvents();
         refreshLoadout();
@@ -363,18 +377,42 @@ public:
         {
             deckNameInput.handleEvent(event, window);
         }
+        else if (view == View::EventCreate)
+        {
+            eventNameInput.handleEvent(event, window);
+            registrationHoursInput.handleEvent(event, window);
+            turnHoursInput.handleEvent(event, window);
+            reinforcementHoursInput.handleEvent(event, window);
+        }
 
         if (const auto* key = event.getIf<sf::Event::KeyPressed>())
         {
             if (key->code == sf::Keyboard::Key::Escape)
             {
+                if (forceEndConfirmationVisible)
+                {
+                    if (!pendingCommand)
+                    {
+                        forceEndConfirmationVisible = false;
+                    }
+                    return true;
+                }
                 goBack();
+                return true;
+            }
+            if (view == View::EventCreate && key->code == sf::Keyboard::Key::Enter)
+            {
+                submitEventCreate();
                 return true;
             }
         }
 
         if (const auto* wheel = event.getIf<sf::Event::MouseWheelScrolled>())
         {
+            if (forceEndConfirmationVisible)
+            {
+                return true;
+            }
             const sf::Vector2f mouse = window.mapPixelToCoords(wheel->position);
             const int direction = wheel->delta < 0.0f ? 1 : -1;
             handleScroll(mouse, direction);
@@ -389,6 +427,13 @@ public:
             {
                 deckNameInput.setActive(deckNameInput.contains(mouse));
             }
+            else if (view == View::EventCreate)
+            {
+                eventNameInput.setActive(eventNameInput.contains(mouse));
+                registrationHoursInput.setActive(registrationHoursInput.contains(mouse));
+                turnHoursInput.setActive(turnHoursInput.contains(mouse));
+                reinforcementHoursInput.setActive(reinforcementHoursInput.contains(mouse));
+            }
             handleClick(mouse);
             return true;
         }
@@ -401,6 +446,13 @@ public:
         if (view == View::DeckEdit)
         {
             deckNameInput.updateCursor(deltaTime);
+        }
+        else if (view == View::EventCreate)
+        {
+            eventNameInput.updateCursor(deltaTime);
+            registrationHoursInput.updateCursor(deltaTime);
+            turnHoursInput.updateCursor(deltaTime);
+            reinforcementHoursInput.updateCursor(deltaTime);
         }
         pollRequests();
     }
@@ -433,9 +485,18 @@ public:
         {
             drawDeckEditor(window);
         }
+        else if (view == View::EventCreate)
+        {
+            drawEventCreate(window);
+        }
         else
         {
             drawEvent(window);
+        }
+
+        if (forceEndConfirmationVisible)
+        {
+            drawForceEndConfirmation(window);
         }
 
         if (!status.empty())
@@ -474,6 +535,7 @@ private:
         Events,
         Loadout,
         DeckEdit,
+        EventCreate,
         Event
     };
 
@@ -484,17 +546,24 @@ private:
         StartEvent,
         Orders,
         Reinforce,
-        DeleteDeck
+        DeleteDeck,
+        CreateEvent,
+        ForceEndEvent
     };
 
     sf::Font& font;
     TextureStore& textures;
     sf::Texture* mapTexture = nullptr;
     InputBox deckNameInput;
+    InputBox eventNameInput;
+    InputBox registrationHoursInput;
+    InputBox turnHoursInput;
+    InputBox reinforcementHoursInput;
     View view = View::Events;
     std::string accessToken;
     std::string username;
     bool accountIsAdmin = false;
+    bool forceEndConfirmationVisible = false;
     std::string status;
     bool statusSuccess = true;
     sf::Vector2f mousePosition;
@@ -809,6 +878,24 @@ private:
                             selectedDeck.reset();
                             refreshLoadout();
                         }
+                        else if (finishedKind == CommandKind::CreateEvent)
+                        {
+                            eventNameInput.setActive(false);
+                            registrationHoursInput.setActive(false);
+                            turnHoursInput.setActive(false);
+                            reinforcementHoursInput.setActive(false);
+                            view = View::Events;
+                            eventOffset = 0;
+                            refreshEvents();
+                        }
+                        else if (finishedKind == CommandKind::ForceEndEvent)
+                        {
+                            forceEndConfirmationVisible = false;
+                            eventState = {};
+                            view = View::Events;
+                            eventOffset = 0;
+                            refreshEvents();
+                        }
                         else
                         {
                             refreshEventState();
@@ -869,6 +956,15 @@ private:
         {
             deckNameInput.setActive(false);
             view = View::Loadout;
+        }
+        else if (view == View::EventCreate)
+        {
+            eventNameInput.setActive(false);
+            registrationHoursInput.setActive(false);
+            turnHoursInput.setActive(false);
+            reinforcementHoursInput.setActive(false);
+            view = View::Events;
+            refreshEvents();
         }
         else if (view == View::Event)
         {
@@ -933,6 +1029,18 @@ private:
 
     void handleClick(sf::Vector2f mouse)
     {
+        if (forceEndConfirmationVisible)
+        {
+            if (!pendingCommand && rect(220, 370, 160, 42).contains(mouse))
+            {
+                forceEndConfirmationVisible = false;
+            }
+            else if (!pendingCommand && rect(420, 370, 160, 42).contains(mouse))
+            {
+                submitForceEnd();
+            }
+            return;
+        }
         if (view == View::Events)
         {
             clickEvents(mouse);
@@ -944,6 +1052,10 @@ private:
         else if (view == View::DeckEdit)
         {
             clickDeckEditor(mouse);
+        }
+        else if (view == View::EventCreate)
+        {
+            clickEventCreate(mouse);
         }
         else
         {
@@ -967,6 +1079,20 @@ private:
         if (rect(666, 64, 114, 36).contains(mouse))
         {
             refreshEvents();
+            return;
+        }
+        if (accountIsAdmin && !busy() && rect(520, 64, 134, 36).contains(mouse))
+        {
+            eventNameInput.clear();
+            eventNameInput.setActive(true);
+            registrationHoursInput.setContent("24");
+            registrationHoursInput.setActive(false);
+            turnHoursInput.setContent("24");
+            turnHoursInput.setActive(false);
+            reinforcementHoursInput.setContent("24");
+            reinforcementHoursInput.setActive(false);
+            view = View::EventCreate;
+            status.clear();
             return;
         }
         for (std::size_t row = 0; row < VisibleEventRows; ++row)
@@ -1342,6 +1468,14 @@ private:
             refreshEventState();
             return;
         }
+        if (accountIsAdmin && !pendingCommand &&
+            eventState.summary.id != 0 &&
+            eventState.summary.phase != conquest_data::EventPhase::Complete &&
+            rect(530, 24, 124, 36).contains(mouse))
+        {
+            forceEndConfirmationVisible = true;
+            return;
+        }
         if (accountIsAdmin &&
             eventState.summary.phase == conquest_data::EventPhase::Registration &&
             rect(606, 520, 158, 32).contains(mouse))
@@ -1600,6 +1734,79 @@ private:
         pendingCommandEventId = eventId;
     }
 
+    void submitForceEnd()
+    {
+        if (!accountIsAdmin || pendingCommand || eventState.summary.id == 0 ||
+            eventState.summary.phase == conquest_data::EventPhase::Complete)
+        {
+            return;
+        }
+        const std::uint64_t eventId = eventState.summary.id;
+        commandKind = CommandKind::ForceEndEvent;
+        pendingCommand.emplace(std::async(
+            std::launch::async,
+            [token = accessToken, eventId] {
+                return forceEndConquestEvent(token, eventId);
+            }));
+        pendingCommandGeneration = sessionGeneration;
+        pendingCommandEventId = eventId;
+    }
+
+    static std::optional<std::int64_t> scheduleSeconds(const std::string& text)
+    {
+        std::int64_t hours = 0;
+        const char* first = text.data();
+        const char* last = first + text.size();
+        const auto [end, error] = std::from_chars(first, last, hours);
+        if (text.empty() || error != std::errc{} || end != last || hours < 1 ||
+            hours > conquest_data::MaxConquestScheduleSeconds / (60 * 60))
+        {
+            return std::nullopt;
+        }
+        return hours * 60 * 60;
+    }
+
+    void submitEventCreate()
+    {
+        if (!accountIsAdmin || pendingCommand)
+        {
+            return;
+        }
+        const std::string name = eventNameInput.getContent();
+        if (name.find_first_not_of(" \t\r\n") == std::string::npos)
+        {
+            setStatus("Enter a name for the conquest", false);
+            return;
+        }
+        if (name.size() > conquest_data::MaxConquestTextLength)
+        {
+            setStatus("Conquest name is too long", false);
+            return;
+        }
+        const std::optional<std::int64_t> registration =
+            scheduleSeconds(registrationHoursInput.getContent());
+        const std::optional<std::int64_t> turn =
+            scheduleSeconds(turnHoursInput.getContent());
+        const std::optional<std::int64_t> reinforcement =
+            scheduleSeconds(reinforcementHoursInput.getContent());
+        if (!registration || !turn || !reinforcement)
+        {
+            setStatus("Each timing must be a whole number from 1 to 720 hours", false);
+            return;
+        }
+
+        commandKind = CommandKind::CreateEvent;
+        pendingCommand.emplace(std::async(
+            std::launch::async,
+            [token = accessToken, name, registration = *registration,
+             turn = *turn, reinforcement = *reinforcement] {
+                return createConquestEvent(
+                    token, name, registration, turn, reinforcement);
+            }));
+        pendingCommandGeneration = sessionGeneration;
+        pendingCommandEventId = 0;
+    }
+
     void submitReinforcement()
     {
         if (eventState.summary.phase != conquest_data::EventPhase::Planning)
@@ -1678,6 +1885,11 @@ private:
     void drawEvents(sf::RenderWindow& window)
     {
         drawHeaderButtons(window, false);
+        if (accountIsAdmin)
+        {
+            drawButton(window, font, rect(520, 64, 134, 36), "New Conquest",
+                       hovered(rect(520, 64, 134, 36), mousePosition), !busy());
+        }
         drawPanel(window, rect(20, 104, 760, 444));
         if (events.empty() && !pendingEvents)
         {
@@ -1710,6 +1922,43 @@ private:
         }
         drawText(window, font, "Select an event to inspect its map, join, plan moves, or resume battles.",
                  14, {36.0f, 554.0f}, Muted);
+    }
+
+    void clickEventCreate(sf::Vector2f mouse)
+    {
+        if (rect(20, 64, 112, 36).contains(mouse))
+        {
+            goBack();
+            return;
+        }
+        if (rect(566, 464, 186, 42).contains(mouse))
+        {
+            submitEventCreate();
+        }
+    }
+
+    void drawEventCreate(sf::RenderWindow& window)
+    {
+        drawButton(window, font, rect(20, 64, 112, 36), "Back",
+                   hovered(rect(20, 64, 112, 36), mousePosition));
+        drawText(window, font, "Set Up a New Conquest", 23, {154.0f, 70.0f}, Accent);
+        drawPanel(window, rect(20, 116, 760, 432));
+
+        eventNameInput.draw(window);
+        registrationHoursInput.draw(window);
+        turnHoursInput.draw(window);
+        reinforcementHoursInput.draw(window);
+
+        drawText(window, font, "Map", 16, {48.0f, 348.0f}, Muted);
+        drawText(window, font, "Dark Realms", 22, {48.0f, 374.0f}, Ink);
+        drawText(window, font,
+                 "Registration opens immediately. Each event freezes the current card catalog",
+                 14, {48.0f, 418.0f}, Muted);
+        drawText(window, font,
+                 "so later card edits do not change battles already in this conquest.",
+                 14, {48.0f, 440.0f}, Muted);
+        drawButton(window, font, rect(566, 464, 186, 42), "Create Conquest",
+                   hovered(rect(566, 464, 186, 42), mousePosition), !pendingCommand);
     }
 
     std::string armyDeckName(std::int64_t id) const
@@ -1865,9 +2114,16 @@ private:
                    hovered(rect(20, 24, 112, 36), mousePosition));
         drawButton(window, font, rect(666, 24, 114, 36), "Refresh",
                    hovered(rect(666, 24, 114, 36), mousePosition), !pendingState);
+        const bool canForceEnd = accountIsAdmin && eventState.summary.id != 0 &&
+            eventState.summary.phase != conquest_data::EventPhase::Complete;
+        if (canForceEnd)
+        {
+            drawButton(window, font, rect(530, 24, 124, 36), "Force End",
+                       hovered(rect(530, 24, 124, 36), mousePosition), !pendingCommand);
+        }
         drawText(window, font,
-                 elide(font, eventState.summary.name.empty() ? "Loading campaign..." : eventState.summary.name,
-                       22, 500.0f),
+                  elide(font, eventState.summary.name.empty() ? "Loading campaign..." : eventState.summary.name,
+                       22, canForceEnd ? 365.0f : 500.0f),
                  22, {150.0f, 13.0f}, Accent);
         if (!eventState.summary.name.empty())
         {
@@ -1883,7 +2139,7 @@ private:
                 }
             }
             drawText(window, font,
-                     elide(font, phaseDetails, 14, 500.0f),
+                     elide(font, phaseDetails, 14, canForceEnd ? 365.0f : 500.0f),
                      14, {150.0f, 47.0f}, Muted);
         }
 
@@ -1897,6 +2153,28 @@ private:
         drawRegionMarkers(window);
         drawEventDeckPanel(window);
         drawBattlePanel(window);
+    }
+
+    void drawForceEndConfirmation(sf::RenderWindow& window)
+    {
+        sf::RectangleShape shade({800.0f, 600.0f});
+        shade.setFillColor(sf::Color(0, 0, 0, 185));
+        window.draw(shade);
+        drawPanel(window, rect(170, 190, 460, 250), sf::Color(22, 18, 16, 252));
+        drawText(window, font, "Force End Conquest?", 25, {205.0f, 215.0f}, Bad);
+        drawText(window, font,
+                 "This campaign will end immediately with no winner reward.",
+                 15, {205.0f, 265.0f}, Ink);
+        drawText(window, font,
+                 std::to_string(eventState.summary.participantCount) +
+                     (eventState.summary.participantCount == 1 ? " player receives " : " players receive ") +
+                     std::to_string(conquest_data::ConquestEntryFeeCoins) + " coins back each.",
+                 15, {205.0f, 295.0f}, Accent);
+        drawText(window, font, "This cannot be undone.", 14, {205.0f, 326.0f}, Muted);
+        drawButton(window, font, rect(220, 370, 160, 42), "Cancel",
+                   hovered(rect(220, 370, 160, 42), mousePosition), !pendingCommand);
+        drawButton(window, font, rect(420, 370, 160, 42), "End Conquest",
+                   hovered(rect(420, 370, 160, 42), mousePosition), !pendingCommand);
     }
 
     void drawOwnership(sf::RenderWindow& window)

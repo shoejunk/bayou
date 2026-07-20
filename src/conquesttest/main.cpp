@@ -191,10 +191,23 @@ public:
         account_catalog::setCardLibrary(catalog);
         initializeBaseSchema(database);
         account_conquest_events::initializeSchema(database, SeedTime);
+        database.exec(
+            "INSERT INTO accounts (username, password_hash, coins, is_admin) "
+            "VALUES ('__fixture_admin', '', 0, 1)");
+        requireCommand(
+            account_conquest_events::createEvent(
+                database,
+                "__fixture_admin",
+                "Fixture Conquest",
+                24 * 60 * 60,
+                24 * 60 * 60,
+                24 * 60 * 60,
+                SeedTime),
+            "creating the fixture Conquest");
         SQLite::Statement query(
             database,
-            "SELECT id FROM conquest_events WHERE seed_key = 'default-dark-realms'");
-        require(query.executeStep(), "default Dark Realms event was not seeded");
+            "SELECT id FROM conquest_events WHERE name = 'Fixture Conquest'");
+        require(query.executeStep(), "explicit fixture Conquest was not created");
         eventId = static_cast<std::uint64_t>(query.getColumn(0).getInt64());
     }
 
@@ -358,16 +371,6 @@ int conquestEventCount(SQLite::Database& database)
     return query.getColumn(0).getInt();
 }
 
-std::int64_t eventIdForSeed(SQLite::Database& database, const std::string& seedKey)
-{
-    SQLite::Statement query(
-        database,
-        "SELECT id FROM conquest_events WHERE seed_key = ?");
-    query.bind(1, seedKey);
-    require(query.executeStep(), "Conquest event was not found for seed " + seedKey);
-    return query.getColumn(0).getInt64();
-}
-
 int eventResourceCount(
     SQLite::Database& database,
     const std::string& table,
@@ -382,35 +385,6 @@ int eventResourceCount(
     query.bind(1, eventId);
     require(query.executeStep(), "Conquest resource count query returned no row");
     return query.getColumn(0).getInt();
-}
-
-std::vector<std::uint8_t> serializedCard(const card_data::Card& card)
-{
-    sf::Packet packet;
-    card_data::writeCardListHeader(packet, 1);
-    card_data::writeCard(packet, card);
-    const auto* first = static_cast<const std::uint8_t*>(packet.getData());
-    require(first != nullptr && packet.getDataSize() > 0, "test card did not serialize");
-    return {first, first + packet.getDataSize()};
-}
-
-std::vector<std::uint8_t> frozenCatalogBlob(
-    SQLite::Database& database,
-    std::int64_t eventId,
-    const std::string& title)
-{
-    SQLite::Statement query(
-        database,
-        "SELECT card_blob FROM conquest_event_catalog_cards "
-        "WHERE event_id = ? AND card_title = ?");
-    query.bind(1, eventId);
-    query.bind(2, title);
-    require(query.executeStep(), "frozen catalog card was not found: " + title);
-    const SQLite::Column blob = query.getColumn(0);
-    const auto* first = static_cast<const std::uint8_t*>(blob.getBlob());
-    const int size = blob.getBytes();
-    require(first != nullptr && size > 0, "frozen catalog card has an empty blob: " + title);
-    return {first, first + size};
 }
 
 void testMapMetadata()
@@ -617,6 +591,84 @@ void testRegistrationAndActiveDeckLock()
         "rejected third entrant changed the participant set");
 }
 
+void testSingleActiveConquestMembership()
+{
+    Fixture fixture;
+    fixture.addAccount("admin", 30, true);
+    fixture.addAccount("alpha");
+    const ConquestDeck first =
+        fixture.saveDeck("alpha", "First Campaign", fixture.standardDeckTitles());
+    const ConquestDeck second =
+        fixture.saveDeck("alpha", "Second Campaign", fixture.standardDeckTitles(11));
+    ConquestArmy army = fixture.saveArmy("alpha", {first.id});
+
+    requireCommand(
+        account_conquest_events::createEvent(
+            fixture.database,
+            "admin",
+            "Second Active Conquest",
+            24 * 60 * 60,
+            24 * 60 * 60,
+            24 * 60 * 60,
+            1'050),
+        "creating a second active Conquest");
+    SQLite::Statement secondEvent(
+        fixture.database,
+        "SELECT id FROM conquest_events WHERE name = 'Second Active Conquest'");
+    require(secondEvent.executeStep(), "second active Conquest was not found");
+    const std::uint64_t secondEventId =
+        static_cast<std::uint64_t>(secondEvent.getColumn(0).getInt64());
+
+    requireCommand(
+        account_conquest_events::joinEvent(
+            fixture.database,
+            fixture.eventId,
+            "alpha",
+            {{static_cast<std::uint64_t>(first.id), 1}},
+            1'100),
+        "joining the first active Conquest");
+    const int coinsAfterFirstJoin = fixture.coins("alpha");
+
+    army.deckIds = {second.id};
+    require(
+        !account_conquest::saveArmy(fixture.database, "alpha", army),
+        "could not switch to an uncommitted army for the membership test");
+    const account_conquest_events::CommandResult simultaneousJoin =
+        account_conquest_events::joinEvent(
+            fixture.database,
+            secondEventId,
+            "alpha",
+            {{static_cast<std::uint64_t>(second.id), 1}},
+            1'101);
+    require(
+        !simultaneousJoin.success &&
+            simultaneousJoin.message.find("active conquest") != std::string::npos,
+        "player joined two active Conquests at the same time");
+    require(fixture.coins("alpha") == coinsAfterFirstJoin,
+        "rejected second active Conquest join charged an entry fee");
+
+    SQLite::Statement memberships(
+        fixture.database,
+        "SELECT COUNT(*) FROM conquest_event_players WHERE username = 'alpha'");
+    require(memberships.executeStep() && memberships.getColumn(0).getInt() == 1,
+        "rejected second active Conquest join inserted a membership");
+
+    SQLite::Statement completeFirst(
+        fixture.database,
+        "UPDATE conquest_events SET phase = ? WHERE id = ?");
+    completeFirst.bind(1, static_cast<int>(EventPhase::Complete));
+    completeFirst.bind(2, static_cast<std::int64_t>(fixture.eventId));
+    require(completeFirst.exec() == 1, "could not complete the first Conquest");
+    requireCommand(
+        account_conquest_events::joinEvent(
+            fixture.database,
+            secondEventId,
+            "alpha",
+            {{static_cast<std::uint64_t>(second.id), 1}},
+            1'102),
+        "joining another Conquest after the first completed");
+}
+
 void testConquestEntryFee()
 {
     Fixture fixture;
@@ -739,6 +791,146 @@ void testAdminForcedStart()
         "admin force-start did not close registration immediately");
     require(started.summary.turnEndsAt == ForceStartTime + 24 * 60 * 60,
         "admin force-start did not set the first planning deadline");
+}
+
+void testAdminForcedEndRefund()
+{
+    Fixture fixture;
+    fixture.addAccount("admin", 30, true);
+    fixture.addAccount("alpha");
+    fixture.addAccount("bravo");
+    const ConquestDeck alpha =
+        fixture.saveDeck("alpha", "Alpha", fixture.standardDeckTitles());
+    const ConquestDeck bravo =
+        fixture.saveDeck("bravo", "Bravo", fixture.standardDeckTitles());
+    fixture.saveArmy("alpha", {alpha.id});
+    fixture.saveArmy("bravo", {bravo.id});
+    requireCommand(
+        account_conquest_events::joinEvent(
+            fixture.database,
+            fixture.eventId,
+            "alpha",
+            {{static_cast<std::uint64_t>(alpha.id), 1}},
+            1'100),
+        "alpha joining force-end fixture");
+    requireCommand(
+        account_conquest_events::joinEvent(
+            fixture.database,
+            fixture.eventId,
+            "bravo",
+            {{static_cast<std::uint64_t>(bravo.id), 18}},
+            1'100),
+        "bravo joining force-end fixture");
+    fixture.startEvent(2'000);
+    require(fixture.coins("alpha") == 95 && fixture.coins("bravo") == 95,
+        "force-end fixture did not charge both entry fees");
+
+    const account_conquest_events::CommandResult nonAdmin =
+        account_conquest_events::forceEndEvent(
+            fixture.database, fixture.eventId, "alpha", 2'001);
+    require(
+        !nonAdmin.success && nonAdmin.message.find("Admin") != std::string::npos,
+        "non-admin force-ended a Conquest");
+    require(fixture.coins("alpha") == 95 && fixture.coins("bravo") == 95,
+        "denied force-end changed participant balances");
+
+    const account_conquest_events::CommandResult ended =
+        account_conquest_events::forceEndEvent(
+            fixture.database, fixture.eventId, "admin", 2'002);
+    requireCommand(ended, "admin force-ending a Conquest");
+    require(ended.message.find("2 players") != std::string::npos,
+        "force-end result did not report the refunded participants");
+    const EventState complete = fixture.state("alpha", 2'003);
+    require(
+        complete.summary.phase == EventPhase::Complete && complete.summary.winner.empty(),
+        "force-ended Conquest recorded a winner or remained active");
+    require(fixture.coins("alpha") == 100 && fixture.coins("bravo") == 100,
+        "force-ended Conquest did not refund both five-coin entry fees");
+    require(fixture.coins("admin") == 100,
+        "force-ending admin received a winner reward");
+    require(conquestEventCount(fixture.database) == 1,
+        "force-ending a Conquest spawned a replacement event");
+
+    const account_conquest_events::CommandResult repeated =
+        account_conquest_events::forceEndEvent(
+            fixture.database, fixture.eventId, "admin", 2'004);
+    require(!repeated.success, "completed Conquest was force-ended twice");
+    require(fixture.coins("alpha") == 100 && fixture.coins("bravo") == 100,
+        "repeated force-end refunded entry fees twice");
+}
+
+void testAdminConquestCreation()
+{
+    Fixture fixture;
+    fixture.addAccount("admin", 30, true);
+    fixture.addAccount("player");
+
+    const account_conquest_events::CommandResult nonAdmin =
+        account_conquest_events::createEvent(
+            fixture.database, "player", "Player Campaign", 86400, 86400, 86400, 1'500);
+    require(
+        !nonAdmin.success && nonAdmin.message.find("Admin") != std::string::npos,
+        "non-admin Conquest creation was not denied");
+    require(conquestEventCount(fixture.database) == 1,
+        "denied Conquest creation inserted an event");
+
+    const account_conquest_events::CommandResult invalidTiming =
+        account_conquest_events::createEvent(
+            fixture.database, "admin", "Too Fast", 3599, 86400, 86400, 1'500);
+    require(
+        !invalidTiming.success && invalidTiming.message.find("1 hour") != std::string::npos,
+        "invalid Conquest timing was accepted");
+    require(conquestEventCount(fixture.database) == 1,
+        "invalid Conquest creation inserted an event");
+
+    constexpr std::int64_t CreatedAt = 1'600;
+    requireCommand(
+        account_conquest_events::createEvent(
+            fixture.database,
+            "admin",
+            "  Summer Siege  ",
+            48 * 60 * 60,
+            12 * 60 * 60,
+            6 * 60 * 60,
+            CreatedAt),
+        "admin creating a Conquest");
+    require(conquestEventCount(fixture.database) == 2,
+        "admin Conquest creation did not insert one event");
+
+    SQLite::Statement event(
+        fixture.database,
+        "SELECT id, seed_key, name, map_id, phase, registration_ends_at, "
+        "registration_seconds, turn_seconds, reinforcement_cooldown_seconds "
+        "FROM conquest_events ORDER BY id DESC LIMIT 1");
+    require(event.executeStep(), "created Conquest was not found");
+    const std::int64_t eventId = event.getColumn(0).getInt64();
+    require(event.getColumn(1).isNull(), "admin Conquest unexpectedly has a seed lineage");
+    require(event.getColumn(2).getString() == "Summer Siege",
+        "admin Conquest name was not trimmed");
+    require(event.getColumn(3).getString() == conquest_map::DarkRealmsId,
+        "admin Conquest did not use the Dark Realms map");
+    require(event.getColumn(4).getInt() == static_cast<int>(EventPhase::Registration),
+        "admin Conquest did not open in registration");
+    require(event.getColumn(5).getInt64() == CreatedAt + 48 * 60 * 60 &&
+            event.getColumn(6).getInt64() == 48 * 60 * 60 &&
+            event.getColumn(7).getInt64() == 12 * 60 * 60 &&
+            event.getColumn(8).getInt64() == 6 * 60 * 60,
+        "admin Conquest schedule was not persisted");
+    require(eventResourceCount(fixture.database, "conquest_regions", eventId) == 20,
+        "admin Conquest map regions were not populated");
+    require(eventResourceCount(
+            fixture.database, "conquest_event_catalog_cards", eventId) ==
+            static_cast<int>(fixture.catalog.size()),
+        "admin Conquest card catalog was not frozen");
+
+    const std::vector<conquest_data::EventSummary> listed =
+        account_conquest_events::listEvents(fixture.database, "player", CreatedAt);
+    require(
+        std::any_of(listed.begin(), listed.end(), [eventId](const auto& summary) {
+            return summary.id == static_cast<std::uint64_t>(eventId) &&
+                summary.name == "Summer Siege";
+        }),
+        "admin-created Conquest was not listed for players");
 }
 
 void testSecretVacateAndReenterOrders()
@@ -1379,14 +1571,13 @@ void testPlayerEliminationAndLastStandingVictory()
         "destination_region_id = 0 WHERE event_id = ? AND owner = 'charlie' AND deployed = 1");
     defeatCharlie.bind(1, static_cast<std::int64_t>(fixture.eventId));
     require(defeatCharlie.exec() == 1, "could not defeat charlie's last map deck");
-    requireCommand(
-        account_conquest_events::resolveEvent(
-            fixture.database, fixture.eventId, afterBravo.summary.turnEndsAt),
-        "resolving last-standing victory");
-    const EventState complete = fixture.state("alpha", afterBravo.summary.turnEndsAt + 1);
+    // Loading the campaign before the next turn deadline must immediately
+    // recognize the sole survivor; no order submission or timer is required.
+    const std::int64_t lastDefeatAt = firstTurn.summary.turnEndsAt + 2;
+    const EventState complete = fixture.state("alpha", lastDefeatAt);
     require(
         complete.summary.phase == EventPhase::Complete && complete.summary.winner == "alpha",
-        "last standing player did not win the conquest");
+        "last standing player did not immediately win the conquest");
     require(
         fixture.coins("alpha") ==
             100 - conquest_data::ConquestEntryFeeCoins +
@@ -1394,7 +1585,7 @@ void testPlayerEliminationAndLastStandingVictory()
         "Conquest winner did not receive exactly 100 coins");
     requireCommand(
         account_conquest_events::resolveEvent(
-            fixture.database, fixture.eventId, afterBravo.summary.turnEndsAt + 2),
+            fixture.database, fixture.eventId, lastDefeatAt + 1),
         "re-resolving completed Conquest");
     require(
         fixture.coins("alpha") ==
@@ -1403,198 +1594,67 @@ void testPlayerEliminationAndLastStandingVictory()
         "completed Conquest paid its winner more than once");
 }
 
-void testRecurringEventLifecycleAndHistory()
+void testNoAutomaticConquestCreation()
 {
-    constexpr std::int64_t ExtensionAt = 1'100;
-    constexpr std::int64_t FirstCompletionAt = 1'200;
-    constexpr std::int64_t BackfillAt = 2'000;
-    constexpr std::int64_t SecondCompletionAt = 2'100;
+    SQLite::Database database(":memory:", SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
+    account_catalog::setCardLibrary(syntheticCatalog());
+    initializeBaseSchema(database);
+    account_conquest_events::initializeSchema(database, SeedTime);
+    account_conquest_events::initializeSchema(database, SeedTime + 1);
+    require(conquestEventCount(database) == 0,
+        "schema initialization created a Conquest without an admin");
 
-    {
-        Fixture fixture;
+    database.exec(
+        "INSERT INTO accounts (username, password_hash, coins, is_admin) "
+        "VALUES ('admin', '', 0, 1)");
+    requireCommand(
+        account_conquest_events::createEvent(
+            database,
+            "admin",
+            "Admin Campaign One",
+            24 * 60 * 60,
+            24 * 60 * 60,
+            24 * 60 * 60,
+            1'100),
+        "admin creating the first manual Conquest");
+    require(conquestEventCount(database) == 1,
+        "manual Conquest creation inserted the wrong number of events");
 
-        SQLite::Statement expireRegistration(
-            fixture.database,
-            "UPDATE conquest_events SET registration_ends_at = ? WHERE id = ?");
-        expireRegistration.bind(1, ExtensionAt);
-        expireRegistration.bind(2, static_cast<std::int64_t>(fixture.eventId));
-        require(expireRegistration.exec() == 1, "could not expire recurring fixture registration");
-        requireCommand(
-            account_conquest_events::resolveEvent(
-                fixture.database, fixture.eventId, ExtensionAt),
-            "extending an empty recurring registration");
+    SQLite::Statement first(database, "SELECT id FROM conquest_events ORDER BY id LIMIT 1");
+    require(first.executeStep(), "first manual Conquest was not found");
+    const std::uint64_t firstId =
+        static_cast<std::uint64_t>(first.getColumn(0).getInt64());
+    SQLite::Statement makeTerminal(
+        database,
+        "UPDATE conquest_events SET phase = ?, turn = 1, turn_ends_at = 0 WHERE id = ?");
+    makeTerminal.bind(1, static_cast<int>(EventPhase::Resolving));
+    makeTerminal.bind(2, static_cast<std::int64_t>(firstId));
+    require(makeTerminal.exec() == 1, "could not make the manual Conquest terminal");
+    requireCommand(
+        account_conquest_events::resolveEvent(database, firstId, 1'200),
+        "completing the manual Conquest");
+    account_conquest_events::initializeSchema(database, 1'201);
+    require(conquestEventCount(database) == 1,
+        "completion or schema initialization automatically created another Conquest");
+    require(account_conquest_events::listEvents(database, "observer", 1'202).empty(),
+        "completed manual Conquest remained in the active list");
 
-        SQLite::Statement extended(
-            fixture.database,
-            "SELECT phase, registration_ends_at FROM conquest_events WHERE id = ?");
-        extended.bind(1, static_cast<std::int64_t>(fixture.eventId));
-        require(extended.executeStep(), "extended recurring event was not found");
-        require(
-            extended.getColumn(0).getInt() == static_cast<int>(EventPhase::Registration) &&
-                extended.getColumn(1).getInt64() == ExtensionAt + 24 * 60 * 60,
-            "empty registration did not extend deterministically");
-        require(
-            conquestEventCount(fixture.database) == 1,
-            "registration extension spawned a successor event");
-
-        std::vector<card_data::Card> currentCatalog = fixture.catalog;
-        const auto currentBraun = std::find_if(
-            currentCatalog.begin(),
-            currentCatalog.end(),
-            [](const card_data::Card& card) { return card.title == "Braun Stonefist"; });
-        require(currentBraun != currentCatalog.end(), "Braun is missing from lifecycle catalog");
-        currentBraun->imagePath = "current/successor-braun.png";
-        const std::vector<std::uint8_t> expectedBraunBlob = serializedCard(*currentBraun);
-        account_catalog::setCardLibrary(currentCatalog);
-
-        SQLite::Statement makeTerminal(
-            fixture.database,
-            "UPDATE conquest_events SET phase = ?, turn = 1, turn_ends_at = 0 WHERE id = ?");
-        makeTerminal.bind(1, static_cast<int>(EventPhase::Resolving));
-        makeTerminal.bind(2, static_cast<std::int64_t>(fixture.eventId));
-        require(makeTerminal.exec() == 1, "could not make root Conquest event terminal");
-        requireCommand(
-            account_conquest_events::resolveEvent(
-                fixture.database, fixture.eventId, FirstCompletionAt),
-            "completing root recurring event");
-
-        const std::string successorSeed =
-            "default-dark-realms-after-" + std::to_string(fixture.eventId);
-        const std::int64_t successorId = eventIdForSeed(fixture.database, successorSeed);
-        require(
-            conquestEventCount(fixture.database) == 2,
-            "root completion did not create exactly one successor");
-
-        SQLite::Statement successor(
-            fixture.database,
-            "SELECT phase, turn, registration_ends_at FROM conquest_events WHERE id = ?");
-        successor.bind(1, successorId);
-        require(successor.executeStep(), "root successor event was not found");
-        require(
-            successor.getColumn(0).getInt() == static_cast<int>(EventPhase::Registration) &&
-                successor.getColumn(1).getInt() == 0 &&
-                successor.getColumn(2).getInt64() == FirstCompletionAt + 24 * 60 * 60,
-            "root successor did not start a fresh deterministic registration");
-        require(
-            eventResourceCount(fixture.database, "conquest_regions", successorId) ==
-                static_cast<int>(conquest_map::DarkRealmsRegions.size()),
-            "root successor did not receive every Dark Realms region");
-        require(
-            eventResourceCount(
-                fixture.database, "conquest_event_catalog_cards", successorId) ==
-                static_cast<int>(currentCatalog.size()),
-            "root successor did not receive a complete frozen catalog");
-        require(
-            frozenCatalogBlob(fixture.database, successorId, "Braun Stonefist") ==
-                expectedBraunBlob,
-            "successor froze the root catalog instead of the current in-memory catalog");
-    }
-
-    {
-        Fixture fixture;
-
-        // Simulate upgrading a legacy database that completed its only seeded
-        // event before recurring successors existed.
-        SQLite::Statement completeLegacyRoot(
-            fixture.database,
-            "UPDATE conquest_events SET phase = ?, turn_ends_at = 0 WHERE id = ?");
-        completeLegacyRoot.bind(1, static_cast<int>(EventPhase::Complete));
-        completeLegacyRoot.bind(2, static_cast<std::int64_t>(fixture.eventId));
-        require(completeLegacyRoot.exec() == 1, "could not prepare legacy completed root");
-        require(conquestEventCount(fixture.database) == 1, "legacy root fixture already has a successor");
-
-        account_conquest_events::initializeSchema(fixture.database, BackfillAt);
-        account_conquest_events::initializeSchema(fixture.database, BackfillAt + 1);
-        const std::string firstSuccessorSeed =
-            "default-dark-realms-after-" + std::to_string(fixture.eventId);
-        const std::int64_t firstSuccessorId =
-            eventIdForSeed(fixture.database, firstSuccessorSeed);
-        require(
-            conquestEventCount(fixture.database) == 2,
-            "repeated schema initialization duplicated the backfilled successor");
-        require(
-            eventResourceCount(fixture.database, "conquest_regions", firstSuccessorId) ==
-                static_cast<int>(conquest_map::DarkRealmsRegions.size()),
-            "backfilled successor is missing Dark Realms regions");
-        require(
-            eventResourceCount(
-                fixture.database, "conquest_event_catalog_cards", firstSuccessorId) ==
-                static_cast<int>(fixture.catalog.size()),
-            "backfilled successor is missing its frozen catalog");
-
-        SQLite::Statement completeFirstSuccessor(
-            fixture.database,
-            "UPDATE conquest_events SET phase = ?, turn = 1, turn_ends_at = 0 WHERE id = ?");
-        completeFirstSuccessor.bind(1, static_cast<int>(EventPhase::Resolving));
-        completeFirstSuccessor.bind(2, firstSuccessorId);
-        require(completeFirstSuccessor.exec() == 1, "could not make first successor terminal");
-        requireCommand(
-            account_conquest_events::resolveEvent(
-                fixture.database,
-                static_cast<std::uint64_t>(firstSuccessorId),
-                SecondCompletionAt),
-            "completing first recurring successor");
-
-        const std::string liveSuccessorSeed =
-            "default-dark-realms-after-" + std::to_string(firstSuccessorId);
-        const std::int64_t liveSuccessorId =
-            eventIdForSeed(fixture.database, liveSuccessorSeed);
-        account_conquest_events::initializeSchema(fixture.database, SecondCompletionAt + 1);
-        account_conquest_events::initializeSchema(fixture.database, SecondCompletionAt + 2);
-        require(
-            conquestEventCount(fixture.database) == 3,
-            "successor completion or repeated initialization created the wrong number of cycles");
-
-        SQLite::Statement live(
-            fixture.database,
-            "SELECT phase FROM conquest_events WHERE id = ?");
-        live.bind(1, liveSuccessorId);
-        require(
-            live.executeStep() &&
-                live.getColumn(0).getInt() == static_cast<int>(EventPhase::Registration),
-            "next recurring cycle is not accepting registrations");
-
-        SQLite::Statement insertHistory(
-            fixture.database,
-            "INSERT INTO conquest_events "
-            "(seed_key, name, map_id, phase, turn, registration_ends_at, turn_ends_at, "
-            " registration_seconds, turn_seconds, reinforcement_cooldown_seconds, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, 0, 0, 0, 86400, 86400, 86400, ?, ?)");
-        for (int index = 0; index < 70; ++index)
-        {
-            insertHistory.reset();
-            insertHistory.bind(1, "completed-history-" + std::to_string(index));
-            insertHistory.bind(2, "Completed History " + std::to_string(index));
-            insertHistory.bind(3, std::string(conquest_map::DarkRealmsId));
-            insertHistory.bind(4, static_cast<int>(EventPhase::Complete));
-            insertHistory.bind(5, 3'000 + index);
-            insertHistory.bind(6, 3'000 + index);
-            insertHistory.exec();
-        }
-        require(
-            conquestEventCount(fixture.database) >
-                static_cast<int>(conquest_data::MaxConquestEvents),
-            "history fixture did not exceed the serialized event cap");
-
-        const std::vector<conquest_data::EventSummary> listed =
-            account_conquest_events::listEvents(
-                fixture.database,
-                "observer",
-                SecondCompletionAt + 3);
-        require(
-            listed.size() == conquest_data::MaxConquestEvents,
-            "event history list was not capped at the wire limit");
-        const auto listedLive = std::find_if(
-            listed.begin(),
-            listed.end(),
-            [liveSuccessorId](const conquest_data::EventSummary& event) {
-                return event.id == static_cast<std::uint64_t>(liveSuccessorId);
-            });
-        require(listedLive != listed.end(), "capped event history omitted the live cycle");
-        require(
-            listedLive->phase == EventPhase::Registration,
-            "listing historical events advanced or completed the live cycle");
-    }
+    requireCommand(
+        account_conquest_events::createEvent(
+            database,
+            "admin",
+            "Admin Campaign Two",
+            24 * 60 * 60,
+            24 * 60 * 60,
+            24 * 60 * 60,
+            1'300),
+        "admin creating the second manual Conquest");
+    const std::vector<conquest_data::EventSummary> listed =
+        account_conquest_events::listEvents(database, "observer", 1'301);
+    require(
+        conquestEventCount(database) == 2 && listed.size() == 1 &&
+            listed.front().name == "Admin Campaign Two",
+        "only the explicitly created active Conquest was not listed");
 }
 
 void testConquestActionLimitAdjudication()
@@ -1679,15 +1739,18 @@ int main()
         {"Conquest allocation", testConquestAllocationAndRegularDeckIsolation},
         {"Army rules", testArmyRules},
         {"Registration and event locks", testRegistrationAndActiveDeckLock},
+        {"Single active Conquest membership", testSingleActiveConquestMembership},
         {"Conquest entry fee", testConquestEntryFee},
         {"Admin forced start", testAdminForcedStart},
+        {"Admin forced end refund", testAdminForcedEndRefund},
+        {"Admin Conquest creation", testAdminConquestCreation},
         {"Secret vacate/re-enter orders", testSecretVacateAndReenterOrders},
         {"Region and crossing battles", testCollisionAndCrossingBattles},
         {"Frozen battle replay", testFrozenBattleDataActionsAndResult},
         {"Reinforcement rules", testReinforcementRules},
         {"Zero-active event viability", testZeroActiveEventTerminalStates},
         {"Player elimination and last standing", testPlayerEliminationAndLastStandingVictory},
-        {"Recurring event lifecycle", testRecurringEventLifecycleAndHistory},
+        {"No automatic Conquest creation", testNoAutomaticConquestCreation},
         {"Conquest action-limit adjudication", testConquestActionLimitAdjudication},
     };
 
