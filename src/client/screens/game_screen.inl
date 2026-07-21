@@ -551,8 +551,8 @@
         {
             const bool pieceCanHighlight = highlightedPiece &&
                 ((previewingNextTurn && !highlightedPiece->hasActed) ||
-                 (!previewingNextTurn && (sandboxMode || gameSnapshot.activePlayer == me) &&
-                  pieceCanTakeGameAction(*highlightedPiece)));
+                 (!previewingNextTurn &&
+                  pieceCanTakeTurnAction(*highlightedPiece, gameSnapshot.activePlayer)));
             if (pieceCanHighlight)
             {
                 // Highlight against the acting piece's view of the board:

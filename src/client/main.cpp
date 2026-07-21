@@ -3152,7 +3152,7 @@ int main(int argc, char** argv)
         return nullptr;
     };
 
-    auto pieceCanTakeGameAction = [&](const game_data::Piece& piece) {
+    auto pieceCanTakeTurnAction = [&](const game_data::Piece& piece, int playerNumber) {
         if (!haveSnapshot)
         {
             return false;
@@ -3160,7 +3160,7 @@ int main(int argc, char** argv)
         if (gameSnapshot.relentlessPieceId != 0)
         {
             return piece.id == gameSnapshot.relentlessPieceId &&
-                (sandboxMode || (piece.owner == gameSnapshot.yourPlayer && !piece.hasActed));
+                (sandboxMode || (piece.owner == playerNumber && !piece.hasActed));
         }
         if (gameSnapshot.commandingPieceId != 0)
         {
@@ -3168,7 +3168,11 @@ int main(int argc, char** argv)
             return commander != nullptr && game_data::pieceCanReceiveCommand(*commander, piece);
         }
         return sandboxMode ||
-            (piece.owner == gameSnapshot.yourPlayer && !piece.hasActed);
+            (piece.owner == playerNumber && !piece.hasActed);
+    };
+
+    auto pieceCanTakeGameAction = [&](const game_data::Piece& piece) {
+        return pieceCanTakeTurnAction(piece, gameSnapshot.yourPlayer);
     };
 
     auto updatePieceFidgetAnimations = [&]() {
@@ -4861,7 +4865,7 @@ int main(int argc, char** argv)
         if (!sandboxMode && gameSnapshot.activePlayer != me)
         {
             selectedHandIndex.reset();
-            selectedPieceId = clicked && clicked->owner != gameSnapshot.activePlayer
+            selectedPieceId = clicked
                 ? std::optional<int>(clicked->id)
                 : std::nullopt;
             return;
