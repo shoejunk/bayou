@@ -127,6 +127,47 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
                     }
                 }
             }
+            else if (card.type == "Enchantment")
+            {
+                if (card.target == "player" && card.effect == "resourceDrain")
+                {
+                    actions.push_back({
+                        AiActionKind::PlayCard,
+                        0,
+                        handIndex,
+                        -1,
+                        playerNumber == 1 ? 2 : 1});
+                }
+                else if (card.target == "square" && card.effect == "resources")
+                {
+                    for (int row = 0; row < BoardSize; ++row)
+                    {
+                        for (int column = 0; column < BoardSize; ++column)
+                        {
+                            if (engine.boardControl()[static_cast<std::size_t>(squareIndex(row, column))] == playerNumber &&
+                                engine.boardHoles()[static_cast<std::size_t>(squareIndex(row, column))] == 0)
+                            {
+                                actions.push_back({AiActionKind::PlayCard, 0, handIndex, row, column});
+                            }
+                        }
+                    }
+                }
+                else if (card.target == "piece" && card.effect == "damage")
+                {
+                    for (const Piece& target : visiblePieces)
+                    {
+                        if (target.owner == playerNumber)
+                        {
+                            actions.push_back({
+                                AiActionKind::PlayCard,
+                                0,
+                                handIndex,
+                                target.row,
+                                target.column});
+                        }
+                    }
+                }
+            }
         }
         if (player.discardsThisTurn < MaxDiscardsPerTurn)
         {

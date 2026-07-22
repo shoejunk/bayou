@@ -5,6 +5,7 @@
 
 #include "client_board_layout.hpp"
 #include "client_card_text.hpp"
+#include "client_clock_warning.hpp"
 #include "client_config.hpp"
 #include "client_display.hpp"
 #include "client_sandbox.hpp"
@@ -68,7 +69,8 @@ enum class AudioCue
     UnitDeath,
     Dematerialize,
     Victory,
-    Defeat
+    Defeat,
+    ClockWarning
 };
 
 constexpr std::size_t MinimumPasswordLength = 7;
@@ -213,7 +215,7 @@ public:
 
 private:
     static constexpr unsigned int SampleRate = 44100;
-    static constexpr int EffectCount = 8;
+    static constexpr int EffectCount = 9;
     std::array<sf::SoundBuffer, EffectCount> effectBuffers;
     std::unique_ptr<sf::Music> music;
     std::list<sf::Sound> activeSounds;
@@ -316,6 +318,33 @@ private:
         return samples;
     }
 
+    static std::vector<std::int16_t> makeClockWarningSamples()
+    {
+        constexpr float duration = 0.72f;
+        constexpr float pulseDuration = 0.20f;
+        const int sampleCount = static_cast<int>(duration * static_cast<float>(SampleRate));
+        std::vector<std::int16_t> samples(static_cast<std::size_t>(sampleCount));
+
+        for (int i = 0; i < sampleCount; ++i)
+        {
+            const float t = static_cast<float>(i) / static_cast<float>(SampleRate);
+            const int pulseIndex = std::min(2, static_cast<int>(t / 0.24f));
+            const float pulseTime = t - static_cast<float>(pulseIndex) * 0.24f;
+            if (pulseTime < 0.0f || pulseTime >= pulseDuration)
+            {
+                continue;
+            }
+
+            const float frequency = 660.0f + static_cast<float>(pulseIndex) * 110.0f;
+            const float tone = std::sin(2.0f * Pi * frequency * pulseTime) * 0.72f +
+                std::sin(2.0f * Pi * frequency * 2.0f * pulseTime) * 0.28f;
+            const float amp = tone * envelope(pulseTime, pulseDuration, 0.008f, 0.07f) * 0.42f;
+            samples[static_cast<std::size_t>(i)] =
+                static_cast<std::int16_t>(std::clamp(amp, -1.0f, 1.0f) * 32767.0f);
+        }
+        return samples;
+    }
+
     void makeEffects()
     {
         effectBuffers[static_cast<std::size_t>(AudioCue::ButtonClick)] =
@@ -361,6 +390,8 @@ private:
         {
             defeatBuffer = bufferFromSamples(makeTone(0.6f, 220.0f, 80.0f, 0.4f, 0.3f));
         }
+        effectBuffers[static_cast<std::size_t>(AudioCue::ClockWarning)] =
+            bufferFromSamples(makeClockWarningSamples());
     }
 
     void startMusic()
@@ -427,6 +458,7 @@ private:
             case AudioCue::Dematerialize: return 50.0f;
             case AudioCue::Victory: return 35.0f;
             case AudioCue::Defeat: return 35.0f;
+            case AudioCue::ClockWarning: return 64.0f;
         }
         return 50.0f;
     }
@@ -492,7 +524,7 @@ constexpr float LibraryY = 276.0f;
 constexpr float LibraryWidth = 326.0f;
 constexpr float LibraryRowHeight = 52.0f;
 constexpr std::size_t VisibleLibraryRows = 4;
-constexpr std::array<const char*, 3> CollectionTypeLabels = {"Heroes", "Units", "Spells"};
+constexpr std::array<const char*, 3> CollectionTypeLabels = {"Heroes", "Units", "Spells & Enchantments"};
 
 struct PasswordVisibilityIcon
 {
@@ -885,7 +917,7 @@ int main(int argc, char** argv)
     Button removeCardButton({304.0f, 508.0f}, {110.0f, 38.0f}, "Remove", font);
     CheckboxControl collectionHeroFilterCheckbox({430.0f, 172.0f}, "Heroes", font, rememberCheckTexture, 13, 16.0f, 22.0f);
     CheckboxControl collectionUnitFilterCheckbox({560.0f, 172.0f}, "Units", font, rememberCheckTexture, 13, 16.0f, 22.0f);
-    CheckboxControl collectionSpellFilterCheckbox({690.0f, 172.0f}, "Spells", font, rememberCheckTexture, 13, 16.0f, 22.0f);
+    CheckboxControl collectionSpellFilterCheckbox({646.0f, 172.0f}, "Spells & Enchantments", font, rememberCheckTexture, 13, 16.0f, 22.0f);
     std::vector<CheckboxControl> collectionTraitFilterCheckboxes;
     collectionTraitFilterCheckboxes.reserve(game_data::CardTraitLabels.size());
     for (std::size_t i = 0; i < game_data::CardTraitLabels.size(); ++i)
@@ -1061,6 +1093,14 @@ int main(int argc, char** argv)
     game_data::Snapshot gameSnapshot;
     std::chrono::steady_clock::time_point gameSnapshotReceivedAt{};
     bool haveSnapshot = false;
+    ClockWarningTracker clockWarningTracker;
+    struct DisplayedClockWarning
+    {
+        int playerNumber = 0;
+        std::int64_t thresholdMs = 0;
+        std::chrono::steady_clock::time_point visibleUntil{};
+    };
+    std::optional<DisplayedClockWarning> displayedClockWarning;
     bool sandboxMode = false;
     bool storyMode = false;
     enum class StoryStage
@@ -1521,7 +1561,7 @@ int main(int argc, char** argv)
         {
             typeMatches = collectionTypeFilterChecked[1];
         }
-        else if (card.type == "Spell")
+        else if (card.type == "Spell" || card.type == "Enchantment")
         {
             typeMatches = collectionTypeFilterChecked[2];
         }
@@ -1704,6 +1744,8 @@ int main(int argc, char** argv)
         gameOverSoundPlayed = false;
         gameRatingChange = 0;
         gameRewardText.clear();
+        clockWarningTracker.reset();
+        displayedClockWarning.reset();
         draggingLibraryCard.reset();
         draggingDeckCard.reset();
         dragActive = false;
@@ -2123,6 +2165,8 @@ int main(int argc, char** argv)
         nextSandboxPieceId = 1;
         gameSnapshot = {};
         gameSnapshotReceivedAt = {};
+        clockWarningTracker.reset();
+        displayedClockWarning.reset();
         selectedPieceId.reset();
         selectedHandIndex.reset();
         inspectedPieceId.reset();
@@ -3274,6 +3318,8 @@ int main(int argc, char** argv)
         gameOverSoundPlayed = false;
         gameRatingChange = 0;
         gameRewardText.clear();
+        clockWarningTracker.reset();
+        displayedClockWarning.reset();
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
         pieceDamagedAnimations.clear();
@@ -3333,6 +3379,8 @@ int main(int argc, char** argv)
         gameOverSoundPlayed = false;
         gameRatingChange = 0;
         gameRewardText.clear();
+        clockWarningTracker.reset();
+        displayedClockWarning.reset();
         pieceMoveAnimations.clear();
         pieceAttackAnimations.clear();
         pieceDamagedAnimations.clear();
@@ -3611,7 +3659,7 @@ int main(int argc, char** argv)
         }
         else
         {
-            statLine = "Spell  " + game_data::cardStr(card, "effect", "effect") +
+            statLine = card.type + "  " + game_data::cardStr(card, "effect", "effect") +
                 " " + std::to_string(game_data::cardInt(card, "power", 0));
         }
         drawText(window, font, statLine, 15, {position.x + 18.0f, position.y + 236.0f}, sf::Color(224, 210, 176), size.x - 36.0f);
@@ -3755,6 +3803,28 @@ int main(int argc, char** argv)
             TrashCanSize + TrashCanDropPadding * 2.0f);
     };
 
+    auto playerReadoutAtPixel = [&](sf::Vector2f point) -> std::optional<int> {
+        if (isInsideRect(
+                point,
+                BoardOriginX,
+                GameLabelY - 4.0f,
+                GamePlayerReadoutWidth,
+                26.0f))
+        {
+            return 1;
+        }
+        if (isInsideRect(
+                point,
+                BoardOriginX + BoardBottomWidth - GamePlayerReadoutWidth,
+                GameLabelY - 4.0f,
+                GamePlayerReadoutWidth,
+                26.0f))
+        {
+            return 2;
+        }
+        return std::nullopt;
+    };
+
     auto gamePieceAtPixel = [&](sf::Vector2f point) -> const game_data::Piece* {
         const std::optional<std::pair<int, int>> square = squareAtPixel(point);
         if (!square)
@@ -3876,6 +3946,63 @@ int main(int argc, char** argv)
             return;
         }
 
+        if (card.type == "Enchantment")
+        {
+            game_data::Enchantment enchantment;
+            enchantment.id = 1;
+            for (const game_data::Enchantment& existing : next.enchantments)
+            {
+                enchantment.id = std::max(enchantment.id, existing.id + 1);
+            }
+            enchantment.owner = actingPlayer;
+            enchantment.title = card.title;
+            enchantment.imagePath = card.imagePath;
+            enchantment.effect = card.effect;
+            enchantment.power = std::max(0, card.power);
+
+            if (card.target == "player" && row == -1 &&
+                (column == 1 || column == 2) && card.effect == "resourceDrain")
+            {
+                enchantment.target = static_cast<std::uint8_t>(game_data::EnchantmentTarget::Player);
+                enchantment.targetPlayer = column;
+            }
+            else if (card.target == "square" && game_data::inBounds(row, column) &&
+                     next.holes[static_cast<std::size_t>(game_data::squareIndex(row, column))] == 0 &&
+                     card.effect == "resources")
+            {
+                enchantment.target = static_cast<std::uint8_t>(game_data::EnchantmentTarget::Square);
+                enchantment.targetRow = row;
+                enchantment.targetColumn = column;
+            }
+            else if (card.target == "piece" && card.effect == "damage")
+            {
+                const game_data::Piece* targetPiece = game_data::inBounds(row, column)
+                    ? pieceAtInSnapshot(next, row, column)
+                    : nullptr;
+                if (!targetPiece)
+                {
+                    next.status = "That piece enchantment needs a piece target.";
+                    commitSandboxSnapshot(std::move(next));
+                    return;
+                }
+                enchantment.target = static_cast<std::uint8_t>(game_data::EnchantmentTarget::Piece);
+                enchantment.targetPieceId = targetPiece->id;
+                enchantment.targetRow = targetPiece->row;
+                enchantment.targetColumn = targetPiece->column;
+            }
+            else
+            {
+                next.status = "That enchantment needs a valid player, square, or piece target.";
+                commitSandboxSnapshot(std::move(next));
+                return;
+            }
+
+            next.enchantments.push_back(std::move(enchantment));
+            next.status = "Sandbox attached " + card.title + ".";
+            commitSandboxSnapshot(std::move(next));
+            return;
+        }
+
         if (game_data::isResourcesEffect(card))
         {
             next.status = "Sandbox played " + card.title + ".";
@@ -3985,6 +4112,8 @@ int main(int argc, char** argv)
         bool anyTargetWasHidden = false;
         int pushedSquares = 0;
         int pushCollisionDamage = 0;
+        const int attackDamage = action.damage +
+            game_data::pieceEnchantmentDamageBonus(next.enchantments, attackerId);
 
         const std::string commanderName = commandedAction ? commander->name : std::string();
         if (action.attacks)
@@ -4013,7 +4142,7 @@ int main(int argc, char** argv)
                         game_data::applyDamageWithBodyguards(
                             next.pieces,
                             targetId,
-                            action.damage,
+                            attackDamage,
                             action.statusTurns,
                             sandboxDamageRandomEngine);
                     for (const game_data::DamageAssignment& assignment : damageAssignments)
@@ -4096,7 +4225,7 @@ int main(int argc, char** argv)
             next.status.clear();
             const int effectiveDisabledTurns = damagedTargetNames.empty()
                 ? std::max(0, action.statusTurns)
-                : game_data::disabledTurnsForDamage(action.damage, action.statusTurns);
+                : game_data::disabledTurnsForDamage(attackDamage, action.statusTurns);
             const auto joinTargets = [](const std::vector<std::string>& names) {
                 std::string joined;
                 for (std::size_t i = 0; i < names.size(); ++i)
@@ -4109,7 +4238,7 @@ int main(int argc, char** argv)
             if (!damagedTargetNames.empty())
             {
                 next.status = attackerName + " hit " + joinTargets(damagedTargetNames) +
-                    " for " + std::to_string(action.damage) + " each";
+                    " for " + std::to_string(attackDamage) + " each";
             }
             if (!healedTargetNames.empty())
             {
@@ -4448,7 +4577,7 @@ int main(int argc, char** argv)
 
         const game_data::GameCard& card = gameSnapshot.hand[handIndex];
         selectedPieceId.reset();
-        if (card.type != "Unit" && game_data::isResourcesEffect(card) &&
+        if (card.type == "Spell" && game_data::isResourcesEffect(card) &&
             (sandboxMode ||
              game_data::heroTraitsAllowCard(
                  gameSnapshot.pieces, gameSnapshot.yourPlayer, card)))
@@ -4595,6 +4724,22 @@ int main(int argc, char** argv)
             }
             resetGameDrag();
             return true;
+        }
+
+        if (gameDragKind == GameDragKind::HandCard && draggingHandIndex &&
+            *draggingHandIndex < gameSnapshot.hand.size())
+        {
+            const game_data::GameCard& card = gameSnapshot.hand[*draggingHandIndex];
+            const std::optional<int> targetPlayer = playerReadoutAtPixel(releasePos);
+            if (card.type == "Enchantment" && card.target == "player" && targetPlayer)
+            {
+                sendPlayCard(static_cast<int>(*draggingHandIndex), -1, *targetPlayer);
+                selectedHandIndex.reset();
+                selectedPieceId.reset();
+                pendingHandClickIndex.reset();
+                resetGameDrag();
+                return true;
+            }
         }
 
         const std::optional<std::pair<int, int>> square = squareAtPixel(releasePos);
@@ -4745,6 +4890,47 @@ int main(int argc, char** argv)
         }
     };
 
+    auto updateClockWarnings = [&]() {
+        if (!haveSnapshot || sandboxMode || storyMode || !gameSnapshot.timersEnabled ||
+            static_cast<game_data::Phase>(gameSnapshot.phase) != game_data::Phase::Playing)
+        {
+            return;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        const std::int64_t snapshotAgeMs = gameSnapshotReceivedAt ==
+                std::chrono::steady_clock::time_point{}
+            ? 0
+            : std::chrono::duration_cast<std::chrono::milliseconds>(
+                  now - gameSnapshotReceivedAt).count();
+
+        std::optional<ClockWarning> warning;
+        for (int playerNumber = 1; playerNumber <= 2; ++playerNumber)
+        {
+            const game_data::PlayerSnapshot& player =
+                gameSnapshot.players[static_cast<std::size_t>(playerNumber - 1)];
+            const bool ticking = playerNumber == gameSnapshot.activePlayer;
+            const std::int64_t liveRemainingMs = std::max<std::int64_t>(
+                0,
+                player.clockRemainingMs - (ticking ? snapshotAgeMs : 0));
+            const std::optional<ClockWarning> crossed =
+                clockWarningTracker.observe(playerNumber, liveRemainingMs);
+            if (crossed && (!warning || crossed->playerNumber == gameSnapshot.yourPlayer))
+            {
+                warning = crossed;
+            }
+        }
+
+        if (warning)
+        {
+            displayedClockWarning = DisplayedClockWarning{
+                warning->playerNumber,
+                warning->thresholdMs,
+                now + std::chrono::seconds(4)};
+            audioSystem.play(AudioCue::ClockWarning);
+        }
+    };
+
     auto leaveGame = [&]() {
         const bool wasSandbox = sandboxMode;
         const bool wasConquestBattle = conquestBattleMode;
@@ -4764,6 +4950,8 @@ int main(int argc, char** argv)
         leaveGameButton.setLabel("Leave");
         haveSnapshot = false;
         gameSnapshot = {};
+        clockWarningTracker.reset();
+        displayedClockWarning.reset();
         selectedPieceId.reset();
         selectedHandIndex.reset();
         inspectedPieceId.reset();
@@ -4823,6 +5011,20 @@ int main(int argc, char** argv)
         }
 
         const std::optional<std::pair<int, int>> square = squareAtPixel(clickPos);
+
+        if (phase == game_data::Phase::Playing &&
+            (sandboxMode || gameSnapshot.activePlayer == me) &&
+            selectedHandIndex && *selectedHandIndex < gameSnapshot.hand.size())
+        {
+            const game_data::GameCard& selectedCard = gameSnapshot.hand[*selectedHandIndex];
+            const std::optional<int> targetPlayer = playerReadoutAtPixel(clickPos);
+            if (selectedCard.type == "Enchantment" && selectedCard.target == "player" && targetPlayer)
+            {
+                sendPlayCard(static_cast<int>(*selectedHandIndex), -1, *targetPlayer);
+                selectedHandIndex.reset();
+                return;
+            }
+        }
 
         if (phase == game_data::Phase::HeroPlacement)
         {
@@ -4964,6 +5166,7 @@ int main(int argc, char** argv)
         if (currentState == GameState::Game)
         {
             pollGameSocket();
+            updateClockWarnings();
             updatePieceFidgetAnimations();
         }
 

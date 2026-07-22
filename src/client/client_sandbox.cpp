@@ -45,6 +45,16 @@ void removePieceFromSnapshot(game_data::Snapshot& snapshot, int id)
             return piece.id == id;
         }),
         snapshot.pieces.end());
+    snapshot.enchantments.erase(
+        std::remove_if(
+            snapshot.enchantments.begin(),
+            snapshot.enchantments.end(),
+            [id](const game_data::Enchantment& enchantment) {
+                return enchantment.target ==
+                        static_cast<std::uint8_t>(game_data::EnchantmentTarget::Piece) &&
+                    enchantment.targetPieceId == id;
+            }),
+        snapshot.enchantments.end());
 }
 
 int controlledCountInSnapshot(const game_data::Snapshot& snapshot, int playerNumber)

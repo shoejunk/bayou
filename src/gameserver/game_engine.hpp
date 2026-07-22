@@ -58,6 +58,7 @@ public:
     int commandingPiece() const { return commandingPieceId; }
     int relentlessPiece() const { return relentlessPieceId; }
     const std::vector<Piece>& boardPieces() const { return pieces; }
+    const std::vector<Enchantment>& boardEnchantments() const { return enchantments; }
     const std::array<std::uint8_t, BoardSquares>& boardControl() const { return control; }
     const std::array<std::uint8_t, BoardSquares>& boardHoles() const { return holes; }
     const EnginePlayer& playerState(int playerNumber) const { return playerRef(playerNumber); }
@@ -284,6 +285,13 @@ public:
             spawnPiece(playerNumber, card, targetRow, targetColumn, false);
             // Summoned units cannot act the turn they arrive.
             pieces.back().hasActed = true;
+        }
+        else if (card.type == "Enchantment")
+        {
+            if (!resolveEnchantment(playerNumber, card, targetRow, targetColumn))
+            {
+                return false;
+            }
         }
         else  // Spell
         {
@@ -514,6 +522,7 @@ public:
         snapshot.turnRemainingMs = turnRemainingMs;
         snapshot.control = control;
         snapshot.holes = holes;
+        snapshot.enchantments.clear();
         snapshot.pieces.clear();
         for (const Piece& piece : pieces)
         {
@@ -525,6 +534,21 @@ public:
             {
                 snapshot.pieces.push_back(piece);
             }
+        }
+        for (const Enchantment& enchantment : enchantments)
+        {
+            if (enchantment.target == static_cast<std::uint8_t>(EnchantmentTarget::Piece))
+            {
+                const bool targetIsVisible = std::any_of(
+                    snapshot.pieces.begin(),
+                    snapshot.pieces.end(),
+                    [&](const Piece& piece) { return piece.id == enchantment.targetPieceId; });
+                if (!targetIsVisible)
+                {
+                    continue;
+                }
+            }
+            snapshot.enchantments.push_back(enchantment);
         }
         const EnginePlayer& viewingPlayer = playerRef(playerNumber);
         snapshot.hand = phaseValue == Phase::HeroPlacement
@@ -570,9 +594,11 @@ private:
     std::array<std::uint8_t, BoardSquares> control{};
     std::array<std::uint8_t, BoardSquares> holes{};
     std::vector<Piece> pieces;
+    std::vector<Enchantment> enchantments;
     std::array<EnginePlayer, 2> players{};
     std::vector<GameCard> summonCatalog;
     int nextPieceId = 1;
+    int nextEnchantmentId = 1;
     int commandingPieceId = 0;
     int relentlessPieceId = 0;
     bool relentlessActionKeepsTurn = false;
@@ -663,6 +689,15 @@ private:
         pieces.erase(
             std::remove_if(pieces.begin(), pieces.end(), [id](const Piece& p) { return p.id == id; }),
             pieces.end());
+        enchantments.erase(
+            std::remove_if(
+                enchantments.begin(),
+                enchantments.end(),
+                [id](const Enchantment& enchantment) {
+                    return enchantment.target == static_cast<std::uint8_t>(EnchantmentTarget::Piece) &&
+                        enchantment.targetPieceId == id;
+                }),
+            enchantments.end());
     }
 
     void rememberSummonCard(const GameCard& card)
@@ -767,6 +802,8 @@ private:
         bool anyTargetWasHidden = false;
         int pushedSquares = 0;
         int pushCollisionDamage = 0;
+        const int attackDamage = action.damage +
+            pieceEnchantmentDamageBonus(enchantments, attackerId);
 
         if (action.attacks)
         {
@@ -792,7 +829,7 @@ private:
                     damagedTargetNames.push_back(targetName);
                     const std::vector<DamageAssignment> damageAssignments =
                         applyDamageWithBodyguards(
-                            pieces, targetId, action.damage, action.statusTurns, rng);
+                            pieces, targetId, attackDamage, action.statusTurns, rng);
                     for (const DamageAssignment& assignment : damageAssignments)
                     {
                         Piece* damagedPiece = pieceById(assignment.pieceId);
@@ -896,7 +933,7 @@ private:
         {
             const int effectiveDisabledTurns = damagedTargetNames.empty()
                 ? std::max(0, action.statusTurns)
-                : disabledTurnsForDamage(action.damage, action.statusTurns);
+                : disabledTurnsForDamage(attackDamage, action.statusTurns);
             const auto joinTargets = [](const std::vector<std::string>& names) {
                 std::string joined;
                 for (std::size_t i = 0; i < names.size(); ++i)
@@ -912,7 +949,7 @@ private:
                     "{} hit {} for {} each",
                     attackerName,
                     joinTargets(damagedTargetNames),
-                    action.damage);
+                    attackDamage);
             }
             if (!healedTargetNames.empty())
             {
@@ -1057,6 +1094,10 @@ private:
         const int controlledIncome = controlledCount(playerNumber);
         player.resources += controlledIncome;
 
+        const int enchantedSquareResources =
+            squareEnchantmentResourceBonus(enchantments, control, playerNumber);
+        player.resources += enchantedSquareResources;
+
         int taxAmount = 0;
         int gatheredResources = 0;
         for (const Piece& piece : pieces)
@@ -1072,6 +1113,10 @@ private:
         const int collectedTax = std::min(std::max(0, taxAmount), opponent.resources);
         opponent.resources -= collectedTax;
         player.resources += collectedTax;
+        const int resourceDrain = std::min(
+            player.resources,
+            playerEnchantmentResourceDrain(enchantments, playerNumber));
+        player.resources -= resourceDrain;
         drawCard(player);
 
         for (Piece& piece : pieces)
@@ -1083,11 +1128,15 @@ private:
         }
 
         status = fmt::format(
-            "Player {}'s turn. +{} Resources{}{}.",
+            "Player {}'s turn. +{} Resources{}{}{}{}.",
             playerNumber,
             controlledIncome,
+            enchantedSquareResources > 0
+                ? fmt::format(" and +{} from enchanted squares", enchantedSquareResources)
+                : "",
             gatheredResources > 0 ? fmt::format(" and gathered {} Resources", gatheredResources) : "",
-            collectedTax > 0 ? fmt::format(" and collected {} Resources in Tax", collectedTax) : "");
+            collectedTax > 0 ? fmt::format(" and collected {} Resources in Tax", collectedTax) : "",
+            resourceDrain > 0 ? fmt::format(" and drained {} Resources", resourceDrain) : "");
     }
 
     void drawCard(EnginePlayer& player)
@@ -1180,6 +1229,65 @@ private:
             return true;
         }
 
+        return true;
+    }
+
+    bool resolveEnchantment(int playerNumber, const GameCard& card, int targetRow, int targetColumn)
+    {
+        Enchantment enchantment;
+        enchantment.id = nextEnchantmentId++;
+        enchantment.owner = playerNumber;
+        enchantment.title = card.title;
+        enchantment.imagePath = card.imagePath;
+        enchantment.effect = card.effect;
+        enchantment.power = std::max(0, card.power);
+
+        if (card.target == "player")
+        {
+            if (targetRow != -1 || (targetColumn != 1 && targetColumn != 2) ||
+                card.effect != "resourceDrain")
+            {
+                setStatusFor(playerNumber, "That player enchantment must drain a player target's Resources.");
+                return false;
+            }
+            enchantment.target = static_cast<std::uint8_t>(EnchantmentTarget::Player);
+            enchantment.targetPlayer = targetColumn;
+        }
+        else if (card.target == "square")
+        {
+            if (!inBounds(targetRow, targetColumn) ||
+                holes[static_cast<std::size_t>(squareIndex(targetRow, targetColumn))] != 0 ||
+                card.effect != "resources")
+            {
+                setStatusFor(playerNumber, "That square enchantment must add Resources to a board square.");
+                return false;
+            }
+            enchantment.target = static_cast<std::uint8_t>(EnchantmentTarget::Square);
+            enchantment.targetRow = targetRow;
+            enchantment.targetColumn = targetColumn;
+        }
+        else if (card.target == "piece")
+        {
+            Piece* targetPiece = inBounds(targetRow, targetColumn)
+                ? pieceAt(targetRow, targetColumn)
+                : nullptr;
+            if (targetPiece == nullptr || card.effect != "damage")
+            {
+                setStatusFor(playerNumber, "That piece enchantment must add damage to a piece target.");
+                return false;
+            }
+            enchantment.target = static_cast<std::uint8_t>(EnchantmentTarget::Piece);
+            enchantment.targetPieceId = targetPiece->id;
+            enchantment.targetRow = targetPiece->row;
+            enchantment.targetColumn = targetPiece->column;
+        }
+        else
+        {
+            setStatusFor(playerNumber, "That enchantment needs a player, square, or piece target.");
+            return false;
+        }
+
+        enchantments.push_back(std::move(enchantment));
         return true;
     }
 

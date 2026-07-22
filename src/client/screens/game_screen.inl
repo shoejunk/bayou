@@ -41,6 +41,13 @@
             line2 = "HP " + std::to_string(card.health);
             line3 = "Actions " + std::to_string(card.actions.size());
         }
+        else if (card.type == "Enchantment")
+        {
+            line2 = "Enchantment";
+            if (card.effect == "damage") line3 = "+" + std::to_string(card.power) + " attack damage";
+            else if (card.effect == "resources") line3 = "+" + std::to_string(card.power) + " Resources/turn";
+            else if (card.effect == "resourceDrain") line3 = "Drain " + std::to_string(card.power) + "/turn";
+        }
         else
         {
             line2 = "Spell";
@@ -87,6 +94,17 @@
             descriptions.push_back({"Passive: +" + std::to_string(piece.gatherResources) + " Resources each turn",
                                     sf::Color(190, 198, 214)});
         }
+        for (const game_data::Enchantment& enchantment : gameSnapshot.enchantments)
+        {
+            if (enchantment.target == static_cast<std::uint8_t>(game_data::EnchantmentTarget::Piece) &&
+                enchantment.targetPieceId == piece.id)
+            {
+                descriptions.push_back({
+                    "Enchanted: " + enchantment.title + " (+" +
+                        std::to_string(enchantment.power) + " " + enchantment.effect + ")",
+                    sf::Color(223, 164, 255)});
+            }
+        }
         if (piece.actions.empty())
         {
             descriptions.push_back({"Actions: none", sf::Color(225, 170, 150)});
@@ -111,6 +129,10 @@
         if (card.type == "Unit")
         {
             return "Play: " + std::to_string(card.cost) + " Resources, controlled empty square";
+        }
+        if (card.type == "Enchantment")
+        {
+            return "Play: " + std::to_string(card.cost) + " Resources, attach to " + card.target;
         }
         if (card.effect == "damage")
         {
@@ -466,10 +488,11 @@
                 *draggingHandIndex < gameSnapshot.hand.size()
             ? &gameSnapshot.hand[*draggingHandIndex]
             : nullptr;
-        const bool draggingPieceCard = draggedHandCard &&
-            (draggedHandCard->type == "Unit" || draggedHandCard->type == "Hero");
+        const bool draggingBoardCard = draggedHandCard &&
+            ((draggedHandCard->type == "Unit" || draggedHandCard->type == "Hero") ||
+             (draggedHandCard->type == "Enchantment" && draggedHandCard->target != "player"));
         const std::optional<std::pair<int, int>> draggedHandSquare =
-            draggingPieceCard ? squareAtPixel(gameDragCurrentPos) : std::nullopt;
+            draggingBoardCard ? squareAtPixel(gameDragCurrentPos) : std::nullopt;
         bool draggedHandDropValid = false;
         auto cardFootprintCanDeploy = [&](const game_data::GameCard& card, int row, int column, bool starting) {
             if (row < 0 || column < 0 || row + card.height > game_data::BoardSize ||
@@ -516,6 +539,19 @@
                     (sandboxMode || draggedHandCard->cost <= gameSnapshot.players[static_cast<std::size_t>(me - 1)].resources) &&
                     (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, *draggedHandCard)) &&
                     cardFootprintCanDeploy(*draggedHandCard, row, column, false);
+            }
+            else if (phase == game_data::Phase::Playing &&
+                     draggedHandCard->type == "Enchantment")
+            {
+                const game_data::Piece* occupant = gamePieceAt(row, column);
+                const bool validTarget =
+                    (draggedHandCard->target == "square" &&
+                     gameSnapshot.holes[static_cast<std::size_t>(game_data::squareIndex(row, column))] == 0) ||
+                    (draggedHandCard->target == "piece" && occupant != nullptr);
+                draggedHandDropValid = validTarget && gameSnapshot.relentlessPieceId == 0 &&
+                    (sandboxMode || gameSnapshot.activePlayer == me) &&
+                    (sandboxMode || draggedHandCard->cost <=
+                        gameSnapshot.players[static_cast<std::size_t>(me - 1)].resources);
             }
         }
 
@@ -603,11 +639,22 @@
                                     highlightFootprint(r, c, card.width, card.height, 3);
                                 }
                             }
-                            else if (card.effect == "damage" && occupant && occupant->owner != sandboxPlayer)
+                            else if (card.type == "Spell" && card.effect == "damage" &&
+                                     occupant && occupant->owner != sandboxPlayer)
                             {
                                 highlight[idx] = 2;
                             }
-                            else if (card.effect == "heal" && occupant && occupant->owner == sandboxPlayer)
+                            else if (card.type == "Spell" && card.effect == "heal" &&
+                                     occupant && occupant->owner == sandboxPlayer)
+                            {
+                                highlight[idx] = 4;
+                            }
+                            else if (card.type == "Enchantment" && card.target == "square" &&
+                                     gameSnapshot.holes[idx] == 0)
+                            {
+                                highlight[idx] = 4;
+                            }
+                            else if (card.type == "Enchantment" && card.target == "piece" && occupant)
                             {
                                 highlight[idx] = 4;
                             }
@@ -1140,6 +1187,47 @@
             ++effect;
         }
 
+        // Persistent attachments remain visible on their board targets.
+        for (const game_data::Enchantment& enchantment : gameSnapshot.enchantments)
+        {
+            if (enchantment.target == static_cast<std::uint8_t>(game_data::EnchantmentTarget::Player))
+            {
+                continue;
+            }
+            int row = enchantment.targetRow;
+            int column = enchantment.targetColumn;
+            if (enchantment.target == static_cast<std::uint8_t>(game_data::EnchantmentTarget::Piece))
+            {
+                const game_data::Piece* targetPiece = gamePieceById(enchantment.targetPieceId);
+                if (!targetPiece)
+                {
+                    continue;
+                }
+                row = targetPiece->row;
+                column = targetPiece->column;
+            }
+            if (!game_data::inBounds(row, column))
+            {
+                continue;
+            }
+            const sf::Vector2f anchor = boardFootprintAnchor(row, column, 1, gameSnapshot.yourPlayer);
+            const sf::Vector2f badgePosition{anchor.x + 12.0f, anchor.y - 35.0f};
+            sf::CircleShape badge(11.0f);
+            badge.setPosition({badgePosition.x - 11.0f, badgePosition.y - 11.0f});
+            badge.setFillColor(sf::Color(94, 47, 128, 230));
+            badge.setOutlineThickness(2.0f);
+            badge.setOutlineColor(sf::Color(223, 164, 255));
+            window.draw(badge);
+            if (sf::Texture* icon = cardArtTexture(enchantment.imagePath))
+            {
+                drawContainSprite(window, *icon, {{badgePosition.x - 8.0f, badgePosition.y - 8.0f}, {16.0f, 16.0f}});
+            }
+            else
+            {
+                drawText(window, font, "E", 12, {badgePosition.x - 4.0f, badgePosition.y - 8.0f}, sf::Color::White);
+            }
+        }
+
         // Compact game readout. Player ownership is always laid out from left
         // to right so both players' state is easy to compare at a glance.
         const game_data::PlayerSnapshot& mine = gameSnapshot.players[static_cast<std::size_t>(me - 1)];
@@ -1219,6 +1307,17 @@
             const std::string control = storyMode
                 ? "story"
                 : std::to_string(player.controlledSquares);
+            const int enchantmentCount = static_cast<int>(std::count_if(
+                gameSnapshot.enchantments.begin(),
+                gameSnapshot.enchantments.end(),
+                [&](const game_data::Enchantment& enchantment) {
+                    return enchantment.target ==
+                            static_cast<std::uint8_t>(game_data::EnchantmentTarget::Player) &&
+                        enchantment.targetPlayer == playerNumber;
+                }));
+            const std::string enchantmentReadout = enchantmentCount > 0
+                ? "  Enchantments: " + std::to_string(enchantmentCount)
+                : "";
             if (gameSnapshot.timersEnabled)
             {
                 return "Player " + std::to_string(playerNumber) + "  Clock: " +
@@ -1226,11 +1325,33 @@
                         player.clockRemainingMs,
                         phase == game_data::Phase::Playing &&
                             playerNumber == gameSnapshot.activePlayer)) + "  R: " + resources +
-                    "  Control: " + control;
+                    "  Control: " + control + enchantmentReadout;
             }
             return "Player " + std::to_string(playerNumber) + "  Resources: " + resources +
-                "  Control: " + control;
+                "  Control: " + control + enchantmentReadout;
         };
+
+        if (draggedHandCard && draggedHandCard->type == "Enchantment" &&
+            draggedHandCard->target == "player")
+        {
+            for (int playerNumber = 1; playerNumber <= 2; ++playerNumber)
+            {
+                const bool hovered = playerReadoutAtPixel(gameDragCurrentPos) ==
+                    std::optional<int>(playerNumber);
+                sf::RectangleShape targetGlow({GamePlayerReadoutWidth, 25.0f});
+                targetGlow.setPosition({
+                    playerNumber == 1
+                        ? BoardOriginX
+                        : BoardOriginX + BoardBottomWidth - GamePlayerReadoutWidth,
+                    GameLabelY - 3.0f});
+                targetGlow.setFillColor(hovered
+                    ? sf::Color(137, 72, 180, 105)
+                    : sf::Color(105, 62, 140, 55));
+                targetGlow.setOutlineThickness(hovered ? 2.0f : 1.0f);
+                targetGlow.setOutlineColor(sf::Color(223, 164, 255, 220));
+                window.draw(targetGlow);
+            }
+        }
 
         drawText(
             window,
@@ -1255,6 +1376,42 @@
             16,
             {playerTwoX, GameLabelY},
             ownerColor(2));
+
+        if (displayedClockWarning &&
+            std::chrono::steady_clock::now() < displayedClockWarning->visibleUntil)
+        {
+            const bool myClock = displayedClockWarning->playerNumber == me;
+            const std::int64_t thresholdSeconds = displayedClockWarning->thresholdMs / 1000;
+            const std::string timeLabel = thresholdSeconds >= 60
+                ? std::to_string(thresholdSeconds / 60) +
+                    (thresholdSeconds == 60 ? " minute" : " minutes")
+                : std::to_string(thresholdSeconds) + " seconds";
+            const std::string warningText =
+                (myClock ? "Your clock" : "Opponent's clock") +
+                std::string(": ") + timeLabel + " remaining";
+            const float pulse = 0.5f + 0.5f * std::sin(animationTime * 9.0f);
+            const auto accentRed = static_cast<std::uint8_t>(235.0f + pulse * 20.0f);
+            const auto accentGreen = static_cast<std::uint8_t>(92.0f + pulse * 45.0f);
+            const sf::Color accent(accentRed, accentGreen, 72);
+            constexpr sf::Vector2f warningSize{360.0f, 42.0f};
+            const sf::Vector2f warningPosition{
+                BoardCenterX - warningSize.x * 0.5f,
+                BoardOriginY + 8.0f};
+            drawBeveledPlate(
+                window,
+                warningPosition,
+                warningSize,
+                sf::Color(52, 14, 12, 242),
+                accent,
+                true,
+                8.0f);
+            sf::Text clockWarningText(font, warningText, 18);
+            clockWarningText.setFillColor(sf::Color(255, 238, 212));
+            centerText(
+                clockWarningText,
+                {BoardCenterX, warningPosition.y + warningSize.y * 0.5f});
+            window.draw(clockWarningText);
+        }
 
         if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
         {

@@ -340,11 +340,16 @@ inline bool isUnitCard(const card_data::Card& card)
     return card.type == "Unit";
 }
 
+inline bool isEnchantmentCard(const card_data::Card& card)
+{
+    return card.type == "Enchantment";
+}
+
 // A playable card resolved from a card definition into the values the game uses.
 struct GameCard
 {
     std::string title;
-    std::string type;      // "Unit", "Spell", or "Hero"
+    std::string type;      // "Unit", "Spell", "Enchantment", or "Hero"
     std::vector<std::string> traits;
     std::vector<std::string> keywords;
     std::string imagePath;
@@ -373,9 +378,9 @@ struct GameCard
     std::uint8_t movePattern = static_cast<std::uint8_t>(MovePattern::None);
     int moveRange = 0;
     bool attackingMove = false;
-    std::string effect = "none";  // spells: "damage", "heal", "resources"
-    std::string target = "none";  // spells: "enemy", "ally", "none"
-    int power = 0;                // spell magnitude
+    std::string effect = "none";  // spell/enchantment modifier: damage, heal, resources, resourceDrain
+    std::string target = "none";  // spells: enemy/ally/none; enchantments: player/square/piece
+    int power = 0;                // spell or enchantment magnitude
     int tax = 0;                  // passive resources taken from the opponent each owner's turn
     int gatherResources = 0;      // passive resources gained at the start of each owner's turn
     bool canControl = true;
@@ -517,6 +522,94 @@ inline GameCard toGameCard(const card_data::Card& card)
 inline bool isResourcesEffect(const GameCard& card)
 {
     return card.effect == "resources" || card.effect == "steam";
+}
+
+inline bool isEnchantmentCard(const GameCard& card)
+{
+    return card.type == "Enchantment";
+}
+
+enum class EnchantmentTarget : std::uint8_t
+{
+    Player,
+    Square,
+    Piece
+};
+
+// A card-created attachment. It remains in the match until its attached piece
+// leaves play (player and square attachments last for the rest of the match).
+// Keeping the modifier name and magnitude data-driven makes it possible to add
+// more modifier hooks without changing the card or snapshot format again.
+struct Enchantment
+{
+    int id = 0;
+    int owner = 0;
+    std::string title;
+    std::string imagePath;
+    std::string effect;
+    int power = 0;
+    std::uint8_t target = static_cast<std::uint8_t>(EnchantmentTarget::Player);
+    int targetPlayer = 0;
+    int targetRow = -1;
+    int targetColumn = -1;
+    int targetPieceId = 0;
+};
+
+inline int pieceEnchantmentDamageBonus(
+    const std::vector<Enchantment>& enchantments,
+    int pieceId)
+{
+    int bonus = 0;
+    for (const Enchantment& enchantment : enchantments)
+    {
+        if (enchantment.target == static_cast<std::uint8_t>(EnchantmentTarget::Piece) &&
+            enchantment.targetPieceId == pieceId && enchantment.effect == "damage")
+        {
+            bonus += enchantment.power;
+        }
+    }
+    return std::max(0, bonus);
+}
+
+inline int squareEnchantmentResourceBonus(
+    const std::vector<Enchantment>& enchantments,
+    const std::array<std::uint8_t, BoardSquares>& control,
+    int playerNumber)
+{
+    int bonus = 0;
+    for (const Enchantment& enchantment : enchantments)
+    {
+        if (enchantment.target != static_cast<std::uint8_t>(EnchantmentTarget::Square) ||
+            enchantment.effect != "resources" ||
+            enchantment.targetRow < 0 || enchantment.targetRow >= BoardSize ||
+            enchantment.targetColumn < 0 || enchantment.targetColumn >= BoardSize)
+        {
+            continue;
+        }
+        const std::size_t index = static_cast<std::size_t>(
+            enchantment.targetRow * BoardSize + enchantment.targetColumn);
+        if (control[index] == playerNumber)
+        {
+            bonus += enchantment.power;
+        }
+    }
+    return std::max(0, bonus);
+}
+
+inline int playerEnchantmentResourceDrain(
+    const std::vector<Enchantment>& enchantments,
+    int playerNumber)
+{
+    int drain = 0;
+    for (const Enchantment& enchantment : enchantments)
+    {
+        if (enchantment.target == static_cast<std::uint8_t>(EnchantmentTarget::Player) &&
+            enchantment.targetPlayer == playerNumber && enchantment.effect == "resourceDrain")
+        {
+            drain += enchantment.power;
+        }
+    }
+    return std::max(0, drain);
 }
 
 // A unit / hero standing on the board.
@@ -735,6 +828,7 @@ struct Snapshot
     std::array<std::uint8_t, BoardSquares> control{};  // 0 neutral, 1, 2
     std::array<std::uint8_t, BoardSquares> holes{};
     std::vector<Piece> pieces;
+    std::vector<Enchantment> enchantments;
     std::vector<GameCard> hand;  // recipient's hand
     std::string status;
 };
@@ -877,6 +971,23 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
     return packet && card_data::readStringVector(packet, piece.abilityLabels);
 }
 
+inline void writeEnchantment(sf::Packet& packet, const Enchantment& enchantment)
+{
+    packet << enchantment.id << enchantment.owner << enchantment.title
+           << enchantment.imagePath << enchantment.effect << enchantment.power
+           << enchantment.target << enchantment.targetPlayer
+           << enchantment.targetRow << enchantment.targetColumn << enchantment.targetPieceId;
+}
+
+inline bool readEnchantment(sf::Packet& packet, Enchantment& enchantment)
+{
+    packet >> enchantment.id >> enchantment.owner >> enchantment.title
+           >> enchantment.imagePath >> enchantment.effect >> enchantment.power
+           >> enchantment.target >> enchantment.targetPlayer
+           >> enchantment.targetRow >> enchantment.targetColumn >> enchantment.targetPieceId;
+    return static_cast<bool>(packet);
+}
+
 inline void writePlayerSnapshot(sf::Packet& packet, const PlayerSnapshot& player)
 {
     packet << player.resources << player.controlledSquares << player.handCount
@@ -914,6 +1025,12 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
     for (const Piece& piece : snapshot.pieces)
     {
         writePiece(packet, piece);
+    }
+
+    packet << static_cast<std::uint32_t>(snapshot.enchantments.size());
+    for (const Enchantment& enchantment : snapshot.enchantments)
+    {
+        writeEnchantment(packet, enchantment);
     }
 
     packet << static_cast<std::uint32_t>(snapshot.hand.size());
@@ -969,6 +1086,24 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot)
             return false;
         }
         snapshot.pieces.push_back(piece);
+    }
+
+    std::uint32_t enchantmentCount = 0;
+    packet >> enchantmentCount;
+    if (!packet || enchantmentCount > card_data::MaxSerializedItems)
+    {
+        return false;
+    }
+    snapshot.enchantments.clear();
+    snapshot.enchantments.reserve(enchantmentCount);
+    for (std::uint32_t i = 0; i < enchantmentCount; ++i)
+    {
+        Enchantment enchantment;
+        if (!readEnchantment(packet, enchantment))
+        {
+            return false;
+        }
+        snapshot.enchantments.push_back(enchantment);
     }
 
     std::uint32_t handCount = 0;

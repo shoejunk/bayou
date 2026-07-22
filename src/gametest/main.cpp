@@ -23,6 +23,7 @@
 #include "../shared/game_data.hpp"
 #include "../shared/ranking.hpp"
 #include "../gameserver/game_engine.hpp"
+#include "../client/client_clock_warning.hpp"
 
 #include "../shared/network.hpp"
 
@@ -274,6 +275,36 @@ void sendDiscardCard(bayou::tls::Socket& socket, int handIndex)
 
 int main(int argc, char** argv)
 {
+    bayou::client::ClockWarningTracker clockWarnings;
+    check(!clockWarnings.observe(1, 121'000).has_value(),
+          "clock warnings establish a baseline without firing");
+    const auto twoMinuteWarning = clockWarnings.observe(1, 120'000);
+    check(twoMinuteWarning && twoMinuteWarning->playerNumber == 1 &&
+              twoMinuteWarning->thresholdMs == 120'000,
+          "clock warning fires when a player crosses two minutes");
+    check(!clockWarnings.observe(1, 119'000).has_value() &&
+              !clockWarnings.observe(1, 120'500).has_value() &&
+              !clockWarnings.observe(1, 119'500).has_value(),
+          "clock correction around a crossed threshold does not replay its warning");
+    const auto oneMinuteWarning = clockWarnings.observe(1, 59'900);
+    check(oneMinuteWarning && oneMinuteWarning->thresholdMs == 60'000,
+          "clock warning fires when a player crosses one minute");
+    const auto thirtySecondWarning = clockWarnings.observe(1, 29'900);
+    check(thirtySecondWarning && thirtySecondWarning->thresholdMs == 30'000,
+          "clock warning fires when a player crosses thirty seconds");
+
+    clockWarnings.reset();
+    check(!clockWarnings.observe(2, 20'000).has_value() &&
+              !clockWarnings.observe(2, 19'000).has_value(),
+          "joining below a clock threshold does not replay elapsed warnings");
+    clockWarnings.reset();
+    check(!clockWarnings.observe(2, 121'000).has_value(),
+          "clock warning tracker can be reset for a new match");
+    const auto delayedWarning = clockWarnings.observe(2, 29'000);
+    check(delayedWarning && delayedWarning->playerNumber == 2 &&
+              delayedWarning->thresholdMs == 30'000,
+          "a delayed clock update emits only its most urgent crossed warning");
+
     fmt::println("=== Resources Tactics integration test ===");
 
     card_data::Card largeDefinition;
@@ -1082,6 +1113,18 @@ int main(int argc, char** argv)
     serializedSnapshot.timersEnabled = true;
     serializedSnapshot.turnRemainingMs = 54'321;
     serializedSnapshot.players[0].clockRemainingMs = 876'543;
+    serializedSnapshot.enchantments.push_back({
+        7,
+        1,
+        "Serialized Enchantment",
+        "enchantments/test.png",
+        "damage",
+        4,
+        static_cast<std::uint8_t>(EnchantmentTarget::Piece),
+        0,
+        2,
+        3,
+        99});
     serializedSnapshot.status = "Command pending";
     sf::Packet snapshotPacket;
     writeSnapshot(snapshotPacket, serializedSnapshot);
@@ -1092,8 +1135,128 @@ int main(int argc, char** argv)
               roundTrippedSnapshot.timersEnabled &&
               roundTrippedSnapshot.turnRemainingMs == 54'321 &&
               roundTrippedSnapshot.players[0].clockRemainingMs == 876'543 &&
+              roundTrippedSnapshot.enchantments.size() == 1 &&
+              roundTrippedSnapshot.enchantments[0].title == "Serialized Enchantment" &&
+              roundTrippedSnapshot.enchantments[0].targetPieceId == 99 &&
               roundTrippedSnapshot.status == "Command pending",
-          "pending actions and game timers survive snapshot serialization");
+          "pending actions, enchantments, and game timers survive snapshot serialization");
+
+    card_data::Card enchantmentHero;
+    enchantmentHero.title = "Enchantment Test Hero";
+    enchantmentHero.type = "Hero";
+    enchantmentHero.integerValues = {{"health", 6}};
+    card_data::Action longAttack;
+    longAttack.name = "Test Beam";
+    longAttack.kind = "ranged";
+    longAttack.pattern = "horizontal";
+    longAttack.minRange = 1;
+    longAttack.maxRange = 7;
+    longAttack.damage = 2;
+    longAttack.canMove = false;
+    longAttack.canAttack = true;
+    longAttack.lineOfSight = true;
+    enchantmentHero.actions = {longAttack};
+
+    const auto makeEnchantment = [](
+        const std::string& title,
+        const std::string& target,
+        const std::string& effect,
+        int power) {
+        card_data::Card card;
+        card.title = title;
+        card.type = "Enchantment";
+        card.integerValues = {{"cost", 0}, {"power", power}};
+        card.stringValues = {{"target", target}, {"effect", effect}};
+        return card;
+    };
+    const card_data::Card drainEnchantment =
+        makeEnchantment("Resource Blight", "player", "resourceDrain", 5);
+    const card_data::Card squareEnchantment =
+        makeEnchantment("Bountiful Ground", "square", "resources", 3);
+    const card_data::Card damageEnchantment =
+        makeEnchantment("Sharpened Spirit", "piece", "damage", 4);
+    const card_data::Card spareEnchantment =
+        makeEnchantment("Spare Ground", "square", "resources", 1);
+    const std::vector<card_data::Card> enchantmentDeck = {
+        enchantmentHero,
+        drainEnchantment,
+        squareEnchantment,
+        damageEnchantment,
+        spareEnchantment};
+
+    GameEngine enchantmentEngine(101, enchantmentDeck);
+    enchantmentEngine.submitDeck(1, enchantmentDeck);
+    enchantmentEngine.submitDeck(2, enchantmentDeck);
+    const auto enchantmentHomeOne = homeSquares(1)[0];
+    const auto enchantmentHomeTwo = homeSquares(2)[0];
+    enchantmentEngine.placeHero(1, 0, enchantmentHomeOne.first, enchantmentHomeOne.second);
+    enchantmentEngine.placeHero(2, 0, enchantmentHomeTwo.first, enchantmentHomeTwo.second);
+
+    const auto handIndexFor = [&](int playerNumber, const std::string& title) {
+        const auto& hand = enchantmentEngine.playerState(playerNumber).hand;
+        const auto found = std::find_if(
+            hand.begin(), hand.end(), [&](const GameCard& card) { return card.title == title; });
+        return found == hand.end()
+            ? -1
+            : static_cast<int>(std::distance(hand.begin(), found));
+    };
+
+    check(
+        enchantmentEngine.playCard(1, handIndexFor(1, "Resource Blight"), -1, 2),
+        "a player enchantment can attach by dragging to a player target");
+    Snapshot enchantmentSnapshot = enchantmentEngine.snapshotFor(1);
+    check(
+        enchantmentSnapshot.enchantments.size() == 1 &&
+            enchantmentSnapshot.enchantments[0].targetPlayer == 2 &&
+            enchantmentSnapshot.players[1].resources == std::max(
+                0,
+                enchantmentSnapshot.players[1].controlledSquares - 5),
+        "a player resource-drain enchantment persists and drains at turn start");
+    const int resourcesAfterFirstDrain = enchantmentSnapshot.players[1].resources;
+
+    check(
+        enchantmentEngine.playCard(
+            2,
+            handIndexFor(2, "Bountiful Ground"),
+            enchantmentHomeTwo.first,
+            enchantmentHomeTwo.second),
+        "a square enchantment can attach to a board square");
+    check(
+        enchantmentEngine.playCard(
+            1,
+            handIndexFor(1, "Sharpened Spirit"),
+            enchantmentHomeOne.first,
+            enchantmentHomeOne.second),
+        "a piece enchantment can attach to a board piece");
+    enchantmentSnapshot = enchantmentEngine.snapshotFor(1);
+    const int expectedEnchantedResources = std::max(
+        0,
+        resourcesAfterFirstDrain +
+            enchantmentSnapshot.players[1].controlledSquares + 3 - 5);
+    check(
+        enchantmentSnapshot.players[1].resources == expectedEnchantedResources,
+        "a square enchantment grants resources to the square's current controller each turn");
+
+    check(
+        enchantmentEngine.playCard(
+            2,
+            handIndexFor(2, "Sharpened Spirit"),
+            enchantmentHomeTwo.first,
+            enchantmentHomeTwo.second),
+        "multiple piece enchantments can persist on different pieces");
+    const int enchantedAttackerId = enchantmentEngine.boardPieces().front().id;
+    check(
+        enchantmentEngine.attackPiece(
+            1,
+            enchantedAttackerId,
+            enchantmentHomeTwo.first,
+            enchantmentHomeTwo.second) &&
+            enchantmentEngine.phase() == Phase::GameOver &&
+            enchantmentEngine.winner() == 1,
+        "a piece damage enchantment adds its power to every attack");
+    check(
+        enchantmentEngine.boardEnchantments().size() == 3,
+        "a piece attachment leaves play with its destroyed piece while other enchantments persist");
 
     card_data::Card taxHeroCard;
     taxHeroCard.title = "Tax Hero";

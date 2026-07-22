@@ -3444,7 +3444,7 @@ private:
         float y = 164.0f;
         y = drawInstructionSection(window, "1. Card identity", y);
         y = drawInstructionBullet(window, "Title: the unique card name. Renaming an existing card updates that card; duplicate titles are not valid.", y);
-        y = drawInstructionBullet(window, "Type: enter exactly Hero, Unit, or Spell. Type matching is case-sensitive.", y);
+        y = drawInstructionBullet(window, "Type: enter exactly Hero, Unit, Spell, or Enchantment. Type matching is case-sensitive.", y);
         y = drawInstructionBullet(window, "Image Path: a path under the assets folder, such as cards/clockwork-rook.png. Do not include an absolute path or use .. to leave the assets folder.", y);
         y = drawInstructionBullet(window, "Board art: Token selects the shared resting image and WalkAnim selects its horizontal walking sprite sheet; WalkAnimFrames gives the frame count. PieceBaseBlue and PieceBaseRed select the team-colored bases drawn beneath that art. IdleAnim loops while placed pieces are not moving; AttackAnim, DamagedAnim, and KilledAnim play as one-shot combat sheets. Optional FidgetAnim with FidgetAnimFrames plays occasionally while the piece is stationary.", y);
         y += 12.0f;
@@ -3453,10 +3453,11 @@ private:
         y = drawInstructionBullet(window, "Hero: selected during deck building and placed on one of the player's four starting squares before play. Use heroCost instead of cost. A deck has 1-4 Heroes and a total Hero cost limit of 100. Losing every Hero loses the game.", y, sf::Color(248, 214, 112));
         y = drawInstructionBullet(window, "Unit: goes into the 20-card main deck. It costs Resources to play and deploys to an empty square the player controls. A newly deployed Unit cannot move or attack until its owner's next turn.", y, sf::Color(150, 210, 235));
         y = drawInstructionBullet(window, "Spell: goes into the main deck, costs Resources, resolves immediately, and leaves the hand. Spells do not use health, actions, or WalkAnim.", y, sf::Color(205, 175, 235));
+        y = drawInstructionBullet(window, "Enchantment: goes into the main deck and attaches permanently to a player, square, or piece. Use target=player with effect=resourceDrain, target=square with effect=resources, or target=piece with effect=damage; power is the modifier amount.", y, sf::Color(194, 150, 235));
         y += 12.0f;
 
         y = drawInstructionSection(window, "3. Integer Fields (key = whole number)", y);
-        y = drawInstructionBullet(window, "cost: Resources paid to play a Unit or Spell. Default: 1.", y);
+        y = drawInstructionBullet(window, "cost: Resources paid to play a Unit, Spell, or Enchantment. Default: 1.", y);
         y = drawInstructionBullet(window, "heroCost: deck-building Hero budget. Use only on Heroes. Default: 0.", y);
         y = drawInstructionBullet(window, "health: starting and maximum hit points for a Hero or Unit. Default: 1.", y);
         y = drawInstructionBullet(window, "width and height: board squares occupied by a Hero or Unit. Both default to 1.", y);
@@ -3482,7 +3483,7 @@ private:
         y = drawInstructionParagraph(window, "A capture action is both movement and attack, but can only target an enemy-occupied square. If it destroys the enemy, the mover occupies the enemy's square; otherwise it falls back according to that action's movement geometry.", y, sf::Color(225, 170, 150));
         y += 17.0f;
 
-        y = drawInstructionSection(window, "5. Spell String Fields", y);
+        y = drawInstructionSection(window, "5. Spell / Enchantment String Fields", y);
         y = drawInstructionBullet(window, "effect=damage with target=enemy: subtract power from an enemy Hero or Unit. If health reaches 0, that piece is destroyed.", y);
         y = drawInstructionBullet(window, "effect=heal with target=ally: restore power health to a friendly Hero or Unit, up to its maximum health.", y);
         y = drawInstructionBullet(window, "effect=resources with target=none: immediately add power Resources to the player. No board target is required. Legacy effect=steam is also accepted.", y);
@@ -3515,6 +3516,7 @@ private:
         y = drawInstructionParagraph(window, "Hero example - Type: Hero | Integer Fields: heroCost=50; health=16 | String Fields: rarity=rare; WalkAnim=animations/marsh-witch-walk.png | Actions: BishopMove2; KingAttack3", y, sf::Color(248, 214, 112));
         y += 10.0f;
         y = drawInstructionParagraph(window, "Spell example - Type: Spell | Integer Fields: cost=20; power=6 | String Fields: effect=heal; target=ally; rarity=common", y, sf::Color(205, 175, 235));
+        y = drawInstructionParagraph(window, "Enchantment example - Type: Enchantment | Integer Fields: cost=15; power=5 | String Fields: effect=resourceDrain; target=player; rarity=common", y, sf::Color(194, 150, 235));
         y += 22.0f;
 
         y = drawInstructionSection(window, "9. Using the editor safely", y);
