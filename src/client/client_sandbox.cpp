@@ -1,4 +1,5 @@
 #include "client_sandbox.hpp"
+#include "../shared/game_rules.hpp"
 
 #include <algorithm>
 #include <array>
@@ -55,6 +56,85 @@ void removePieceFromSnapshot(game_data::Snapshot& snapshot, int id)
                     enchantment.targetPieceId == id;
             }),
         snapshot.enchantments.end());
+}
+
+void destroyPieceInSnapshot(
+    game_data::Snapshot& snapshot,
+    int& nextPieceId,
+    int id,
+    const game_data::GameCard* rebirthCard)
+{
+    const game_data::Piece* found = pieceByIdInSnapshot(snapshot, id);
+    if (found == nullptr)
+    {
+        return;
+    }
+
+    const game_data::Piece original = *found;
+    snapshot.pieces.erase(
+        std::remove_if(
+            snapshot.pieces.begin(),
+            snapshot.pieces.end(),
+            [id](const game_data::Piece& piece) { return piece.id == id; }),
+        snapshot.pieces.end());
+
+    int rebornPieceId = 0;
+    if (rebirthCard != nullptr &&
+        (rebirthCard->type == "Unit" || rebirthCard->type == "Hero") &&
+        game_data::cardFootprintFree(
+            snapshot.pieces,
+            *rebirthCard,
+            original.row,
+            original.column))
+    {
+        spawnSandboxPiece(
+            snapshot,
+            nextPieceId,
+            original.owner,
+            *rebirthCard,
+            original.row,
+            original.column,
+            rebirthCard->type == "Hero");
+        snapshot.pieces.back().hasActed = true;
+        rebornPieceId = snapshot.pieces.back().id;
+    }
+
+    if (rebornPieceId != 0)
+    {
+        for (game_data::Enchantment& enchantment : snapshot.enchantments)
+        {
+            if (enchantment.target ==
+                    static_cast<std::uint8_t>(game_data::EnchantmentTarget::Piece) &&
+                enchantment.targetPieceId == id)
+            {
+                enchantment.targetPieceId = rebornPieceId;
+                enchantment.targetRow = original.row;
+                enchantment.targetColumn = original.column;
+            }
+        }
+    }
+    else
+    {
+        snapshot.enchantments.erase(
+            std::remove_if(
+                snapshot.enchantments.begin(),
+                snapshot.enchantments.end(),
+                [id](const game_data::Enchantment& enchantment) {
+                    return enchantment.target ==
+                            static_cast<std::uint8_t>(game_data::EnchantmentTarget::Piece) &&
+                        enchantment.targetPieceId == id;
+                }),
+            snapshot.enchantments.end());
+    }
+
+    if (snapshot.commandingPieceId == id)
+    {
+        snapshot.commandingPieceId = 0;
+    }
+    if (snapshot.relentlessPieceId == id)
+    {
+        snapshot.relentlessPieceId = 0;
+    }
 }
 
 int controlledCountInSnapshot(const game_data::Snapshot& snapshot, int playerNumber)

@@ -997,6 +997,7 @@ int main(int argc, char** argv)
     serializedCard.fidgetAnimFrames = 10;
     serializedCard.ability = "transform";
     serializedCard.summonTitle = "Serialized Summon";
+    serializedCard.rebirthTitle = "Serialized Rebirth";
     serializedCard.abilityLabels = {"Ready", "Lower"};
     serializedCard.abilityUses = 2;
     serializedCard.gatherResources = 6;
@@ -1032,6 +1033,7 @@ int main(int argc, char** argv)
               roundTrippedCard.killedAnimFrames == 9 &&
               roundTrippedCard.fidgetAnimFrames == 10 &&
               roundTrippedCard.summonTitle == "Serialized Summon" &&
+              roundTrippedCard.rebirthTitle == "Serialized Rebirth" &&
               roundTrippedCard.abilityLabels.size() == 2 &&
               roundTrippedCard.abilityUses == 2 &&
               roundTrippedCard.gatherResources == 6 &&
@@ -1041,6 +1043,7 @@ int main(int argc, char** argv)
     Piece serializedPiece = profilePiece;
     serializedPiece.ability = "dig";
     serializedPiece.summonTitle = "Serialized Summon";
+    serializedPiece.rebirthTitle = "Serialized Rebirth";
     serializedPiece.traits = {"corrupt"};
     serializedPiece.keywords = {"future-rule"};
     serializedPiece.tokenPath = "characters/test.png";
@@ -1101,6 +1104,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.fidgetAnimFrames == 9 &&
               roundTrippedPiece.ability == "dig" &&
               roundTrippedPiece.summonTitle == "Serialized Summon" &&
+              roundTrippedPiece.rebirthTitle == "Serialized Rebirth" &&
               roundTrippedPiece.gatherResources == 7 &&
               roundTrippedPiece.growTurnsRemaining == 2 &&
               roundTrippedPiece.disabledTurns == 1 &&
@@ -1140,6 +1144,173 @@ int main(int argc, char** argv)
               roundTrippedSnapshot.enchantments[0].targetPieceId == 99 &&
               roundTrippedSnapshot.status == "Command pending",
           "pending actions, enchantments, and game timers survive snapshot serialization");
+
+    card_data::Card rebirthSlayer;
+    rebirthSlayer.title = "Rebirth Slayer";
+    rebirthSlayer.type = "Hero";
+    rebirthSlayer.integerValues = {{"health", 8}};
+    card_data::Action rebirthAttack;
+    rebirthAttack.name = "Rebirth Test Beam";
+    rebirthAttack.kind = "ranged";
+    rebirthAttack.pattern = "horizontal";
+    rebirthAttack.minRange = 1;
+    rebirthAttack.maxRange = 7;
+    rebirthAttack.damage = 2;
+    rebirthAttack.canMove = false;
+    rebirthAttack.canAttack = true;
+    rebirthAttack.lineOfSight = true;
+    rebirthSlayer.actions = {rebirthAttack};
+
+    card_data::Card rebirthHusk;
+    rebirthHusk.title = "Rebirth Husk";
+    rebirthHusk.type = "Hero";
+    rebirthHusk.imagePath = "cards/rebirth-husk.png";
+    rebirthHusk.integerValues = {{"health", 2}};
+    rebirthHusk.stringValues = {
+        {"Token", "characters/rebirth-husk.png"},
+        {"rebirth", "Rebirth Ascendant"}};
+
+    card_data::Card rebirthAscendant;
+    rebirthAscendant.title = "Rebirth Ascendant";
+    rebirthAscendant.type = "Hero";
+    rebirthAscendant.imagePath = "cards/rebirth-ascendant.png";
+    rebirthAscendant.integerValues = {
+        {"health", 6},
+        {"IdleAnimFrames", 11},
+        {"AttackAnimFrames", 12},
+        {"DamagedAnimFrames", 13},
+        {"KilledAnimFrames", 14}};
+    rebirthAscendant.stringValues = {
+        {"Token", "characters/rebirth-ascendant.png"},
+        {"IdleAnim", "animations/rebirth-ascendant-idle.png"},
+        {"AttackAnim", "animations/rebirth-ascendant-attack.png"},
+        {"DamagedAnim", "animations/rebirth-ascendant-damaged.png"},
+        {"KilledAnim", "animations/rebirth-ascendant-killed.png"}};
+
+    const auto makeRebirthEnchantment = [](const std::string& title, int power) {
+        card_data::Card card;
+        card.title = title;
+        card.type = "Enchantment";
+        card.integerValues = {{"cost", 0}, {"power", power}};
+        card.stringValues = {{"target", "piece"}, {"effect", "damage"}};
+        return card;
+    };
+    const card_data::Card rebirthCharmOne =
+        makeRebirthEnchantment("Rebirth Charm One", 1);
+    const card_data::Card rebirthCharmTwo =
+        makeRebirthEnchantment("Rebirth Charm Two", 2);
+    const auto makeRebirthPass = [](const std::string& title) {
+        card_data::Card card;
+        card.title = title;
+        card.type = "Spell";
+        card.integerValues = {{"cost", 0}, {"power", 0}};
+        card.stringValues = {{"effect", "resources"}};
+        return card;
+    };
+    const card_data::Card rebirthPassOne = makeRebirthPass("Rebirth Pass One");
+    const card_data::Card rebirthPassTwo = makeRebirthPass("Rebirth Pass Two");
+
+    const std::vector<card_data::Card> rebirthCatalog = {
+        rebirthSlayer,
+        rebirthHusk,
+        rebirthAscendant,
+        rebirthCharmOne,
+        rebirthCharmTwo,
+        rebirthPassOne,
+        rebirthPassTwo};
+    GameEngine rebirthEngine(202, rebirthCatalog);
+    rebirthEngine.submitDeck(1, {rebirthSlayer, rebirthCharmOne, rebirthCharmTwo});
+    rebirthEngine.submitDeck(2, {rebirthHusk, rebirthPassOne, rebirthPassTwo});
+    const auto rebirthHomeOne = homeSquares(1)[0];
+    const auto rebirthHomeTwo = homeSquares(2)[0];
+    rebirthEngine.placeHero(1, 0, rebirthHomeOne.first, rebirthHomeOne.second);
+    rebirthEngine.placeHero(2, 0, rebirthHomeTwo.first, rebirthHomeTwo.second);
+
+    const auto rebirthHandIndex = [&](int playerNumber, const std::string& title) {
+        const auto& hand = rebirthEngine.playerState(playerNumber).hand;
+        const auto found = std::find_if(
+            hand.begin(),
+            hand.end(),
+            [&](const GameCard& card) { return card.title == title; });
+        return found == hand.end() ? -1 : static_cast<int>(found - hand.begin());
+    };
+    const auto rebirthPieceByName = [&](const std::string& name) -> const Piece* {
+        const auto found = std::find_if(
+            rebirthEngine.boardPieces().begin(),
+            rebirthEngine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == name; });
+        return found == rebirthEngine.boardPieces().end() ? nullptr : &*found;
+    };
+
+    const Piece* originalRebirthPiece = rebirthPieceByName("Rebirth Husk");
+    const int originalRebirthPieceId = originalRebirthPiece ? originalRebirthPiece->id : 0;
+    check(
+        originalRebirthPieceId != 0 &&
+            rebirthEngine.playCard(
+                1,
+                rebirthHandIndex(1, "Rebirth Charm One"),
+                rebirthHomeTwo.first,
+                rebirthHomeTwo.second) &&
+            rebirthEngine.playCard(
+                2,
+                rebirthHandIndex(2, "Rebirth Pass One"),
+                -1,
+                -1) &&
+            rebirthEngine.playCard(
+                1,
+                rebirthHandIndex(1, "Rebirth Charm Two"),
+                rebirthHomeTwo.first,
+                rebirthHomeTwo.second) &&
+            rebirthEngine.playCard(
+                2,
+                rebirthHandIndex(2, "Rebirth Pass Two"),
+                -1,
+                -1),
+        "rebirth test setup attaches multiple enchantments to the original piece");
+
+    const Piece* rebirthAttacker = rebirthPieceByName("Rebirth Slayer");
+    check(
+        rebirthAttacker != nullptr &&
+            rebirthEngine.attackPiece(
+                1,
+                rebirthAttacker->id,
+                rebirthHomeTwo.first,
+                rebirthHomeTwo.second),
+        "lethal damage resolves against a piece with rebirth");
+
+    const Piece* rebornPiece = rebirthPieceByName("Rebirth Ascendant");
+    const bool rebirthEnchantmentsRetargeted = rebornPiece != nullptr &&
+        rebirthEngine.boardEnchantments().size() == 2 &&
+        std::all_of(
+            rebirthEngine.boardEnchantments().begin(),
+            rebirthEngine.boardEnchantments().end(),
+            [&](const Enchantment& enchantment) {
+                return enchantment.targetPieceId == rebornPiece->id &&
+                    enchantment.targetRow == rebirthHomeTwo.first &&
+                    enchantment.targetColumn == rebirthHomeTwo.second;
+            });
+    check(
+        rebornPiece != nullptr &&
+            rebornPiece->id != originalRebirthPieceId &&
+            rebornPiece->owner == 2 &&
+            rebornPiece->row == rebirthHomeTwo.first &&
+            rebornPiece->column == rebirthHomeTwo.second &&
+            rebornPiece->health == 6 &&
+            rebornPiece->maxHealth == 6 &&
+            rebornPiece->isHero &&
+            rebornPiece->imagePath == "cards/rebirth-ascendant.png" &&
+            rebornPiece->tokenPath == "characters/rebirth-ascendant.png" &&
+            rebornPiece->idleAnimPath == "animations/rebirth-ascendant-idle.png" &&
+            rebornPiece->attackAnimPath == "animations/rebirth-ascendant-attack.png" &&
+            rebornPiece->damagedAnimPath == "animations/rebirth-ascendant-damaged.png" &&
+            rebornPiece->killedAnimPath == "animations/rebirth-ascendant-killed.png" &&
+            rebornPiece->idleAnimFrames == 11 &&
+            rebornPiece->attackAnimFrames == 12 &&
+            rebornPiece->damagedAnimFrames == 13 &&
+            rebornPiece->killedAnimFrames == 14 &&
+            rebirthEnchantmentsRetargeted &&
+            rebirthEngine.phase() == Phase::Playing,
+        "rebirth creates a fresh card-defined piece in place and retains every enchantment");
 
     card_data::Card enchantmentHero;
     enchantmentHero.title = "Enchantment Test Hero";

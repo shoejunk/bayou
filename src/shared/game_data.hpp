@@ -388,6 +388,7 @@ struct GameCard
     std::vector<ActionProfile> actions;
     std::string ability;
     std::string summonTitle;
+    std::string rebirthTitle;
     std::vector<std::string> abilityLabels;
     int abilityUses = 0;
 };
@@ -433,6 +434,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     {
         g.summonTitle = cardStr(card, "summonUnit");
     }
+    g.rebirthTitle = cardStr(card, "rebirth");
     g.abilityLabels = cardList(card, "abilityLabels");
     g.abilityUses = cardInt(card, "abilityUses", 0);
 
@@ -657,6 +659,7 @@ struct Piece
     int actionState = 0;
     std::string ability;
     std::string summonTitle;
+    std::string rebirthTitle;
     std::vector<std::string> abilityLabels;
     int abilityUses = 0;
     bool hidden = false;
@@ -701,6 +704,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.actions = card.actions;
     piece.ability = normalizedAbility(card.ability);
     piece.summonTitle = card.summonTitle;
+    piece.rebirthTitle = card.rebirthTitle;
     piece.abilityLabels = card.abilityLabels;
     piece.abilityUses = card.abilityUses;
     piece.isHero = isHero;
@@ -858,7 +862,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
                << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
         card_data::writeStringVector(packet, action.targetFilter);
     }
-    packet << card.ability << card.summonTitle;
+    packet << card.ability << card.summonTitle << card.rebirthTitle;
     card_data::writeStringVector(packet, card.abilityLabels);
     packet << card.abilityUses;
 }
@@ -897,7 +901,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
         }
         card.actions.push_back(action);
     }
-    packet >> card.ability >> card.summonTitle;
+    packet >> card.ability >> card.summonTitle >> card.rebirthTitle;
     if (!packet || !card_data::readStringVector(packet, card.abilityLabels))
     {
         return false;
@@ -920,7 +924,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
            << piece.width << piece.height << piece.attack << piece.attackRange
            << piece.movePattern << piece.moveRange << piece.attackingMove
            << piece.canControl << piece.growTurnsRemaining << piece.disabledTurns << piece.sleepTurnsRemaining
-           << piece.actionState << piece.ability << piece.summonTitle << piece.abilityUses << piece.hidden
+           << piece.actionState << piece.ability << piece.summonTitle << piece.rebirthTitle << piece.abilityUses << piece.hidden
            << piece.isHero << piece.hasActed;
     packet << static_cast<std::uint32_t>(piece.actions.size());
     for (const ActionProfile& action : piece.actions)
@@ -950,7 +954,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
            >> piece.width >> piece.height >> piece.attack >> piece.attackRange
            >> piece.movePattern >> piece.moveRange >> piece.attackingMove
            >> piece.canControl >> piece.growTurnsRemaining >> piece.disabledTurns >> piece.sleepTurnsRemaining
-           >> piece.actionState >> piece.ability >> piece.summonTitle >> piece.abilityUses >> piece.hidden
+           >> piece.actionState >> piece.ability >> piece.summonTitle >> piece.rebirthTitle >> piece.abilityUses >> piece.hidden
            >> piece.isHero >> piece.hasActed;
     std::uint32_t actionCount = 0;
     packet >> actionCount;

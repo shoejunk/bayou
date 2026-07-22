@@ -3906,6 +3906,29 @@ int main(int argc, char** argv)
         }
     };
 
+    auto destroySandboxPiece = [&](game_data::Snapshot& snapshot, int pieceId) {
+        const game_data::Piece* piece = pieceByIdInSnapshot(snapshot, pieceId);
+        std::optional<game_data::GameCard> rebirthCard;
+        if (piece != nullptr && !piece->rebirthTitle.empty())
+        {
+            const auto found = std::find_if(
+                cardLibrary.begin(),
+                cardLibrary.end(),
+                [&](const card_data::Card& candidate) {
+                    return candidate.title == piece->rebirthTitle;
+                });
+            if (found != cardLibrary.end())
+            {
+                rebirthCard = game_data::toGameCard(*found);
+            }
+        }
+        destroyPieceInSnapshot(
+            snapshot,
+            nextSandboxPieceId,
+            pieceId,
+            rebirthCard ? &*rebirthCard : nullptr);
+    };
+
     auto sandboxPlayCard = [&](int handIndex, int row, int column) {
         if (!sandboxMode || !haveSnapshot ||
             static_cast<game_data::Phase>(gameSnapshot.phase) != game_data::Phase::Playing ||
@@ -4031,7 +4054,7 @@ int main(int argc, char** argv)
                     pieceByIdInSnapshotMutable(next, assignment.pieceId);
                 if (damagedPiece && damagedPiece->health <= 0)
                 {
-                    removePieceFromSnapshot(next, damagedPiece->id);
+                    destroySandboxPiece(next, damagedPiece->id);
                 }
             }
         }
@@ -4152,7 +4175,7 @@ int main(int argc, char** argv)
                         if (damagedPiece && damagedPiece->health <= 0)
                         {
                             anyTargetDestroyed = true;
-                            removePieceFromSnapshot(next, damagedPiece->id);
+                            destroySandboxPiece(next, damagedPiece->id);
                         }
                     }
                     const game_data::PushResult pushResult = game_data::applyActionPush(
@@ -4168,7 +4191,7 @@ int main(int argc, char** argv)
                         pushedTarget && pushedTarget->health <= 0)
                     {
                         anyTargetDestroyed = true;
-                        removePieceFromSnapshot(next, pushedTarget->id);
+                        destroySandboxPiece(next, pushedTarget->id);
                     }
                 }
             }

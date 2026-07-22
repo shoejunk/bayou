@@ -9,6 +9,11 @@ const game_data::Piece* pieceByIdInSnapshot(const game_data::Snapshot& snapshot,
 game_data::Piece* pieceByIdInSnapshotMutable(game_data::Snapshot& snapshot, int id);
 const game_data::Piece* pieceAtInSnapshot(const game_data::Snapshot& snapshot, int row, int column);
 void removePieceFromSnapshot(game_data::Snapshot& snapshot, int id);
+void destroyPieceInSnapshot(
+    game_data::Snapshot& snapshot,
+    int& nextPieceId,
+    int id,
+    const game_data::GameCard* rebirthCard);
 int controlledCountInSnapshot(const game_data::Snapshot& snapshot, int playerNumber);
 int heroesAliveInSnapshot(const game_data::Snapshot& snapshot, int playerNumber);
 void refreshSandboxPlayerSnapshots(game_data::Snapshot& snapshot);

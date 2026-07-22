@@ -59,7 +59,7 @@ bool isHiddenCardDetailKey(const std::string& key)
         key == "canControl" || key == "growTurns" || key == "abilityUses" || key == "gatherResources" ||
         key == "WalkAnimFrames" || key == "IdleAnimFrames" ||
         key == "AttackAnimFrames" || key == "DamagedAnimFrames" || key == "KilledAnimFrames" ||
-        key == "rarity" || key == "effect" || key == "target" ||
+        key == "rarity" || key == "effect" || key == "target" || key == "rebirth" ||
         key == "movement" || key == "WalkAnim" || key == "IdleAnim" ||
         key == "AttackAnim" || key == "DamagedAnim" || key == "KilledAnim" || key == "Token" ||
         key == "PieceBaseBlue" || key == "PieceBaseRed";
@@ -178,6 +178,11 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
         {
             details.push_back({"Gather: +" + std::to_string(gameCard.gatherResources) + " Resources each turn",
                                sf::Color(143, 220, 205)});
+        }
+        if (!gameCard.rebirthTitle.empty())
+        {
+            details.push_back({"Rebirth: " + gameCard.rebirthTitle,
+                               sf::Color(194, 150, 235)});
         }
         if (gameCard.actions.empty())
         {

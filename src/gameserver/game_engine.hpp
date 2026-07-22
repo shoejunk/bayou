@@ -684,20 +684,75 @@ private:
         return nullptr;
     }
 
-    void removePiece(int id)
+    void destroyPiece(int id)
     {
-        pieces.erase(
-            std::remove_if(pieces.begin(), pieces.end(), [id](const Piece& p) { return p.id == id; }),
-            pieces.end());
-        enchantments.erase(
-            std::remove_if(
-                enchantments.begin(),
-                enchantments.end(),
-                [id](const Enchantment& enchantment) {
-                    return enchantment.target == static_cast<std::uint8_t>(EnchantmentTarget::Piece) &&
-                        enchantment.targetPieceId == id;
-                }),
-            enchantments.end());
+        const auto dying = std::find_if(
+            pieces.begin(),
+            pieces.end(),
+            [id](const Piece& piece) { return piece.id == id; });
+        if (dying == pieces.end())
+        {
+            return;
+        }
+
+        const Piece original = *dying;
+        const GameCard* rebirthDefinition = summonCardByTitle(original.rebirthTitle);
+        const bool hasValidRebirth = rebirthDefinition != nullptr &&
+            (rebirthDefinition->type == "Unit" || rebirthDefinition->type == "Hero");
+        const GameCard rebirthCard = hasValidRebirth ? *rebirthDefinition : GameCard{};
+
+        pieces.erase(dying);
+
+        int rebornPieceId = 0;
+        if (hasValidRebirth &&
+            cardFootprintFree(pieces, rebirthCard, original.row, original.column))
+        {
+            spawnPiece(
+                original.owner,
+                rebirthCard,
+                original.row,
+                original.column,
+                rebirthCard.type == "Hero");
+            Piece& reborn = pieces.back();
+            reborn.hasActed = true;
+            rebornPieceId = reborn.id;
+        }
+
+        if (rebornPieceId != 0)
+        {
+            for (Enchantment& enchantment : enchantments)
+            {
+                if (enchantment.target == static_cast<std::uint8_t>(EnchantmentTarget::Piece) &&
+                    enchantment.targetPieceId == id)
+                {
+                    enchantment.targetPieceId = rebornPieceId;
+                    enchantment.targetRow = original.row;
+                    enchantment.targetColumn = original.column;
+                }
+            }
+        }
+        else
+        {
+            enchantments.erase(
+                std::remove_if(
+                    enchantments.begin(),
+                    enchantments.end(),
+                    [id](const Enchantment& enchantment) {
+                        return enchantment.target == static_cast<std::uint8_t>(EnchantmentTarget::Piece) &&
+                            enchantment.targetPieceId == id;
+                    }),
+                enchantments.end());
+        }
+
+        if (commandingPieceId == id)
+        {
+            commandingPieceId = 0;
+        }
+        if (relentlessPieceId == id)
+        {
+            relentlessPieceId = 0;
+            relentlessActionKeepsTurn = false;
+        }
     }
 
     void rememberSummonCard(const GameCard& card)
@@ -837,7 +892,7 @@ private:
                         {
                             anyTargetDestroyed = true;
                             defeatedOwners.push_back(damagedPiece->owner);
-                            removePiece(damagedPiece->id);
+                            destroyPiece(damagedPiece->id);
                         }
                     }
                     const PushResult pushResult = applyActionPush(
@@ -853,7 +908,7 @@ private:
                     {
                         anyTargetDestroyed = true;
                         defeatedOwners.push_back(pushedTarget->owner);
-                        removePiece(pushedTarget->id);
+                        destroyPiece(pushedTarget->id);
                     }
                 }
             }
@@ -1211,7 +1266,7 @@ private:
                 if (damagedPiece != nullptr && damagedPiece->health <= 0)
                 {
                     const int victimOwner = damagedPiece->owner;
-                    removePiece(damagedPiece->id);
+                    destroyPiece(damagedPiece->id);
                     checkForWinner(victimOwner);
                 }
             }
