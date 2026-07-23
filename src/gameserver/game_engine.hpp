@@ -684,7 +684,9 @@ private:
         return nullptr;
     }
 
-    void destroyPiece(int id)
+    // Returns true when Rebirth replaced the destroyed piece. Callers use
+    // that result to distinguish a lethal hit from an actual kill.
+    bool destroyPiece(int id)
     {
         const auto dying = std::find_if(
             pieces.begin(),
@@ -692,7 +694,7 @@ private:
             [id](const Piece& piece) { return piece.id == id; });
         if (dying == pieces.end())
         {
-            return;
+            return false;
         }
 
         const Piece original = *dying;
@@ -753,6 +755,7 @@ private:
             relentlessPieceId = 0;
             relentlessActionKeepsTurn = false;
         }
+        return rebornPieceId != 0;
     }
 
     void rememberSummonCard(const GameCard& card)
@@ -854,6 +857,7 @@ private:
         std::vector<std::string> healedTargetNames;
         std::vector<int> defeatedOwners;
         bool anyTargetDestroyed = false;
+        bool anyTargetReborn = false;
         bool anyTargetWasHidden = false;
         int pushedSquares = 0;
         int pushCollisionDamage = 0;
@@ -890,9 +894,10 @@ private:
                         Piece* damagedPiece = pieceById(assignment.pieceId);
                         if (damagedPiece != nullptr && damagedPiece->health <= 0)
                         {
-                            anyTargetDestroyed = true;
                             defeatedOwners.push_back(damagedPiece->owner);
-                            destroyPiece(damagedPiece->id);
+                            const bool reborn = destroyPiece(damagedPiece->id);
+                            anyTargetReborn = anyTargetReborn || reborn;
+                            anyTargetDestroyed = anyTargetDestroyed || !reborn;
                         }
                     }
                     const PushResult pushResult = applyActionPush(
@@ -906,9 +911,10 @@ private:
                     if (Piece* pushedTarget = pieceById(targetId);
                         pushedTarget != nullptr && pushedTarget->health <= 0)
                     {
-                        anyTargetDestroyed = true;
                         defeatedOwners.push_back(pushedTarget->owner);
-                        destroyPiece(pushedTarget->id);
+                        const bool reborn = destroyPiece(pushedTarget->id);
+                        anyTargetReborn = anyTargetReborn || reborn;
+                        anyTargetDestroyed = anyTargetDestroyed || !reborn;
                     }
                 }
             }
@@ -934,7 +940,8 @@ private:
 
         if (action.moves)
         {
-            if (pieceFootprintFree(pieces, *survivingAttacker, destinationRow, destinationColumn))
+            if (!anyTargetReborn &&
+                pieceFootprintFree(pieces, *survivingAttacker, destinationRow, destinationColumn))
             {
                 survivingAttacker->row = destinationRow;
                 survivingAttacker->column = destinationColumn;
@@ -1031,6 +1038,10 @@ private:
                 result += fmt::format(" and disabled surviving targets for {} turn(s)", effectiveDisabledTurns);
             }
             result += anyTargetDestroyed ? "; at least one was destroyed!" : ".";
+            if (anyTargetReborn)
+            {
+                result += " Rebirth returned a piece to the board!";
+            }
             if (anyTargetWasHidden)
             {
                 result += " It materialized!";

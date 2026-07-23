@@ -1148,15 +1148,16 @@ int main(int argc, char** argv)
     card_data::Card rebirthSlayer;
     rebirthSlayer.title = "Rebirth Slayer";
     rebirthSlayer.type = "Hero";
+    rebirthSlayer.keywords = {"Relentless"};
     rebirthSlayer.integerValues = {{"health", 8}};
     card_data::Action rebirthAttack;
     rebirthAttack.name = "Rebirth Test Beam";
-    rebirthAttack.kind = "ranged";
+    rebirthAttack.kind = "slide";
     rebirthAttack.pattern = "horizontal";
     rebirthAttack.minRange = 1;
     rebirthAttack.maxRange = 7;
     rebirthAttack.damage = 2;
-    rebirthAttack.canMove = false;
+    rebirthAttack.canMove = true;
     rebirthAttack.canAttack = true;
     rebirthAttack.lineOfSight = true;
     rebirthSlayer.actions = {rebirthAttack};
@@ -1279,6 +1280,7 @@ int main(int argc, char** argv)
         "lethal damage resolves against a piece with rebirth");
 
     const Piece* rebornPiece = rebirthPieceByName("Rebirth Ascendant");
+    const Piece* rebirthAttackerAfterAttack = rebirthPieceByName("Rebirth Slayer");
     const bool rebirthEnchantmentsRetargeted = rebornPiece != nullptr &&
         rebirthEngine.boardEnchantments().size() == 2 &&
         std::all_of(
@@ -1309,8 +1311,12 @@ int main(int argc, char** argv)
             rebornPiece->damagedAnimFrames == 13 &&
             rebornPiece->killedAnimFrames == 14 &&
             rebirthEnchantmentsRetargeted &&
+            rebirthAttackerAfterAttack != nullptr &&
+            rebirthAttackerAfterAttack->row == rebirthHomeTwo.first &&
+            rebirthAttackerAfterAttack->column == rebirthHomeTwo.second - 1 &&
+            rebirthEngine.relentlessPiece() == 0 &&
             rebirthEngine.phase() == Phase::Playing,
-        "rebirth creates a fresh card-defined piece in place and retains every enchantment");
+        "rebirth retains enchantments, blocks attack movement, and does not trigger Relentless");
 
     card_data::Card enchantmentHero;
     enchantmentHero.title = "Enchantment Test Hero";

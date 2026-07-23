@@ -716,7 +716,7 @@ constexpr float HandCardWidth = 88.0f;
 constexpr float HandCardHeight = 78.0f;
 constexpr float HandGap = 6.0f;
 constexpr float HandStartX = 28.0f;
-constexpr std::size_t VisibleGameHandCards = 7;
+constexpr std::size_t VisibleGameHandCards = 4;
 constexpr float TrashCanSize = 86.0f;
 constexpr float TrashCanX = HandStartX + 4.0f * (HandCardWidth + HandGap) + 8.0f;
 constexpr float TrashCanY = HandY;
@@ -3908,25 +3908,25 @@ int main(int argc, char** argv)
 
     auto destroySandboxPiece = [&](game_data::Snapshot& snapshot, int pieceId) {
         const game_data::Piece* piece = pieceByIdInSnapshot(snapshot, pieceId);
-        std::optional<game_data::GameCard> rebirthCard;
+        const game_data::GameCard* rebirthCard = nullptr;
         if (piece != nullptr && !piece->rebirthTitle.empty())
         {
             const auto found = std::find_if(
-                cardLibrary.begin(),
-                cardLibrary.end(),
-                [&](const card_data::Card& candidate) {
+                snapshot.hand.begin(),
+                snapshot.hand.end(),
+                [&](const game_data::GameCard& candidate) {
                     return candidate.title == piece->rebirthTitle;
                 });
-            if (found != cardLibrary.end())
+            if (found != snapshot.hand.end())
             {
-                rebirthCard = game_data::toGameCard(*found);
+                rebirthCard = &*found;
             }
         }
-        destroyPieceInSnapshot(
+        return destroyPieceInSnapshot(
             snapshot,
             nextSandboxPieceId,
             pieceId,
-            rebirthCard ? &*rebirthCard : nullptr);
+            rebirthCard);
     };
 
     auto sandboxPlayCard = [&](int handIndex, int row, int column) {
@@ -4132,6 +4132,7 @@ int main(int argc, char** argv)
         std::vector<std::string> damagedTargetNames;
         std::vector<std::string> healedTargetNames;
         bool anyTargetDestroyed = false;
+        bool anyTargetReborn = false;
         bool anyTargetWasHidden = false;
         int pushedSquares = 0;
         int pushCollisionDamage = 0;
@@ -4174,8 +4175,9 @@ int main(int argc, char** argv)
                             pieceByIdInSnapshotMutable(next, assignment.pieceId);
                         if (damagedPiece && damagedPiece->health <= 0)
                         {
-                            anyTargetDestroyed = true;
-                            destroySandboxPiece(next, damagedPiece->id);
+                            const bool reborn = destroySandboxPiece(next, damagedPiece->id);
+                            anyTargetReborn = anyTargetReborn || reborn;
+                            anyTargetDestroyed = anyTargetDestroyed || !reborn;
                         }
                     }
                     const game_data::PushResult pushResult = game_data::applyActionPush(
@@ -4190,8 +4192,9 @@ int main(int argc, char** argv)
                             pieceByIdInSnapshotMutable(next, targetId);
                         pushedTarget && pushedTarget->health <= 0)
                     {
-                        anyTargetDestroyed = true;
-                        destroySandboxPiece(next, pushedTarget->id);
+                        const bool reborn = destroySandboxPiece(next, pushedTarget->id);
+                        anyTargetReborn = anyTargetReborn || reborn;
+                        anyTargetDestroyed = anyTargetDestroyed || !reborn;
                     }
                 }
             }
@@ -4216,7 +4219,8 @@ int main(int argc, char** argv)
 
         if (action.moves)
         {
-            if (game_data::pieceFootprintFree(next.pieces, *acting, destinationRow, destinationColumn))
+            if (!anyTargetReborn &&
+                game_data::pieceFootprintFree(next.pieces, *acting, destinationRow, destinationColumn))
             {
                 acting->row = destinationRow;
                 acting->column = destinationColumn;
@@ -4281,6 +4285,10 @@ int main(int argc, char** argv)
                 next.status += " and disabled surviving targets for " +
                     std::to_string(effectiveDisabledTurns) + " turn(s)";
             next.status += anyTargetDestroyed ? "; at least one was destroyed." : ".";
+            if (anyTargetReborn)
+            {
+                next.status += " Rebirth returned a piece to the board!";
+            }
             if (anyTargetWasHidden)
             {
                 next.status += " It materialized!";

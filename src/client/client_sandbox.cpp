@@ -58,7 +58,7 @@ void removePieceFromSnapshot(game_data::Snapshot& snapshot, int id)
         snapshot.enchantments.end());
 }
 
-void destroyPieceInSnapshot(
+bool destroyPieceInSnapshot(
     game_data::Snapshot& snapshot,
     int& nextPieceId,
     int id,
@@ -67,7 +67,7 @@ void destroyPieceInSnapshot(
     const game_data::Piece* found = pieceByIdInSnapshot(snapshot, id);
     if (found == nullptr)
     {
-        return;
+        return false;
     }
 
     const game_data::Piece original = *found;
@@ -135,6 +135,7 @@ void destroyPieceInSnapshot(
     {
         snapshot.relentlessPieceId = 0;
     }
+    return rebornPieceId != 0;
 }
 
 int controlledCountInSnapshot(const game_data::Snapshot& snapshot, int playerNumber)
