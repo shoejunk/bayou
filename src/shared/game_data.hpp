@@ -26,6 +26,7 @@ constexpr int BoardSquares = BoardSize * BoardSize;
 constexpr int DeckCardCount = 20;   // non-hero cards
 constexpr int MaxCardCopies = 2;
 constexpr int MaxHeroCopies = 1;
+constexpr const char* DeckLimitField = "Deck Limit";
 constexpr int MinHeroes = 1;
 constexpr int MaxHeroes = 4;
 constexpr int HeroCostLimit = 100;
@@ -99,6 +100,34 @@ inline bool isTokenCard(const card_data::Card& card)
     return cardRarity(card) == "token";
 }
 
+// Card attribute lookups against the flexible key/value card model.
+inline int cardInt(const card_data::Card& card, const std::string& key, int fallback = 0)
+{
+    for (const card_data::KeyIntPair& item : card.integerValues)
+    {
+        if (item.key == key)
+        {
+            return item.value;
+        }
+    }
+    return fallback;
+}
+
+inline int cardDeckLimit(const card_data::Card& card)
+{
+    // "deckLimit" was accepted while this field was being introduced. Keep
+    // reading it so older card data does not silently lose its limit.
+    int limit = cardInt(card, DeckLimitField, -1);
+    if (limit < 0)
+    {
+        limit = cardInt(
+            card,
+            "deckLimit",
+            card.type == "Hero" ? MaxHeroCopies : MaxCardCopies);
+    }
+    return std::max(0, limit);
+}
+
 inline std::optional<std::string> deckRulesError(const std::vector<card_data::Card>& cards)
 {
     int cardCount = 0;
@@ -119,7 +148,7 @@ inline std::optional<std::string> deckRulesError(const std::vector<card_data::Ca
 
         const bool isHero = card.type == "Hero";
         const int count = ++used[card.title];
-        const int copyLimit = isHero ? MaxHeroCopies : MaxCardCopies;
+        const int copyLimit = cardDeckLimit(card);
         if (count > copyLimit)
         {
             return "Deck can contain at most " + std::to_string(copyLimit) + " " +
@@ -262,19 +291,6 @@ inline std::string movePatternName(std::uint8_t pattern)
         case MovePattern::Vertical: return "Vertical";
         default: return "Stationary";
     }
-}
-
-// Card attribute lookups against the flexible key/value card model.
-inline int cardInt(const card_data::Card& card, const std::string& key, int fallback = 0)
-{
-    for (const card_data::KeyIntPair& item : card.integerValues)
-    {
-        if (item.key == key)
-        {
-            return item.value;
-        }
-    }
-    return fallback;
 }
 
 inline std::string cardStr(const card_data::Card& card, const std::string& key, const std::string& fallback = "")

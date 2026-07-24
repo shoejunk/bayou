@@ -54,7 +54,7 @@ std::string actionRangeText(const game_data::ActionProfile& action)
 
 bool isHiddenCardDetailKey(const std::string& key)
 {
-    return key == "cost" || key == "heroCost" || key == "health" || key == "attack" || key == "Tax" || key == "tax" ||
+    return key == "Deck Limit" || key == "deckLimit" || key == "cost" || key == "heroCost" || key == "health" || key == "attack" || key == "Tax" || key == "tax" ||
         key == "range" || key == "move" || key == "attackingMove" || key == "power" ||
         key == "canControl" || key == "growTurns" || key == "abilityUses" || key == "gatherResources" ||
         key == "WalkAnimFrames" || key == "IdleAnimFrames" ||
@@ -167,6 +167,8 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
         details.push_back({"Cost: " + std::to_string(game_data::cardInt(card, "cost", 0)) + " Resources",
                            sf::Color(150, 210, 235)});
     }
+    details.push_back({"Deck limit: " + std::to_string(game_data::cardDeckLimit(card)),
+                       sf::Color(248, 214, 112)});
 
     if (unit)
     {

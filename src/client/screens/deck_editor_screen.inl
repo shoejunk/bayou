@@ -88,7 +88,7 @@
             if (card)
             {
                 const bool heroRow = game_data::isHeroCard(*card);
-                const int copyLimit = heroRow ? game_data::MaxHeroCopies : game_data::MaxCardCopies;
+                const int copyLimit = game_data::cardDeckLimit(*card);
                 const std::string copies = "  " + std::to_string(deckCopies(deckTitles[i])) +
                     "/" + std::to_string(copyLimit);
                 secondary = heroRow

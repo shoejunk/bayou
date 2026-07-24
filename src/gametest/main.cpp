@@ -899,7 +899,8 @@ int main(int argc, char** argv)
     encodedCard.type = "Unit";
     encodedCard.traits = {"corrupt", "fey"};
     encodedCard.keywords = {"future-rule"};
-    encodedCard.integerValues = {{"attack", 9}, {"range", 5}, {"FidgetAnimFrames", 3}, {"Tax", 4}};
+    encodedCard.integerValues = {
+        {"attack", 9}, {"range", 5}, {"FidgetAnimFrames", 3}, {"Tax", 4}, {"Deck Limit", 3}};
     encodedCard.stringValues = {
         {"FidgetAnim", "animations/fidget/test.png"},
         {"Token", "characters/encoded.png"},
@@ -959,8 +960,9 @@ int main(int argc, char** argv)
     card_data::Card roundTrippedDefinition;
     check(card_data::readCard(cardDefinitionPacket, roundTrippedDefinition) &&
               roundTrippedDefinition.actionNames == encodedCard.actionNames &&
-              roundTrippedDefinition.actionDisplayNames == encodedCard.actionDisplayNames,
-          "card serialization keeps per-card action display names separate from reusable references");
+              roundTrippedDefinition.actionDisplayNames == encodedCard.actionDisplayNames &&
+              game_data::cardDeckLimit(roundTrippedDefinition) == 3,
+          "card serialization preserves Deck Limit and per-card action display names");
 
     card_data::Action encodedHealingAction = encodedCard.actions[0];
     encodedHealingAction.damage = 0;
@@ -1031,6 +1033,31 @@ int main(int argc, char** argv)
               previousCardCount == 0 && !previousCardFormatIsLegacy &&
               !previousActionsIncludeNextState && !previousActionsIncludeControl,
           "schema-six card lists remain readable with next state defaulting to state");
+
+    card_data::Card limitedUnit;
+    limitedUnit.title = "Limited Unit";
+    limitedUnit.type = "Unit";
+    limitedUnit.integerValues = {{"Deck Limit", 3}};
+    card_data::Card deckFiller;
+    deckFiller.title = "Deck Filler";
+    deckFiller.type = "Spell";
+    deckFiller.integerValues = {{"Deck Limit", 20}};
+    std::vector<card_data::Card> limitedDeck;
+    limitedDeck.push_back(encodedCard);
+    limitedDeck.back().type = "Hero";
+    limitedDeck.back().title = "Deck Hero";
+    limitedDeck.back().integerValues = {{"Deck Limit", 1}};
+    for (int copy = 0; copy < 4; ++copy)
+    {
+        limitedDeck.push_back(limitedUnit);
+    }
+    for (int copy = 0; copy < 16; ++copy)
+    {
+        limitedDeck.push_back(deckFiller);
+    }
+    const std::optional<std::string> limitedDeckError = game_data::deckRulesError(limitedDeck);
+    check(limitedDeckError && limitedDeckError->find("at most 3 copies of card Limited Unit") != std::string::npos,
+          "deck rules enforce each card's Deck Limit field");
 
     GameCard serializedCard = decodedCard;
     serializedCard.tokenPath = "characters/test.png";

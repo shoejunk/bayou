@@ -10,6 +10,7 @@ module;
 #include "client_ui.hpp"
 
 #include "../shared/card_data.hpp"
+#include "../shared/game_data.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -70,6 +71,16 @@ const sf::Color Accent(239, 190, 98);
 const sf::Color AccentDark(90, 58, 29);
 const sf::Color Warn(213, 102, 79);
 const sf::Color Line(132, 91, 47);
+
+bool isDeckLimitField(const std::string& key)
+{
+    return key == game_data::DeckLimitField || key == "deckLimit";
+}
+
+int defaultDeckLimit(const std::string& type)
+{
+    return type == "Hero" ? game_data::MaxHeroCopies : game_data::MaxCardCopies;
+}
 
 void drawText(sf::RenderWindow& window, sf::Font& font, const std::string& value, unsigned int size, sf::Vector2f position, sf::Color color)
 {
@@ -1232,6 +1243,13 @@ private:
             intKeyFields.push_back(makeCompactField(item.key, {182.0f, 32.0f}));
             intValueFields.push_back(makeCompactField(std::to_string(item.value), {210.0f, 32.0f}));
         }
+        if (std::none_of(card.integerValues.begin(), card.integerValues.end(), [](const card_data::KeyIntPair& item) {
+                return isDeckLimitField(item.key);
+            }))
+        {
+            intKeyFields.push_back(makeCompactField(game_data::DeckLimitField, {182.0f, 32.0f}));
+            intValueFields.push_back(makeCompactField(std::to_string(defaultDeckLimit(card.type)), {210.0f, 32.0f}));
+        }
         for (const card_data::KeyStringPair& item : card.stringValues)
         {
             stringKeyFields.push_back(makeCompactField(item.key, {182.0f, 32.0f}));
@@ -2129,6 +2147,8 @@ private:
         keywordFields.clear();
         intKeyFields.clear();
         intValueFields.clear();
+        intKeyFields.push_back(makeCompactField(game_data::DeckLimitField, {182.0f, 32.0f}));
+        intValueFields.push_back(makeCompactField(std::to_string(defaultDeckLimit("Unit")), {210.0f, 32.0f}));
         stringKeyFields.clear();
         stringValueFields.clear();
         listEditors.clear();
@@ -2200,6 +2220,12 @@ private:
             catch (const std::exception&)
             {
             }
+        }
+        if (std::none_of(card.integerValues.begin(), card.integerValues.end(), [](const card_data::KeyIntPair& item) {
+                return isDeckLimitField(item.key);
+            }))
+        {
+            card.integerValues.push_back({game_data::DeckLimitField, defaultDeckLimit(card.type)});
         }
         for (std::size_t i = 0; i < stringKeyFields.size() && i < stringValueFields.size(); ++i)
         {
@@ -3465,6 +3491,7 @@ private:
         y += 12.0f;
 
         y = drawInstructionSection(window, "3. Integer Fields (key = whole number)", y);
+        y = drawInstructionBullet(window, "Deck Limit: maximum number of copies of this card allowed in one deck. Use 1 for the default Hero limit and 2 for the default non-Hero limit; cards without the field retain those defaults.", y, sf::Color(248, 214, 112));
         y = drawInstructionBullet(window, "cost: Resources paid to play a Unit, Spell, or Enchantment. Default: 1.", y);
         y = drawInstructionBullet(window, "heroCost: deck-building Hero budget. Use only on Heroes. Default: 0.", y);
         y = drawInstructionBullet(window, "health: starting and maximum hit points for a Hero or Unit. Default: 1.", y);

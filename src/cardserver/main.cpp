@@ -5,6 +5,7 @@
 
 #include "../shared/card_data.hpp"
 #include "../shared/card_database.hpp"
+#include "../shared/game_data.hpp"
 #include "../shared/listener_retry.hpp"
 #include "../shared/network.hpp"
 #include "../shared/socket_timeout.hpp"
@@ -43,6 +44,13 @@ void writeActions(sf::Packet& packet, const std::vector<card_data::Action>& acti
     {
         card_data::writeAction(packet, action);
     }
+}
+
+bool hasDeckLimitField(const card_data::Card& card)
+{
+    return std::any_of(card.integerValues.begin(), card.integerValues.end(), [](const card_data::KeyIntPair& item) {
+        return item.key == game_data::DeckLimitField || item.key == "deckLimit";
+    });
 }
 
 std::vector<std::string> split(const std::string& value, char delimiter)
@@ -209,6 +217,15 @@ private:
             "key TEXT NOT NULL,"
             "value INTEGER NOT NULL,"
             "FOREIGN KEY(title) REFERENCES cards(title) ON DELETE CASCADE"
+            ")");
+        database->exec(
+            "INSERT INTO card_integer_values (title, key, value) "
+            "SELECT title, 'Deck Limit', CASE WHEN type = 'Hero' THEN 1 ELSE 2 END "
+            "FROM cards "
+            "WHERE NOT EXISTS ("
+            "SELECT 1 FROM card_integer_values existing "
+            "WHERE existing.title = cards.title "
+            "AND existing.key IN ('Deck Limit', 'deckLimit')"
             ")");
         database->exec(
             "CREATE TABLE IF NOT EXISTS card_string_values ("
@@ -580,9 +597,17 @@ private:
 
     void saveCard(const std::string& originalTitle, const card_data::Card& card)
     {
+        card_data::Card normalizedCard = card;
+        if (!hasDeckLimitField(normalizedCard))
+        {
+            normalizedCard.integerValues.push_back({
+                game_data::DeckLimitField,
+                normalizedCard.type == "Hero" ? game_data::MaxHeroCopies : game_data::MaxCardCopies});
+        }
+
         SQLite::Transaction transaction(*database);
 
-        if (!originalTitle.empty() && originalTitle != card.title)
+        if (!originalTitle.empty() && originalTitle != normalizedCard.title)
         {
             deleteCardRows(originalTitle);
         }
@@ -591,18 +616,18 @@ private:
             *database,
             "INSERT INTO cards (title, type, image_path) VALUES (?, ?, ?) "
             "ON CONFLICT(title) DO UPDATE SET type = excluded.type, image_path = excluded.image_path");
-        upsert.bind(1, card.title);
-        upsert.bind(2, card.type);
-        upsert.bind(3, card.imagePath);
+        upsert.bind(1, normalizedCard.title);
+        upsert.bind(2, normalizedCard.type);
+        upsert.bind(3, normalizedCard.imagePath);
         upsert.exec();
 
-        deleteChildRows(card.title);
-        insertTraits(card);
-        insertKeywords(card);
-        insertIntegerValues(card);
-        insertStringValues(card);
-        insertStringLists(card);
-        insertActionReferences(card);
+        deleteChildRows(normalizedCard.title);
+        insertTraits(normalizedCard);
+        insertKeywords(normalizedCard);
+        insertIntegerValues(normalizedCard);
+        insertStringValues(normalizedCard);
+        insertStringLists(normalizedCard);
+        insertActionReferences(normalizedCard);
 
         transaction.commit();
     }

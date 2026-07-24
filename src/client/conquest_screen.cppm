@@ -1350,8 +1350,7 @@ private:
             }
             const int inDeck = static_cast<int>(std::count(
                 editingDeck.deck.cardTitles.begin(), editingDeck.deck.cardTitles.end(), card.title));
-            const int perDeckLimit = game_data::isHeroCard(card)
-                ? game_data::MaxHeroCopies : game_data::MaxCardCopies;
+            const int perDeckLimit = game_data::cardDeckLimit(card);
             const int owned = collectionCopiesFor(collection, card.title);
             if (inDeck < perDeckLimit &&
                 copiesInOtherConquestDecks(card.title) + inDeck < owned)
@@ -2056,6 +2055,10 @@ private:
             }
             const int copies = static_cast<int>(std::count(
                 editingDeck.deck.cardTitles.begin(), editingDeck.deck.cardTitles.end(), titles[index]));
+            const auto card = std::find_if(catalog.begin(), catalog.end(), [&](const card_data::Card& candidate) {
+                return candidate.title == titles[index];
+            });
+            const int copyLimit = card == catalog.end() ? 0 : game_data::cardDeckLimit(*card);
             const sf::FloatRect bounds = rect(24, CardRowY + row * CardRowHeight, 340, CardRowHeight - 3);
             sf::RectangleShape background(bounds.size);
             background.setPosition(bounds.position);
@@ -2063,7 +2066,7 @@ private:
             window.draw(background);
             drawText(window, font, elide(font, titles[index], 15, 270.0f), 15,
                      bounds.position + sf::Vector2f(7.0f, 4.0f));
-            drawText(window, font, "x" + std::to_string(copies), 14,
+            drawText(window, font, "x" + std::to_string(copies) + "/" + std::to_string(copyLimit), 14,
                      bounds.position + sf::Vector2f(302.0f, 5.0f), Accent);
         }
 

@@ -1517,8 +1517,7 @@ int main(int argc, char** argv)
             const auto found = std::find_if(cardLibrary.begin(), cardLibrary.end(), [&](const card_data::Card& card) {
                 return card.title == title;
             });
-            const bool isHero = found != cardLibrary.end() && game_data::isHeroCard(*found);
-            return isHero ? game_data::MaxHeroCopies : game_data::MaxCardCopies;
+            return found == cardLibrary.end() ? 0 : game_data::cardDeckLimit(*found);
         }
         return collectionCopiesFor(playerCollection, title);
     };
@@ -1548,7 +1547,7 @@ int main(int argc, char** argv)
 
         // Hide cards that can no longer be added: the deck already holds either
         // the per-card limit or every owned copy.
-        const int copyLimit = game_data::isHeroCard(card) ? game_data::MaxHeroCopies : game_data::MaxCardCopies;
+        const int copyLimit = game_data::cardDeckLimit(card);
         if (deckCopies(card.title) >= std::min(copyLimit, ownedCopies(card.title)))
         {
             return false;
@@ -2569,6 +2568,13 @@ int main(int argc, char** argv)
             return;
         }
 
+        const std::string validationError = deckValidationError(deck);
+        if (!validationError.empty())
+        {
+            setMessage(messageText, validationError, sf::Color::Red);
+            return;
+        }
+
         const std::string collectionError = deckCollectionError();
         if (!collectionError.empty())
         {
@@ -2611,7 +2617,7 @@ int main(int argc, char** argv)
         }
 
         const bool isHero = game_data::isHeroCard(filteredCardLibrary[libraryIndex]);
-        const int copyLimit = isHero ? game_data::MaxHeroCopies : game_data::MaxCardCopies;
+        const int copyLimit = game_data::cardDeckLimit(filteredCardLibrary[libraryIndex]);
         if (deckCopies(title) >= copyLimit)
         {
             setMessage(
@@ -3673,7 +3679,10 @@ int main(int argc, char** argv)
         drawText(
             window,
             font,
-            (starterDeckMode ? "Deck limit " : "Owned ") + std::to_string(ownedCopies(card.title)),
+            starterDeckMode
+                ? "Deck limit " + std::to_string(game_data::cardDeckLimit(card))
+                : "Owned " + std::to_string(ownedCopies(card.title)) +
+                    "  Deck limit " + std::to_string(game_data::cardDeckLimit(card)),
             15,
             {position.x + 18.0f, position.y + 264.0f},
             sf::Color(248, 214, 112),

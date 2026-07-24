@@ -286,13 +286,52 @@ deck_data::Deck makeStarterDeck()
     deck.name = account_catalog::StarterDeckName;
     for (const std::string& hero : starterHeroTitles())
     {
-        deck.cardTitles.push_back(hero);
-    }
-    for (const std::string& title : starterNonHeroSlots())
-    {
-        for (int copy = 0; copy < game_data::MaxCardCopies; ++copy)
+        const auto found = std::find_if(authoritativeCards.begin(), authoritativeCards.end(), [&](const card_data::Card& card) {
+            return card.title == hero;
+        });
+        if (found == authoritativeCards.end() || game_data::cardDeckLimit(*found) > 0)
         {
-            deck.cardTitles.push_back(title);
+            deck.cardTitles.push_back(hero);
+        }
+    }
+
+    std::vector<std::string> nonHeroCandidates = starterNonHeroSlots();
+    for (const std::string& title : loadNonHeroCardTitles())
+    {
+        if (!containsTitle(nonHeroCandidates, title))
+        {
+            nonHeroCandidates.push_back(title);
+        }
+    }
+
+    int nonHeroCount = 0;
+    while (nonHeroCount < game_data::DeckCardCount)
+    {
+        bool addedCopy = false;
+        for (const std::string& title : nonHeroCandidates)
+        {
+            if (nonHeroCount >= game_data::DeckCardCount)
+            {
+                break;
+            }
+            const auto found = std::find_if(authoritativeCards.begin(), authoritativeCards.end(), [&](const card_data::Card& card) {
+                return card.title == title;
+            });
+            const int copyLimit = found == authoritativeCards.end()
+                ? game_data::MaxCardCopies
+                : game_data::cardDeckLimit(*found);
+            const int copies = static_cast<int>(std::count(
+                deck.cardTitles.begin(), deck.cardTitles.end(), title));
+            if (copies < copyLimit)
+            {
+                deck.cardTitles.push_back(title);
+                ++nonHeroCount;
+                addedCopy = true;
+            }
+        }
+        if (!addedCopy)
+        {
+            break;
         }
     }
     return deck;

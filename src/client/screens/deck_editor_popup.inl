@@ -48,6 +48,9 @@
         drawText(window, font, "Owned: " + std::to_string(ownedCopies(card->title)), 14, {statX, y},
                  sf::Color(248, 214, 112));
         y += 24.0f;
+        drawText(window, font, "Deck limit: " + std::to_string(game_data::cardDeckLimit(*card)),
+                 14, {statX, y}, sf::Color(248, 214, 112));
+        y += 24.0f;
         if (hero)
         {
             drawText(window, font, "Hero cost: " + std::to_string(game_data::cardInt(*card, "heroCost", 0)),

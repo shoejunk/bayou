@@ -15,7 +15,6 @@
 
 namespace
 {
-constexpr int StarterNonHeroKinds = game_data::DeckCardCount / game_data::MaxCardCopies;
 constexpr const char* PreferredStarterHero = "Steam Baron";
 constexpr const char* AccountDatabasePath = "accounts.db";
 
@@ -170,6 +169,15 @@ std::vector<card_data::Card> makeStarterDeck(const std::vector<card_data::Card>&
     }
     fmt::println("AI starter deck configuration failed, falling back");
 
+    const std::vector<card_data::Card> generatedStarterDeck = resolveDeckTitles(
+        library,
+        account_catalog::makeStarterDeck().cardTitles,
+        "generated fallback");
+    if (!generatedStarterDeck.empty())
+    {
+        return generatedStarterDeck;
+    }
+
     std::vector<card_data::Card> deck;
     const card_data::Card* hero = findCardByTitle(library, PreferredStarterHero);
     if (hero == nullptr || !game_data::isHeroCard(*hero))
@@ -203,12 +211,21 @@ std::vector<card_data::Card> makeStarterDeck(const std::vector<card_data::Card>&
         }
     }
 
-    for (std::size_t i = 0; i < orderedTitles.size() && i < static_cast<std::size_t>(StarterNonHeroKinds); ++i)
+    int nonHeroCount = 0;
+    for (const std::string& title : orderedTitles)
     {
-        if (const card_data::Card* card = findCardByTitle(library, orderedTitles[i]))
+        if (nonHeroCount >= game_data::DeckCardCount)
         {
-            deck.push_back(*card);
-            deck.push_back(*card);
+            break;
+        }
+        if (const card_data::Card* card = findCardByTitle(library, title))
+        {
+            const int copyLimit = game_data::cardDeckLimit(*card);
+            for (int copy = 0; copy < copyLimit && nonHeroCount < game_data::DeckCardCount; ++copy)
+            {
+                deck.push_back(*card);
+                ++nonHeroCount;
+            }
         }
     }
 
