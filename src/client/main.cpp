@@ -727,6 +727,8 @@ constexpr float GameActionButtonX =
     TrashCanX + TrashCanSize + TrashCanDropPadding + GameActionButtonGap;
 constexpr float GameActionButtonY =
     TrashCanY + TrashCanSize - GameActionButtonHeight - GameActionButtonGap;
+constexpr float GameSandboxAbilityButtonY =
+    GameActionButtonY - GameActionButtonHeight - GameActionButtonGap;
 constexpr float GameAbilityButtonWidth = 92.0f;
 constexpr float GameEndTurnButtonWidth = 90.0f;
 constexpr float GameLeaveButtonWidth = 72.0f;
@@ -2147,6 +2149,7 @@ int main(int argc, char** argv)
         activeGameSocket = std::move(gameSocket);
         conquestBattleMode = isConquestBattle;
         currentState = GameState::Game;
+        abilityButton.setPosition({GameActionButtonX, GameActionButtonY});
         leaveGameButton.setLabel(isConquestBattle ? "Map" : "Leave");
         title.setString("");
         centerText(title, 400.0f);
@@ -3288,6 +3291,7 @@ int main(int argc, char** argv)
     auto beginStory = [&]() {
         sandboxMode = true;
         storyMode = true;
+        abilityButton.setPosition({GameActionButtonX, GameSandboxAbilityButtonY});
         storyStage = StoryStage::MoveTutorial;
         storyTargetRow = 4;
         storyTargetColumn = 1;
@@ -3349,6 +3353,7 @@ int main(int argc, char** argv)
     auto beginSandbox = [&](std::vector<card_data::Card> cards) {
         sandboxMode = true;
         storyMode = false;
+        abilityButton.setPosition({GameActionButtonX, GameSandboxAbilityButtonY});
         storyStage = StoryStage::None;
         storyTargetRow = -1;
         storyTargetColumn = -1;
