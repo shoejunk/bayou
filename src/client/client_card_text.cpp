@@ -62,6 +62,7 @@ bool isHiddenCardDetailKey(const std::string& key)
         key == "rarity" || key == "effect" || key == "target" || key == "rebirth" ||
         key == "movement" || key == "WalkAnim" || key == "IdleAnim" ||
         key == "AttackAnim" || key == "DamagedAnim" || key == "KilledAnim" || key == "Token" ||
+        key == "State1Token" ||
         key == "PieceBaseBlue" || key == "PieceBaseRed";
 }
 

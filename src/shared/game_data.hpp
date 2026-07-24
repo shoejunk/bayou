@@ -360,6 +360,7 @@ struct GameCard
     std::string killedAnimPath;
     std::string fidgetAnimPath;
     std::string tokenPath;
+    std::string state1TokenPath;
     std::string pieceBaseBluePath;
     std::string pieceBaseRedPath;
     int walkAnimFrames = 4;
@@ -408,6 +409,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.killedAnimPath = cardStr(card, "KilledAnim");
     g.fidgetAnimPath = cardStr(card, "FidgetAnim");
     g.tokenPath = cardStr(card, "Token");
+    g.state1TokenPath = cardStr(card, "State1Token");
     g.pieceBaseBluePath = cardStr(card, "PieceBaseBlue");
     g.pieceBaseRedPath = cardStr(card, "PieceBaseRed");
     g.walkAnimFrames = std::max(1, cardInt(card, "WalkAnimFrames", 4));
@@ -632,6 +634,7 @@ struct Piece
     std::string killedAnimPath;
     std::string fidgetAnimPath;
     std::string tokenPath;
+    std::string state1TokenPath;
     std::string pieceBaseBluePath;
     std::string pieceBaseRedPath;
     int walkAnimFrames = 4;
@@ -667,6 +670,16 @@ struct Piece
     bool hasActed = false;
 };
 
+inline bool pieceUsesState1Token(const Piece& piece)
+{
+    return piece.actionState == 1 && !piece.state1TokenPath.empty();
+}
+
+inline const std::string& pieceTokenPathForState(const Piece& piece)
+{
+    return pieceUsesState1Token(piece) ? piece.state1TokenPath : piece.tokenPath;
+}
+
 inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHero)
 {
     piece.name = card.title;
@@ -680,6 +693,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.killedAnimPath = card.killedAnimPath;
     piece.fidgetAnimPath = card.fidgetAnimPath;
     piece.tokenPath = card.tokenPath;
+    piece.state1TokenPath = card.state1TokenPath;
     piece.pieceBaseBluePath = card.pieceBaseBluePath;
     piece.pieceBaseRedPath = card.pieceBaseRedPath;
     piece.walkAnimFrames = card.walkAnimFrames;
@@ -846,6 +860,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
     card_data::writeStringVector(packet, card.keywords);
     packet << card.imagePath << card.walkAnimPath << card.idleAnimPath
            << card.attackAnimPath << card.damagedAnimPath << card.killedAnimPath << card.fidgetAnimPath << card.tokenPath
+           << card.state1TokenPath
            << card.pieceBaseBluePath << card.pieceBaseRedPath
            << card.walkAnimFrames << card.idleAnimFrames
            << card.attackAnimFrames << card.damagedAnimFrames << card.killedAnimFrames << card.fidgetAnimFrames
@@ -877,6 +892,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
     }
     packet >> card.imagePath >> card.walkAnimPath >> card.idleAnimPath
            >> card.attackAnimPath >> card.damagedAnimPath >> card.killedAnimPath >> card.fidgetAnimPath >> card.tokenPath
+           >> card.state1TokenPath
            >> card.pieceBaseBluePath >> card.pieceBaseRedPath
            >> card.walkAnimFrames >> card.idleAnimFrames
            >> card.attackAnimFrames >> card.damagedAnimFrames >> card.killedAnimFrames >> card.fidgetAnimFrames
@@ -917,6 +933,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
     card_data::writeStringVector(packet, piece.keywords);
     packet << piece.imagePath << piece.walkAnimPath << piece.idleAnimPath
            << piece.attackAnimPath << piece.damagedAnimPath << piece.killedAnimPath << piece.fidgetAnimPath << piece.tokenPath
+           << piece.state1TokenPath
            << piece.pieceBaseBluePath << piece.pieceBaseRedPath
            << piece.walkAnimFrames << piece.idleAnimFrames
            << piece.attackAnimFrames << piece.damagedAnimFrames << piece.killedAnimFrames << piece.fidgetAnimFrames
@@ -947,6 +964,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
     }
     packet >> piece.imagePath >> piece.walkAnimPath >> piece.idleAnimPath
            >> piece.attackAnimPath >> piece.damagedAnimPath >> piece.killedAnimPath >> piece.fidgetAnimPath >> piece.tokenPath
+           >> piece.state1TokenPath
            >> piece.pieceBaseBluePath >> piece.pieceBaseRedPath
            >> piece.walkAnimFrames >> piece.idleAnimFrames
            >> piece.attackAnimFrames >> piece.damagedAnimFrames >> piece.killedAnimFrames >> piece.fidgetAnimFrames

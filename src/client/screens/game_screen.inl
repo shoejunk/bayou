@@ -900,6 +900,7 @@
 
             const std::string& walkPath = pieceWalkAnimPath(piece);
             const std::string& tokenPath = pieceTokenPath(piece);
+            const bool usesState1Token = game_data::pieceUsesState1Token(piece);
             sf::Color pieceTint = pieceUnavailable
                 ? sf::Color(150, 150, 150, 215)
                 : sf::Color::White;
@@ -934,7 +935,7 @@
                     static_cast<int>(loopProgress * static_cast<float>(walkFrameCount)),
                     walkFrameCount - 1);
             }
-            else if (!piece.idleAnimPath.empty())
+            else if (!usesState1Token && !piece.idleAnimPath.empty())
             {
                 const int idleFrameCount = std::max(1, piece.idleAnimFrames);
                 const float loopProgress =
@@ -970,7 +971,7 @@
                     pieceDamagedAnimations.erase(piece.id);
                 }
             }
-            else if (!isMoving)
+            else if (!isMoving && !usesState1Token)
             {
                 const auto animation = pieceFidgetAnimations.find(piece.id);
                 if (animation != pieceFidgetAnimations.end() &&
@@ -991,7 +992,7 @@
             bool drewPiece = drawPieceVisual(
                 tokenPath,
                 reactionPath ? *reactionPath : walkPath,
-                piece.idleAnimPath,
+                usesState1Token ? "" : piece.idleAnimPath,
                 pieceBasePath(piece),
                 piece.owner == 2,
                 reactionPath ? reactionFrames : piece.walkAnimFrames,

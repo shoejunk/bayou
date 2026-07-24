@@ -3469,7 +3469,7 @@ int main(int argc, char** argv)
     };
 
     auto pieceTokenPath = [](const game_data::Piece& piece) -> const std::string& {
-        return piece.tokenPath;
+        return game_data::pieceTokenPathForState(piece);
     };
 
     auto pieceWalkAnimPath = [](const game_data::Piece& piece) -> const std::string& {

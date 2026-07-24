@@ -869,7 +869,10 @@ int main(int argc, char** argv)
     encodedCard.traits = {"corrupt", "fey"};
     encodedCard.keywords = {"future-rule"};
     encodedCard.integerValues = {{"attack", 9}, {"range", 5}, {"FidgetAnimFrames", 3}, {"Tax", 4}};
-    encodedCard.stringValues = {{"FidgetAnim", "animations/fidget/test.png"}};
+    encodedCard.stringValues = {
+        {"FidgetAnim", "animations/fidget/test.png"},
+        {"Token", "characters/encoded.png"},
+        {"State1Token", "characters/encoded-state1.png"}};
     encodedCard.actionNames = {"Diagonal Charge"};
     encodedCard.actionDisplayNames = {"Shadow Lunge"};
     encodedCard.actions.push_back({
@@ -904,8 +907,21 @@ int main(int argc, char** argv)
               decodedCard.actions[0].canAttack &&
               decodedCard.fidgetAnimPath == "animations/fidget/test.png" &&
               decodedCard.fidgetAnimFrames == 3 &&
+              decodedCard.tokenPath == "characters/encoded.png" &&
+              decodedCard.state1TokenPath == "characters/encoded-state1.png" &&
               decodedCard.tax == 4,
           "referenced action object resolves into gameplay data without a legacy fallback attack");
+
+    Piece visualStatePiece;
+    populatePieceFromCard(visualStatePiece, decodedCard, false);
+    check(pieceTokenPathForState(visualStatePiece) == "characters/encoded.png",
+          "lowered gun uses the regular token");
+    visualStatePiece.actionState = 1;
+    check(pieceTokenPathForState(visualStatePiece) == "characters/encoded-state1.png",
+          "state 1 uses its optional token");
+    visualStatePiece.state1TokenPath.clear();
+    check(pieceTokenPathForState(visualStatePiece) == "characters/encoded.png",
+          "state 1 falls back to the regular token");
 
     sf::Packet cardDefinitionPacket;
     card_data::writeCard(cardDefinitionPacket, encodedCard);
@@ -981,6 +997,7 @@ int main(int argc, char** argv)
 
     GameCard serializedCard = decodedCard;
     serializedCard.tokenPath = "characters/test.png";
+    serializedCard.state1TokenPath = "characters/test-state1.png";
     serializedCard.walkAnimPath = "animations/test.png";
     serializedCard.idleAnimPath = "animations/idle/test.png";
     serializedCard.attackAnimPath = "animations/attack/test.png";
@@ -1018,6 +1035,7 @@ int main(int argc, char** argv)
               roundTrippedCard.traits == encodedCard.traits &&
               roundTrippedCard.keywords == encodedCard.keywords &&
               roundTrippedCard.tokenPath == "characters/test.png" &&
+              roundTrippedCard.state1TokenPath == "characters/test-state1.png" &&
               roundTrippedCard.walkAnimPath == "animations/test.png" &&
               roundTrippedCard.idleAnimPath == "animations/idle/test.png" &&
               roundTrippedCard.attackAnimPath == "animations/attack/test.png" &&
@@ -1047,6 +1065,7 @@ int main(int argc, char** argv)
     serializedPiece.traits = {"corrupt"};
     serializedPiece.keywords = {"future-rule"};
     serializedPiece.tokenPath = "characters/test.png";
+    serializedPiece.state1TokenPath = "characters/test-state1.png";
     serializedPiece.walkAnimPath = "animations/test.png";
     serializedPiece.idleAnimPath = "animations/idle/test.png";
     serializedPiece.attackAnimPath = "animations/attack/test.png";
@@ -1088,6 +1107,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.traits == serializedPiece.traits &&
               roundTrippedPiece.keywords == serializedPiece.keywords &&
               roundTrippedPiece.tokenPath == "characters/test.png" &&
+              roundTrippedPiece.state1TokenPath == "characters/test-state1.png" &&
               roundTrippedPiece.walkAnimPath == "animations/test.png" &&
               roundTrippedPiece.idleAnimPath == "animations/idle/test.png" &&
               roundTrippedPiece.attackAnimPath == "animations/attack/test.png" &&
