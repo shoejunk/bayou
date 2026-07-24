@@ -136,6 +136,7 @@ ActionDescription actionDescription(const game_data::ActionProfile& action, std:
     description.heal = std::max(0, action.heal);
     description.stun = std::max(0, action.statusTurns);
     description.cooldown = std::max(0, action.cooldownTurns);
+    description.control = std::max(0, action.control);
     return description;
 }
 

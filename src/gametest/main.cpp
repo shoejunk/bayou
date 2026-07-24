@@ -569,6 +569,37 @@ int main(int argc, char** argv)
     check(!resolvePieceAction({profilePiece, unfilteredEnemy}, holes, profilePiece, 4, 4).legal,
           "status-only actions reject targets missing their target filter");
 
+    ActionProfile controlAction = paralyze;
+    controlAction.statusTurns = 0;
+    controlAction.control = 2;
+    controlAction.targetFilter.clear();
+    profilePiece.actions = {controlAction};
+    const std::vector<Piece> controlActionPieces = {profilePiece, adjacentEnemy};
+    const ActionResolution controlResult =
+        resolvePieceAction(controlActionPieces, holes, controlActionPieces[0], 4, 4);
+    check(controlResult.legal && controlResult.attacks && controlResult.control == 2,
+          "control-only attacks accept enemy targets and carry their duration");
+
+    Piece controlledPiece = adjacentEnemy;
+    controlledPiece.owner = 2;
+    std::vector<Piece> controlTimeline = {controlledPiece};
+    applyPieceControl(controlTimeline[0], 1, 2);
+    check(controlTimeline[0].owner == 1 && controlTimeline[0].originalOwner == 2 &&
+              controlTimeline[0].controlTurnsRemaining == 2,
+          "control changes the active owner while retaining the original owner");
+    updatePieceControlAtTurnStart(controlTimeline, 2);
+    updatePieceControlAtTurnStart(controlTimeline, 1);
+    check(controlTimeline[0].owner == 1 && controlTimeline[0].controlTurnsRemaining == 1,
+          "the first later turn of the controlling player consumes one control turn");
+    updatePieceControlAtTurnStart(controlTimeline, 2);
+    updatePieceControlAtTurnStart(controlTimeline, 1);
+    check(controlTimeline[0].owner == 1 && controlTimeline[0].controlTurnsRemaining == 0,
+          "the final controlled turn remains controlled through that turn");
+    updatePieceControlAtTurnStart(controlTimeline, 2);
+    check(controlTimeline[0].owner == 2 && controlTimeline[0].originalOwner == 0 &&
+              controlTimeline[0].controlTurnsRemaining == 0,
+          "the original owner regains control on the following turn");
+
     ActionProfile capture;
     capture.kind = static_cast<std::uint8_t>(ActionKind::Capture);
     capture.pattern = static_cast<std::uint8_t>(MovePattern::Diag);
@@ -935,6 +966,7 @@ int main(int argc, char** argv)
     encodedHealingAction.damage = 0;
     encodedHealingAction.heal = 4;
     encodedHealingAction.nextState = 2;
+    encodedHealingAction.control = 3;
     sf::Packet actionPacket;
     card_data::writeAction(actionPacket, encodedHealingAction);
     card_data::Action roundTrippedAction;
@@ -942,6 +974,7 @@ int main(int argc, char** argv)
               roundTrippedAction.damage == 0 && roundTrippedAction.heal == 4 &&
               roundTrippedAction.nextState == 2 &&
               roundTrippedAction.push == 3 &&
+              roundTrippedAction.control == 3 &&
               roundTrippedAction.targetFilter == encodedHealingAction.targetFilter,
           "card-server action serialization keeps healing, push, and target-filter data");
 
@@ -971,13 +1004,15 @@ int main(int argc, char** argv)
     std::uint32_t currentCardCount = 0;
     bool currentCardFormatIsLegacy = true;
     bool currentActionsIncludeNextState = false;
+    bool currentActionsIncludeControl = false;
     check(card_data::readCardListHeader(
               currentCardListHeader,
               currentCardCount,
               currentCardFormatIsLegacy,
-              &currentActionsIncludeNextState) &&
+              &currentActionsIncludeNextState,
+              &currentActionsIncludeControl) &&
               currentCardCount == 3 && !currentCardFormatIsLegacy &&
-              currentActionsIncludeNextState,
+              currentActionsIncludeNextState && currentActionsIncludeControl,
           "versioned card-list headers select the traits-and-keywords format");
 
     sf::Packet previousCardListHeader;
@@ -986,13 +1021,15 @@ int main(int argc, char** argv)
     std::uint32_t previousCardCount = 1;
     bool previousCardFormatIsLegacy = true;
     bool previousActionsIncludeNextState = true;
+    bool previousActionsIncludeControl = true;
     check(card_data::readCardListHeader(
               previousCardListHeader,
               previousCardCount,
               previousCardFormatIsLegacy,
-              &previousActionsIncludeNextState) &&
+              &previousActionsIncludeNextState,
+              &previousActionsIncludeControl) &&
               previousCardCount == 0 && !previousCardFormatIsLegacy &&
-              !previousActionsIncludeNextState,
+              !previousActionsIncludeNextState && !previousActionsIncludeControl,
           "schema-six card lists remain readable with next state defaulting to state");
 
     GameCard serializedCard = decodedCard;
@@ -1021,6 +1058,7 @@ int main(int argc, char** argv)
     serializedCard.tax = 4;
     serializedCard.actions[0].heal = 3;
     serializedCard.actions[0].nextState = 4;
+    serializedCard.actions[0].control = 3;
     sf::Packet cardPacket;
     writeGameCard(cardPacket, serializedCard);
     GameCard roundTrippedCard;
@@ -1031,6 +1069,7 @@ int main(int argc, char** argv)
               roundTrippedCard.actions[0].heal == 3 &&
               roundTrippedCard.actions[0].nextState == 4 &&
               roundTrippedCard.actions[0].push == 3 &&
+              roundTrippedCard.actions[0].control == 3 &&
               roundTrippedCard.actions[0].targetFilter == serializedCard.actions[0].targetFilter &&
               roundTrippedCard.traits == encodedCard.traits &&
               roundTrippedCard.keywords == encodedCard.keywords &&
@@ -1086,12 +1125,15 @@ int main(int argc, char** argv)
     serializedPiece.growTurnsRemaining = 2;
     serializedPiece.disabledTurns = 1;
     serializedPiece.sleepTurnsRemaining = 1;
+    serializedPiece.originalOwner = 2;
+    serializedPiece.controlTurnsRemaining = 2;
     if (!serializedPiece.actions.empty())
     {
         serializedPiece.actions[0].name = "Serialized Action";
         serializedPiece.actions[0].heal = 2;
         serializedPiece.actions[0].push = 3;
         serializedPiece.actions[0].nextState = 5;
+        serializedPiece.actions[0].control = 4;
         serializedPiece.actions[0].targetFilter = {"fey", "warded"};
     }
     sf::Packet piecePacket;
@@ -1103,6 +1145,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.actions[0].heal == 2 &&
               roundTrippedPiece.actions[0].push == 3 &&
               roundTrippedPiece.actions[0].nextState == 5 &&
+              roundTrippedPiece.actions[0].control == 4 &&
               roundTrippedPiece.actions[0].targetFilter == serializedPiece.actions[0].targetFilter &&
               roundTrippedPiece.traits == serializedPiece.traits &&
               roundTrippedPiece.keywords == serializedPiece.keywords &&
@@ -1128,7 +1171,9 @@ int main(int argc, char** argv)
               roundTrippedPiece.gatherResources == 7 &&
               roundTrippedPiece.growTurnsRemaining == 2 &&
               roundTrippedPiece.disabledTurns == 1 &&
-              roundTrippedPiece.sleepTurnsRemaining == 1,
+              roundTrippedPiece.sleepTurnsRemaining == 1 &&
+              roundTrippedPiece.originalOwner == 2 &&
+              roundTrippedPiece.controlTurnsRemaining == 2,
           "extended piece fields survive network serialization");
 
     Snapshot serializedSnapshot;
@@ -1746,6 +1791,64 @@ int main(int argc, char** argv)
               pushedVictim->column == pushVictimHome.second &&
               pushEngine.snapshotFor(1).status.find("3 extra collision damage") != std::string::npos,
           "authoritative attacks apply blocked push damage after their base damage");
+
+    card_data::Card controlHeroCard;
+    controlHeroCard.title = "Control Hero";
+    controlHeroCard.type = "Hero";
+    controlHeroCard.integerValues = {{"health", 5}};
+    card_data::Action controlShot;
+    controlShot.name = "Control Shot";
+    controlShot.kind = "ranged";
+    controlShot.pattern = "none";
+    controlShot.minRange = 1;
+    controlShot.maxRange = 7;
+    controlShot.canMove = false;
+    controlShot.canAttack = true;
+    controlShot.control = 2;
+    controlHeroCard.actions = {controlShot};
+    card_data::Card controlVictimCard = controlHeroCard;
+    controlVictimCard.title = "Control Victim";
+    controlVictimCard.actions.clear();
+    GameEngine controlEngine(37, {controlHeroCard, controlVictimCard});
+    controlEngine.submitDeck(1, {controlHeroCard});
+    controlEngine.submitDeck(2, {controlVictimCard});
+    const auto controlAttackerHome = homeSquares(1)[0];
+    const auto controlVictimHome = homeSquares(2)[0];
+    controlEngine.placeHero(1, 0, controlAttackerHome.first, controlAttackerHome.second);
+    controlEngine.placeHero(2, 0, controlVictimHome.first, controlVictimHome.second);
+    const int controlAttackerId = controlEngine.boardPieces().front().id;
+    check(controlEngine.attackPiece(
+              1, controlAttackerId, controlVictimHome.first, controlVictimHome.second),
+          "authoritative control action is accepted");
+    auto controlledVictim = std::find_if(
+        controlEngine.boardPieces().begin(), controlEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Control Victim"; });
+    check(controlledVictim != controlEngine.boardPieces().end() &&
+              controlledVictim->owner == 1 && controlledVictim->originalOwner == 2 &&
+              controlledVictim->controlTurnsRemaining == 2,
+          "authoritative attack changes a surviving target's controller");
+    controlEngine.endTurn(2);
+    controlledVictim = std::find_if(
+        controlEngine.boardPieces().begin(), controlEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Control Victim"; });
+    check(controlledVictim != controlEngine.boardPieces().end() &&
+              controlledVictim->owner == 1 && controlledVictim->controlTurnsRemaining == 1,
+          "authoritative control counts only the controlling player's later turns");
+    controlEngine.endTurn(1);
+    controlEngine.endTurn(2);
+    controlledVictim = std::find_if(
+        controlEngine.boardPieces().begin(), controlEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Control Victim"; });
+    check(controlledVictim != controlEngine.boardPieces().end() &&
+              controlledVictim->owner == 1 && controlledVictim->controlTurnsRemaining == 0,
+          "authoritative control lasts through its final controlled turn");
+    controlEngine.endTurn(1);
+    controlledVictim = std::find_if(
+        controlEngine.boardPieces().begin(), controlEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Control Victim"; });
+    check(controlledVictim != controlEngine.boardPieces().end() &&
+              controlledVictim->owner == 2 && controlledVictim->originalOwner == 0,
+          "authoritative control restores the original owner on schedule");
     card_data::Card gatherHeroCard;
     gatherHeroCard.title = "Gather Hero";
     gatherHeroCard.type = "Hero";

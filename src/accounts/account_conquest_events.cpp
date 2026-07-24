@@ -280,11 +280,13 @@ std::optional<card_data::Card> deserializeCard(const void* data, int size)
     std::uint32_t count = 0;
     bool legacyFormat = false;
     bool actionIncludesNextState = false;
+    bool actionIncludesControl = false;
     if (!card_data::readCardListHeader(
             packet,
             count,
             legacyFormat,
-            &actionIncludesNextState) || count != 1)
+            &actionIncludesNextState,
+            &actionIncludesControl) || count != 1)
     {
         return std::nullopt;
     }
@@ -293,7 +295,8 @@ std::optional<card_data::Card> deserializeCard(const void* data, int size)
             packet,
             card,
             legacyFormat,
-            actionIncludesNextState))
+            actionIncludesNextState,
+            actionIncludesControl))
     {
         return std::nullopt;
     }

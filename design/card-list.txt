@@ -1,0 +1,219 @@
+Card List:
+
+Traits:
+
+Civilized
+
+Wild
+
+Corrupt
+
+Honorable
+
+Fey
+
+Arcane
+
+Mechanical
+
+Undead
+
+Ancient
+
+
+Blackthorn Starter Deck
+
+Heroes:
+
+Thaeron Baelstone (civilized, corrupt, arcane)
+Victor Greyshard (civilized, corrupt)
+Ashenfang (wild, corrupt)
+
+
+Companion:
+
+Blackthorn Debt Collector (civilized, corrupt)
+Blackthorn Alchemist (civilized, arcane)
+Blackthorn Foreman (civilized, corrupt)
+Blackthorn Lumberjack (civilized)
+Grove Sister (wild, corrupt)
+Mog (wild, corrupt)
+Grask (wild, corrupt)
+Goblin Ambusher (wild)
+Braun Stonefist (civilized, corrupt)
+Goblin Sharpshooter (corrupt)
+
+
+Blackthorn Non-Starter Cards:
+
+***(HERO) Fizzlewick Gearwright (corrupt, mechanical)
+Lumber Automaton (mechanical)
+Clockwork Guardian (robot dog) (mechanical)
+Blackthorn Houndmaster (civilized, corrupt)
+Gearjaw (mechanical)
+Automatick (mechanical)
+Camp Physician (civilized, arcane)
+Blackthorn Engineer (civilized, corrupt)
+Black Powder Keg (mechanical)
+Gilded Cage (arcane)
+
+
+
+
+
+
+
+
+
+
+
+
+Mirewatch Resistance Starter Deck
+
+Heroes:
+
+Joni Pumpernickle (civilized, arcane)
+Vanya Bluewater (civilized, honorable)
+Maggie Mudroot (wild, honorable, undead)
+
+
+Companion:
+
+Donella of the Marsh (wild, arcane)
+Birdie the Wise (civilized, honorable)
+Scooter (otter) (wild)
+Erevan the Shadow (arcane, civilized)
+Reed Baelstone (civilized, honorable)
+Rowan Leafbound (honorable)
+Elliot Greentide (honorable, undead) 
+Resistance Smuggler (goblin) (honorable)
+Mirewatch Informant (civilized)
+Swamp Tracker (mounted) (wild)
+
+
+Mirewatch Resistance Non-Starter Cards:
+
+***(HERO) Juniper Glass (wild, arcane)
+Telos the Merchant (civilized, arcane)
+Marshland Veteran (honorable)
+Old Pell (civilized, undead)
+Nibs Mudroot (wild, undead)
+Bog Spearman (honorable, wild)
+River Guide (civilized, honorable)
+Auntie Mirelle (civilized, undead)
+Hidden Camp (wild)
+Resistance Cache (honorable)
+
+
+
+
+
+
+
+
+
+
+
+
+
+Seelie Court Starter Deck
+
+Heroes:
+
+Prince Vesper (arcane, honorable) 30
+Caltheriel (fey, honorable) 15
+Sylvara (ancient, wild, fey) 55
+
+
+Companion:
+
+Pavo Quickstep (arcane, fey)
+Nettle Starbright (mounted) (wild, honorable)
+Archivist Mosswake (ancient, wild)
+Fey Messenger (fey)
+Starbloom Knight (fey, honorable)
+Crystal Unicorn (wild, honorable)
+Heartwood Sister (ancient, fey)
+Thorn Griffin (wild)
+Duchess Dewbell (ancient)
+Larks of Eventide (arcane)
+
+
+Seelie Non-Starter Cards:
+
+***(HERO) Lady Mirrorglass (ancient, arcane)
+Sylvan Enchantress (arcane, honorable)
+Sylvan Champion (fey, honorable)
+Marrowind (ancient, honorable)
+Lady Quill (fey, honorable)
+Glimmer Stag (fey)
+Sun Sprite (arcane, fey)
+Mossy Giant (wild, ancient)
+Fairy Ring (fey)
+Heartwood (ancient)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Unseelie Court Starter Deck
+
+Heroes:
+
+The Bug Queen (ancient, fey, corrupt)
+Archduchess Vespara (undead, fey, corrupt)
+The Tockman (mechanical, arcane)
+
+
+Companion:
+
+Briar Whisperthorn (fey, corrupt)
+Gloom Fairy (arcane, fey)
+Pipistrel Vane (ancient, corrupt)
+Dusk Harvester (undead, fey, corrupt)
+Lady Silkmaw (corrupt)
+Duke Lanternwing (arcane, corrupt)
+Bristlejack (corrupt)
+Sir Chitin the Undying (undead, fey)
+Hushkeeper (mechanical, arcane)
+Thorn Serpent (ancient, fey)
+
+
+Unseelie Non-Starter Cards:
+
+***(HERO) Sister Honeygrave (ancient, arcane)
+Father Grub (undead, ancient)
+The Weaver (fey, mechanical)
+The Choir (corrupt, fey)
+Moonshade Stalker (fey)
+The Warden (mechanical)
+Lord Pallid (arcane, corrupt)
+Gloom Wisp (undead, arcane)
+Echo Lantern (mechanical)
+Eyeblight (corrupt)
+
+
+
+
+
+Non-Starter Effect Cards:
+
+Ambush (wild)
+Rapid Assembly (mechanical)
+Supply Shortage (civilized)
+Survival Instinct (wild)
+Hidden Path (fey)
+Spell Surge (arcane)
+Ancient Awakening (ancient)
+Cursed Ground (corrupt)
+Raise the Fallen (undead)
+Last Stand (honorable)

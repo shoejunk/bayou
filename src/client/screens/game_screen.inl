@@ -76,6 +76,11 @@
             descriptions.push_back({"Sleeping: " + std::to_string(piece.sleepTurnsRemaining) + " turns",
                                     sf::Color(120, 190, 230)});
         }
+        if (piece.controlTurnsRemaining > 0)
+        {
+            descriptions.push_back({"Under control: " + std::to_string(piece.controlTurnsRemaining) + " turns",
+                                    ownerColor(piece.owner)});
+        }
         if (!piece.ability.empty())
         {
             descriptions.push_back({"Ability: " + game_data::pieceAbilityLabel(piece), sf::Color(210, 216, 228)});
@@ -1059,6 +1064,25 @@
             const unsigned int healthSize = static_cast<unsigned int>(std::clamp(12.0f * pieceScale, 10.0f, 17.0f));
             drawText(window, font, std::to_string(piece.health), healthSize,
                      {anchor.x - 5.0f * pieceScale, anchor.y - 21.0f * pieceScale}, sf::Color(248, 239, 216));
+            if (piece.controlTurnsRemaining > 0)
+            {
+                const sf::FloatRect artBounds = pieceTargetRect(
+                    anchor, pieceScale, true, piece.width, piece.height);
+                const float iconSize = std::clamp(24.0f * pieceScale, 18.0f, 30.0f);
+                const float iconY = artBounds.position.y - iconSize * 0.72f;
+                const float iconX = anchor.x - iconSize - 5.0f * pieceScale;
+                if (sf::Texture* icon = textures.load("ui/under-control.png"))
+                {
+                    drawContainSprite(window, *icon, {{iconX, iconY}, {iconSize, iconSize}});
+                }
+                drawText(
+                    window,
+                    font,
+                    std::to_string(piece.controlTurnsRemaining),
+                    static_cast<unsigned int>(std::clamp(14.0f * pieceScale, 11.0f, 18.0f)),
+                    {iconX + iconSize + 2.0f * pieceScale, iconY + iconSize * 0.22f},
+                    sf::Color(248, 239, 216));
+            }
         }
 
         for (auto animation = pieceKilledAnimations.begin(); animation != pieceKilledAnimations.end();)

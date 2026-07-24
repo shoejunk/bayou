@@ -3132,7 +3132,9 @@ int main(int argc, char** argv)
                     const game_data::Piece* nextTarget = pieceByIdInSnapshot(nextSnapshot, currentTarget.id);
                     const bool targetChanged = nextTarget == nullptr ||
                         nextTarget->health < currentTarget.health ||
-                        nextTarget->disabledTurns != currentTarget.disabledTurns;
+                        nextTarget->disabledTurns != currentTarget.disabledTurns ||
+                        nextTarget->owner != currentTarget.owner ||
+                        nextTarget->controlTurnsRemaining != currentTarget.controlTurnsRemaining;
                     if (!targetChanged)
                     {
                         continue;
@@ -3750,6 +3752,7 @@ int main(int argc, char** argv)
             drawAmount("ui/heal.png", action.heal);
             drawAmount("ui/stun.png", action.stun);
             drawAmount("ui/cooldown.png", action.cooldown);
+            drawAmount("ui/under-control.png", action.control);
             y += 33.0f;
         }
         return y;
@@ -4136,6 +4139,7 @@ int main(int argc, char** argv)
         const std::string attackerName = piece->name;
         std::vector<std::string> damagedTargetNames;
         std::vector<std::string> healedTargetNames;
+        std::vector<std::string> controlledTargetNames;
         bool anyTargetDestroyed = false;
         bool anyTargetReborn = false;
         bool anyTargetWasHidden = false;
@@ -4200,6 +4204,19 @@ int main(int argc, char** argv)
                         const bool reborn = destroySandboxPiece(next, pushedTarget->id);
                         anyTargetReborn = anyTargetReborn || reborn;
                         anyTargetDestroyed = anyTargetDestroyed || !reborn;
+                    }
+                    if (action.control > 0)
+                    {
+                        if (game_data::Piece* controllableTarget =
+                                pieceByIdInSnapshotMutable(next, targetId);
+                            controllableTarget != nullptr && controllableTarget->health > 0)
+                        {
+                            game_data::applyPieceControl(*controllableTarget, attackerOwner, action.control);
+                            if (controllableTarget->owner == attackerOwner)
+                            {
+                                controlledTargetNames.push_back(targetName);
+                            }
+                        }
                     }
                 }
             }
@@ -4287,8 +4304,15 @@ int main(int argc, char** argv)
                 next.status += " and dealt " + std::to_string(pushCollisionDamage) +
                     " extra collision damage";
             if (effectiveDisabledTurns > 0)
+            {
                 next.status += " and disabled surviving targets for " +
                     std::to_string(effectiveDisabledTurns) + " turn(s)";
+            }
+            if (!controlledTargetNames.empty())
+            {
+                next.status += " and controlled " + joinTargets(controlledTargetNames) +
+                    " for " + std::to_string(action.control) + " turn(s)";
+            }
             next.status += anyTargetDestroyed ? "; at least one was destroyed." : ".";
             if (anyTargetReborn)
             {
@@ -4480,6 +4504,7 @@ int main(int argc, char** argv)
 
         next.activePlayer = endingPlayer == 1 ? 2 : 1;
         const int startingPlayer = next.activePlayer;
+        game_data::updatePieceControlAtTurnStart(next.pieces, startingPlayer);
         for (game_data::Piece& piece : next.pieces)
         {
             if (piece.owner == startingPlayer)

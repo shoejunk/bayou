@@ -786,6 +786,7 @@ private:
     InputBox actionStatusTurnsField;
     InputBox actionCooldownTurnsField;
     InputBox actionPushField;
+    InputBox actionControlField;
     std::vector<InputBox> actionTargetFilterFields;
     EditorButton backButton;
     EditorButton instructionsButton;
@@ -901,8 +902,9 @@ private:
         std::uint32_t count = 0;
         bool legacyFormat = false;
         bool actionIncludesNextState = false;
+        bool actionIncludesControl = false;
         if (!card_data::readCardListHeader(
-                response, count, legacyFormat, &actionIncludesNextState))
+                response, count, legacyFormat, &actionIncludesNextState, &actionIncludesControl))
         {
             socket.disconnect();
             return {false, "Unsupported card list payload"};
@@ -914,7 +916,7 @@ private:
         {
             card_data::Card card;
             if (!card_data::readListedCard(
-                    response, card, legacyFormat, actionIncludesNextState))
+                    response, card, legacyFormat, actionIncludesNextState, actionIncludesControl))
             {
                 socket.disconnect();
                 return {false, "Invalid card list payload"};
@@ -1171,6 +1173,7 @@ private:
         actionStatusTurnsField = makeCompactField("0", {210.0f, 32.0f});
         actionCooldownTurnsField = makeCompactField("0", {210.0f, 32.0f});
         actionPushField = makeCompactField("0", {210.0f, 32.0f});
+        actionControlField = makeCompactField("0", {210.0f, 32.0f});
         if (const std::optional<std::filesystem::path> path = resolveAssetImagePath("ui/action-link.png"))
         {
             hasActionLinkTexture = actionLinkTexture.loadFromFile(*path);
@@ -1282,6 +1285,7 @@ private:
                 &actionStatusTurnsField,
                 &actionCooldownTurnsField,
                 &actionPushField,
+                &actionControlField,
             };
             for (InputBox& field : actionTargetFilterFields)
             {
@@ -1624,6 +1628,7 @@ private:
             &actionStatusTurnsField,
             &actionCooldownTurnsField,
             &actionPushField,
+            &actionControlField,
         };
         for (const InputBox* field : fields)
         {
@@ -1908,6 +1913,7 @@ private:
         action.statusTurns = formInt(actionStatusTurnsField, 0);
         action.cooldownTurns = formInt(actionCooldownTurnsField, 0);
         action.push = std::max(0, formInt(actionPushField, 0));
+        action.control = std::max(0, formInt(actionControlField, 0));
         for (const InputBox& field : actionTargetFilterFields)
         {
             const std::string value = trim(field.getValue());
@@ -1939,6 +1945,7 @@ private:
         actionStatusTurnsField.setValue("0");
         actionCooldownTurnsField.setValue("0");
         actionPushField.setValue("0");
+        actionControlField.setValue("0");
         actionTargetFilterFields.clear();
         actionTargetFilterOffset = 0;
         removeActionTargetFilterButtons.clear();
@@ -1974,6 +1981,7 @@ private:
         actionStatusTurnsField.setValue(std::to_string(action.statusTurns));
         actionCooldownTurnsField.setValue(std::to_string(action.cooldownTurns));
         actionPushField.setValue(std::to_string(action.push));
+        actionControlField.setValue(std::to_string(action.control));
         actionTargetFilterFields.clear();
         for (const std::string& value : action.targetFilter)
         {
@@ -3477,6 +3485,7 @@ private:
         y = drawInstructionBullet(window, "Can move lets the action target an empty destination. With Can attack enabled, positive Damage targets and hurts enemies, while positive Heal targets and restores friendlies up to maximum health. Damage and Heal must not be negative.", y);
         y = drawInstructionBullet(window, "Target filter entries restrict attacks, healing, and status effects. A target must match every listed string across its Traits and Keywords; an empty filter accepts any otherwise-valid target.", y);
         y = drawInstructionBullet(window, "Push moves each surviving enemy target up to that many squares directly away from the attack's staging square. Blocked push distance becomes 1 extra damage per prevented square.", y);
+        y = drawInstructionBullet(window, "Control temporarily changes an attacked enemy piece to the attacking player for that many later turns of the attacking player. The attack turn is not counted; the original controller regains it on their following turn.", y);
         y = drawInstructionBullet(window, "Minimum and maximum range are per action, so a card can mix short moves, long moves, ranged attacks, and state-specific actions.", y);
         y = drawInstructionParagraph(window, "For blocking slide and capture actions, every square along the path must be empty. Pass-through ignores blockers. Line of sight applies blocker checks to ranged attacks.", y + 5.0f, sf::Color(198, 210, 224));
         y += 10.0f;
@@ -3892,6 +3901,7 @@ private:
         actionStatusTurnsField.setPosition({340.0f, 580.0f});
         actionCooldownTurnsField.setPosition({600.0f, 580.0f});
         actionPushField.setPosition({340.0f, 638.0f});
+        actionControlField.setPosition({600.0f, 638.0f});
         layoutActionTargetFilterControls();
     }
 
@@ -3918,6 +3928,7 @@ private:
             {"Status turns", {340.0f, 556.0f}},
             {"Cooldown turns", {600.0f, 556.0f}},
             {"Push", {340.0f, 614.0f}},
+            {"Control", {600.0f, 614.0f}},
         };
         for (const auto& [label, position] : labels)
         {

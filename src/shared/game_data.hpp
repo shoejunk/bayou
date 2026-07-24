@@ -207,6 +207,7 @@ struct ActionProfile
     int heal = 0;
     int statusTurns = 0;
     int cooldownTurns = 0;
+    int control = 0;
     bool canMove = true;
     bool canAttack = false;
     bool passThrough = false;
@@ -461,6 +462,7 @@ inline GameCard toGameCard(const card_data::Card& card)
         action.lineOfSight = definition.lineOfSight;
         action.statusTurns = definition.statusTurns;
         action.cooldownTurns = definition.cooldownTurns;
+        action.control = std::max(0, definition.control);
         action.push = std::max(0, definition.push);
         action.targetFilter = definition.targetFilter;
         g.actions.push_back(action);
@@ -621,6 +623,7 @@ struct Piece
 {
     int id = 0;
     int owner = 0;  // 1 or 2
+    int originalOwner = 0; // nonzero while temporarily controlled by another player
     int row = 0;
     int column = 0;
     std::string name;
@@ -658,6 +661,7 @@ struct Piece
     int growTurnsRemaining = 0;
     int disabledTurns = 0;
     int sleepTurnsRemaining = 0;
+    int controlTurnsRemaining = 0;
     std::vector<ActionProfile> actions;
     int actionState = 0;
     std::string ability;
@@ -750,6 +754,47 @@ inline void applyActionHealing(Piece& target, int heal, int statusTurns)
 {
     target.health = std::min(target.maxHealth, target.health + std::max(0, heal));
     applyDamageStatus(target, 0, statusTurns);
+}
+
+inline int pieceOriginalOwner(const Piece& piece)
+{
+    return piece.originalOwner != 0 ? piece.originalOwner : piece.owner;
+}
+
+inline void applyPieceControl(Piece& target, int controllingPlayer, int turns)
+{
+    const int positiveTurns = std::max(0, turns);
+    if (positiveTurns <= 0 || target.owner == controllingPlayer)
+    {
+        return;
+    }
+
+    target.originalOwner = target.owner;
+    target.owner = controllingPlayer;
+    target.controlTurnsRemaining = positiveTurns;
+}
+
+// Control duration counts only later turns belonging to the controlling player.
+// The final count is allowed to remain visible through that last controlled turn;
+// the original owner regains control when their following turn starts.
+inline void updatePieceControlAtTurnStart(std::vector<Piece>& pieces, int playerNumber)
+{
+    for (Piece& piece : pieces)
+    {
+        if (piece.owner == playerNumber && piece.controlTurnsRemaining > 0)
+        {
+            --piece.controlTurnsRemaining;
+        }
+    }
+
+    for (Piece& piece : pieces)
+    {
+        if (piece.controlTurnsRemaining == 0 && piece.originalOwner == playerNumber)
+        {
+            piece.owner = piece.originalOwner;
+            piece.originalOwner = 0;
+        }
+    }
 }
 
 // Applies the per-piece timing changes that occur when its owner's turn starts.
@@ -873,7 +918,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
     for (const ActionProfile& action : card.actions)
     {
         packet << action.name << action.kind << action.pattern << action.state << actionNextState(action) << action.minRange << action.maxRange
-               << action.damage << action.heal << action.statusTurns << action.cooldownTurns
+               << action.damage << action.heal << action.statusTurns << action.cooldownTurns << action.control
                << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
         card_data::writeStringVector(packet, action.targetFilter);
     }
@@ -909,7 +954,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
     {
         ActionProfile action;
         packet >> action.name >> action.kind >> action.pattern >> action.state >> action.nextState >> action.minRange >> action.maxRange
-               >> action.damage >> action.heal >> action.statusTurns >> action.cooldownTurns
+               >> action.damage >> action.heal >> action.statusTurns >> action.cooldownTurns >> action.control
                >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight >> action.push;
         if (!packet || !card_data::readStringVector(packet, action.targetFilter))
         {
@@ -928,7 +973,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
 
 inline void writePiece(sf::Packet& packet, const Piece& piece)
 {
-    packet << piece.id << piece.owner << piece.row << piece.column << piece.name;
+    packet << piece.id << piece.owner << piece.originalOwner << piece.row << piece.column << piece.name;
     card_data::writeStringVector(packet, piece.traits);
     card_data::writeStringVector(packet, piece.keywords);
     packet << piece.imagePath << piece.walkAnimPath << piece.idleAnimPath
@@ -941,13 +986,13 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
            << piece.width << piece.height << piece.attack << piece.attackRange
            << piece.movePattern << piece.moveRange << piece.attackingMove
            << piece.canControl << piece.growTurnsRemaining << piece.disabledTurns << piece.sleepTurnsRemaining
-           << piece.actionState << piece.ability << piece.summonTitle << piece.rebirthTitle << piece.abilityUses << piece.hidden
-           << piece.isHero << piece.hasActed;
+            << piece.actionState << piece.ability << piece.summonTitle << piece.rebirthTitle << piece.abilityUses << piece.hidden
+            << piece.isHero << piece.hasActed << piece.controlTurnsRemaining;
     packet << static_cast<std::uint32_t>(piece.actions.size());
     for (const ActionProfile& action : piece.actions)
     {
         packet << action.name << action.kind << action.pattern << action.state << actionNextState(action) << action.minRange << action.maxRange
-               << action.damage << action.heal << action.statusTurns << action.cooldownTurns
+               << action.damage << action.heal << action.statusTurns << action.cooldownTurns << action.control
                << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
         card_data::writeStringVector(packet, action.targetFilter);
     }
@@ -956,7 +1001,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
 
 inline bool readPiece(sf::Packet& packet, Piece& piece)
 {
-    packet >> piece.id >> piece.owner >> piece.row >> piece.column >> piece.name;
+    packet >> piece.id >> piece.owner >> piece.originalOwner >> piece.row >> piece.column >> piece.name;
     if (!packet || !card_data::readStringVector(packet, piece.traits) ||
         !card_data::readStringVector(packet, piece.keywords))
     {
@@ -973,7 +1018,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
            >> piece.movePattern >> piece.moveRange >> piece.attackingMove
            >> piece.canControl >> piece.growTurnsRemaining >> piece.disabledTurns >> piece.sleepTurnsRemaining
            >> piece.actionState >> piece.ability >> piece.summonTitle >> piece.rebirthTitle >> piece.abilityUses >> piece.hidden
-           >> piece.isHero >> piece.hasActed;
+           >> piece.isHero >> piece.hasActed >> piece.controlTurnsRemaining;
     std::uint32_t actionCount = 0;
     packet >> actionCount;
     piece.actions.clear();
@@ -982,7 +1027,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
     {
         ActionProfile action;
         packet >> action.name >> action.kind >> action.pattern >> action.state >> action.nextState >> action.minRange >> action.maxRange
-               >> action.damage >> action.heal >> action.statusTurns >> action.cooldownTurns
+               >> action.damage >> action.heal >> action.statusTurns >> action.cooldownTurns >> action.control
                >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight >> action.push;
         if (!packet || !card_data::readStringVector(packet, action.targetFilter))
         {

@@ -855,6 +855,7 @@ private:
         const std::string attackerName = piece->name;
         std::vector<std::string> damagedTargetNames;
         std::vector<std::string> healedTargetNames;
+        std::vector<std::string> controlledTargetNames;
         std::vector<int> defeatedOwners;
         bool anyTargetDestroyed = false;
         bool anyTargetReborn = false;
@@ -894,7 +895,7 @@ private:
                         Piece* damagedPiece = pieceById(assignment.pieceId);
                         if (damagedPiece != nullptr && damagedPiece->health <= 0)
                         {
-                            defeatedOwners.push_back(damagedPiece->owner);
+                            defeatedOwners.push_back(pieceOriginalOwner(*damagedPiece));
                             const bool reborn = destroyPiece(damagedPiece->id);
                             anyTargetReborn = anyTargetReborn || reborn;
                             anyTargetDestroyed = anyTargetDestroyed || !reborn;
@@ -911,10 +912,22 @@ private:
                     if (Piece* pushedTarget = pieceById(targetId);
                         pushedTarget != nullptr && pushedTarget->health <= 0)
                     {
-                        defeatedOwners.push_back(pushedTarget->owner);
+                        defeatedOwners.push_back(pieceOriginalOwner(*pushedTarget));
                         const bool reborn = destroyPiece(pushedTarget->id);
                         anyTargetReborn = anyTargetReborn || reborn;
                         anyTargetDestroyed = anyTargetDestroyed || !reborn;
+                    }
+                    if (action.control > 0)
+                    {
+                        if (Piece* controllableTarget = pieceById(targetId);
+                            controllableTarget != nullptr && controllableTarget->health > 0)
+                        {
+                            applyPieceControl(*controllableTarget, attackerOwner, action.control);
+                            if (controllableTarget->owner == attackerOwner)
+                            {
+                                controlledTargetNames.push_back(targetName);
+                            }
+                        }
                     }
                 }
             }
@@ -1037,6 +1050,13 @@ private:
             {
                 result += fmt::format(" and disabled surviving targets for {} turn(s)", effectiveDisabledTurns);
             }
+            if (!controlledTargetNames.empty())
+            {
+                result += fmt::format(
+                    " and controlled {} for {} turn(s)",
+                    joinTargets(controlledTargetNames),
+                    action.control);
+            }
             result += anyTargetDestroyed ? "; at least one was destroyed!" : ".";
             if (anyTargetReborn)
             {
@@ -1123,7 +1143,7 @@ private:
         int count = 0;
         for (const Piece& piece : pieces)
         {
-            if (piece.owner == playerNumber && piece.isHero)
+            if (pieceOriginalOwner(piece) == playerNumber && piece.isHero)
             {
                 ++count;
             }
@@ -1157,6 +1177,7 @@ private:
         }
         EnginePlayer& player = playerRef(playerNumber);
         player.discardsThisTurn = 0;
+        updatePieceControlAtTurnStart(pieces, playerNumber);
         const int controlledIncome = controlledCount(playerNumber);
         player.resources += controlledIncome;
 
@@ -1276,7 +1297,7 @@ private:
                 Piece* damagedPiece = pieceById(assignment.pieceId);
                 if (damagedPiece != nullptr && damagedPiece->health <= 0)
                 {
-                    const int victimOwner = damagedPiece->owner;
+                    const int victimOwner = pieceOriginalOwner(*damagedPiece);
                     destroyPiece(damagedPiece->id);
                     checkForWinner(victimOwner);
                 }

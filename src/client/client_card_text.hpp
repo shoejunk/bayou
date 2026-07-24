@@ -23,6 +23,7 @@ struct ActionDescription
     int heal = 0;
     int stun = 0;
     int cooldown = 0;
+    int control = 0;
 };
 
 struct DetailRow

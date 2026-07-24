@@ -226,6 +226,7 @@ struct ActionResolution
     int heal = 0;
     int statusTurns = 0;
     int cooldownTurns = 0;
+    int control = 0;
     int push = 0;
     int stagingRow = 0;
     int stagingColumn = 0;
@@ -459,6 +460,7 @@ inline ActionResolution resolvePieceAction(
         candidate.heal = action.heal;
         candidate.statusTurns = action.statusTurns;
         candidate.cooldownTurns = action.cooldownTurns;
+        candidate.control = action.control;
         candidate.push = action.push;
         candidate.stagingRow = piece.row;
         candidate.stagingColumn = piece.column;
@@ -643,10 +645,10 @@ inline ActionResolution resolvePieceAction(
         }
 
         const int candidateImpact = candidate.attacks
-            ? std::max(candidate.damage, candidate.heal) + candidate.statusTurns + candidate.push
+            ? std::max(candidate.damage, candidate.heal) + candidate.statusTurns + candidate.control + candidate.push
             : 0;
         const int bestImpact = best.attacks
-            ? std::max(best.damage, best.heal) + best.statusTurns + best.push
+            ? std::max(best.damage, best.heal) + best.statusTurns + best.control + best.push
             : 0;
         if (!best.legal || candidateImpact > bestImpact)
         {
