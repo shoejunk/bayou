@@ -875,7 +875,7 @@ int main(int argc, char** argv)
     PasswordVisibilityIcon newPasswordVisibilityIcon(newPasswordInput.bounds(), showPasswordTexture, hidePasswordTexture);
     PasswordVisibilityIcon confirmNewPasswordVisibilityIcon(confirmNewPasswordInput.bounds(), showPasswordTexture, hidePasswordTexture);
     InputBox deckNameInput({304.0f, 154.0f}, {210.0f, 40.0f}, "", font);
-    InputBox adminSearchInput({120.0f, 94.0f}, {520.0f, 36.0f}, "", font);
+    InputBox adminSearchInput({120.0f, 94.0f}, {390.0f, 36.0f}, "", font);
     InputBox adminGoldInput({234.0f, 460.0f}, {130.0f, 36.0f}, "Gold amount", font);
     InputBox adminCardInput({240.0f, 224.0f}, {320.0f, 36.0f}, "Card name", font);
 
@@ -959,9 +959,9 @@ int main(int argc, char** argv)
     Button claimStarterDeckButton({280.0f, 502.0f}, {240.0f, 46.0f}, "Claim Deck", font);
     TabStrip adminTabs({24.0f, 22.0f}, {150.0f, 38.0f}, {"Users", "Starter Decks"}, font);
     Button adminBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
-    Button adminPrevPageButton({270.0f, 516.0f}, {52.0f, 38.0f}, "<", font);
-    Button adminNextPageButton({478.0f, 516.0f}, {52.0f, 38.0f}, ">", font);
-    Button adminRefreshButton({332.0f, 516.0f}, {104.0f, 38.0f}, "Refresh", font);
+    Button adminPrevPageButton({530.0f, 93.0f}, {52.0f, 38.0f}, "<", font);
+    Button adminNextPageButton({706.0f, 93.0f}, {52.0f, 38.0f}, ">", font);
+    Button adminRefreshButton({592.0f, 93.0f}, {104.0f, 38.0f}, "Refresh", font);
     Button adminGrantButton({42.0f, 458.0f}, {150.0f, 42.0f}, "Grant Admin", font);
     Button adminRevokeButton({42.0f, 458.0f}, {150.0f, 42.0f}, "Revoke Admin", font);
     Button adminGrantGoldButton({378.0f, 458.0f}, {150.0f, 42.0f}, "Grant Gold", font);
