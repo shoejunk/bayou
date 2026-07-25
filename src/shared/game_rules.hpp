@@ -249,6 +249,7 @@ inline bool actionCanTarget(
     const Piece& target,
     int damage,
     int heal,
+    int control,
     const std::vector<std::string>& targetFilter)
 {
     const bool matchesFilter = std::all_of(
@@ -264,6 +265,12 @@ inline bool actionCanTarget(
     if (target.owner == piece.owner)
     {
         return heal > 0 && target.health < target.maxHealth;
+    }
+    // Heroes can never be taken over, so a controlling action has no legal
+    // enemy hero target at all.
+    if (control > 0 && target.isHero)
+    {
+        return false;
     }
     return damage > 0 || (damage == 0 && heal == 0);
 }
@@ -504,7 +511,9 @@ inline ActionResolution resolvePieceAction(
                     candidate.legal = true;
                     candidate.moves = true;
                     if (action.canAttack &&
-                        actionCanTarget(piece, *pivot, action.damage, action.heal, action.targetFilter))
+                        actionCanTarget(
+                            piece, *pivot, action.damage, action.heal, action.control,
+                            action.targetFilter))
                     {
                         candidate.attacks = true;
                         addActionTarget(candidate, *pivot);
@@ -516,7 +525,8 @@ inline ActionResolution resolvePieceAction(
         {
             if (action.canAttack && destination != nullptr &&
                 actionCanTarget(
-                    piece, *destination, action.damage, action.heal, action.targetFilter) &&
+                    piece, *destination, action.damage, action.heal, action.control,
+                    action.targetFilter) &&
                 rangedActionReachesTarget(pieces, piece, *destination, action))
             {
                 candidate.legal = true;
@@ -549,7 +559,8 @@ inline ActionResolution resolvePieceAction(
                     footprintTargets.begin(), footprintTargets.end(),
                     [&](const Piece* target) {
                         return !actionCanTarget(
-                            piece, *target, action.damage, action.heal, action.targetFilter);
+                            piece, *target, action.damage, action.heal, action.control,
+                            action.targetFilter);
                     }))
             {
                 continue;
@@ -593,7 +604,8 @@ inline ActionResolution resolvePieceAction(
                 footprintTargets.begin(), footprintTargets.end(),
                 [&](const Piece* target) {
                     return !actionCanTarget(
-                        piece, *target, action.damage, action.heal, action.targetFilter);
+                        piece, *target, action.damage, action.heal, action.control,
+                        action.targetFilter);
                 });
             if (!invalidTargetOverlap && action.canAttack && !footprintTargets.empty())
             {
@@ -617,7 +629,8 @@ inline ActionResolution resolvePieceAction(
             }
             else if (destination != nullptr && action.canAttack &&
                      actionCanTarget(
-                         piece, *destination, action.damage, action.heal, action.targetFilter))
+                         piece, *destination, action.damage, action.heal, action.control,
+                         action.targetFilter))
             {
                 candidate.legal = true;
                 candidate.attacks = true;

@@ -777,10 +777,11 @@ inline int pieceOriginalOwner(const Piece& piece)
     return piece.originalOwner != 0 ? piece.originalOwner : piece.owner;
 }
 
+// Heroes are never controllable; only rank-and-file pieces can change sides.
 inline void applyPieceControl(Piece& target, int controllingPlayer, int turns)
 {
     const int positiveTurns = std::max(0, turns);
-    if (positiveTurns <= 0 || target.owner == controllingPlayer)
+    if (positiveTurns <= 0 || target.isHero || target.owner == controllingPlayer)
     {
         return;
     }

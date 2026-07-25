@@ -579,6 +579,17 @@ int main(int argc, char** argv)
         resolvePieceAction(controlActionPieces, holes, controlActionPieces[0], 4, 4);
     check(controlResult.legal && controlResult.attacks && controlResult.control == 2,
           "control-only attacks accept enemy targets and carry their duration");
+    Piece adjacentEnemyHero = adjacentEnemy;
+    adjacentEnemyHero.isHero = true;
+    check(!resolvePieceAction({profilePiece, adjacentEnemyHero}, holes, profilePiece, 4, 4).legal,
+          "control actions cannot target enemy heroes");
+    ActionProfile plainStrike = controlAction;
+    plainStrike.control = 0;
+    plainStrike.damage = 1;
+    profilePiece.actions = {plainStrike};
+    check(resolvePieceAction({profilePiece, adjacentEnemyHero}, holes, profilePiece, 4, 4).legal,
+          "actions without control still target enemy heroes");
+    profilePiece.actions = {controlAction};
 
     Piece controlledPiece = adjacentEnemy;
     controlledPiece.owner = 2;
@@ -587,6 +598,12 @@ int main(int argc, char** argv)
     check(controlTimeline[0].owner == 1 && controlTimeline[0].originalOwner == 2 &&
               controlTimeline[0].controlTurnsRemaining == 2,
           "control changes the active owner while retaining the original owner");
+    Piece heroUnderControl = controlledPiece;
+    heroUnderControl.isHero = true;
+    applyPieceControl(heroUnderControl, 1, 2);
+    check(heroUnderControl.owner == 2 && heroUnderControl.originalOwner == 0 &&
+              heroUnderControl.controlTurnsRemaining == 0,
+          "heroes never change sides when control is applied");
     updatePieceControlAtTurnStart(controlTimeline, 2);
     updatePieceControlAtTurnStart(controlTimeline, 1);
     check(controlTimeline[0].owner == 1 && controlTimeline[0].controlTurnsRemaining == 1,
@@ -1833,17 +1850,40 @@ int main(int argc, char** argv)
     controlShot.canAttack = true;
     controlShot.control = 2;
     controlHeroCard.actions = {controlShot};
-    card_data::Card controlVictimCard = controlHeroCard;
+    card_data::Card controlVictimHeroCard = controlHeroCard;
+    controlVictimHeroCard.title = "Control Victim Hero";
+    controlVictimHeroCard.actions.clear();
+    card_data::Card controlVictimCard;
     controlVictimCard.title = "Control Victim";
-    controlVictimCard.actions.clear();
-    GameEngine controlEngine(37, {controlHeroCard, controlVictimCard});
+    controlVictimCard.type = "Unit";
+    controlVictimCard.integerValues = {{"health", 5}, {"cost", 0}};
+    GameEngine controlEngine(37, {controlHeroCard, controlVictimHeroCard, controlVictimCard});
     controlEngine.submitDeck(1, {controlHeroCard});
-    controlEngine.submitDeck(2, {controlVictimCard});
+    controlEngine.submitDeck(2, {controlVictimHeroCard, controlVictimCard});
     const auto controlAttackerHome = homeSquares(1)[0];
-    const auto controlVictimHome = homeSquares(2)[0];
+    const auto controlVictimHeroHome = homeSquares(2)[0];
+    const auto controlVictimHome = homeSquares(2)[1];
     controlEngine.placeHero(1, 0, controlAttackerHome.first, controlAttackerHome.second);
-    controlEngine.placeHero(2, 0, controlVictimHome.first, controlVictimHome.second);
+    controlEngine.placeHero(2, 0, controlVictimHeroHome.first, controlVictimHeroHome.second);
     const int controlAttackerId = controlEngine.boardPieces().front().id;
+    check(!controlEngine.attackPiece(
+              1, controlAttackerId, controlVictimHeroHome.first, controlVictimHeroHome.second),
+          "the authoritative engine rejects a control action aimed at an enemy hero");
+    controlEngine.endTurn(1);
+    const auto controlVictimHandIndex = [&]() {
+        const auto& hand = controlEngine.playerState(2).hand;
+        const auto found = std::find_if(
+            hand.begin(), hand.end(),
+            [](const GameCard& card) { return card.title == "Control Victim"; });
+        return found == hand.end() ? -1 : static_cast<int>(found - hand.begin());
+    }();
+    check(controlVictimHandIndex >= 0 &&
+              controlEngine.playCard(
+                  2,
+                  controlVictimHandIndex,
+                  controlVictimHome.first,
+                  controlVictimHome.second),
+          "control test setup deploys a non-hero victim");
     check(controlEngine.attackPiece(
               1, controlAttackerId, controlVictimHome.first, controlVictimHome.second),
           "authoritative control action is accepted");
