@@ -21,7 +21,7 @@
         {
             adminTabs.draw(window);
             drawText(window, font, "Signed in as " + signedInLabel(), 14, {344.0f, 22.0f}, sf::Color(178, 186, 202), 300.0f);
-            drawText(window, font, "New accounts start with this deck", 13, {344.0f, 45.0f}, sf::Color(248, 214, 112), 300.0f);
+            drawText(window, font, "New accounts pick one of these for free", 13, {344.0f, 45.0f}, sf::Color(248, 214, 112), 300.0f);
         }
         else
         {
@@ -35,8 +35,11 @@
         if (deckEditorMode == DeckEditorMode::DeckList)
         {
             drawPanel(window, {DeckPickerPanelX, DeckPickerPanelY}, {DeckPickerPanelWidth, DeckPickerPanelHeight});
-            drawText(window, font, "Your Decks", 22, {244.0f, 107.0f}, sf::Color::White);
-            newDeckButton.draw(window);
+            drawText(window, font, starterDeckMode ? "Starter Decks" : "Your Decks", 22, {244.0f, 107.0f}, sf::Color::White);
+            if (!starterDeckMode)
+            {
+                newDeckButton.draw(window);
+            }
             refreshDeckButton.draw(window);
 
             const std::size_t lastDeck = std::min(playerDecks.size(), deckListOffset + VisibleDeckRows);
@@ -54,10 +57,19 @@
             }
             if (playerDecks.empty() && !deckEditorBusy())
             {
-                drawText(window, font, "No saved decks", 16, {332.0f, 306.0f}, sf::Color(178, 186, 202));
+                drawText(
+                    window,
+                    font,
+                    starterDeckMode ? "No starter decks" : "No saved decks",
+                    16,
+                    {332.0f, 306.0f},
+                    sf::Color(178, 186, 202));
             }
             editDeckButton.draw(window);
-            deleteDeckButton.draw(window);
+            if (!starterDeckMode)
+            {
+                deleteDeckButton.draw(window);
+            }
             window.draw(messageText);
             return;
         }

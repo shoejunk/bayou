@@ -21,6 +21,7 @@
 #include "../shared/listener_retry.hpp"
 #include "../shared/ranking.hpp"
 #include "../shared/socket_timeout.hpp"
+#include "../shared/starter_decks.hpp"
 
 #include <atomic>
 #include <algorithm>
@@ -184,10 +185,21 @@ private:
             "PRIMARY KEY(deck_id, card_index),"
             "FOREIGN KEY(deck_id) REFERENCES decks(id) ON DELETE CASCADE"
             ")");
+        migrateLegacyStarterDeck();
         database->exec(
             "CREATE TABLE IF NOT EXISTS starter_deck_cards ("
-            "card_index INTEGER PRIMARY KEY NOT NULL,"
-            "card_title TEXT NOT NULL"
+            "deck_name TEXT NOT NULL,"
+            "card_index INTEGER NOT NULL,"
+            "card_title TEXT NOT NULL,"
+            "PRIMARY KEY(deck_name, card_index)"
+            ")");
+        database->exec(
+            "CREATE TABLE IF NOT EXISTS account_starter_decks ("
+            "username TEXT NOT NULL,"
+            "deck_name TEXT NOT NULL,"
+            "acquired_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+            "PRIMARY KEY(username, deck_name),"
+            "FOREIGN KEY(username) REFERENCES accounts(username) ON DELETE CASCADE"
             ")");
         database->exec(
             "CREATE TABLE IF NOT EXISTS card_collections ("
@@ -463,6 +475,27 @@ private:
                     std::string accessToken, targetUsername, cardTitle;
                     packet >> accessToken >> targetUsername >> cardTitle;
                     handleAdminUserCard(*client, accessToken, targetUsername, cardTitle);
+                    break;
+                }
+                case MessageType::AdminUserStarterDeckRequest:
+                {
+                    std::string accessToken, targetUsername, deckName;
+                    packet >> accessToken >> targetUsername >> deckName;
+                    handleAdminUserStarterDeck(*client, accessToken, targetUsername, deckName);
+                    break;
+                }
+                case MessageType::StarterDeckOfferRequest:
+                {
+                    std::string accessToken;
+                    packet >> accessToken;
+                    handleStarterDeckOffers(*client, accessToken);
+                    break;
+                }
+                case MessageType::StarterDeckClaimRequest:
+                {
+                    std::string accessToken, deckName;
+                    packet >> accessToken >> deckName;
+                    handleStarterDeckClaim(*client, accessToken, deckName);
                     break;
                 }
                 case MessageType::ConquestLoadoutRequest:
@@ -874,7 +907,8 @@ private:
                 insert.bind(2, account_security::hashPassword(password));
                 insert.exec();
 
-                account_decks::ensureStarterInventory(*database, username);
+                // No cards are granted here: the player picks one of the four
+                // faction starter decks for free before reaching the menu.
                 const std::string accessToken = account_tokens::issueAccessToken(*database, username);
                 response << true << std::string("Account created successfully")
                          << username << accessToken << std::string();
@@ -1607,11 +1641,11 @@ private:
                     0,
                     ranking::League::Wood,
                     false,
-                    {});
+                    {},
+                    false);
                 return;
             }
 
-            account_decks::ensureStarterInventory(*database, *username);
             sendAccountStateResponse(
                 client,
                 true,
@@ -1620,7 +1654,8 @@ private:
                 loadRating(*username),
                 loadLeague(*username),
                 isAdmin(*username),
-                account_decks::loadCollection(*database, *username));
+                account_decks::loadCollection(*database, *username),
+                !account_decks::loadOwnedStarterDecks(*database, *username).empty());
         }
         catch (const std::exception& error)
         {
@@ -1633,7 +1668,8 @@ private:
                 0,
                 ranking::League::Wood,
                 false,
-                {});
+                {},
+                false);
         }
     }
 
@@ -2252,7 +2288,7 @@ private:
             else
             {
                 const std::vector<account_catalog::ShopCardEntry> collectibleCards =
-                    account_catalog::loadShopCards();
+                    account_catalog::loadCollectibleCards();
                 const auto card = std::find_if(
                     collectibleCards.begin(),
                     collectibleCards.end(),
@@ -2280,6 +2316,189 @@ private:
         }
 
         [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleAdminUserStarterDeck(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        const std::string& targetUsername,
+        const std::string& deckName)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::AdminUserStarterDeckResponse);
+
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username || !isAdmin(*username))
+            {
+                response << false << std::string("Admin access required");
+            }
+            else if (targetUsername.empty())
+            {
+                response << false << std::string("Target username cannot be empty");
+            }
+            else if (!accountExists(targetUsername))
+            {
+                response << false << std::string("Username not found");
+            }
+            else if (!starter_decks::isStarterDeckName(deckName))
+            {
+                response << false << std::string("Unknown starter deck: " + deckName);
+            }
+            else if (account_decks::ownsStarterDeck(*database, targetUsername, deckName))
+            {
+                response << false << (targetUsername + " already has " + deckName);
+            }
+            else
+            {
+                SQLite::Transaction transaction(*database);
+                account_decks::grantStarterDeck(*database, targetUsername, deckName);
+                transaction.commit();
+                response << true << ("Gave " + deckName + " to " + targetUsername);
+                fmt::println("{} gave starter deck '{}' to {}", *username, deckName, targetUsername);
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while granting starter deck: {}", error.what());
+            response.clear();
+            response << static_cast<uint8_t>(MessageType::AdminUserStarterDeckResponse);
+            response << false << std::string("Database error while granting starter deck");
+        }
+
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void sendStarterDeckOffers(
+        bayou::tls::Socket& client,
+        bool success,
+        const std::string& message,
+        int coins,
+        const std::vector<std::string>& owned)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::StarterDeckOfferResponse);
+        response << success << message << coins;
+        if (!success)
+        {
+            response << static_cast<std::uint32_t>(0);
+            [[maybe_unused]] auto failure = client.send(response);
+            return;
+        }
+
+        response << static_cast<std::uint32_t>(starter_decks::Names.size());
+        for (const char* deckName : starter_decks::Names)
+        {
+            const bool isOwned = std::find(owned.begin(), owned.end(), deckName) != owned.end();
+            const deck_data::Deck deck = account_decks::effectiveStarterDeck(*database, deckName);
+            // The first deck a player takes is free; every later one costs coins.
+            const int price = (isOwned || owned.empty()) ? 0 : starter_decks::StarterDeckPrice;
+            response << std::string(deckName)
+                     << static_cast<std::uint32_t>(deck.cardTitles.size())
+                     << isOwned << price;
+        }
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
+    void handleStarterDeckOffers(bayou::tls::Socket& client, const std::string& accessToken)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username)
+            {
+                sendStarterDeckOffers(client, false, "Authentication required", 0, {});
+                return;
+            }
+
+            const std::vector<std::string> owned = account_decks::loadOwnedStarterDecks(*database, *username);
+            sendStarterDeckOffers(
+                client,
+                true,
+                owned.empty() ? "Choose your free starter deck" : "Starter decks loaded",
+                loadCoins(*username),
+                owned);
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while loading starter decks: {}", error.what());
+            sendStarterDeckOffers(client, false, "Database error while loading starter decks", 0, {});
+        }
+    }
+
+    void handleStarterDeckClaim(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        const std::string& deckName)
+    {
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username)
+            {
+                sendStarterDeckClaimResponse(client, false, "Authentication required", 0, deckName, false);
+                return;
+            }
+
+            if (!starter_decks::isStarterDeckName(deckName))
+            {
+                sendStarterDeckClaimResponse(
+                    client, false, "Unknown starter deck: " + deckName, loadCoins(*username), deckName, false);
+                return;
+            }
+
+            const std::vector<std::string> owned = account_decks::loadOwnedStarterDecks(*database, *username);
+            const int coins = loadCoins(*username);
+            if (std::find(owned.begin(), owned.end(), deckName) != owned.end())
+            {
+                sendStarterDeckClaimResponse(client, false, "You already own " + deckName, coins, deckName, false);
+                return;
+            }
+
+            const bool free = owned.empty();
+            if (!free && coins < starter_decks::StarterDeckPrice)
+            {
+                sendStarterDeckClaimResponse(
+                    client,
+                    false,
+                    "Need " + std::to_string(starter_decks::StarterDeckPrice) + " coins to buy " + deckName,
+                    coins,
+                    deckName,
+                    false);
+                return;
+            }
+
+            SQLite::Transaction transaction(*database);
+            if (!free)
+            {
+                SQLite::Statement spend(*database, "UPDATE accounts SET coins = coins - ? WHERE username = ?");
+                spend.bind(1, starter_decks::StarterDeckPrice);
+                spend.bind(2, *username);
+                spend.exec();
+            }
+            account_decks::grantStarterDeck(*database, *username, deckName);
+            transaction.commit();
+
+            const int remainingCoins = free ? coins : coins - starter_decks::StarterDeckPrice;
+            sendStarterDeckClaimResponse(
+                client,
+                true,
+                free ? deckName + " is yours!" : "Bought " + deckName,
+                remainingCoins,
+                deckName,
+                free);
+            fmt::println("{} {} starter deck '{}'", *username, free ? "claimed" : "bought", deckName);
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while claiming starter deck: {}", error.what());
+            sendStarterDeckClaimResponse(
+                client, false, "Database error while claiming starter deck", 0, deckName, false);
+        }
     }
 
     void handleAdminUserDelete(
@@ -2332,6 +2551,7 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
+    // Sends every faction starter deck so the admin editor can list them all.
     void handleAdminStarterDeck(bayou::tls::Socket& client, const std::string& accessToken)
     {
         sf::Packet response;
@@ -2343,25 +2563,27 @@ private:
             const std::optional<std::string> username = account_tokens::authenticateAccessToken(*database, accessToken);
             if (!username || !isAdmin(*username))
             {
-                response << false << std::string("Admin access required");
-                deck_data::writeDeck(response, {});
+                response << false << std::string("Admin access required")
+                         << static_cast<std::uint32_t>(0);
             }
             else
             {
-                const deck_data::Deck starterDeck =
-                    account_decks::loadStarterDeckOverride(*database)
-                        .value_or(account_catalog::makeStarterDeck());
-                response << true << std::string("Starter deck loaded");
-                deck_data::writeDeck(response, starterDeck);
+                response << true << std::string("Starter decks loaded")
+                         << static_cast<std::uint32_t>(starter_decks::Names.size());
+                for (const char* deckName : starter_decks::Names)
+                {
+                    deck_data::writeDeck(
+                        response, account_decks::effectiveStarterDeck(*database, deckName));
+                }
             }
         }
         catch (const std::exception& error)
         {
-            fmt::println("Database error while loading starter deck: {}", error.what());
+            fmt::println("Database error while loading starter decks: {}", error.what());
             response.clear();
             response << static_cast<uint8_t>(MessageType::AdminStarterDeckResponse);
-            response << false << std::string("Database error while loading starter deck");
-            deck_data::writeDeck(response, {});
+            response << false << std::string("Database error while loading starter decks")
+                     << static_cast<std::uint32_t>(0);
         }
 
         [[maybe_unused]] auto result = client.send(response);
@@ -2379,10 +2601,19 @@ private:
                 return;
             }
 
-            deck_data::Deck starterDeck = deck;
-            starterDeck.name = account_catalog::StarterDeckName;
-            // The starter deck is granted to every new account, so it must always
-            // be a playable deck; reject rule violations instead of storing them.
+            const deck_data::Deck& starterDeck = deck;
+            if (!starter_decks::isStarterDeckName(starterDeck.name))
+            {
+                sendDeckCommandResponse(
+                    client,
+                    MessageType::AdminStarterDeckSaveResponse,
+                    false,
+                    "Unknown starter deck: " + starterDeck.name);
+                return;
+            }
+
+            // Starter decks are handed to players as-is, so they must always be
+            // playable; reject rule violations instead of storing them.
             if (const std::optional<std::string> rulesError = account_decks::deckRulesError(starterDeck))
             {
                 sendDeckCommandResponse(client, MessageType::AdminStarterDeckSaveResponse, false, *rulesError);
@@ -2391,7 +2622,11 @@ private:
 
             account_decks::saveStarterDeckOverride(*database, starterDeck);
             sendDeckCommandResponse(client, MessageType::AdminStarterDeckSaveResponse, true, "Starter deck saved");
-            fmt::println("{} updated the starter deck ({} cards)", *username, starterDeck.cardTitles.size());
+            fmt::println(
+                "{} updated starter deck '{}' ({} cards)",
+                *username,
+                starterDeck.name,
+                starterDeck.cardTitles.size());
         }
         catch (const std::exception& error)
         {
@@ -2469,7 +2704,6 @@ private:
                     {
                         updatePasswordHash(username, password);
                     }
-                    account_decks::ensureStarterInventory(*database, username);
                     const std::string accessToken = account_tokens::issueAccessToken(*database, username);
                     const std::string rememberToken = rememberMe ? account_tokens::issueRememberToken(*database, username) : std::string();
                     response << true << std::string("Login successful") << username << accessToken << rememberToken;
@@ -2514,7 +2748,6 @@ private:
             }
             else
             {
-                account_decks::ensureStarterInventory(*database, remembered->username);
                 const std::string accessToken =
                     account_tokens::issueAccessToken(*database, remembered->username);
                 response << true << std::string("Login successful")
@@ -2754,13 +2987,15 @@ private:
         int rating,
         ranking::League league,
         bool isAdmin,
-        const std::vector<account_data::CollectionCard>& collection)
+        const std::vector<account_data::CollectionCard>& collection,
+        bool hasStarterDeck)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::AccountStateResponse);
         response << success << message;
         account_data::writeAccountState(
-            response, account_data::AccountState{coins, rating, league, isAdmin, collection});
+            response,
+            account_data::AccountState{coins, rating, league, isAdmin, collection, hasStarterDeck});
         [[maybe_unused]] auto result = client.send(response);
     }
 
@@ -2777,6 +3012,20 @@ private:
         [[maybe_unused]] auto result = client.send(response);
     }
 
+    void sendStarterDeckClaimResponse(
+        bayou::tls::Socket& client,
+        bool success,
+        const std::string& message,
+        int coins,
+        const std::string& deckName,
+        bool wasFree)
+    {
+        sf::Packet response;
+        response << static_cast<uint8_t>(MessageType::StarterDeckClaimResponse);
+        response << success << message << coins << deckName << wasFree;
+        [[maybe_unused]] auto result = client.send(response);
+    }
+
     void sendShopPurchaseResponse(
         bayou::tls::Socket& client,
         bool success,
@@ -2788,6 +3037,44 @@ private:
         response << static_cast<uint8_t>(MessageType::ShopPurchaseResponse);
         response << success << message << coins << cardTitle;
         [[maybe_unused]] auto result = client.send(response);
+    }
+
+    bool tableExists(const std::string& tableName)
+    {
+        SQLite::Statement query(
+            *database,
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1");
+        query.bind(1, tableName);
+        return query.executeStep();
+    }
+
+    // starter_deck_cards used to hold a single unnamed starter deck. Keep an
+    // admin's existing contents by adopting them as the first faction deck.
+    void migrateLegacyStarterDeck()
+    {
+        if (!tableExists("starter_deck_cards") || columnExists("starter_deck_cards", "deck_name"))
+        {
+            return;
+        }
+
+        SQLite::Transaction transaction(*database);
+        database->exec("ALTER TABLE starter_deck_cards RENAME TO starter_deck_cards_legacy");
+        database->exec(
+            "CREATE TABLE starter_deck_cards ("
+            "deck_name TEXT NOT NULL,"
+            "card_index INTEGER NOT NULL,"
+            "card_title TEXT NOT NULL,"
+            "PRIMARY KEY(deck_name, card_index)"
+            ")");
+        SQLite::Statement copy(
+            *database,
+            "INSERT INTO starter_deck_cards (deck_name, card_index, card_title) "
+            "SELECT ?, card_index, card_title FROM starter_deck_cards_legacy");
+        copy.bind(1, std::string(starter_decks::Names.front()));
+        copy.exec();
+        database->exec("DROP TABLE starter_deck_cards_legacy");
+        transaction.commit();
+        fmt::println("Migrated the legacy starter deck to '{}'", starter_decks::Names.front());
     }
 
     bool columnExists(const std::string& tableName, const std::string& columnName)

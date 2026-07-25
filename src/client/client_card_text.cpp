@@ -80,6 +80,10 @@ std::string cardRarityLabel(const card_data::Card& card)
     {
         return "Token";
     }
+    if (rarity == "starter")
+    {
+        return "Starter";
+    }
     if (rarity == "legendary")
     {
         return "Legendary";
@@ -97,6 +101,10 @@ sf::Color cardRarityColor(const card_data::Card& card)
     if (rarity == "token")
     {
         return sf::Color(143, 220, 205);
+    }
+    if (rarity == "starter")
+    {
+        return sf::Color(168, 208, 150);
     }
     if (rarity == "legendary")
     {

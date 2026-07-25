@@ -3,6 +3,7 @@
 #include "account_catalog.hpp"
 
 #include "../shared/game_data.hpp"
+#include "../shared/starter_decks.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -33,15 +34,6 @@ std::vector<std::string> loadDeckCards(
     }
 
     return cardTitles;
-}
-
-bool collectionIsEmpty(SQLite::Database& database, const std::string& username)
-{
-    SQLite::Statement query(
-        database,
-        "SELECT 1 FROM card_collections WHERE username = ? AND copies > 0 LIMIT 1");
-    query.bind(1, username);
-    return !query.executeStep();
 }
 
 std::optional<std::int64_t> findDeckId(SQLite::Database& database, const std::string& username, const std::string& deckName)
@@ -251,13 +243,19 @@ bool deleteDeck(SQLite::Database& database, const std::string& username, const s
     return true;
 }
 
-std::optional<deck_data::Deck> loadStarterDeckOverride(SQLite::Database& database)
+std::optional<deck_data::Deck> loadStarterDeckOverride(SQLite::Database& database, const std::string& deckName)
 {
+    if (!starter_decks::isStarterDeckName(deckName))
+    {
+        return std::nullopt;
+    }
+
     deck_data::Deck deck;
-    deck.name = account_catalog::StarterDeckName;
+    deck.name = deckName;
     SQLite::Statement query(
         database,
-        "SELECT card_title FROM starter_deck_cards ORDER BY card_index");
+        "SELECT card_title FROM starter_deck_cards WHERE deck_name = ? ORDER BY card_index");
+    query.bind(1, deckName);
     while (query.executeStep())
     {
         deck.cardTitles.push_back(query.getColumn(0).getString());
@@ -271,49 +269,77 @@ std::optional<deck_data::Deck> loadStarterDeckOverride(SQLite::Database& databas
     return deck;
 }
 
+deck_data::Deck effectiveStarterDeck(SQLite::Database& database, const std::string& deckName)
+{
+    return loadStarterDeckOverride(database, deckName)
+        .value_or(account_catalog::makeStarterDeck(deckName));
+}
+
 void saveStarterDeckOverride(SQLite::Database& database, const deck_data::Deck& deck)
 {
     SQLite::Transaction transaction(database);
-    database.exec("DELETE FROM starter_deck_cards");
+    SQLite::Statement clear(database, "DELETE FROM starter_deck_cards WHERE deck_name = ?");
+    clear.bind(1, deck.name);
+    clear.exec();
 
     SQLite::Statement insert(
         database,
-        "INSERT INTO starter_deck_cards (card_index, card_title) VALUES (?, ?)");
+        "INSERT INTO starter_deck_cards (deck_name, card_index, card_title) VALUES (?, ?, ?)");
     for (std::size_t i = 0; i < deck.cardTitles.size(); ++i)
     {
         insert.reset();
-        insert.bind(1, static_cast<int>(i));
-        insert.bind(2, deck.cardTitles[i]);
+        insert.bind(1, deck.name);
+        insert.bind(2, static_cast<int>(i));
+        insert.bind(3, deck.cardTitles[i]);
         insert.exec();
     }
     transaction.commit();
 }
 
-void ensureStarterInventory(SQLite::Database& database, const std::string& username)
+std::vector<std::string> loadOwnedStarterDecks(SQLite::Database& database, const std::string& username)
 {
-    if (!collectionIsEmpty(database, username))
+    std::vector<std::string> owned;
+    SQLite::Statement query(
+        database,
+        "SELECT deck_name FROM account_starter_decks WHERE username = ?");
+    query.bind(1, username);
+    while (query.executeStep())
     {
-        return;
+        owned.push_back(query.getColumn(0).getString());
     }
+    return owned;
+}
 
-    SQLite::Transaction transaction(database);
-    const std::optional<deck_data::Deck> storedStarter = loadStarterDeckOverride(database);
-    const deck_data::Deck starterDeck = storedStarter ? *storedStarter : account_catalog::makeStarterDeck();
-    // An admin-defined starter deck is the player's entire starting collection;
-    // the built-in fallback also grants its extra collection titles.
-    const std::vector<std::string> collectionTitles = storedStarter
-        ? starterDeck.cardTitles
-        : account_catalog::starterCollectionTitles(starterDeck);
-    for (const std::string& title : collectionTitles)
+bool ownsStarterDeck(SQLite::Database& database, const std::string& username, const std::string& deckName)
+{
+    SQLite::Statement query(
+        database,
+        "SELECT 1 FROM account_starter_decks WHERE username = ? AND deck_name = ? LIMIT 1");
+    query.bind(1, username);
+    query.bind(2, deckName);
+    return query.executeStep();
+}
+
+void grantStarterDeck(SQLite::Database& database, const std::string& username, const std::string& deckName)
+{
+    const deck_data::Deck starterDeck = effectiveStarterDeck(database, deckName);
+
+    SQLite::Statement own(
+        database,
+        "INSERT OR IGNORE INTO account_starter_decks (username, deck_name) VALUES (?, ?)");
+    own.bind(1, username);
+    own.bind(2, deckName);
+    own.exec();
+
+    for (const std::string& title : starterDeck.cardTitles)
     {
         addCollectionCopies(database, username, title, 1);
     }
 
-    if (loadDecks(database, username).empty())
+    if (!findDeckId(database, username, deckName))
     {
         saveDeckRows(database, username, "", starterDeck);
     }
-    transaction.commit();
 }
 
 void purgeTokenCards(SQLite::Database& database)

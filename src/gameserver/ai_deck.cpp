@@ -4,6 +4,7 @@
 #include "../accounts/account_decks.hpp"
 #include "../shared/deck_data.hpp"
 #include "../shared/game_data.hpp"
+#include "../shared/starter_decks.hpp"
 
 #include <SQLiteCpp/SQLiteCpp.h>
 #include <fmt/core.h>
@@ -45,12 +46,16 @@ const std::vector<std::string>& fallbackStarterNonHeroes()
     return titles;
 }
 
+// The AI plays the first faction starter deck, so its opponent list stays in
+// step with whatever an admin has defined for new players.
+constexpr const char* AiStarterDeckName = starter_decks::Names.front();
+
 std::optional<deck_data::Deck> loadStarterDeckOverride()
 {
     try
     {
         SQLite::Database database(AccountDatabasePath, SQLite::OPEN_READONLY);
-        return account_decks::loadStarterDeckOverride(database);
+        return account_decks::loadStarterDeckOverride(database, AiStarterDeckName);
     }
     catch (const std::exception& error)
     {
@@ -65,7 +70,7 @@ std::vector<std::string> starterDeckTitles()
     {
         return storedStarter->cardTitles;
     }
-    return account_catalog::makeStarterDeck().cardTitles;
+    return account_catalog::makeStarterDeck(AiStarterDeckName).cardTitles;
 }
 
 card_data::Card makeFallbackUnit(
@@ -171,7 +176,7 @@ std::vector<card_data::Card> makeStarterDeck(const std::vector<card_data::Card>&
 
     const std::vector<card_data::Card> generatedStarterDeck = resolveDeckTitles(
         library,
-        account_catalog::makeStarterDeck().cardTitles,
+        account_catalog::makeStarterDeck(AiStarterDeckName).cardTitles,
         "generated fallback");
     if (!generatedStarterDeck.empty())
     {

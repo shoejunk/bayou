@@ -27,6 +27,9 @@ struct AccountState
     ranking::League league = ranking::League::Wood;
     bool isAdmin = false;
     std::vector<CollectionCard> collection;
+    // False until the player has taken their free starter deck; the client
+    // sends them to the starter deck picker instead of the main menu.
+    bool hasStarterDeck = false;
 };
 
 inline void writeCollection(sf::Packet& packet, const std::vector<CollectionCard>& collection)
@@ -68,6 +71,7 @@ inline void writeAccountState(sf::Packet& packet, const AccountState& state)
     packet << state.coins << state.rating
            << static_cast<std::uint8_t>(state.league) << state.isAdmin;
     writeCollection(packet, state.collection);
+    packet << state.hasStarterDeck;
 }
 
 inline bool readAccountState(sf::Packet& packet, AccountState& state)
@@ -80,6 +84,12 @@ inline bool readAccountState(sf::Packet& packet, AccountState& state)
     }
     state.league = static_cast<ranking::League>(league);
 
-    return readCollection(packet, state.collection);
+    if (!readCollection(packet, state.collection))
+    {
+        return false;
+    }
+
+    packet >> state.hasStarterDeck;
+    return static_cast<bool>(packet);
 }
 }

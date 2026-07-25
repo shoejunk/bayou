@@ -128,7 +128,13 @@ enum class MessageType : std::uint8_t
     AdminConquestEventCreateRequest,
     AdminConquestEventCreateResponse,
     AdminConquestEventEndRequest,
-    AdminConquestEventEndResponse
+    AdminConquestEventEndResponse,
+    StarterDeckOfferRequest,
+    StarterDeckOfferResponse,
+    StarterDeckClaimRequest,
+    StarterDeckClaimResponse,
+    AdminUserStarterDeckRequest,
+    AdminUserStarterDeckResponse
 };
 
 struct CreateAccountRequest
@@ -253,6 +259,43 @@ struct AdminUserCardRequest
 };
 
 struct AdminUserCardResponse
+{
+    bool success = false;
+    std::string message;
+};
+
+// One of the four faction starter decks as offered to a player: `owned` is set
+// once they have claimed or bought it, and `price` is 0 while they still have
+// their free pick available.
+struct StarterDeckOffer
+{
+    std::string name;
+    std::uint32_t cardCount = 0;
+    bool owned = false;
+    int price = 0;
+};
+
+struct StarterDeckClaimRequest
+{
+    std::string deckName;
+};
+
+struct StarterDeckClaimResponse
+{
+    bool success = false;
+    std::string message;
+    int coins = 0;
+    std::string deckName;
+    bool wasFree = false;
+};
+
+struct AdminUserStarterDeckRequest
+{
+    std::string targetUsername;
+    std::string deckName;
+};
+
+struct AdminUserStarterDeckResponse
 {
     bool success = false;
     std::string message;

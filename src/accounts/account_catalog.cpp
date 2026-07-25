@@ -22,7 +22,6 @@ constexpr const char* StarterDeckNonHeroTitles[] = {
     "Patrol Bot",
     "Rustbucket",
 };
-constexpr const char* StarterCollectionExtraTitles[] = {PreferredStarterHero};
 std::vector<card_data::Card> authoritativeCards;
 
 int shopRarityWeight(const std::string& rarity)
@@ -97,20 +96,6 @@ std::vector<std::string> loadNonHeroCardTitles()
             titles.push_back(card.title);
         }
     }
-    return titles;
-}
-
-std::vector<std::string> loadAllCardTitles()
-{
-    std::vector<std::string> titles = loadCardTitles("");
-    if (!titles.empty())
-    {
-        return titles;
-    }
-
-    titles.push_back(PreferredStarterHero);
-    const std::vector<std::string>& fallback = fallbackStarterNonHeroes();
-    titles.insert(titles.end(), fallback.begin(), fallback.end());
     return titles;
 }
 
@@ -210,7 +195,7 @@ const std::vector<card_data::Card>& cardLibrary()
     return authoritativeCards;
 }
 
-std::vector<ShopCardEntry> loadShopCards()
+std::vector<ShopCardEntry> loadCollectibleCards()
 {
     std::vector<ShopCardEntry> cards;
     for (const card_data::Card& card : authoritativeCards)
@@ -237,6 +222,18 @@ std::vector<ShopCardEntry> loadShopCards()
     {
         cards.push_back({title, "common"});
     }
+    return cards;
+}
+
+std::vector<ShopCardEntry> loadShopCards()
+{
+    std::vector<ShopCardEntry> cards = loadCollectibleCards();
+    cards.erase(
+        std::remove_if(
+            cards.begin(),
+            cards.end(),
+            [](const ShopCardEntry& card) { return card.rarity == "starter"; }),
+        cards.end());
     return cards;
 }
 
@@ -280,10 +277,10 @@ std::string chooseShopCard(const std::vector<ShopCardEntry>& cards, std::mt19937
     return bucket[cardDistribution(rng)].title;
 }
 
-deck_data::Deck makeStarterDeck()
+deck_data::Deck makeStarterDeck(const std::string& deckName)
 {
     deck_data::Deck deck;
-    deck.name = account_catalog::StarterDeckName;
+    deck.name = deckName;
     for (const std::string& hero : starterHeroTitles())
     {
         const auto found = std::find_if(authoritativeCards.begin(), authoritativeCards.end(), [&](const card_data::Card& card) {
@@ -335,21 +332,5 @@ deck_data::Deck makeStarterDeck()
         }
     }
     return deck;
-}
-
-std::vector<std::string> starterCollectionTitles(const deck_data::Deck& starterDeck)
-{
-    std::vector<std::string> collection = starterDeck.cardTitles;
-    const std::vector<std::string> allCards = loadAllCardTitles();
-
-    for (const char* title : StarterCollectionExtraTitles)
-    {
-        if (allCards.empty() || containsTitle(allCards, title))
-        {
-            collection.push_back(title);
-        }
-    }
-
-    return collection;
 }
 }

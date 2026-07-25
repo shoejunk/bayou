@@ -53,6 +53,7 @@
             adminGrantGoldButton.draw(window);
             adminRemoveGoldButton.draw(window);
             adminAddCardButton.draw(window);
+            adminGiveStarterDeckButton.draw(window);
             const bool targetIsAdmin = adminUsers[*selectedAdminUser].isAdmin;
             if (targetIsAdmin)
             {
@@ -151,6 +152,40 @@
             if (!pendingAdminUserCard)
             {
                 confirmAddCardButton.draw(window);
+            }
+        }
+        else if (giveStarterDeckPopupVisible && selectedAdminUser && *selectedAdminUser < adminUsers.size())
+        {
+            sf::RectangleShape overlay({800.0f, 600.0f});
+            overlay.setFillColor(sf::Color(0, 0, 0, 170));
+            window.draw(overlay);
+            drawPanel(window, {190.0f, 138.0f}, {420.0f, 348.0f});
+            drawText(window, font, "Give Starter Deck", 28, {220.0f, 162.0f}, sf::Color(248, 224, 172), 360.0f);
+            drawText(
+                window,
+                font,
+                "Adds every card in the deck to " + adminUsers[*selectedAdminUser].username + "'s collection",
+                15,
+                {220.0f, 200.0f},
+                sf::Color(220, 224, 230),
+                360.0f);
+
+            for (std::size_t i = 0; i < starter_decks::Names.size(); ++i)
+            {
+                drawRow(
+                    window,
+                    font,
+                    {220.0f, AdminStarterDeckRowY + static_cast<float>(i) * AdminStarterDeckRowHeight},
+                    {360.0f, AdminStarterDeckRowHeight - 4.0f},
+                    starter_decks::Names[i],
+                    "Starter deck",
+                    selectedAdminStarterDeck && *selectedAdminStarterDeck == i);
+            }
+
+            cancelGiveStarterDeckButton.draw(window);
+            if (!pendingAdminUserStarterDeck)
+            {
+                confirmGiveStarterDeckButton.draw(window);
             }
         }
         window.draw(messageText);

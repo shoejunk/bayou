@@ -85,7 +85,8 @@ inline std::string cardRarity(const card_data::Card& card)
     {
         if (item.key == "rarity")
         {
-            if (item.value == "rare" || item.value == "legendary" || item.value == "token")
+            if (item.value == "rare" || item.value == "legendary" ||
+                item.value == "token" || item.value == "starter")
             {
                 return item.value;
             }
@@ -98,6 +99,13 @@ inline std::string cardRarity(const card_data::Card& card)
 inline bool isTokenCard(const card_data::Card& card)
 {
     return cardRarity(card) == "token";
+}
+
+// Starter-rarity cards are handed out with the starter decks instead of being
+// sold as random shop cards.
+inline bool isStarterCard(const card_data::Card& card)
+{
+    return cardRarity(card) == "starter";
 }
 
 // Card attribute lookups against the flexible key/value card model.

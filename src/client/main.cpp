@@ -18,6 +18,7 @@
 #include "../shared/card_data.hpp"
 #include "../shared/deck_data.hpp"
 #include "../shared/game_data.hpp"
+#include "../shared/starter_decks.hpp"
 
 #include <algorithm>
 #include <array>
@@ -518,6 +519,8 @@ constexpr float AdminUserRowHeight = 43.0f;
 constexpr float AdminCardRowY = 276.0f;
 constexpr float AdminCardRowHeight = 36.0f;
 constexpr std::size_t VisibleAdminCardRows = 5;
+constexpr float AdminStarterDeckRowY = 232.0f;
+constexpr float AdminStarterDeckRowHeight = 42.0f;
 
 constexpr float LibraryX = 430.0f;
 constexpr float LibraryY = 276.0f;
@@ -687,6 +690,7 @@ enum class GameState
     Matchmaking,
     DeckEditor,
     Shop,
+    StarterDecks,
     AdminUsers,
     CardEditor,
     Conquest,
@@ -936,15 +940,24 @@ int main(int argc, char** argv)
     Button addCardButton({574.0f, 508.0f}, {88.0f, 38.0f}, "Add", font);
     Button saveDeckButton({668.0f, 508.0f}, {108.0f, 38.0f}, "Save", font);
     Button shopBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
-    Button buyCoinPackButton({94.0f, 492.0f}, {180.0f, 46.0f}, "Buy " + std::to_string(CoinPackCoins) + " Coins", font);
-    Button refreshShopButton({310.0f, 492.0f}, {180.0f, 46.0f}, "Refresh", font);
+    // Shop action row: coin pack and refresh only exist when coin purchases are
+    // enabled, so the remaining buttons spread out to fill the row.
+    Button buyCoinPackButton({46.0f, 492.0f}, {168.0f, 46.0f}, "Buy " + std::to_string(CoinPackCoins) + " Coins", font);
+    Button refreshShopButton({226.0f, 492.0f}, {168.0f, 46.0f}, "Refresh", font);
+    Button shopStarterDecksButton(
+        {EnableCoinPurchases ? 406.0f : 190.0f, 492.0f},
+        {EnableCoinPurchases ? 168.0f : 200.0f, 46.0f},
+        "Starter Decks",
+        font);
     Button buyCardButton(
-        {EnableCoinPurchases ? 526.0f : 300.0f, 492.0f},
-        {EnableCoinPurchases ? 180.0f : 200.0f, 46.0f},
+        {EnableCoinPurchases ? 586.0f : 410.0f, 492.0f},
+        {EnableCoinPurchases ? 168.0f : 200.0f, 46.0f},
         "Buy Card",
         font);
     Button dismissRevealedCardButton({300.0f, 492.0f}, {200.0f, 46.0f}, "Dismiss", font);
-    TabStrip adminTabs({24.0f, 22.0f}, {150.0f, 38.0f}, {"Users", "Starter Deck"}, font);
+    Button starterDeckBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
+    Button claimStarterDeckButton({280.0f, 502.0f}, {240.0f, 46.0f}, "Claim Deck", font);
+    TabStrip adminTabs({24.0f, 22.0f}, {150.0f, 38.0f}, {"Users", "Starter Decks"}, font);
     Button adminBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
     Button adminPrevPageButton({270.0f, 516.0f}, {52.0f, 38.0f}, "<", font);
     Button adminNextPageButton({478.0f, 516.0f}, {52.0f, 38.0f}, ">", font);
@@ -954,9 +967,12 @@ int main(int argc, char** argv)
     Button adminGrantGoldButton({378.0f, 458.0f}, {150.0f, 42.0f}, "Grant Gold", font);
     Button adminRemoveGoldButton({542.0f, 458.0f}, {150.0f, 42.0f}, "Remove Gold", font);
     Button adminAddCardButton({42.0f, 514.0f}, {176.0f, 40.0f}, "Add Card", font);
+    Button adminGiveStarterDeckButton({228.0f, 514.0f}, {176.0f, 40.0f}, "Give Deck", font);
     Button adminDeleteButton({600.0f, 514.0f}, {176.0f, 40.0f}, "Delete User", font);
     Button cancelAddCardButton({250.0f, 476.0f}, {130.0f, 42.0f}, "Cancel", font);
     Button confirmAddCardButton({420.0f, 476.0f}, {130.0f, 42.0f}, "Add Card", font);
+    Button cancelGiveStarterDeckButton({250.0f, 424.0f}, {130.0f, 42.0f}, "Cancel", font);
+    Button confirmGiveStarterDeckButton({420.0f, 424.0f}, {130.0f, 42.0f}, "Give Deck", font);
     Button cancelDeleteUserButton({250.0f, 366.0f}, {130.0f, 42.0f}, "Cancel", font);
     Button confirmDeleteUserButton({420.0f, 366.0f}, {130.0f, 42.0f}, "Delete", font);
     Button cancelExitDesktopButton({250.0f, 356.0f}, {130.0f, 42.0f}, "Cancel", font);
@@ -1003,6 +1019,9 @@ int main(int argc, char** argv)
     std::optional<std::future<AdminUserPrivilegeResult>> pendingAdminPrivilege;
     std::optional<std::future<AdminUserGoldResult>> pendingAdminGold;
     std::optional<std::future<AdminUserCardResult>> pendingAdminUserCard;
+    std::optional<std::future<AdminUserStarterDeckResult>> pendingAdminUserStarterDeck;
+    std::optional<std::future<StarterDeckOffersResult>> pendingStarterDeckOffers;
+    std::optional<std::future<StarterDeckClaimResult>> pendingStarterDeckClaim;
     std::optional<std::future<CardListResult>> pendingAdminCardListLoad;
     std::optional<std::future<AdminUserDeleteResult>> pendingAdminUserDelete;
     std::optional<std::future<AccountCommandResult>> pendingPasswordChange;
@@ -1031,10 +1050,13 @@ int main(int argc, char** argv)
     bool pendingAutoLogin = false;
     bool pendingRememberRequested = false;
     DeckEditorMode deckEditorMode = DeckEditorMode::DeckList;
-    // Deck editor repurposed by admins to edit the account-creation starter deck:
-    // the library shows every card (copy limits instead of owned copies) and
-    // saves go to the admin starter deck endpoint.
+    // Deck editor repurposed by admins to edit the four faction starter decks:
+    // the deck list shows those decks, the library shows every card (copy limits
+    // instead of owned copies), and saves go to the admin starter deck endpoint.
     bool starterDeckMode = false;
+    // Records whether confirming the unsaved-changes popup should leave the
+    // starter deck editor entirely instead of returning to its deck list.
+    bool starterDeckExitRequested = false;
     std::vector<card_data::Card> cardLibrary;
     std::vector<card_data::Card> filteredCardLibrary;
     std::vector<card_data::Card> allCardLibrary;
@@ -1060,7 +1082,14 @@ int main(int argc, char** argv)
     std::uint32_t adminUsersTotalCount = 0;
     std::optional<std::size_t> selectedAdminUser;
     bool addCardPopupVisible = false;
+    bool giveStarterDeckPopupVisible = false;
+    std::optional<std::size_t> selectedAdminStarterDeck;
     std::string adminCardLoadError;
+    std::vector<network::StarterDeckOffer> starterDeckOffers;
+    std::optional<std::size_t> selectedStarterDeckOffer;
+    // Set while the player still owes their free pick: the screen is mandatory
+    // and has no way back to the menu until a deck is claimed.
+    bool starterDeckPickRequired = false;
     bool deleteUserPopupVisible = false;
     std::string adminUserDeleteTarget;
     std::optional<std::size_t> selectedDeck;
@@ -1289,9 +1318,11 @@ int main(int argc, char** argv)
     auto layoutDeckEditorControls = [&]() {
         if (deckEditorMode == DeckEditorMode::DeckList)
         {
+            // Starter decks cannot be created or deleted, so Refresh and Edit
+            // take the centre of the row on their own.
             newDeckButton.setPosition({244.0f, 140.0f});
-            refreshDeckButton.setPosition({376.0f, 140.0f});
-            editDeckButton.setPosition({244.0f, 508.0f});
+            refreshDeckButton.setPosition({starterDeckMode ? 345.0f : 376.0f, 140.0f});
+            editDeckButton.setPosition({starterDeckMode ? 345.0f : 244.0f, 508.0f});
             deleteDeckButton.setPosition({446.0f, 508.0f});
         }
         else
@@ -1708,6 +1739,12 @@ int main(int argc, char** argv)
         collectionTraitFilterChecked.fill(true);
         deckEditorMode = DeckEditorMode::DeckList;
         starterDeckMode = false;
+        starterDeckExitRequested = false;
+        starterDeckOffers.clear();
+        selectedStarterDeckOffer.reset();
+        starterDeckPickRequired = false;
+        giveStarterDeckPopupVisible = false;
+        selectedAdminStarterDeck.reset();
         adminTabs.setActive(0);
         playerDecks.clear();
         playerCollection.clear();
@@ -1820,6 +1857,8 @@ int main(int argc, char** argv)
         selectedAdminUser.reset();
         deleteUserPopupVisible = false;
         addCardPopupVisible = false;
+        giveStarterDeckPopupVisible = false;
+        selectedAdminStarterDeck.reset();
         adminUserDeleteTarget.clear();
         setMessageY(messageText, 566.0f);
         setMessage(messageText, "Loading users...", sf::Color::Yellow);
@@ -1852,13 +1891,13 @@ int main(int argc, char** argv)
         currentState = GameState::DeckEditor;
         starterDeckMode = true;
         adminTabs.setActive(1);
-        deckEditorMode = DeckEditorMode::EditDeck;
+        deckEditorMode = DeckEditorMode::DeckList;
         deckUnsavedChangesPopupVisible = false;
         layoutDeckEditorControls();
         title.setString("");
         centerText(title, 400.0f);
         setMessageY(messageText, 558.0f);
-        setMessage(messageText, "Loading starter deck...", sf::Color::Yellow);
+        setMessage(messageText, "Loading starter decks...", sf::Color::Yellow);
         clearFocus();
         cardLibrary.clear();
         filteredCardLibrary.clear();
@@ -1876,6 +1915,7 @@ int main(int argc, char** argv)
         draggingLibraryCard.reset();
         draggingDeckCard.reset();
         dragActive = false;
+        deckListOffset = 0;
         deckCardListOffset = 0;
         libraryOffset = 0;
         deckNameInput.clear();
@@ -1884,6 +1924,7 @@ int main(int argc, char** argv)
 
     auto leaveStarterDeckEditor = [&]() {
         starterDeckMode = false;
+        starterDeckExitRequested = false;
         deckUnsavedChangesPopupVisible = false;
         deckEditorMode = DeckEditorMode::DeckList;
         playerDecks.clear();
@@ -1980,6 +2021,40 @@ int main(int argc, char** argv)
         addCardPopupVisible = false;
         adminCardInput.clear();
         adminCardInput.setActive(false);
+    };
+
+    auto openGiveStarterDeckPopup = [&]() {
+        if (!selectedAdminUser || *selectedAdminUser >= adminUsers.size())
+        {
+            return;
+        }
+        giveStarterDeckPopupVisible = true;
+        selectedAdminStarterDeck = 0;
+        clearFocus();
+    };
+
+    auto dismissGiveStarterDeckPopup = [&]() {
+        giveStarterDeckPopupVisible = false;
+        selectedAdminStarterDeck.reset();
+    };
+
+    auto confirmGiveStarterDeck = [&]() {
+        if (pendingAdminUserStarterDeck || !selectedAdminStarterDeck ||
+            *selectedAdminStarterDeck >= starter_decks::Names.size() ||
+            !selectedAdminUser || *selectedAdminUser >= adminUsers.size())
+        {
+            return;
+        }
+
+        const std::string deckName = starter_decks::Names[*selectedAdminStarterDeck];
+        const std::string targetUsername = adminUsers[*selectedAdminUser].username;
+        setMessage(messageText, "Giving " + deckName + "...", sf::Color::Yellow);
+        pendingAdminUserStarterDeck = std::async(
+            std::launch::async,
+            giveStarterDeckToAdminUser,
+            activeAccessToken,
+            targetUsername,
+            deckName);
     };
 
     auto confirmAddCard = [&]() {
@@ -2318,6 +2393,25 @@ int main(int argc, char** argv)
 
     auto shopBusy = [&]() {
         return pendingShopLoad.has_value() || pendingShopPurchase.has_value();
+    };
+
+    // `required` marks the one-time free pick every account owes before it can
+    // reach the menu; otherwise the screen is the shop's starter deck store.
+    auto loadStarterDecksScreen = [&](bool required) {
+        currentState = GameState::StarterDecks;
+        starterDeckPickRequired = required;
+        starterDeckOffers.clear();
+        selectedStarterDeckOffer.reset();
+        title.setString("");
+        centerText(title, 400.0f);
+        setMessageY(messageText, 560.0f);
+        setMessage(messageText, "Loading starter decks...", sf::Color::Yellow);
+        clearFocus();
+        pendingStarterDeckOffers = std::async(std::launch::async, fetchStarterDeckOffers, activeAccessToken);
+    };
+
+    auto starterDecksBusy = [&]() {
+        return pendingStarterDeckOffers.has_value() || pendingStarterDeckClaim.has_value();
     };
 
     auto refreshShop = [&]() {
@@ -2723,7 +2817,10 @@ int main(int argc, char** argv)
         return currentName != saved->name || editingDeck.cardTitles != saved->cardTitles;
     };
 
-    auto requestLeaveDeckEdit = [&]() {
+    // `exitEditor` distinguishes leaving the starter deck editor for good (the
+    // admin Users tab) from stepping back to its list of starter decks.
+    auto requestLeaveDeckEdit = [&](bool exitEditor = false) {
+        starterDeckExitRequested = starterDeckMode && exitEditor;
         if (deckHasUnsavedChanges())
         {
             deckUnsavedChangesPopupVisible = true;
@@ -2732,26 +2829,32 @@ int main(int argc, char** argv)
             return;
         }
 
-        if (starterDeckMode)
+        if (starterDeckExitRequested)
         {
             leaveStarterDeckEditor();
             return;
         }
 
         showDeckEditorDeckList();
-        setMessage(messageText, "Choose a deck to edit.", sf::Color(120, 220, 150));
+        setMessage(
+            messageText,
+            starterDeckMode ? "Choose a starter deck to edit." : "Choose a deck to edit.",
+            sf::Color(120, 220, 150));
     };
 
     auto discardDeckEditChanges = [&]() {
         deckUnsavedChangesPopupVisible = false;
-        if (starterDeckMode)
+        if (starterDeckExitRequested)
         {
             leaveStarterDeckEditor();
             setMessage(messageText, "Unsaved starter deck changes discarded.", sf::Color(220, 180, 120));
             return;
         }
         showDeckEditorDeckList();
-        setMessage(messageText, "Unsaved deck changes discarded.", sf::Color(220, 180, 120));
+        setMessage(
+            messageText,
+            starterDeckMode ? "Unsaved starter deck changes discarded." : "Unsaved deck changes discarded.",
+            sf::Color(220, 180, 120));
     };
 
     #include "screens/deck_editor_screen.inl"
@@ -3795,6 +3898,8 @@ int main(int argc, char** argv)
     };
 
     #include "screens/shop_screen.inl"
+
+    #include "screens/starter_decks_screen.inl"
 
     #include "screens/admin_users_screen.inl"
 
@@ -5293,6 +5398,12 @@ int main(int argc, char** argv)
             if (!loggedInUsername.empty() && result.success)
             {
                 applyAccountState(result);
+                if (!result.hasStarterDeck && currentState == GameState::Authenticated)
+                {
+                    // The account has never taken its free starter deck, so the
+                    // picker stands in for the menu until one is claimed.
+                    loadStarterDecksScreen(true);
+                }
             }
             else if (!loggedInUsername.empty() && currentState == GameState::Authenticated)
             {
@@ -5495,6 +5606,80 @@ int main(int argc, char** argv)
             }
         }
 
+        if (pendingAdminUserStarterDeck &&
+            pendingAdminUserStarterDeck->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            AdminUserStarterDeckResult result = pendingAdminUserStarterDeck->get();
+            pendingAdminUserStarterDeck.reset();
+            if (!loggedInUsername.empty() && currentState == GameState::AdminUsers)
+            {
+                if (result.success)
+                {
+                    giveStarterDeckPopupVisible = false;
+                }
+                setMessage(
+                    messageText,
+                    result.message,
+                    result.success ? sf::Color(120, 220, 150) : sf::Color::Red);
+            }
+        }
+
+        if (pendingStarterDeckOffers &&
+            pendingStarterDeckOffers->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            StarterDeckOffersResult result = pendingStarterDeckOffers->get();
+            pendingStarterDeckOffers.reset();
+            if (!loggedInUsername.empty() && currentState == GameState::StarterDecks)
+            {
+                if (result.success)
+                {
+                    starterDeckOffers = std::move(result.offers);
+                    playerCoins = result.coins;
+                    if (!selectedStarterDeckOffer || *selectedStarterDeckOffer >= starterDeckOffers.size())
+                    {
+                        selectedStarterDeckOffer =
+                            starterDeckOffers.empty() ? std::optional<std::size_t>() : std::optional<std::size_t>(0);
+                    }
+                    setMessage(messageText, result.message, sf::Color(120, 220, 150));
+                }
+                else
+                {
+                    setMessage(messageText, result.message, sf::Color::Red);
+                }
+            }
+        }
+
+        if (pendingStarterDeckClaim &&
+            pendingStarterDeckClaim->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            StarterDeckClaimResult result = pendingStarterDeckClaim->get();
+            pendingStarterDeckClaim.reset();
+            if (!loggedInUsername.empty() && currentState == GameState::StarterDecks)
+            {
+                if (result.success)
+                {
+                    playerCoins = result.coins;
+                    if (starterDeckPickRequired)
+                    {
+                        // The free pick is done; the menu takes over from here.
+                        starterDeckPickRequired = false;
+                        showAuthenticatedScreen();
+                        setMessage(messageText, result.message, sf::Color(120, 220, 150));
+                    }
+                    else
+                    {
+                        pendingStarterDeckOffers =
+                            std::async(std::launch::async, fetchStarterDeckOffers, activeAccessToken);
+                        setMessage(messageText, result.message, sf::Color(120, 220, 150));
+                    }
+                }
+                else
+                {
+                    setMessage(messageText, result.message, sf::Color::Red);
+                }
+            }
+        }
+
         if (pendingAdminUserDelete &&
             pendingAdminUserDelete->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
@@ -5686,17 +5871,19 @@ int main(int argc, char** argv)
                 if (result.success)
                 {
                     cardLibrary = std::move(result.cards);
-                    playerDecks = {result.deck};
-                    editingDeck = result.deck;
+                    playerDecks = std::move(result.decks);
+                    editingDeck = {};
                     applyCollectionFilters();
-                    activeDeckOriginalName = result.deck.name;
-                    deckNameInput.setContent(result.deck.name);
+                    activeDeckOriginalName.clear();
+                    deckNameInput.clear();
+                    selectedDeck = playerDecks.empty() ? std::optional<std::size_t>() : std::optional<std::size_t>(0);
                     selectedDeckCard.reset();
+                    deckListOffset = 0;
                     deckCardListOffset = 0;
                     libraryOffset = 0;
                     setMessage(
                         messageText,
-                        "Every new account starts with this deck.",
+                        "Choose a starter deck to edit.",
                         sf::Color(120, 220, 150));
                 }
                 else
@@ -6225,6 +6412,29 @@ int main(int argc, char** argv)
                             }
                         }
                     }
+                    else if (giveStarterDeckPopupVisible)
+                    {
+                        if (confirmGiveStarterDeckButton.isClicked(clickPos))
+                        {
+                            confirmGiveStarterDeck();
+                        }
+                        else if (cancelGiveStarterDeckButton.isClicked(clickPos))
+                        {
+                            dismissGiveStarterDeckPopup();
+                        }
+                        else if (const std::optional<std::size_t> deckIndex = rowIndexAt(
+                                     clickPos,
+                                     220.0f,
+                                     AdminStarterDeckRowY,
+                                     360.0f,
+                                     AdminStarterDeckRowHeight,
+                                     starter_decks::Names.size(),
+                                     0,
+                                     starter_decks::Names.size()))
+                        {
+                            selectedAdminStarterDeck = *deckIndex;
+                        }
+                    }
                     else if (adminBackButton.isClicked(clickPos))
                     {
                         showAuthenticatedScreen();
@@ -6284,6 +6494,10 @@ int main(int argc, char** argv)
                         else if (adminAddCardButton.isClicked(clickPos))
                         {
                             openAddCardPopup();
+                        }
+                        else if (adminGiveStarterDeckButton.isClicked(clickPos))
+                        {
+                            openGiveStarterDeckPopup();
                         }
                         else if (targetUsername != loggedInUsername && adminDeleteButton.isClicked(clickPos))
                         {
@@ -6452,6 +6666,10 @@ int main(int argc, char** argv)
                         {
                             requestLeaveDeckEdit();
                         }
+                        else if (starterDeckMode)
+                        {
+                            leaveStarterDeckEditor();
+                        }
                         else
                         {
                             showAuthenticatedScreen();
@@ -6460,11 +6678,19 @@ int main(int argc, char** argv)
                     else if (starterDeckMode && !deckEditorBusy() &&
                              adminTabs.clickedIndex(clickPos).value_or(1) == 0)
                     {
-                        requestLeaveDeckEdit();
+                        if (deckEditorMode == DeckEditorMode::EditDeck)
+                        {
+                            requestLeaveDeckEdit(true);
+                        }
+                        else
+                        {
+                            leaveStarterDeckEditor();
+                        }
                     }
                     else if (!deckEditorBusy())
                     {
-                        if (deckEditorMode == DeckEditorMode::DeckList && newDeckButton.isClicked(clickPos))
+                        if (deckEditorMode == DeckEditorMode::DeckList && !starterDeckMode &&
+                            newDeckButton.isClicked(clickPos))
                         {
                             createNewDeck();
                             applyCollectionFilters();
@@ -6472,14 +6698,22 @@ int main(int argc, char** argv)
                         }
                         else if (deckEditorMode == DeckEditorMode::DeckList && refreshDeckButton.isClicked(clickPos))
                         {
-                            loadDeckEditor();
+                            if (starterDeckMode)
+                            {
+                                loadStarterDeckEditor();
+                            }
+                            else
+                            {
+                                loadDeckEditor();
+                            }
                         }
                         else if (deckEditorMode == DeckEditorMode::DeckList && editDeckButton.isClicked(clickPos))
                         {
                             editSelectedDeck();
                             applyCollectionFilters();
                         }
-                        else if (deckEditorMode == DeckEditorMode::DeckList && deleteDeckButton.isClicked(clickPos))
+                        else if (deckEditorMode == DeckEditorMode::DeckList && !starterDeckMode &&
+                                 deleteDeckButton.isClicked(clickPos))
                         {
                             deleteCurrentDeck();
                         }
@@ -6651,6 +6885,12 @@ int main(int argc, char** argv)
                             setMessage(messageText, "Could not open checkout URL.", sf::Color::Red);
                         }
                     }
+                    else if (!revealedCardTitle &&
+                             shopStarterDecksButton.isClicked(clickPos) &&
+                             !shopBusy())
+                    {
+                        loadStarterDecksScreen(false);
+                    }
                     else if (buyCardButton.isClicked(clickPos) && !shopBusy())
                     {
                         if (revealedCardTitle)
@@ -6666,6 +6906,30 @@ int main(int argc, char** argv)
                             setMessage(messageText, "Opening card...", sf::Color::Yellow);
                             pendingShopPurchase = std::async(std::launch::async, purchaseRandomCard, activeAccessToken);
                         }
+                    }
+                }
+                else if (currentState == GameState::StarterDecks)
+                {
+                    if (starterDeckBackButton.isClicked(clickPos) && !starterDecksBusy())
+                    {
+                        if (starterDeckPickRequired)
+                        {
+                            returnToMenu();
+                        }
+                        else
+                        {
+                            loadShop();
+                        }
+                    }
+                    else if (starterDeckActionEnabled() &&
+                             claimStarterDeckButton.isClicked(clickPos) &&
+                             !starterDecksBusy())
+                    {
+                        claimSelectedStarterDeck();
+                    }
+                    else if (const std::optional<std::size_t> offerIndex = starterDeckOfferAt(clickPos))
+                    {
+                        selectedStarterDeckOffer = *offerIndex;
                     }
                 }
             }
@@ -6947,6 +7211,10 @@ int main(int argc, char** argv)
                     {
                         dismissAddCardPopup();
                     }
+                    else if (currentState == GameState::AdminUsers && giveStarterDeckPopupVisible)
+                    {
+                        dismissGiveStarterDeckPopup();
+                    }
                     else if (currentState == GameState::AdminUsers)
                     {
                         showAuthenticatedScreen();
@@ -6972,6 +7240,19 @@ int main(int argc, char** argv)
                     {
                         showAuthenticatedScreen();
                     }
+                    else if (currentState == GameState::StarterDecks && !starterDecksBusy())
+                    {
+                        // The free pick cannot be skipped, but the player can
+                        // still back out to the menu and sign in again later.
+                        if (starterDeckPickRequired)
+                        {
+                            returnToMenu();
+                        }
+                        else
+                        {
+                            loadShop();
+                        }
+                    }
                     else if (currentState == GameState::Game)
                     {
                         leaveGame();
@@ -6984,9 +7265,12 @@ int main(int argc, char** argv)
                     {
                         requestMatchmakingCancel();
                     }
-                    else if (currentState == GameState::DeckEditor || currentState == GameState::Shop)
+                    else if (currentState == GameState::DeckEditor ||
+                             currentState == GameState::Shop ||
+                             currentState == GameState::StarterDecks)
                     {
-                        // Busy editor/shop requests keep their screen until they finish.
+                        // Busy editor/shop requests keep their screen until they
+                        // finish, and the mandatory free pick has no way out.
                     }
                     else if (currentState == GameState::ChangePassword && pendingPasswordChange)
                     {
@@ -7229,6 +7513,14 @@ int main(int argc, char** argv)
                     confirmAddCardButton.update(mousePos);
                 }
             }
+            else if (giveStarterDeckPopupVisible)
+            {
+                cancelGiveStarterDeckButton.update(mousePos);
+                if (!pendingAdminUserStarterDeck)
+                {
+                    confirmGiveStarterDeckButton.update(mousePos);
+                }
+            }
             else
             {
                 adminTabs.update(mousePos);
@@ -7239,6 +7531,7 @@ int main(int argc, char** argv)
                 if (selectedAdminUser && *selectedAdminUser < adminUsers.size())
                 {
                     adminAddCardButton.update(mousePos);
+                    adminGiveStarterDeckButton.update(mousePos);
                     adminGrantGoldButton.update(mousePos);
                     adminRemoveGoldButton.update(mousePos);
                     if (adminUsers[*selectedAdminUser].isAdmin)
@@ -7344,7 +7637,20 @@ int main(int argc, char** argv)
                     buyCoinPackButton.update(mousePos);
                     refreshShopButton.update(mousePos);
                 }
+                shopStarterDecksButton.update(mousePos);
                 buyCardButton.update(mousePos);
+            }
+        }
+        else if (currentState == GameState::StarterDecks)
+        {
+            starterDeckBackButton.update(mousePos);
+            if (starterDeckActionEnabled())
+            {
+                claimStarterDeckButton.update(mousePos);
+            }
+            else
+            {
+                claimStarterDeckButton.hovered = false;
             }
         }
         else if (currentState == GameState::Game)
@@ -7387,6 +7693,7 @@ int main(int argc, char** argv)
         drawBackdrop(window, backdropTexture);
         if (currentState != GameState::DeckEditor &&
             currentState != GameState::Shop &&
+            currentState != GameState::StarterDecks &&
             currentState != GameState::AdminUsers &&
             currentState != GameState::CardEditor &&
             currentState != GameState::Conquest &&
@@ -7581,6 +7888,10 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Shop)
         {
             drawShop();
+        }
+        else if (currentState == GameState::StarterDecks)
+        {
+            drawStarterDecks();
         }
         else if (currentState == GameState::CardEditor)
         {

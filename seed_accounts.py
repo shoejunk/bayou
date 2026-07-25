@@ -76,6 +76,23 @@ CREATE TABLE IF NOT EXISTS card_collections (
     FOREIGN KEY(username) REFERENCES accounts(username) ON DELETE CASCADE
 )
 """)
+cur.execute("""
+CREATE TABLE IF NOT EXISTS account_starter_decks (
+    username TEXT NOT NULL,
+    deck_name TEXT NOT NULL,
+    acquired_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(username, deck_name),
+    FOREIGN KEY(username) REFERENCES accounts(username) ON DELETE CASCADE
+)
+""")
+
+# Keep this in sync with starter_decks::Names in src/shared/starter_decks.hpp.
+STARTER_DECK_NAMES = [
+    "The Blackthorns",
+    "The Mirewatch Resistance",
+    "The Seelie Court",
+    "The Unseelie Court",
+]
 
 def ensure_account(user, is_admin=False):
     cur.execute(
@@ -94,6 +111,12 @@ def set_deck(user, name, cards):
         deck_id = cur.lastrowid
     for i, title in enumerate(cards):
         cur.execute("INSERT INTO deck_cards(deck_id, card_index, card_title) VALUES(?,?,?)", (deck_id, i, title))
+
+def own_starter_deck(user, deck_name):
+    """Mark the free starter deck as already taken so seeded accounts skip the picker."""
+    cur.execute(
+        "INSERT OR IGNORE INTO account_starter_decks(username, deck_name) VALUES(?,?)",
+        (user, deck_name))
 
 def set_collection(user, cards):
     counts = {}
@@ -118,11 +141,13 @@ ensure_account("alpha")
 alpha_deck = ["Steam Baron"] + cards20
 set_collection("alpha", alpha_deck)
 set_deck("alpha", "Baron Brawl", alpha_deck)  # 1 hero, cost 100
+own_starter_deck("alpha", STARTER_DECK_NAMES[0])
 
 ensure_account("bravo")
 bravo_deck = ["Gear Knight", "Marsh Witch"] + cards20
 set_collection("bravo", bravo_deck)
 set_deck("bravo", "Knight Coven", bravo_deck)  # 2 heroes, cost 90
+own_starter_deck("bravo", STARTER_DECK_NAMES[1])
 
 if admin_username:
     ensure_account(admin_username, is_admin=True)

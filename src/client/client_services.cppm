@@ -68,6 +68,7 @@ struct AccountStateResult
     ranking::League league = ranking::League::Wood;
     bool isAdmin = false;
     std::vector<account_data::CollectionCard> collection;
+    bool hasStarterDeck = false;
 };
 
 struct DeckEditorLoadResult
@@ -110,7 +111,24 @@ struct StarterDeckLoadResult
     bool success = false;
     std::string message;
     std::vector<card_data::Card> cards;
-    deck_data::Deck deck;
+    std::vector<deck_data::Deck> decks;
+};
+
+struct StarterDeckOffersResult
+{
+    bool success = false;
+    std::string message;
+    int coins = 0;
+    std::vector<network::StarterDeckOffer> offers;
+};
+
+struct StarterDeckClaimResult
+{
+    bool success = false;
+    std::string message;
+    int coins = 0;
+    std::string deckName;
+    bool wasFree = false;
 };
 
 struct AdminUsersLoadResult
@@ -151,6 +169,14 @@ struct AdminUserCardResult
     std::string message;
     std::string targetUsername;
     std::string cardTitle;
+};
+
+struct AdminUserStarterDeckResult
+{
+    bool success = false;
+    std::string message;
+    std::string targetUsername;
+    std::string deckName;
 };
 
 
@@ -484,7 +510,8 @@ AccountStateResult fetchAccountState(const std::string& accessToken)
         accountState.rating,
         accountState.league,
         accountState.isAdmin,
-        std::move(accountState.collection)};
+        std::move(accountState.collection),
+        accountState.hasStarterDeck};
 }
 
 DeckCommandResult readDeckCommandResponse(
@@ -1002,18 +1029,31 @@ StarterDeckLoadResult fetchAdminStarterDeck(const std::string& accessToken)
     std::uint8_t responseType = 0;
     bool success = false;
     std::string message;
-    deck_data::Deck deck;
-    response >> responseType >> success >> message;
+    std::uint32_t deckCount = 0;
+    response >> responseType >> success >> message >> deckCount;
     if (!response ||
         static_cast<network::MessageType>(responseType) != network::MessageType::AdminStarterDeckResponse ||
-        !deck_data::readDeck(response, deck))
+        deckCount > 16)
     {
         socket.disconnect();
         return {false, "Unexpected starter deck response"};
     }
 
+    std::vector<deck_data::Deck> decks;
+    decks.reserve(deckCount);
+    for (std::uint32_t i = 0; i < deckCount; ++i)
+    {
+        deck_data::Deck deck;
+        if (!deck_data::readDeck(response, deck))
+        {
+            socket.disconnect();
+            return {false, "Unexpected starter deck response"};
+        }
+        decks.push_back(std::move(deck));
+    }
+
     sendDisconnect(socket);
-    return {success, message, {}, std::move(deck)};
+    return {success, message, {}, std::move(decks)};
 }
 
 StarterDeckLoadResult loadStarterDeckEditorData(const std::string& accessToken)
@@ -1031,9 +1071,157 @@ StarterDeckLoadResult loadStarterDeckEditorData(const std::string& accessToken)
     }
 
     deckResult.cards = std::move(cardResult.cards);
-    deckResult.message =
-        "Loaded starter deck and " + std::to_string(deckResult.cards.size()) + " cards";
+    deckResult.message = "Loaded " + std::to_string(deckResult.decks.size()) +
+        " starter decks and " + std::to_string(deckResult.cards.size()) + " cards";
     return deckResult;
+}
+
+StarterDeckOffersResult fetchStarterDeckOffers(const std::string& accessToken)
+{
+    bayou::tls::Socket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::StarterDeckOfferRequest);
+    request << accessToken;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send starter deck request"};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No starter deck response from account server"};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    int coins = 0;
+    std::uint32_t offerCount = 0;
+    response >> responseType >> success >> message >> coins >> offerCount;
+    if (!response ||
+        static_cast<network::MessageType>(responseType) != network::MessageType::StarterDeckOfferResponse ||
+        offerCount > 16)
+    {
+        socket.disconnect();
+        return {false, "Unexpected starter deck response"};
+    }
+
+    std::vector<network::StarterDeckOffer> offers;
+    offers.reserve(offerCount);
+    for (std::uint32_t i = 0; i < offerCount; ++i)
+    {
+        network::StarterDeckOffer offer;
+        response >> offer.name >> offer.cardCount >> offer.owned >> offer.price;
+        if (!response)
+        {
+            socket.disconnect();
+            return {false, "Unexpected starter deck response"};
+        }
+        offers.push_back(std::move(offer));
+    }
+
+    sendDisconnect(socket);
+    return {success, message, coins, std::move(offers)};
+}
+
+StarterDeckClaimResult claimStarterDeck(const std::string& accessToken, const std::string& deckName)
+{
+    bayou::tls::Socket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {
+            false,
+            "Failed to connect to account server " + endpointText(clientConfig().account),
+            0,
+            deckName};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::StarterDeckClaimRequest);
+    request << accessToken << deckName;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send starter deck request", 0, deckName};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No starter deck response from account server", 0, deckName};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    int coins = 0;
+    std::string claimedName;
+    bool wasFree = false;
+    response >> responseType >> success >> message >> coins >> claimedName >> wasFree;
+    if (!response ||
+        static_cast<network::MessageType>(responseType) != network::MessageType::StarterDeckClaimResponse)
+    {
+        socket.disconnect();
+        return {false, "Unexpected starter deck response", 0, deckName};
+    }
+
+    sendDisconnect(socket);
+    return {success, message, coins, claimedName, wasFree};
+}
+
+AdminUserStarterDeckResult giveStarterDeckToAdminUser(
+    const std::string& accessToken,
+    const std::string& targetUsername,
+    const std::string& deckName)
+{
+    bayou::tls::Socket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {
+            false,
+            "Failed to connect to account server " + endpointText(clientConfig().account),
+            targetUsername,
+            deckName};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::AdminUserStarterDeckRequest);
+    request << accessToken << targetUsername << deckName;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send starter deck grant request", targetUsername, deckName};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No starter deck grant response", targetUsername, deckName};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    response >> responseType >> success >> message;
+    if (!response ||
+        static_cast<network::MessageType>(responseType) != network::MessageType::AdminUserStarterDeckResponse)
+    {
+        socket.disconnect();
+        return {false, "Unexpected starter deck grant response", targetUsername, deckName};
+    }
+
+    sendDisconnect(socket);
+    return {success, message, targetUsername, deckName};
 }
 
 DeckEditorLoadResult loadDeckEditorData(const std::string& accessToken)

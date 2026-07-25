@@ -91,6 +91,7 @@
             drawText(window, font, "5 coins", 22, {362.0f, 265.0f}, sf::Color(248, 214, 112), 100.0f);
             drawText(window, font, "Odds: Common 70%  Rare 25%  Legendary 5%", 14, {248.0f, 412.0f}, sf::Color(248, 239, 216), 304.0f);
             drawText(window, font, "Cards inside each rarity are equally likely", 13, {278.0f, 436.0f}, sf::Color(190, 198, 214), 244.0f);
+            drawText(window, font, "Starter cards come from the starter decks, not this pack", 13, {222.0f, 456.0f}, sf::Color(190, 198, 214), 356.0f);
         }
 
         if (revealedCardTitle)
@@ -104,6 +105,7 @@
                 buyCoinPackButton.draw(window);
                 refreshShopButton.draw(window);
             }
+            shopStarterDecksButton.draw(window);
             buyCardButton.draw(window);
         }
         window.draw(messageText);
