@@ -397,7 +397,7 @@ private:
 
     void startMusic()
     {
-        const std::optional<std::filesystem::path> musicPath = resolveAssetPath("audio/midnight-carnival-veil.wav");
+        const std::optional<std::filesystem::path> musicPath = resolveAssetPath("audio/Gloomthorn Swamp 2.mp3");
         if (!musicPath)
         {
             return;
@@ -845,7 +845,7 @@ int main(int argc, char** argv)
     }
 
     TextureStore textures;
-    sf::Texture* backdropTexture = textures.load("ui/steampunk-bayou-backdrop.png");
+    sf::Texture* backdropTexture = textures.load("ui/gloomthorn-backdrop.png");
     sf::Texture* showPasswordTexture = textures.load("ui/password-eye-open.png");
     sf::Texture* hidePasswordTexture = textures.load("ui/password-eye-off.png");
     sf::Texture* rememberCheckTexture = textures.load("ui/remember-checkmark.png");
@@ -1343,12 +1343,12 @@ int main(int argc, char** argv)
 
     auto layoutAuthenticatedButtons = [&]() {
         constexpr float x = 300.0f;
-        constexpr float gap = 6.0f;
+        constexpr float firstButtonY = 152.0f;
+        constexpr float gap = 16.0f;
         constexpr float height = 40.0f;
-        // Story, Play, Conquest, Deck Editor, Shop, Options, Log Out, plus Admin
-        // for admins. Keep the stack centred whichever count is showing.
-        const float buttonCount = loggedInIsAdmin ? 8.0f : 7.0f;
-        float y = 300.0f - (buttonCount * (height + gap) - gap) * 0.5f;
+        // Keep the menu below the dark account header. The full admin stack
+        // still fits above the bottom shade.
+        float y = firstButtonY;
 
         auto place = [&](Button& button) {
             button.setPosition({x, y});

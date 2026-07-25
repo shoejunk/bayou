@@ -111,7 +111,7 @@ void drawBackdrop(sf::RenderWindow& window, sf::Texture* backdropTexture)
     wash.setFillColor(sf::Color(3, 8, 10, 145));
     window.draw(wash);
 
-    sf::RectangleShape topShade({800.0f, 124.0f});
+    sf::RectangleShape topShade({800.0f, 140.0f});
     topShade.setFillColor(sf::Color(3, 7, 9, 188));
     window.draw(topShade);
 
