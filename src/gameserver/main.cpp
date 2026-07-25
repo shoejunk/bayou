@@ -382,7 +382,11 @@ public:
         std::filesystem::path configPath,
         const card_source_config::Config& cardSourceConfig)
         : configPath(std::move(configPath)),
-          conquestBattles(loadCoordinatorCardCatalog(cardSourceConfig)),
+          conquestBattles(
+              loadCoordinatorCardCatalog(cardSourceConfig),
+              [cardSource = cardSourceConfig](std::string& error) {
+                  return card_server_client::load(cardSource, error);
+              }),
           listener(std::make_unique<bayou::tls::Listener>())
     {
         if (!listener_retry::listenWithRetry(*listener, port))

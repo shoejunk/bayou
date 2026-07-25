@@ -197,6 +197,10 @@ std::optional<std::string> deckCollectionError(
 
 std::optional<std::string> deckRulesError(const deck_data::Deck& deck)
 {
+    // Deck limits and card additions made in the card editor have to apply to
+    // the very next save, so validate against a current catalog.
+    account_catalog::refreshCardLibraryIfStale();
+
     const std::vector<card_data::Card>& library = account_catalog::cardLibrary();
     std::unordered_map<std::string, card_data::Card> cardsByTitle;
     for (const card_data::Card& card : library)

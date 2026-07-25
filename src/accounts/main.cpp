@@ -3184,6 +3184,10 @@ int main(int argc, char* argv[])
         return 1;
     }
     fmt::println("Loaded {} authoritative cards", cardLibrary.size());
+    account_catalog::setCardLibraryLoader(
+        [cardSource = *config](std::string& error) {
+            return card_server_client::load(cardSource, error);
+        });
     account_catalog::setCardLibrary(std::move(cardLibrary));
 
     fmt::println("Starting Accounts Server...");

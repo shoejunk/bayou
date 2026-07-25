@@ -3,6 +3,7 @@
 #include "../shared/card_data.hpp"
 #include "../shared/deck_data.hpp"
 
+#include <functional>
 #include <random>
 #include <string>
 #include <vector>
@@ -15,7 +16,19 @@ struct ShopCardEntry
     std::string rarity;
 };
 
+// Fetches the authoritative catalog, returning an empty vector and setting
+// `error` when the card source is unavailable.
+using CardLibraryLoader = std::function<std::vector<card_data::Card>(std::string& error)>;
+
 void setCardLibrary(std::vector<card_data::Card> cards);
+// Installs the source refreshCardLibraryIfStale() pulls from. Without a loader
+// the library only ever holds what setCardLibrary() was given (tests do that).
+void setCardLibraryLoader(CardLibraryLoader loader);
+// Admins edit cards while the account server runs, so validation paths re-pull
+// the catalog instead of judging decks against the copy fetched at startup.
+// Rate limited, and keeps the current catalog when the fetch fails. Call it
+// with the database mutex held: it replaces what cardLibrary() hands out.
+void refreshCardLibraryIfStale();
 const std::vector<card_data::Card>& cardLibrary();
 
 // Every card a player may own (everything except tokens).

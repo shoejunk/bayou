@@ -39,7 +39,29 @@ constexpr auto ResultRetryInterval = std::chrono::seconds(5);
 constexpr auto AccountRpcTimeout = std::chrono::seconds(10);
 constexpr auto ClientSendTimeout = std::chrono::seconds(2);
 constexpr auto TimerSnapshotInterval = std::chrono::minutes(1);
+// Short enough that an admin editing a card reaches the next legacy battle
+// join, long enough that a burst of joins costs one fetch.
+constexpr auto CardCatalogRefreshInterval = std::chrono::seconds(2);
 constexpr int MaxPacketsPerConnectionPerPoll = 16;
+
+// The coordinator's fallback catalog, published as an immutable snapshot so a
+// refresh can replace it while battle threads are reading the previous one.
+struct CardCatalog
+{
+    std::vector<card_data::Card> cards;
+    std::unordered_map<std::string, card_data::Card> byTitle;
+};
+
+std::shared_ptr<const CardCatalog> makeCardCatalog(std::vector<card_data::Card> cards)
+{
+    auto catalog = std::make_shared<CardCatalog>();
+    catalog->cards = std::move(cards);
+    for (const card_data::Card& card : catalog->cards)
+    {
+        catalog->byTitle.emplace(card.title, card);
+    }
+    return catalog;
+}
 
 struct BattleDataResult
 {
@@ -346,13 +368,11 @@ class ConquestBattleManager::Impl
     class Session;
 
 public:
-    explicit Impl(std::vector<card_data::Card> catalog)
-        : cardCatalog(std::move(catalog))
+    Impl(std::vector<card_data::Card> catalog, ConquestBattleManager::CardCatalogLoader loader)
+        : cardCatalog(makeCardCatalog(std::move(catalog))),
+          cardCatalogLoader(std::move(loader)),
+          lastCardCatalogLoad(std::chrono::steady_clock::now())
     {
-        for (const card_data::Card& card : cardCatalog)
-        {
-            cardsByTitle.emplace(card.title, card);
-        }
     }
 
     ~Impl();
@@ -1049,15 +1069,62 @@ private:
         }
     };
 
-    std::vector<card_data::Card> cardCatalog;
-    std::unordered_map<std::string, card_data::Card> cardsByTitle;
+    mutable std::mutex cardCatalogMutex;
+    // Guarded by cardCatalogMutex; mutable so the const replay helpers below can
+    // publish a fresher snapshot of what is logically a cache.
+    mutable std::shared_ptr<const CardCatalog> cardCatalog;
+    mutable std::chrono::steady_clock::time_point lastCardCatalogLoad;
+    const ConquestBattleManager::CardCatalogLoader cardCatalogLoader;
     std::mutex sessionsMutex;
     std::unordered_map<std::uint64_t, std::shared_ptr<Session>> sessions;
     std::vector<std::shared_ptr<Session>> retiredSessions;
 
+    std::shared_ptr<const CardCatalog> currentCardCatalog() const
+    {
+        std::lock_guard<std::mutex> lock(cardCatalogMutex);
+        return cardCatalog;
+    }
+
+    // Card edits an admin makes while the coordinator runs — a raised deck
+    // limit, a new card — have to reach the next legacy battle, so re-pull the
+    // catalog instead of replaying against the copy fetched at startup. Rate
+    // limited, and keeps the current snapshot when the fetch fails. The fetch
+    // runs under the mutex so concurrent joins share one round trip.
+    std::shared_ptr<const CardCatalog> refreshedCardCatalog() const
+    {
+        std::lock_guard<std::mutex> lock(cardCatalogMutex);
+        if (!cardCatalogLoader)
+        {
+            return cardCatalog;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastCardCatalogLoad < CardCatalogRefreshInterval)
+        {
+            return cardCatalog;
+        }
+        // Stamp before fetching so a card source that is down is retried on the
+        // interval rather than on every battle join.
+        lastCardCatalogLoad = now;
+
+        std::string error;
+        std::vector<card_data::Card> cards = cardCatalogLoader(error);
+        if (!error.empty() || cards.empty())
+        {
+            fmt::println(
+                "Conquest battle catalog kept its previous contents: {}",
+                error.empty() ? "card source returned no cards" : error);
+            return cardCatalog;
+        }
+
+        cardCatalog = makeCardCatalog(std::move(cards));
+        return cardCatalog;
+    }
+
     std::vector<card_data::Card> resolveDeck(
         const deck_data::Deck& deck,
         const std::vector<card_data::Card>& frozenCards,
+        const CardCatalog& catalog,
         std::string& error) const
     {
         std::vector<card_data::Card> cards;
@@ -1085,8 +1152,8 @@ private:
             cards.reserve(deck.cardTitles.size());
             for (const std::string& title : deck.cardTitles)
             {
-                const auto found = cardsByTitle.find(title);
-                if (found == cardsByTitle.end())
+                const auto found = catalog.byTitle.find(title);
+                if (found == catalog.byTitle.end())
                 {
                     error = "Frozen Conquest deck references unknown card " + title;
                     return {};
@@ -1113,27 +1180,34 @@ private:
             error = "Invalid Conquest battle participants";
             return nullptr;
         }
-        if (battle.catalog.empty() && cardCatalog.empty())
+        // Only a battle missing frozen definitions falls back to this catalog;
+        // everything else replays against what the account server froze, so
+        // don't spend a card-server round trip on it.
+        const bool usesFallbackCatalog = battle.catalog.empty() ||
+            battle.cardsOne.empty() || battle.cardsTwo.empty();
+        const std::shared_ptr<const CardCatalog> catalog =
+            usesFallbackCatalog ? refreshedCardCatalog() : currentCardCatalog();
+        if (battle.catalog.empty() && catalog->cards.empty())
         {
             error = "Conquest battle card catalog is unavailable";
             return nullptr;
         }
 
         std::vector<card_data::Card> deckOne =
-            resolveDeck(battle.deckOne, battle.cardsOne, error);
+            resolveDeck(battle.deckOne, battle.cardsOne, *catalog, error);
         if (!error.empty())
         {
             return nullptr;
         }
         std::vector<card_data::Card> deckTwo =
-            resolveDeck(battle.deckTwo, battle.cardsTwo, error);
+            resolveDeck(battle.deckTwo, battle.cardsTwo, *catalog, error);
         if (!error.empty())
         {
             return nullptr;
         }
 
         const std::vector<card_data::Card>& replayCatalog =
-            battle.catalog.empty() ? cardCatalog : battle.catalog;
+            battle.catalog.empty() ? catalog->cards : battle.catalog;
         auto engine = std::make_unique<GameEngine>(battle.seed, replayCatalog);
         engine->enableTimers(
             GameEngine::ConquestClockMs,
@@ -1253,13 +1327,20 @@ ConquestBattleManager::Impl::~Impl()
 }
 
 ConquestBattleManager::ConquestBattleManager()
-    : impl(std::make_unique<Impl>(std::vector<card_data::Card>{}))
+    : impl(std::make_unique<Impl>(std::vector<card_data::Card>{}, CardCatalogLoader{}))
 {
 }
 
 ConquestBattleManager::ConquestBattleManager(
     std::vector<card_data::Card> cardCatalog)
-    : impl(std::make_unique<Impl>(std::move(cardCatalog)))
+    : impl(std::make_unique<Impl>(std::move(cardCatalog), CardCatalogLoader{}))
+{
+}
+
+ConquestBattleManager::ConquestBattleManager(
+    std::vector<card_data::Card> cardCatalog,
+    CardCatalogLoader loader)
+    : impl(std::make_unique<Impl>(std::move(cardCatalog), std::move(loader)))
 {
 }
 

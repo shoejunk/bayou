@@ -2,7 +2,11 @@
 
 #include "../shared/game_data.hpp"
 
+#include <fmt/core.h>
+
 #include <algorithm>
+#include <chrono>
+#include <optional>
 #include <utility>
 
 namespace
@@ -22,7 +26,14 @@ constexpr const char* StarterDeckNonHeroTitles[] = {
     "Patrol Bot",
     "Rustbucket",
 };
+// Long enough that a batch of deck validations (a Conquest lock-in checks every
+// participant's deck) costs one fetch, short enough that an admin who edits a
+// card can immediately save a deck that uses the new value.
+constexpr auto CardLibraryRefreshInterval = std::chrono::seconds(2);
+
 std::vector<card_data::Card> authoritativeCards;
+account_catalog::CardLibraryLoader cardLibraryLoader;
+std::optional<std::chrono::steady_clock::time_point> lastCardLibraryLoad;
 
 int shopRarityWeight(const std::string& rarity)
 {
@@ -187,6 +198,41 @@ namespace account_catalog
 {
 void setCardLibrary(std::vector<card_data::Card> cards)
 {
+    authoritativeCards = std::move(cards);
+    lastCardLibraryLoad = std::chrono::steady_clock::now();
+}
+
+void setCardLibraryLoader(CardLibraryLoader loader)
+{
+    cardLibraryLoader = std::move(loader);
+}
+
+void refreshCardLibraryIfStale()
+{
+    if (!cardLibraryLoader)
+    {
+        return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (lastCardLibraryLoad && now - *lastCardLibraryLoad < CardLibraryRefreshInterval)
+    {
+        return;
+    }
+    // Stamp before fetching so a card source that is down is retried on the
+    // interval rather than on every request.
+    lastCardLibraryLoad = now;
+
+    std::string error;
+    std::vector<card_data::Card> cards = cardLibraryLoader(error);
+    if (!error.empty() || cards.empty())
+    {
+        fmt::println(
+            "Account server kept the previous card catalog: {}",
+            error.empty() ? "card source returned no cards" : error);
+        return;
+    }
+
     authoritativeCards = std::move(cards);
 }
 
