@@ -692,6 +692,7 @@ enum class GameState
     Shop,
     StarterDecks,
     AdminUsers,
+    AdminTools,
     CardEditor,
     Conquest,
     Game
@@ -889,10 +890,8 @@ int main(int argc, char** argv)
     Button storyButton({300.0f, 136.0f}, {200.0f, 40.0f}, "Story", font);
     Button playButton({300.0f, 184.0f}, {200.0f, 40.0f}, "Play", font);
     Button conquestButton({300.0f, 208.0f}, {200.0f, 40.0f}, "Conquest", font);
-    Button sandboxButton({300.0f, 184.0f}, {200.0f, 40.0f}, "Sandbox", font);
     Button deckEditorButton({300.0f, 232.0f}, {200.0f, 40.0f}, "Deck Editor", font);
     Button shopButton({300.0f, 280.0f}, {200.0f, 40.0f}, "Shop", font);
-    Button adminCardEditorButton({300.0f, 328.0f}, {200.0f, 40.0f}, "Card Editor", font);
     Button adminUsersButton({300.0f, 376.0f}, {200.0f, 40.0f}, "Admin", font);
     Button authenticatedOptionsButton({300.0f, 424.0f}, {200.0f, 40.0f}, "Options", font);
     Button logoutButton({300.0f, 472.0f}, {200.0f, 40.0f}, "Log Out", font);
@@ -957,7 +956,10 @@ int main(int argc, char** argv)
     Button dismissRevealedCardButton({300.0f, 492.0f}, {200.0f, 46.0f}, "Dismiss", font);
     Button starterDeckBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
     Button claimStarterDeckButton({280.0f, 502.0f}, {240.0f, 46.0f}, "Claim Deck", font);
-    TabStrip adminTabs({24.0f, 22.0f}, {150.0f, 38.0f}, {"Users", "Starter Decks"}, font);
+    // The Tools tab collects the admin-only screens that used to sit on the main
+    // menu. Tabs are a little narrower than three at the old width would be so
+    // the signed-in text still fits between the strip and the Back button.
+    TabStrip adminTabs({24.0f, 22.0f}, {140.0f, 38.0f}, {"Users", "Starter Decks", "Tools"}, font);
     Button adminBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
     Button adminPrevPageButton({530.0f, 93.0f}, {52.0f, 38.0f}, "<", font);
     Button adminNextPageButton({706.0f, 93.0f}, {52.0f, 38.0f}, ">", font);
@@ -968,6 +970,8 @@ int main(int argc, char** argv)
     Button adminRemoveGoldButton({542.0f, 458.0f}, {150.0f, 42.0f}, "Remove Gold", font);
     Button adminAddCardButton({42.0f, 514.0f}, {176.0f, 40.0f}, "Add Card", font);
     Button adminGiveStarterDeckButton({228.0f, 514.0f}, {176.0f, 40.0f}, "Give Deck", font);
+    Button adminSandboxButton({48.0f, 152.0f}, {220.0f, 54.0f}, "Sandbox", font);
+    Button adminCardEditorButton({48.0f, 246.0f}, {220.0f, 54.0f}, "Card Editor", font);
     Button adminDeleteButton({600.0f, 514.0f}, {176.0f, 40.0f}, "Delete User", font);
     Button cancelAddCardButton({250.0f, 476.0f}, {130.0f, 42.0f}, "Cancel", font);
     Button confirmAddCardButton({420.0f, 476.0f}, {130.0f, 42.0f}, "Add Card", font);
@@ -1057,6 +1061,9 @@ int main(int argc, char** argv)
     // Records whether confirming the unsaved-changes popup should leave the
     // starter deck editor entirely instead of returning to its deck list.
     bool starterDeckExitRequested = false;
+    // Admin tab the starter deck editor should open once it has been left, so a
+    // tab click that has to wait on the unsaved-changes popup still lands there.
+    std::size_t starterDeckExitTab = 0;
     std::vector<card_data::Card> cardLibrary;
     std::vector<card_data::Card> filteredCardLibrary;
     std::vector<card_data::Card> allCardLibrary;
@@ -1335,10 +1342,13 @@ int main(int argc, char** argv)
     };
 
     auto layoutAuthenticatedButtons = [&]() {
-        float y = loggedInIsAdmin ? 80.0f : 108.0f;
         constexpr float x = 300.0f;
         constexpr float gap = 6.0f;
         constexpr float height = 40.0f;
+        // Story, Play, Conquest, Deck Editor, Shop, Options, Log Out, plus Admin
+        // for admins. Keep the stack centred whichever count is showing.
+        const float buttonCount = loggedInIsAdmin ? 8.0f : 7.0f;
+        float y = 300.0f - (buttonCount * (height + gap) - gap) * 0.5f;
 
         auto place = [&](Button& button) {
             button.setPosition({x, y});
@@ -1348,12 +1358,10 @@ int main(int argc, char** argv)
         place(storyButton);
         place(playButton);
         place(conquestButton);
-        place(sandboxButton);
         place(deckEditorButton);
         place(shopButton);
         if (loggedInIsAdmin)
         {
-            place(adminCardEditorButton);
             place(adminUsersButton);
         }
         place(authenticatedOptionsButton);
@@ -1740,6 +1748,7 @@ int main(int argc, char** argv)
         deckEditorMode = DeckEditorMode::DeckList;
         starterDeckMode = false;
         starterDeckExitRequested = false;
+        starterDeckExitTab = 0;
         starterDeckOffers.clear();
         selectedStarterDeckOffer.reset();
         starterDeckPickRequired = false;
@@ -1890,6 +1899,7 @@ int main(int argc, char** argv)
         }
         currentState = GameState::DeckEditor;
         starterDeckMode = true;
+        starterDeckExitTab = 0;
         adminTabs.setActive(1);
         deckEditorMode = DeckEditorMode::DeckList;
         deckUnsavedChangesPopupVisible = false;
@@ -1922,6 +1932,39 @@ int main(int argc, char** argv)
         pendingStarterDeckLoad = std::async(std::launch::async, loadStarterDeckEditorData, activeAccessToken);
     };
 
+    auto loadAdminToolsScreen = [&]() {
+        if (!loggedInIsAdmin)
+        {
+            setMessage(messageText, "Admin access required", sf::Color::Red);
+            return;
+        }
+        currentState = GameState::AdminTools;
+        starterDeckMode = false;
+        adminTabs.setActive(2);
+        title.setString("");
+        centerText(title, 400.0f);
+        clearFocus();
+        setMessageY(messageText, 566.0f);
+        setMessage(messageText, "", sf::Color::White);
+    };
+
+    // The starter deck editor and the tools live on screens of their own; the
+    // admin user list is tab 0.
+    auto openAdminTab = [&](std::size_t index) {
+        if (index == 1)
+        {
+            loadStarterDeckEditor();
+        }
+        else if (index == 2)
+        {
+            loadAdminToolsScreen();
+        }
+        else
+        {
+            loadAdminUsersScreen();
+        }
+    };
+
     auto leaveStarterDeckEditor = [&]() {
         starterDeckMode = false;
         starterDeckExitRequested = false;
@@ -1939,7 +1982,9 @@ int main(int argc, char** argv)
         draggingDeckCard.reset();
         dragActive = false;
         deckNameInput.clear();
-        loadAdminUsersScreen();
+        const std::size_t destination = starterDeckExitTab;
+        starterDeckExitTab = 0;
+        openAdminTab(destination);
     };
 
     auto changeSelectedUserGold = [&](bool grant) {
@@ -3551,9 +3596,15 @@ int main(int argc, char** argv)
     };
 
     auto loadSandbox = [&]() {
+        if (!loggedInIsAdmin)
+        {
+            setMessage(messageText, "Admin access required", sf::Color::Red);
+            return;
+        }
         currentState = GameState::SandboxLoading;
         title.setString("Sandbox");
         centerText(title, 400.0f);
+        clearFocus();
         setMessageY(messageText, 450.0f);
         setMessage(messageText, "Loading card database...", sf::Color::Yellow);
         pendingSandboxLoad = std::async(std::launch::async, fetchCards);
@@ -3902,6 +3953,8 @@ int main(int argc, char** argv)
     #include "screens/starter_decks_screen.inl"
 
     #include "screens/admin_users_screen.inl"
+
+    #include "screens/admin_tools_screen.inl"
 
     auto handCardAtPixel = [&](sf::Vector2f point) -> std::optional<std::size_t> {
         const std::size_t last = std::min(gameSnapshot.hand.size(), gameHandOffset + VisibleGameHandCards);
@@ -5162,9 +5215,9 @@ int main(int argc, char** argv)
             currentState = GameState::Conquest;
             conquestScreen.refresh();
         }
-        else if (wasSandbox)
+        else if (wasSandbox && loggedInIsAdmin)
         {
-            showAuthenticatedScreen();
+            loadAdminToolsScreen();
         }
         else
         {
@@ -5776,10 +5829,14 @@ int main(int argc, char** argv)
                 }
                 else
                 {
-                    currentState = GameState::Menu;
-                    title.setString("Gloomthorn");
-                    centerText(title, 400.0f);
-                    setMessageY(messageText, 450.0f);
+                    if (loggedInIsAdmin)
+                    {
+                        loadAdminToolsScreen();
+                    }
+                    else
+                    {
+                        showAuthenticatedScreen();
+                    }
                     setMessage(messageText, result.message, sf::Color::Red);
                 }
             }
@@ -6036,6 +6093,7 @@ int main(int argc, char** argv)
                              !isInsideRect(clickPos, 220.0f, 188.0f, 360.0f, 220.0f))
                     {
                         deckUnsavedChangesPopupVisible = false;
+                        starterDeckExitTab = 0;
                     }
                     continue;
                 }
@@ -6324,10 +6382,6 @@ int main(int argc, char** argv)
                         title.setString("");
                         clearFocus();
                     }
-                    else if (sandboxButton.isClicked(clickPos))
-                    {
-                        loadSandbox();
-                    }
                     else if (deckEditorButton.isClicked(clickPos))
                     {
                         loadDeckEditor();
@@ -6335,10 +6389,6 @@ int main(int argc, char** argv)
                     else if (shopButton.isClicked(clickPos))
                     {
                         loadShop();
-                    }
-                    else if (loggedInIsAdmin && adminCardEditorButton.isClicked(clickPos))
-                    {
-                        showCardEditorScreen();
                     }
                     else if (loggedInIsAdmin && adminUsersButton.isClicked(clickPos))
                     {
@@ -6439,9 +6489,10 @@ int main(int argc, char** argv)
                     {
                         showAuthenticatedScreen();
                     }
-                    else if (adminTabs.clickedIndex(clickPos).value_or(0) == 1)
+                    else if (const std::optional<std::size_t> tabIndex = adminTabs.clickedIndex(clickPos);
+                             tabIndex && *tabIndex != 0)
                     {
-                        loadStarterDeckEditor();
+                        openAdminTab(*tabIndex);
                     }
                     else if (adminPrevPageButton.isClicked(clickPos) && adminUsersPage > 0)
                     {
@@ -6543,6 +6594,26 @@ int main(int argc, char** argv)
                     {
                         adminSearchInput.setActive(false);
                         adminGoldInput.setActive(false);
+                    }
+                }
+                else if (currentState == GameState::AdminTools)
+                {
+                    if (adminBackButton.isClicked(clickPos))
+                    {
+                        showAuthenticatedScreen();
+                    }
+                    else if (const std::optional<std::size_t> tabIndex = adminTabs.clickedIndex(clickPos);
+                             tabIndex && *tabIndex != 2)
+                    {
+                        openAdminTab(*tabIndex);
+                    }
+                    else if (adminSandboxButton.isClicked(clickPos))
+                    {
+                        loadSandbox();
+                    }
+                    else if (adminCardEditorButton.isClicked(clickPos))
+                    {
+                        showCardEditorScreen();
                     }
                 }
                 else if (currentState == GameState::DeckSelect)
@@ -6675,9 +6746,10 @@ int main(int argc, char** argv)
                             showAuthenticatedScreen();
                         }
                     }
-                    else if (starterDeckMode && !deckEditorBusy() &&
-                             adminTabs.clickedIndex(clickPos).value_or(1) == 0)
+                    else if (const std::optional<std::size_t> tabIndex = adminTabs.clickedIndex(clickPos);
+                             starterDeckMode && !deckEditorBusy() && tabIndex && *tabIndex != 1)
                     {
+                        starterDeckExitTab = *tabIndex;
                         if (deckEditorMode == DeckEditorMode::EditDeck)
                         {
                             requestLeaveDeckEdit(true);
@@ -7128,7 +7200,14 @@ int main(int argc, char** argv)
             {
                 if (cardEditorScreen.handleEvent(*event, window))
                 {
-                    showAuthenticatedScreen();
+                    if (loggedInIsAdmin)
+                    {
+                        loadAdminToolsScreen();
+                    }
+                    else
+                    {
+                        showAuthenticatedScreen();
+                    }
                 }
                 continue;
             }
@@ -7215,7 +7294,7 @@ int main(int argc, char** argv)
                     {
                         dismissGiveStarterDeckPopup();
                     }
-                    else if (currentState == GameState::AdminUsers)
+                    else if (currentState == GameState::AdminUsers || currentState == GameState::AdminTools)
                     {
                         showAuthenticatedScreen();
                     }
@@ -7486,12 +7565,10 @@ int main(int argc, char** argv)
                 storyButton.update(mousePos);
                 playButton.update(mousePos);
                 conquestButton.update(mousePos);
-                sandboxButton.update(mousePos);
                 deckEditorButton.update(mousePos);
                 shopButton.update(mousePos);
                 if (loggedInIsAdmin)
                 {
-                    adminCardEditorButton.update(mousePos);
                     adminUsersButton.update(mousePos);
                 }
                 authenticatedOptionsButton.update(mousePos);
@@ -7554,6 +7631,13 @@ int main(int argc, char** argv)
             adminSearchInput.updateCursor(deltaTime);
             adminGoldInput.updateCursor(deltaTime);
             adminCardInput.updateCursor(deltaTime);
+        }
+        else if (currentState == GameState::AdminTools)
+        {
+            adminTabs.update(mousePos);
+            adminBackButton.update(mousePos);
+            adminSandboxButton.update(mousePos);
+            adminCardEditorButton.update(mousePos);
         }
         else if (currentState == GameState::DeckSelect)
         {
@@ -7695,6 +7779,7 @@ int main(int argc, char** argv)
             currentState != GameState::Shop &&
             currentState != GameState::StarterDecks &&
             currentState != GameState::AdminUsers &&
+            currentState != GameState::AdminTools &&
             currentState != GameState::CardEditor &&
             currentState != GameState::Conquest &&
             currentState != GameState::Game)
@@ -7848,12 +7933,10 @@ int main(int argc, char** argv)
             storyButton.draw(window);
             playButton.draw(window);
             conquestButton.draw(window);
-            sandboxButton.draw(window);
             deckEditorButton.draw(window);
             shopButton.draw(window);
             if (loggedInIsAdmin)
             {
-                adminCardEditorButton.draw(window);
                 adminUsersButton.draw(window);
             }
             authenticatedOptionsButton.draw(window);
@@ -7868,6 +7951,10 @@ int main(int argc, char** argv)
         else if (currentState == GameState::AdminUsers)
         {
             drawAdminUsers();
+        }
+        else if (currentState == GameState::AdminTools)
+        {
+            drawAdminTools();
         }
         else if (currentState == GameState::DeckSelect)
         {

@@ -5,17 +5,17 @@
             font,
             "Signed in as " + signedInLabel(),
             14,
-            {344.0f, 22.0f},
+            {452.0f, 22.0f},
             sf::Color(178, 186, 202),
-            300.0f);
+            212.0f);
         drawText(
             window,
             font,
             "Users " + std::to_string(adminUsersTotalCount),
             14,
-            {344.0f, 44.0f},
+            {452.0f, 44.0f},
             sf::Color(248, 214, 112),
-            150.0f);
+            212.0f);
         adminBackButton.draw(window);
 
         drawPanel(window, {24.0f, 78.0f}, {752.0f, 68.0f});

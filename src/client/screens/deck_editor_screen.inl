@@ -20,8 +20,8 @@
         if (starterDeckMode)
         {
             adminTabs.draw(window);
-            drawText(window, font, "Signed in as " + signedInLabel(), 14, {344.0f, 22.0f}, sf::Color(178, 186, 202), 300.0f);
-            drawText(window, font, "New accounts pick one of these for free", 13, {344.0f, 45.0f}, sf::Color(248, 214, 112), 300.0f);
+            drawText(window, font, "Signed in as " + signedInLabel(), 14, {452.0f, 22.0f}, sf::Color(178, 186, 202), 212.0f);
+            drawText(window, font, "New accounts pick one for free", 13, {452.0f, 45.0f}, sf::Color(248, 214, 112), 212.0f);
         }
         else
         {

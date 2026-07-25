@@ -147,7 +147,7 @@ enabling `bayou-payments`.
 
 ## Connect the Main Client Card Editor
 
-The card editor is available from the main client after signing in with an admin account. Point the client card server setting at the deployed card server.
+The card editor is available from the main client after signing in with an admin account, on the Tools tab of the Admin screen. Point the client card server setting at the deployed card server.
 
 On Windows PowerShell:
 
