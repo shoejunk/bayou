@@ -1536,7 +1536,7 @@ int main(int argc, char** argv)
         if (mainMenuTitleFrameTexture)
         {
             // Stretch the frame to the dest rect (contain letterboxes and won't grow padding).
-            const sf::FloatRect frameRect{{180.0f, 16.0f}, {440.0f, 130.0f}};
+            const sf::FloatRect frameRect{{190.0f, 26.0f}, {420.0f, 130.0f}};
             const sf::IntRect textureRect({86, 307}, {1368, 403});
             sf::Sprite frame(*mainMenuTitleFrameTexture);
             frame.setTextureRect(textureRect);

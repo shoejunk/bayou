@@ -8,6 +8,7 @@ the game coordinator spawns per-match processes via `CreateProcessA` (see the
 
 - `build_debug.bat` / `build_release.bat` — build all targets (client, accounts,
   matchmaking, gameserver, gametest, cardserver) from the CMake `build/` tree.
+- `build_debug_client.bat` — build only the client (Debug).
 
 ## Run the services
 
