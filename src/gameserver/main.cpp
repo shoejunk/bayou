@@ -499,18 +499,20 @@ private:
             return;
         }
 
-        // Stay inside [FirstGamePort, LastGamePort] so a long-lived coordinator
-        // never overflows into port 0 or the well-known service ports. A
-        // recycled port that is still held by a running match simply fails to
-        // listen in the child process, like any other in-use port.
-        unsigned short port = 0;
+        const std::optional<unsigned short> availablePort = allocateGamePort();
+        if (!availablePort)
         {
-            std::lock_guard<std::mutex> lock(gamePortMutex);
-            port = nextGamePort;
-            nextGamePort = port >= LastGamePort
-                ? FirstGamePort
-                : static_cast<unsigned short>(port + 1);
+            sf::Packet response;
+            response << static_cast<uint8_t>(MessageType::GameSessionCreated);
+            response << false;
+            response << matchId;
+            response << static_cast<unsigned short>(0);
+            response << std::string("No game session port is available");
+            [[maybe_unused]] auto result = client->send(response);
+            fmt::println("No available game port for match {}", matchId);
+            return;
         }
+        const unsigned short port = *availablePort;
         const bool started = spawnGameProcess(
             matchId,
             port,
@@ -533,6 +535,29 @@ private:
         {
             fmt::println("Started game process for match {} on port {}", matchId, port);
         }
+    }
+
+    std::optional<unsigned short> allocateGamePort()
+    {
+        std::lock_guard<std::mutex> lock(gamePortMutex);
+        sf::TcpListener probe;
+        constexpr int GamePortCount = LastGamePort - FirstGamePort + 1;
+        // Windows can reserve portions of this range even when no process is
+        // listening. Probe before spawning so matchmaking never advertises a
+        // port that the per-match process cannot bind.
+        for (int attempt = 0; attempt < GamePortCount; ++attempt)
+        {
+            const unsigned short port = nextGamePort;
+            nextGamePort = port >= LastGamePort
+                ? FirstGamePort
+                : static_cast<unsigned short>(port + 1);
+            if (probe.listen(port) == sf::Socket::Status::Done)
+            {
+                probe.close();
+                return port;
+            }
+        }
+        return std::nullopt;
     }
 };
 
