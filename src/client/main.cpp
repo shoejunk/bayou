@@ -844,8 +844,15 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    sf::Font gloomthornFont;
+    const std::optional<std::filesystem::path> gloomthornFontPath =
+        resolveAssetPath("fonts/gloomthorn/GloomthornDisplay-Regular.ttf");
+    const bool gloomthornFontLoaded =
+        gloomthornFontPath && gloomthornFont.openFromFile(*gloomthornFontPath);
+
     TextureStore textures;
     sf::Texture* backdropTexture = textures.load("ui/gloomthorn-backdrop.png");
+    sf::Texture* gloomthornTitleTexture = textures.load("ui/gloomthorn-title.png");
     sf::Texture* showPasswordTexture = textures.load("ui/password-eye-open.png");
     sf::Texture* hidePasswordTexture = textures.load("ui/password-eye-off.png");
     sf::Texture* rememberCheckTexture = textures.load("ui/remember-checkmark.png");
@@ -1413,6 +1420,48 @@ int main(int argc, char** argv)
             }
         };
 
+    auto drawGloomthornWordmark = [&](sf::Vector2f center, sf::Vector2f size) {
+        const sf::Vector2f position{
+            center.x - size.x * 0.5f,
+            center.y - size.y * 0.5f};
+        if (gloomthornTitleTexture)
+        {
+            drawContainSprite(window, *gloomthornTitleTexture, {position, size});
+            return;
+        }
+
+        sf::Font& wordmarkFont = gloomthornFontLoaded ? gloomthornFont : font;
+        unsigned int characterSize = static_cast<unsigned int>(std::max(18.0f, size.y * 0.82f));
+        sf::Text measuring(wordmarkFont, "Gloomthorn", characterSize);
+        while (characterSize > 18 &&
+               (measuring.getLocalBounds().size.x > size.x ||
+                measuring.getLocalBounds().size.y > size.y))
+        {
+            measuring.setCharacterSize(--characterSize);
+        }
+
+        sf::Text glow(wordmarkFont, "Gloomthorn", characterSize);
+        glow.setFillColor(sf::Color(214, 139, 48, 70));
+        glow.setOutlineThickness(3.0f);
+        glow.setOutlineColor(sf::Color(214, 139, 48, 35));
+        centerButtonText(glow, center);
+        window.draw(glow);
+
+        sf::Text shadow(wordmarkFont, "Gloomthorn", characterSize);
+        shadow.setFillColor(sf::Color(18, 8, 3, 235));
+        shadow.setOutlineThickness(2.0f);
+        shadow.setOutlineColor(sf::Color(0, 0, 0, 210));
+        centerButtonText(shadow, center + sf::Vector2f(2.0f, 3.0f));
+        window.draw(shadow);
+
+        sf::Text text(wordmarkFont, "Gloomthorn", characterSize);
+        text.setFillColor(sf::Color(221, 174, 82));
+        text.setOutlineThickness(1.5f);
+        text.setOutlineColor(sf::Color(255, 226, 145));
+        centerButtonText(text, center);
+        window.draw(text);
+    };
+
     auto drawCoinIcon = [&](sf::Vector2f position, float radius) {
         if (mainMenuCoinTexture)
         {
@@ -1486,17 +1535,7 @@ int main(int argc, char** argv)
                 {{200.0f, 25.0f}, {400.0f, 112.0f}});
         }
 
-        sf::Text shadow(font, "GLOOMTHORN", 42);
-        shadow.setFillColor(sf::Color(0, 0, 0, 205));
-        centerButtonText(shadow, {402.0f, 76.0f});
-        window.draw(shadow);
-
-        sf::Text text(font, "GLOOMTHORN", 42);
-        text.setFillColor(sf::Color(248, 224, 172));
-        text.setOutlineThickness(1.0f);
-        text.setOutlineColor(sf::Color(64, 35, 22, 220));
-        centerButtonText(text, {400.0f, 73.0f});
-        window.draw(text);
+        drawGloomthornWordmark({400.0f, 75.0f}, {344.0f, 66.0f});
     };
 
     auto drawAuthenticatedMenuChrome = [&]() {
@@ -7990,7 +8029,16 @@ int main(int argc, char** argv)
             currentState != GameState::Game &&
             currentState != GameState::Authenticated)
         {
-            drawTitlePlaque(window, font, title.getString().toAnsiString(), {400.0f, 64.0f}, {360.0f, 70.0f});
+            const std::string titleValue = title.getString().toAnsiString();
+            if (titleValue == "Gloomthorn")
+            {
+                drawTitlePlaque(window, font, " ", {400.0f, 64.0f}, {360.0f, 70.0f});
+                drawGloomthornWordmark({400.0f, 64.0f}, {326.0f, 60.0f});
+            }
+            else
+            {
+                drawTitlePlaque(window, font, titleValue, {400.0f, 64.0f}, {360.0f, 70.0f});
+            }
         }
 
         if (currentState == GameState::Menu)
