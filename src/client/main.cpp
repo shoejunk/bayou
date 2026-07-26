@@ -849,6 +849,23 @@ int main(int argc, char** argv)
     sf::Texture* showPasswordTexture = textures.load("ui/password-eye-open.png");
     sf::Texture* hidePasswordTexture = textures.load("ui/password-eye-off.png");
     sf::Texture* rememberCheckTexture = textures.load("ui/remember-checkmark.png");
+    sf::Texture* mainMenuProfileFrameTexture =
+        textures.load("ui/main-menu/account_profile_circle_frame.png");
+    sf::Texture* mainMenuButtonTexture = textures.load("ui/main-menu/button_blank.png");
+    sf::Texture* mainMenuCoinTexture = textures.load("ui/main-menu/gold_coin.png");
+    sf::Texture* mainMenuAdminIconTexture = textures.load("ui/main-menu/icon_admin.png");
+    sf::Texture* mainMenuConquestIconTexture = textures.load("ui/main-menu/icon_conquest.png");
+    sf::Texture* mainMenuDeckEditorIconTexture =
+        textures.load("ui/main-menu/icon_deck_editor.png");
+    sf::Texture* mainMenuLogoutIconTexture = textures.load("ui/main-menu/icon_log_out.png");
+    sf::Texture* mainMenuPlayIconTexture = textures.load("ui/main-menu/icon_play.png");
+    sf::Texture* mainMenuShopIconTexture = textures.load("ui/main-menu/icon_shop.png");
+    sf::Texture* mainMenuStoryIconTexture = textures.load("ui/main-menu/icon_story.png");
+    sf::Texture* mainMenuExitTexture = textures.load("ui/main-menu/red_banner_x.png");
+    sf::Texture* mainMenuSettingsTexture = textures.load("ui/main-menu/settings_gear_icon.png");
+    sf::Texture* mainMenuSmallHexTexture = textures.load("ui/main-menu/small_hex_frame.png");
+    sf::Texture* mainMenuTitleFrameTexture = textures.load("ui/main-menu/title_frame.png");
+    sf::Texture* mainMenuWoodLeagueTexture = textures.load("ui/main-menu/wood_league_leaf.png");
 
     sf::Text title(font, "Gloomthorn", 48);
     title.setFillColor(sf::Color(248, 224, 172));
@@ -887,14 +904,13 @@ int main(int argc, char** argv)
     Button exitDesktopButton({20.0f, 520.0f}, {200.0f, 45.0f}, "Exit to Desktop", font);
     Button cancelMatchmakingButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Cancel", font);
     Button playAiButton({150.0f, 520.0f}, {160.0f, 45.0f}, "Play vs AI", font);
-    Button storyButton({300.0f, 136.0f}, {200.0f, 40.0f}, "Story", font);
-    Button playButton({300.0f, 184.0f}, {200.0f, 40.0f}, "Play", font);
-    Button conquestButton({300.0f, 208.0f}, {200.0f, 40.0f}, "Conquest", font);
-    Button deckEditorButton({300.0f, 232.0f}, {200.0f, 40.0f}, "Deck Editor", font);
-    Button shopButton({300.0f, 280.0f}, {200.0f, 40.0f}, "Shop", font);
-    Button adminUsersButton({300.0f, 376.0f}, {200.0f, 40.0f}, "Admin", font);
-    Button authenticatedOptionsButton({300.0f, 424.0f}, {200.0f, 40.0f}, "Options", font);
-    Button logoutButton({300.0f, 472.0f}, {200.0f, 40.0f}, "Log Out", font);
+    Button storyButton({300.0f, 152.0f}, {200.0f, 40.0f}, "STORY", font);
+    Button playButton({300.0f, 202.0f}, {200.0f, 40.0f}, "PLAY", font);
+    Button conquestButton({300.0f, 252.0f}, {200.0f, 40.0f}, "CONQUEST", font);
+    Button deckEditorButton({300.0f, 302.0f}, {200.0f, 40.0f}, "DECK EDITOR", font);
+    Button shopButton({300.0f, 352.0f}, {200.0f, 40.0f}, "SHOP", font);
+    Button adminUsersButton({300.0f, 402.0f}, {200.0f, 40.0f}, "ADMIN", font);
+    Button logoutButton({300.0f, 452.0f}, {200.0f, 40.0f}, "LOG OUT", font);
 
     TabStrip optionsTabs({128.0f, 116.0f}, {180.0f, 48.0f}, {"Graphics", "Audio", "Account"}, font);
     Button displayModeButton({270.0f, 210.0f}, {260.0f, 54.0f}, "", font);
@@ -1051,6 +1067,7 @@ int main(int argc, char** argv)
     bool exitDesktopPopupVisible = false;
     bool deckUnsavedChangesPopupVisible = false;
     bool exitDesktopCloseHovered = false;
+    bool authenticatedSettingsHovered = false;
     bool pendingAutoLogin = false;
     bool pendingRememberRequested = false;
     DeckEditorMode deckEditorMode = DeckEditorMode::DeckList;
@@ -1344,10 +1361,9 @@ int main(int argc, char** argv)
     auto layoutAuthenticatedButtons = [&]() {
         constexpr float x = 300.0f;
         constexpr float firstButtonY = 152.0f;
-        constexpr float gap = 16.0f;
+        constexpr float gap = 10.0f;
         constexpr float height = 40.0f;
-        // Keep the menu below the dark account header. The full admin stack
-        // still fits above the bottom shade.
+        // Match the evenly stacked button rhythm from the main-menu artwork.
         float y = firstButtonY;
 
         auto place = [&](Button& button) {
@@ -1364,11 +1380,49 @@ int main(int argc, char** argv)
         {
             place(adminUsersButton);
         }
-        place(authenticatedOptionsButton);
         place(logoutButton);
     };
 
+    auto drawMainMenuTextureStretched =
+        [&](sf::Texture* texture, sf::Vector2f position, sf::Vector2f size, sf::Color color = sf::Color::White) {
+            if (!texture)
+            {
+                return;
+            }
+
+            const sf::Vector2u textureSize = texture->getSize();
+            if (textureSize.x == 0 || textureSize.y == 0)
+            {
+                return;
+            }
+
+            sf::Sprite sprite(*texture);
+            sprite.setPosition(position);
+            sprite.setScale({
+                size.x / static_cast<float>(textureSize.x),
+                size.y / static_cast<float>(textureSize.y)});
+            sprite.setColor(color);
+            window.draw(sprite);
+        };
+
+    auto drawMainMenuTextureContained =
+        [&](sf::Texture* texture, sf::Vector2f position, sf::Vector2f size, sf::Color color = sf::Color::White) {
+            if (texture)
+            {
+                drawContainSprite(window, *texture, {position, size}, color);
+            }
+        };
+
     auto drawCoinIcon = [&](sf::Vector2f position, float radius) {
+        if (mainMenuCoinTexture)
+        {
+            drawMainMenuTextureContained(
+                mainMenuCoinTexture,
+                position,
+                {radius * 2.0f, radius * 2.0f});
+            return;
+        }
+
         sf::CircleShape shadow(radius);
         shadow.setPosition(position + sf::Vector2f(2.0f, 3.0f));
         shadow.setFillColor(sf::Color(0, 0, 0, 90));
@@ -1394,7 +1448,152 @@ int main(int argc, char** argv)
         window.draw(center);
     };
 
+    auto drawAuthenticatedMenuButton = [&](const Button& button, sf::Texture* iconTexture) {
+        if (!mainMenuButtonTexture)
+        {
+            button.draw(window);
+            return;
+        }
+
+        const sf::Vector2f position = button.shape.getPosition();
+        const sf::Vector2f size = button.shape.getSize();
+        drawTextureRectContain(
+            window,
+            *mainMenuButtonTexture,
+            sf::IntRect({48, 312}, {1435, 306}),
+            {
+                {position.x - 8.0f, position.y - 2.0f},
+                {size.x + 16.0f, size.y + 4.0f}},
+            button.hovered ? sf::Color::White : sf::Color(232, 232, 232));
+
+        const float iconSize = 25.0f;
+        drawMainMenuTextureContained(
+            iconTexture,
+            {position.x + 18.0f, position.y + (size.y - iconSize) * 0.5f},
+            {iconSize, iconSize},
+            button.hovered ? sf::Color::White : sf::Color(235, 225, 202));
+
+        window.draw(button.text);
+    };
+
+    auto drawAuthenticatedMenuTitle = [&]() {
+        if (mainMenuTitleFrameTexture)
+        {
+            drawTextureRectContain(
+                window,
+                *mainMenuTitleFrameTexture,
+                sf::IntRect({86, 307}, {1368, 403}),
+                {{200.0f, 25.0f}, {400.0f, 112.0f}});
+        }
+
+        sf::Text shadow(font, "GLOOMTHORN", 42);
+        shadow.setFillColor(sf::Color(0, 0, 0, 205));
+        centerButtonText(shadow, {402.0f, 76.0f});
+        window.draw(shadow);
+
+        sf::Text text(font, "GLOOMTHORN", 42);
+        text.setFillColor(sf::Color(248, 224, 172));
+        text.setOutlineThickness(1.0f);
+        text.setOutlineColor(sf::Color(64, 35, 22, 220));
+        centerButtonText(text, {400.0f, 73.0f});
+        window.draw(text);
+    };
+
+    auto drawAuthenticatedMenuChrome = [&]() {
+        sf::RectangleShape outerBorder({792.0f, 592.0f});
+        outerBorder.setPosition({4.0f, 4.0f});
+        outerBorder.setFillColor(sf::Color::Transparent);
+        outerBorder.setOutlineThickness(1.0f);
+        outerBorder.setOutlineColor(sf::Color(112, 76, 34, 170));
+        window.draw(outerBorder);
+
+        sf::RectangleShape innerBorder({784.0f, 584.0f});
+        innerBorder.setPosition({8.0f, 8.0f});
+        innerBorder.setFillColor(sf::Color::Transparent);
+        innerBorder.setOutlineThickness(1.0f);
+        innerBorder.setOutlineColor(sf::Color(54, 38, 22, 205));
+        window.draw(innerBorder);
+
+        drawMainMenuTextureContained(
+            mainMenuProfileFrameTexture,
+            {13.0f, 16.0f},
+            {54.0f, 56.0f});
+        drawText(
+            window,
+            font,
+            signedInLabel(),
+            14,
+            {72.0f, 24.0f},
+            sf::Color(246, 238, 218),
+            190.0f);
+        drawText(
+            window,
+            font,
+            "Rating: " + std::to_string(playerRating),
+            12,
+            {72.0f, 43.0f},
+            sf::Color(151, 192, 255),
+            150.0f);
+        drawText(
+            window,
+            font,
+            "League: " + std::string(ranking::leagueName(playerLeague)),
+            12,
+            {72.0f, 61.0f},
+            sf::Color(192, 164, 120),
+            150.0f);
+        if (playerLeague == ranking::League::Wood)
+        {
+            drawMainMenuTextureContained(
+                mainMenuWoodLeagueTexture,
+                {145.0f, 51.0f},
+                {31.0f, 32.0f});
+        }
+        drawCoinIcon({72.0f, 82.0f}, 8.5f);
+        drawText(
+            window,
+            font,
+            std::to_string(playerCoins),
+            14,
+            {94.0f, 81.0f},
+            sf::Color(248, 239, 216),
+            120.0f);
+
+        drawAuthenticatedMenuTitle();
+
+        drawMainMenuTextureContained(
+            mainMenuSmallHexTexture,
+            {683.0f, 14.0f},
+            {36.0f, 38.0f},
+            authenticatedSettingsHovered ? sf::Color::White : sf::Color(225, 218, 202));
+        drawMainMenuTextureContained(
+            mainMenuSettingsTexture,
+            {691.0f, 22.0f},
+            {20.0f, 20.0f},
+            authenticatedSettingsHovered ? sf::Color::White : sf::Color(235, 225, 202));
+
+        sf::Text version(font, "v1.0.0", 10);
+        version.setFillColor(sf::Color(205, 188, 151));
+        const sf::FloatRect versionBounds = version.getLocalBounds();
+        version.setPosition({782.0f - versionBounds.size.x, 575.0f});
+        window.draw(version);
+    };
+
+    auto authenticatedSettingsButtonClicked = [&](sf::Vector2f point) {
+        return isInsideRect(point, 682.0f, 13.0f, 38.0f, 40.0f);
+    };
+
     auto drawExitDesktopCloseButton = [&]() {
+        if (currentState == GameState::Authenticated && mainMenuExitTexture)
+        {
+            drawMainMenuTextureStretched(
+                mainMenuExitTexture,
+                {730.0f, -2.0f},
+                {58.0f, 90.0f},
+                exitDesktopCloseHovered ? sf::Color::White : sf::Color(224, 214, 202));
+            return;
+        }
+
         const sf::Vector2f position{724.0f, 18.0f};
         const sf::Vector2f size{52.0f, 52.0f};
 
@@ -1423,6 +1622,10 @@ int main(int argc, char** argv)
     };
 
     auto exitDesktopCloseButtonClicked = [&](sf::Vector2f point) {
+        if (currentState == GameState::Authenticated)
+        {
+            return isInsideRect(point, 730.0f, 0.0f, 58.0f, 72.0f);
+        }
         return isInsideRect(point, 724.0f, 18.0f, 52.0f, 52.0f);
     };
 
@@ -6365,7 +6568,12 @@ int main(int argc, char** argv)
                 }
                 else if (currentState == GameState::Authenticated)
                 {
-                    if (storyButton.isClicked(clickPos))
+                    if (authenticatedSettingsButtonClicked(clickPos))
+                    {
+                        playButtonClickSound();
+                        showOptionsScreen(GameState::Authenticated);
+                    }
+                    else if (storyButton.isClicked(clickPos))
                     {
                         showStoryIntro();
                     }
@@ -6394,10 +6602,6 @@ int main(int argc, char** argv)
                     {
                         adminUsersPage = 0;
                         loadAdminUsersScreen();
-                    }
-                    else if (authenticatedOptionsButton.isClicked(clickPos))
-                    {
-                        showOptionsScreen(GameState::Authenticated);
                     }
                     else if (logoutButton.isClicked(clickPos))
                     {
@@ -7555,6 +7759,8 @@ int main(int argc, char** argv)
         {
             layoutAuthenticatedButtons();
             exitDesktopCloseHovered = exitDesktopCloseButtonClicked(mousePos);
+            authenticatedSettingsHovered =
+                !exitDesktopPopupVisible && authenticatedSettingsButtonClicked(mousePos);
             if (exitDesktopPopupVisible)
             {
                 cancelExitDesktopButton.update(mousePos);
@@ -7571,7 +7777,6 @@ int main(int argc, char** argv)
                 {
                     adminUsersButton.update(mousePos);
                 }
-                authenticatedOptionsButton.update(mousePos);
                 logoutButton.update(mousePos);
             }
         }
@@ -7782,7 +7987,8 @@ int main(int argc, char** argv)
             currentState != GameState::AdminTools &&
             currentState != GameState::CardEditor &&
             currentState != GameState::Conquest &&
-            currentState != GameState::Game)
+            currentState != GameState::Game &&
+            currentState != GameState::Authenticated)
         {
             drawTitlePlaque(window, font, title.getString().toAnsiString(), {400.0f, 64.0f}, {360.0f, 70.0f});
         }
@@ -7917,30 +8123,17 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Authenticated)
         {
-            drawTitlePlaque(window, font, "Gloomthorn", {400.0f, 64.0f}, {360.0f, 70.0f});
-            drawText(window, font, signedInLabel(), 18, {24.0f, 20.0f}, sf::Color(246, 238, 218), 240.0f);
-            drawText(window, font, "Rating: " + std::to_string(playerRating), 16, {24.0f, 48.0f}, sf::Color(151, 192, 255), 180.0f);
-            drawText(
-                window,
-                font,
-                "League: " + std::string(ranking::leagueName(playerLeague)),
-                16,
-                {24.0f, 76.0f},
-                sf::Color(192, 164, 120),
-                180.0f);
-            drawCoinIcon({24.0f, 104.0f}, 13.0f);
-            drawText(window, font, std::to_string(playerCoins), 18, {58.0f, 103.0f}, sf::Color(248, 239, 216), 120.0f);
-            storyButton.draw(window);
-            playButton.draw(window);
-            conquestButton.draw(window);
-            deckEditorButton.draw(window);
-            shopButton.draw(window);
+            drawAuthenticatedMenuChrome();
+            drawAuthenticatedMenuButton(storyButton, mainMenuStoryIconTexture);
+            drawAuthenticatedMenuButton(playButton, mainMenuPlayIconTexture);
+            drawAuthenticatedMenuButton(conquestButton, mainMenuConquestIconTexture);
+            drawAuthenticatedMenuButton(deckEditorButton, mainMenuDeckEditorIconTexture);
+            drawAuthenticatedMenuButton(shopButton, mainMenuShopIconTexture);
             if (loggedInIsAdmin)
             {
-                adminUsersButton.draw(window);
+                drawAuthenticatedMenuButton(adminUsersButton, mainMenuAdminIconTexture);
             }
-            authenticatedOptionsButton.draw(window);
-            logoutButton.draw(window);
+            drawAuthenticatedMenuButton(logoutButton, mainMenuLogoutIconTexture);
             drawExitDesktopCloseButton();
             window.draw(messageText);
             if (exitDesktopPopupVisible)
