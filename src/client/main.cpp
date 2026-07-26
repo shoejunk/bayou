@@ -911,13 +911,13 @@ int main(int argc, char** argv)
     Button exitDesktopButton({20.0f, 520.0f}, {200.0f, 45.0f}, "Exit to Desktop", font);
     Button cancelMatchmakingButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Cancel", font);
     Button playAiButton({150.0f, 520.0f}, {160.0f, 45.0f}, "Play vs AI", font);
-    Button storyButton({300.0f, 152.0f}, {200.0f, 40.0f}, "STORY", font);
-    Button playButton({300.0f, 202.0f}, {200.0f, 40.0f}, "PLAY", font);
-    Button conquestButton({300.0f, 252.0f}, {200.0f, 40.0f}, "CONQUEST", font);
-    Button deckEditorButton({300.0f, 302.0f}, {200.0f, 40.0f}, "DECK EDITOR", font);
-    Button shopButton({300.0f, 352.0f}, {200.0f, 40.0f}, "SHOP", font);
-    Button adminUsersButton({300.0f, 402.0f}, {200.0f, 40.0f}, "ADMIN", font);
-    Button logoutButton({300.0f, 452.0f}, {200.0f, 40.0f}, "LOG OUT", font);
+    Button storyButton({300.0f, 152.0f}, {200.0f, 48.0f}, "STORY", font);
+    Button playButton({300.0f, 215.0f}, {200.0f, 48.0f}, "PLAY", font);
+    Button conquestButton({300.0f, 278.0f}, {200.0f, 48.0f}, "CONQUEST", font);
+    Button deckEditorButton({300.0f, 341.0f}, {200.0f, 48.0f}, "DECK EDITOR", font);
+    Button shopButton({300.0f, 404.0f}, {200.0f, 48.0f}, "SHOP", font);
+    Button adminUsersButton({300.0f, 467.0f}, {200.0f, 48.0f}, "ADMIN", font);
+    Button logoutButton({300.0f, 530.0f}, {200.0f, 48.0f}, "LOG OUT", font);
 
     TabStrip optionsTabs({128.0f, 116.0f}, {180.0f, 48.0f}, {"Graphics", "Audio", "Account"}, font);
     Button displayModeButton({270.0f, 210.0f}, {260.0f, 54.0f}, "", font);
@@ -1368,8 +1368,8 @@ int main(int argc, char** argv)
     auto layoutAuthenticatedButtons = [&]() {
         constexpr float x = 300.0f;
         constexpr float firstButtonY = 152.0f;
-        constexpr float gap = 10.0f;
-        constexpr float height = 40.0f;
+        constexpr float gap = 15.0f;
+        constexpr float height = 48.0f;
         // Match the evenly stacked button rhythm from the main-menu artwork.
         float y = firstButtonY;
 
@@ -1506,13 +1506,16 @@ int main(int argc, char** argv)
 
         const sf::Vector2f position = button.shape.getPosition();
         const sf::Vector2f size = button.shape.getSize();
+        // Scale button_blank slightly past the hitbox so the plaque reads larger.
+        constexpr float bgPadX = 14.0f;
+        constexpr float bgPadY = 8.0f;
         drawTextureRectContain(
             window,
             *mainMenuButtonTexture,
             sf::IntRect({48, 312}, {1435, 306}),
             {
-                {position.x - 8.0f, position.y - 2.0f},
-                {size.x + 16.0f, size.y + 4.0f}},
+                {position.x - bgPadX, position.y - bgPadY},
+                {size.x + bgPadX * 2.0f, size.y + bgPadY * 2.0f}},
             button.hovered ? sf::Color::White : sf::Color(232, 232, 232));
 
         const float iconSize = 25.0f;
@@ -1522,7 +1525,11 @@ int main(int argc, char** argv)
             {iconSize, iconSize},
             button.hovered ? sf::Color::White : sf::Color(235, 225, 202));
 
-        window.draw(button.text);
+        // Slightly smaller label so the larger button_blank has more internal padding.
+        sf::Text label = button.text;
+        label.setCharacterSize(18);
+        centerButtonText(label, {position.x + size.x * 0.5f, position.y + size.y * 0.5f});
+        window.draw(label);
     };
 
     auto drawAuthenticatedMenuTitle = [&]() {
