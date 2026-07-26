@@ -1535,14 +1535,20 @@ int main(int argc, char** argv)
     auto drawAuthenticatedMenuTitle = [&]() {
         if (mainMenuTitleFrameTexture)
         {
-            drawTextureRectContain(
-                window,
-                *mainMenuTitleFrameTexture,
-                sf::IntRect({86, 307}, {1368, 403}),
-                {{200.0f, 25.0f}, {400.0f, 112.0f}});
+            // Stretch the frame to the dest rect (contain letterboxes and won't grow padding).
+            const sf::FloatRect frameRect{{180.0f, 16.0f}, {440.0f, 130.0f}};
+            const sf::IntRect textureRect({86, 307}, {1368, 403});
+            sf::Sprite frame(*mainMenuTitleFrameTexture);
+            frame.setTextureRect(textureRect);
+            frame.setPosition(frameRect.position);
+            frame.setScale({
+                frameRect.size.x / static_cast<float>(textureRect.size.x),
+                frameRect.size.y / static_cast<float>(textureRect.size.y)});
+            window.draw(frame);
         }
 
-        drawGloomthornWordmark({400.0f, 75.0f}, {344.0f, 66.0f});
+        // Slightly smaller than the frame so the wordmark has breathing room inside.
+        drawGloomthornWordmark({400.0f, 75.0f}, {310.0f, 54.0f});
     };
 
     auto drawAuthenticatedMenuChrome = [&]() {
@@ -8039,7 +8045,8 @@ int main(int argc, char** argv)
             const std::string titleValue = title.getString().toAnsiString();
             if (titleValue == "Gloomthorn")
             {
-                drawTitlePlaque(window, font, " ", {400.0f, 64.0f}, {360.0f, 70.0f});
+                // Slightly larger than the wordmark so the title has a few px of padding.
+                drawTitlePlaque(window, font, " ", {400.0f, 64.0f}, {384.0f, 82.0f});
                 drawGloomthornWordmark({400.0f, 64.0f}, {326.0f, 60.0f});
             }
             else
