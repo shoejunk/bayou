@@ -18,6 +18,29 @@ the game coordinator spawns per-match processes via `CreateProcessA` (see the
   the client. Release equivalents: `release_services.bat`,
   `release_client.bat`.
 
+## Reviewing client screens
+
+- Reaching most screens normally requires the accounts, matchmaking and card
+  services. `--ui-capture` skips all of that: the client fabricates the account
+  state those services supply, walks a list of screens, and writes one PNG per
+  screen before exiting. Run it from the repository root so `assets/` resolves.
+
+  ```
+  build\Debug\SteamTactics.exe --ui-capture=output\ui-review\round1 ^
+      --ui-capture-screens=main-menu,game --ui-capture-size=1920x1080
+  ```
+
+  Omit `--ui-capture-screens` for every screen. The seed data and screen list
+  live in `src/client/client_ui_capture.{hpp,cpp}` and the `seedCaptureState` /
+  `applyCaptureScreen` lambdas in `src/client/main.cpp`; add a screen key there
+  when a state is worth reviewing.
+- `tools/crop_png.ps1` crops and magnifies a region of a capture so fine detail
+  can be inspected without the whole-frame downscale.
+- The interface is laid out in an 800x600 logical space that scales to the
+  window, so screen coordinates are logical units, not pixels. `drawCrispText`
+  in `client_ui.hpp` rasterizes glyphs at device resolution; prefer it over
+  `window.draw(text)` so text does not soften under the view transform.
+
 ## Tests
 
 - `debug_gametest.bat` runs the end-to-end integration test. The movement/logic
