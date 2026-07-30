@@ -133,6 +133,36 @@ card_data::Card makeCard(const SampleCard& source)
     // acquire the ranges the board highlights are drawn from.
     card.integerValues.push_back({"move", 2});
     card.integerValues.push_back({"range", std::max(1, source.range)});
+    // Named explicitly, because the synthesized fallback names read as debug
+    // strings ("Bog Spearman Move") in the inspect popup.
+    if (std::string_view(source.type) == "Unit" || std::string_view(source.type) == "Hero")
+    {
+        card_data::Action advance;
+        advance.name = "Advance";
+        advance.pattern = "omni";
+        advance.minRange = 1;
+        advance.maxRange = 2;
+        advance.canMove = true;
+        advance.canAttack = false;
+        card.actions.push_back(advance);
+        card.actionDisplayNames.emplace_back("Advance");
+
+        if (source.attack > 0)
+        {
+            card_data::Action strike;
+            strike.name = source.range > 1 ? "Loose" : "Strike";
+            strike.kind = "ranged";
+            strike.pattern = "omni";
+            strike.minRange = 1;
+            strike.maxRange = std::max(1, source.range);
+            strike.damage = source.attack;
+            strike.canMove = false;
+            strike.canAttack = true;
+            strike.lineOfSight = true;
+            card.actions.push_back(strike);
+            card.actionDisplayNames.emplace_back(strike.name);
+        }
+    }
     card.integerValues.push_back({"width", 1});
     card.integerValues.push_back({"height", 1});
     card.stringValues.push_back({"description", source.text});

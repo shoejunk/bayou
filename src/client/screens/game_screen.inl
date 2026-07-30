@@ -1,62 +1,339 @@
-    auto drawGameCardFace = [&](sf::Vector2f position, const game_data::GameCard& card, bool selected, bool affordable) {
-        drawBeveledPlate(
-            window,
+    // A small chamfered plate, the shape the rest of the game's chrome uses.
+    auto drawCutPlate = [&](sf::Vector2f position,
+                            sf::Vector2f size,
+                            float cut,
+                            sf::Color fill,
+                            sf::Color outline,
+                            float outlineThickness = 1.0f) {
+        const float chamfer = std::min({cut, size.x * 0.5f, size.y * 0.5f});
+        sf::ConvexShape plate(8);
+        plate.setPoint(0, {position.x + chamfer, position.y});
+        plate.setPoint(1, {position.x + size.x - chamfer, position.y});
+        plate.setPoint(2, {position.x + size.x, position.y + chamfer});
+        plate.setPoint(3, {position.x + size.x, position.y + size.y - chamfer});
+        plate.setPoint(4, {position.x + size.x - chamfer, position.y + size.y});
+        plate.setPoint(5, {position.x + chamfer, position.y + size.y});
+        plate.setPoint(6, {position.x, position.y + size.y - chamfer});
+        plate.setPoint(7, {position.x, position.y + chamfer});
+        plate.setFillColor(fill);
+        plate.setOutlineThickness(outlineThickness);
+        plate.setOutlineColor(outline);
+        window.draw(plate);
+    };
+
+    // The health readout on a board piece. Previously a bare white glyph floating
+    // beside the art, which vanished over pale tiles and carried no hierarchy.
+    auto drawPieceStatChip = [&](sf::Vector2f anchor,
+                                 float scale,
+                                 int health,
+                                 int maxHealth,
+                                 int owner,
+                                 bool dimmed) {
+        const float width = std::clamp(31.0f * scale, 25.0f, 44.0f);
+        const float height = std::clamp(16.0f * scale, 13.0f, 22.0f);
+        const sf::Vector2f position{anchor.x - width * 0.5f, anchor.y - height * 0.34f};
+        const float dim = dimmed ? 0.6f : 1.0f;
+
+        drawCutPlate(
+            {position.x + 1.0f, position.y + 1.5f},
+            {width, height},
+            height * 0.34f,
+            sf::Color(0, 0, 0, 150),
+            sf::Color::Transparent,
+            0.0f);
+        drawCutPlate(
             position,
-            {HandCardWidth, HandCardHeight},
-            selected ? sf::Color(76, 49, 25, 238) : sf::Color(18, 24, 24, 236),
-            selected ? sf::Color(239, 190, 98) : sf::Color(155, 111, 59),
-            selected,
-            6.0f);
+            {width, height},
+            height * 0.34f,
+            withAlpha(shadeColor(BoardPlate, dim), 244),
+            withAlpha(shadeColor(BoardBrass, dim), 232),
+            1.2f);
 
-        drawBeveledPlate(
-            window,
-            {position.x + 5.0f, position.y + 5.0f},
-            {34.0f, 34.0f},
-            sf::Color(8, 14, 15),
-            sf::Color(114, 83, 47),
-            false,
-            4.0f);
-        if (sf::Texture* art = cardArtTexture(card.imagePath))
+        // Wounded pieces carry a fill bar, so damage is legible without doing the
+        // arithmetic against a remembered maximum.
+        if (maxHealth > 0 && health < maxHealth)
         {
-            drawContainSprite(window, *art, {{position.x + 7.0f, position.y + 7.0f}, {30.0f, 30.0f}},
-                              affordable ? sf::Color::White : sf::Color(120, 112, 104));
+            const float fraction = std::clamp(
+                static_cast<float>(health) / static_cast<float>(maxHealth), 0.0f, 1.0f);
+            const float barWidth = width - 6.0f;
+            const float barHeight = std::max(1.6f, height * 0.16f);
+            const sf::Vector2f barPosition{position.x + 3.0f, position.y + height - barHeight - 1.6f};
+            sf::RectangleShape track({barWidth, barHeight});
+            track.setPosition(barPosition);
+            track.setFillColor(sf::Color(0, 0, 0, 190));
+            window.draw(track);
+            const sf::Color vigor = fraction > 0.6f
+                ? sf::Color(132, 198, 122)
+                : (fraction > 0.3f ? sf::Color(226, 178, 84) : sf::Color(220, 96, 80));
+            sf::RectangleShape fill({std::max(1.0f, barWidth * fraction), barHeight});
+            fill.setPosition(barPosition);
+            fill.setFillColor(withAlpha(shadeColor(vigor, dim), 245));
+            window.draw(fill);
         }
 
-        sf::CircleShape costBadge(11.0f);
-        costBadge.setPosition({position.x + HandCardWidth - 24.0f, position.y + 3.0f});
-        costBadge.setFillColor(affordable ? sf::Color(39, 126, 139) : sf::Color(91, 66, 58));
-        costBadge.setOutlineThickness(1.0f);
-        costBadge.setOutlineColor(sf::Color(224, 174, 83));
-        window.draw(costBadge);
-        const int displayedCost = card.type == "Hero" ? card.heroCost : card.cost;
-        drawText(window, font, std::to_string(displayedCost), 13, {position.x + HandCardWidth - 21.0f, position.y + 4.0f}, sf::Color(248, 239, 216));
+        const unsigned int glyphSize =
+            static_cast<unsigned int>(std::clamp(13.0f * scale, 11.0f, 17.0f));
+        sf::Text value(font, std::to_string(health), glyphSize);
+        value.setFillColor(withAlpha(shadeColor(BoardParchment, dim), 255));
+        value.setOutlineThickness(1.0f);
+        value.setOutlineColor(sf::Color(0, 0, 0, 210));
+        centerText(value, {anchor.x, position.y + height * 0.42f});
+        drawCrispText(window, value);
 
-        const sf::Color titleColor = affordable ? sf::Color(248, 239, 216) : sf::Color(158, 128, 118);
-        drawText(window, font, card.title, 12, {position.x + 6.0f, position.y + 37.0f}, titleColor, HandCardWidth - 12.0f);
+        // A small owner pip on the chip's leading edge, so friend and foe read at
+        // a glance even where the territory wash is ambiguous.
+        sf::CircleShape pip(std::max(1.8f, 2.6f * scale), 12);
+        pip.setOrigin({pip.getRadius(), pip.getRadius()});
+        pip.setPosition({position.x + 0.5f, position.y + height * 0.34f});
+        pip.setFillColor(withAlpha(shadeColor(ownerColorBright(owner), dim), 255));
+        pip.setOutlineThickness(1.0f);
+        pip.setOutlineColor(sf::Color(18, 12, 8, 220));
+        window.draw(pip);
+    };
 
-        std::string line2;
-        std::string line3;
-        if (card.type == "Unit" || card.type == "Hero")
+    // Stand-in for a piece whose token art is missing. A framed cameo standing on
+    // the plinth reads as deliberate; the flat owner-coloured circle it replaces
+    // read as an unfinished asset.
+    auto drawPieceCameo = [&](sf::Vector2f anchor,
+                              float scale,
+                              int owner,
+                              const std::string& imagePath,
+                              sf::Color tint) {
+        const float width = 46.0f * scale;
+        const float height = 56.0f * scale;
+        const sf::Vector2f position{anchor.x - width * 0.5f, anchor.y - height - 4.0f * scale};
+
+        drawCutPlate(
+            position,
+            {width, height},
+            7.0f * scale,
+            withAlpha(ownerColorDeep(owner), tint.a),
+            withAlpha(BoardBrass, tint.a),
+            1.6f);
+        if (sf::Texture* art = cardArtTexture(imagePath))
         {
-            line2 = "HP " + std::to_string(card.health);
-            line3 = "Actions " + std::to_string(card.actions.size());
-        }
-        else if (card.type == "Enchantment")
-        {
-            line2 = "Enchantment";
-            if (card.effect == "damage") line3 = "+" + std::to_string(card.power) + " attack damage";
-            else if (card.effect == "resources") line3 = "+" + std::to_string(card.power) + " Resources/turn";
-            else if (card.effect == "resourceDrain") line3 = "Drain " + std::to_string(card.power) + "/turn";
+            drawContainSprite(
+                window,
+                *art,
+                {{position.x + 3.5f * scale, position.y + 3.5f * scale},
+                 {width - 7.0f * scale, height - 7.0f * scale}},
+                tint);
         }
         else
         {
-            line2 = "Spell";
-            if (card.effect == "damage") line3 = "Deal " + std::to_string(card.power);
-            else if (card.effect == "heal") line3 = "Heal " + std::to_string(card.power);
-            else if (game_data::isResourcesEffect(card)) line3 = "+" + std::to_string(card.power) + " Resources";
+            // No art at all: an engraved arcane sigil rather than a blank plate.
+            const sf::Vector2f center{anchor.x, position.y + height * 0.5f};
+            drawEllipseOutline(
+                window, center, width * 0.24f, width * 0.24f, 1.6f,
+                withAlpha(BoardArcane, tint.a));
+            drawEllipseOutline(
+                window, center, width * 0.12f, width * 0.12f, 1.2f,
+                withAlpha(BoardBrassBright, static_cast<int>(tint.a * 0.7f)));
         }
-        drawText(window, font, line2, 11, {position.x + 6.0f, position.y + 53.0f}, sf::Color(224, 210, 176), HandCardWidth - 12.0f);
-        drawText(window, font, line3, 11, {position.x + 6.0f, position.y + 65.0f}, sf::Color(143, 220, 205), HandCardWidth - 12.0f);
+        drawCutPlate(
+            {position.x + 2.0f * scale, position.y + 2.0f * scale},
+            {width - 4.0f * scale, height - 4.0f * scale},
+            5.0f * scale,
+            sf::Color::Transparent,
+            withAlpha(BoardBrassBright, static_cast<int>(tint.a * 0.5f)),
+            1.0f);
+    };
+
+    // A hand card. Laid out like a physical card — art window on top, name band,
+    // then stat pips — rather than the stack of debug lines ("HP 8", "Actions 2")
+    // over a 30px thumbnail that it replaces.
+    auto drawGameCardFace = [&](sf::Vector2f position,
+                               const game_data::GameCard& card,
+                               bool selected,
+                               bool affordable) {
+        const float width = HandCardWidth;
+        const float height = HandCardHeight;
+        const sf::Color frame = selected
+            ? BoardBrassBright
+            : (affordable ? BoardBrass : sf::Color(92, 76, 58));
+        const sf::Color artTint = affordable ? sf::Color::White : sf::Color(122, 118, 116);
+        const sf::Color inkColor = affordable
+            ? BoardParchment
+            : withAlpha(BoardParchmentMuted, 190);
+
+        if (selected)
+        {
+            // Lifted card: a warm bloom behind it reads as "picked up".
+            drawCutPlate(
+                {position.x - 3.0f, position.y - 3.0f},
+                {width + 6.0f, height + 6.0f},
+                9.0f,
+                withAlpha(BoardBrassBright, 46),
+                withAlpha(BoardBrassBright, 170),
+                1.4f);
+        }
+        drawCutPlate(
+            {position.x + 2.0f, position.y + 3.0f},
+            {width, height},
+            7.0f,
+            sf::Color(0, 0, 0, 150),
+            sf::Color::Transparent,
+            0.0f);
+        drawCutPlate(
+            position,
+            {width, height},
+            7.0f,
+            selected ? sf::Color(42, 32, 20, 246) : sf::Color(16, 22, 23, 244),
+            frame,
+            1.6f);
+
+        // Art window fills the upper half, framed and seated in a recess.
+        const sf::Vector2f artPosition{position.x + 5.0f, position.y + 5.0f};
+        const sf::Vector2f artSize{width - 10.0f, height * 0.47f};
+        drawCutPlate(artPosition, artSize, 4.0f, sf::Color(6, 10, 11), sf::Color(52, 40, 26), 1.0f);
+        if (sf::Texture* art = cardArtTexture(card.imagePath))
+        {
+            drawCoverSprite(
+                window, *art, {{artPosition.x + 1.0f, artPosition.y + 1.0f},
+                               {artSize.x - 2.0f, artSize.y - 2.0f}}, artTint);
+        }
+        // Gradient scrim along the art's lower edge, so the name band never sits
+        // on a bright patch of illustration.
+        sf::VertexArray scrim(sf::PrimitiveType::TriangleFan, 4);
+        const float scrimTop = artPosition.y + artSize.y * 0.55f;
+        const float scrimBottom = artPosition.y + artSize.y - 1.0f;
+        scrim[0] = {{artPosition.x + 1.0f, scrimTop}, sf::Color(6, 10, 11, 0)};
+        scrim[1] = {{artPosition.x + artSize.x - 1.0f, scrimTop}, sf::Color(6, 10, 11, 0)};
+        scrim[2] = {{artPosition.x + artSize.x - 1.0f, scrimBottom}, sf::Color(6, 10, 11, 226)};
+        scrim[3] = {{artPosition.x + 1.0f, scrimBottom}, sf::Color(6, 10, 11, 226)};
+        window.draw(scrim);
+
+        // Name band across the art's foot. Wrapped over two lines rather than
+        // elided, so a card is identifiable without hovering it.
+        const std::vector<std::string> nameLines =
+            wrapText(font, card.title, 9, width - 12.0f);
+        const std::size_t shownLines = std::min<std::size_t>(2, nameLines.size());
+        for (std::size_t line = 0; line < shownLines; ++line)
+        {
+            const bool lastShown = line + 1 == shownLines;
+            const bool truncated = lastShown && nameLines.size() > shownLines;
+            sf::Text nameText(
+                font,
+                truncated ? elideToWidth(font, nameLines[line] + "...", 9, width - 12.0f)
+                          : nameLines[line],
+                9);
+            nameText.setFillColor(inkColor);
+            nameText.setOutlineThickness(1.0f);
+            nameText.setOutlineColor(sf::Color(0, 0, 0, 210));
+            centerText(
+                nameText,
+                {position.x + width * 0.5f,
+                 scrimBottom - 6.0f -
+                     static_cast<float>(shownLines - 1 - line) * 10.0f});
+            drawCrispText(window, nameText);
+        }
+
+        drawSeparatorRule(
+            window, {position.x + 7.0f, artPosition.y + artSize.y + 4.0f}, width - 14.0f);
+
+        // Stat pips: a labelled figure pair for bodies, an effect line for spells.
+        const float statY = artPosition.y + artSize.y + 11.0f;
+        const auto drawStatPip = [&](sf::Vector2f pipPosition,
+                                     float pipWidth,
+                                     const std::string& glyph,
+                                     const std::string& value,
+                                     sf::Color accent) {
+            drawCutPlate(
+                pipPosition,
+                {pipWidth, 17.0f},
+                5.0f,
+                sf::Color(8, 13, 14, 232),
+                withAlpha(accent, affordable ? 200 : 130),
+                1.0f);
+            sf::Text glyphText(font, glyph, 8);
+            glyphText.setFillColor(withAlpha(accent, affordable ? 230 : 150));
+            glyphText.setPosition({pipPosition.x + 4.0f, pipPosition.y + 3.0f});
+            drawCrispText(window, glyphText);
+            sf::Text valueText(font, value, 12);
+            valueText.setFillColor(inkColor);
+            centerText(
+                valueText,
+                {pipPosition.x + pipWidth * 0.66f, pipPosition.y + 8.5f});
+            drawCrispText(window, valueText);
+        };
+
+        if (card.type == "Unit" || card.type == "Hero")
+        {
+            const float pipWidth = (width - 16.0f) * 0.5f;
+            drawStatPip(
+                {position.x + 7.0f, statY}, pipWidth, "HP", std::to_string(card.health),
+                sf::Color(132, 198, 122));
+            drawStatPip(
+                {position.x + 9.0f + pipWidth, statY}, pipWidth, "AT",
+                std::to_string(card.attack), sf::Color(226, 132, 108));
+        }
+        else
+        {
+            std::string effectLabel;
+            if (card.effect == "damage")
+            {
+                effectLabel = "Deal " + std::to_string(card.power);
+            }
+            else if (card.effect == "heal")
+            {
+                effectLabel = "Heal " + std::to_string(card.power);
+            }
+            else if (game_data::isResourcesEffect(card))
+            {
+                effectLabel = "+" + std::to_string(card.power) + " essence";
+            }
+            else if (card.effect == "resourceDrain")
+            {
+                effectLabel = "Drain " + std::to_string(card.power);
+            }
+            if (!effectLabel.empty())
+            {
+                drawStatPip(
+                    {position.x + 7.0f, statY}, width - 14.0f, "",
+                    effectLabel, sf::Color(186, 138, 234));
+            }
+        }
+
+        // Type footer.
+        sf::Text typeText(
+            font,
+            elideToWidth(font, card.type == "Hero" ? std::string("HERO") : card.type, 8, width - 14.0f),
+            8);
+        typeText.setLetterSpacing(1.2f);
+        typeText.setFillColor(withAlpha(BoardParchmentMuted, affordable ? 200 : 140));
+        centerText(typeText, {position.x + width * 0.5f, position.y + height - 8.0f});
+        drawCrispText(window, typeText);
+
+        // Cost gem, overhanging the top-left corner the way a mana crystal does.
+        const int displayedCost = card.type == "Hero" ? card.heroCost : card.cost;
+        const sf::Vector2f gemCenter{position.x + 2.0f, position.y + 2.0f};
+        sf::CircleShape gemShadow(12.0f, 20);
+        gemShadow.setOrigin({12.0f, 12.0f});
+        gemShadow.setPosition({gemCenter.x + 1.0f, gemCenter.y + 1.5f});
+        gemShadow.setFillColor(sf::Color(0, 0, 0, 160));
+        window.draw(gemShadow);
+        sf::CircleShape gem(11.0f, 20);
+        gem.setOrigin({11.0f, 11.0f});
+        gem.setPosition(gemCenter);
+        gem.setFillColor(affordable ? sf::Color(38, 62, 74, 250) : sf::Color(46, 38, 34, 250));
+        gem.setOutlineThickness(1.6f);
+        gem.setOutlineColor(affordable ? BoardBrassBright : sf::Color(104, 84, 62));
+        window.draw(gem);
+        sf::Text costText(font, std::to_string(displayedCost), 13);
+        costText.setFillColor(affordable ? BoardParchment : withAlpha(BoardParchmentMuted, 200));
+        costText.setOutlineThickness(1.0f);
+        costText.setOutlineColor(sf::Color(0, 0, 0, 190));
+        centerText(costText, gemCenter);
+        drawCrispText(window, costText);
+
+        if (!affordable)
+        {
+            // Unplayable cards take a cool scrim, so affordability reads without
+            // having to compare the gem against the essence figure.
+            drawCutPlate(
+                position, {width, height}, 7.0f, sf::Color(8, 14, 20, 104),
+                sf::Color::Transparent, 0.0f);
+        }
     };
 
     auto piecePopupActionDescriptions = [&](const game_data::Piece& piece) {
@@ -182,44 +459,159 @@
         return std::max(0.0f, popupActionContentHeight(descriptions) - PiecePopupScrollHeight);
     };
 
+    // A caption under one of the bottom-bar slots.
+    auto drawSlotCaption = [&](float centerX, float y, const std::string& caption, sf::Color color) {
+        sf::Text text(font, caption, 8);
+        text.setLetterSpacing(1.2f);
+        text.setFillColor(color);
+        centerText(text, {centerX, y});
+        drawCrispText(window, text);
+    };
+
+    // The draw pile, as a stack of card backs. Previously the deck simply was not
+    // shown, so players had no idea how close they were to running out.
+    auto drawDrawPile = [&](int remaining) {
+        const float centerX = GameDeckPileX + GamePileWidth * 0.5f;
+        const int layers = remaining <= 0 ? 1 : std::min(3, 1 + remaining / 8);
+        for (int i = layers - 1; i >= 0; --i)
+        {
+            const float offset = static_cast<float>(i) * 2.2f;
+            const bool top = i == 0;
+            drawCutPlate(
+                {GameDeckPileX - offset, GamePileY - offset},
+                {GamePileWidth, GamePileHeight - 14.0f},
+                6.0f,
+                remaining > 0 ? sf::Color(18, 25, 30, 246) : sf::Color(18, 20, 21, 210),
+                remaining > 0 ? (top ? BoardBrass : BoardBrassDim) : sf::Color(72, 62, 50),
+                top ? 1.5f : 1.0f);
+        }
+        // An arcane sigil on the back of the top card.
+        const sf::Vector2f face{centerX, GamePileY + (GamePileHeight - 14.0f) * 0.5f};
+        const sf::Color sigilColor = remaining > 0
+            ? withAlpha(BoardArcane, 236)
+            : withAlpha(BoardArcane, 96);
+        drawEllipseOutline(window, face, 11.0f, 11.0f, 1.4f, sigilColor);
+        drawEllipseOutline(window, face, 6.0f, 6.0f, 1.2f, withAlpha(BoardBrassBright, remaining > 0 ? 200 : 80));
+        sf::CircleShape core(2.4f, 12);
+        core.setOrigin({2.4f, 2.4f});
+        core.setPosition(face);
+        core.setFillColor(sigilColor);
+        window.draw(core);
+
+        sf::Text count(font, std::to_string(std::max(0, remaining)), 13);
+        count.setFillColor(remaining > 0 ? BoardParchment : withAlpha(BoardParchmentMuted, 170));
+        count.setOutlineThickness(1.0f);
+        count.setOutlineColor(sf::Color(0, 0, 0, 200));
+        centerText(count, {centerX, GamePileY + GamePileHeight - 20.0f});
+        drawCrispText(window, count);
+
+        drawSlotCaption(
+            centerX, GamePileY + GamePileHeight - 5.0f, "DECK",
+            withAlpha(BoardParchmentMuted, 206));
+    };
+
+    // The discard slot, which doubles as the drop target for pitching a card.
     auto drawDiscardTrashCan = [&](bool available, bool draggingCard, bool hovered) {
+        const float centerX = TrashCanX + TrashCanWidth * 0.5f;
+        const sf::Color accent = !available
+            ? sf::Color(150, 82, 72)
+            : (hovered ? BoardBrassBright : BoardBrass);
+
         if (draggingCard)
         {
-            const sf::Color highlight = available
-                ? (hovered ? sf::Color(248, 214, 112, 88) : sf::Color(143, 220, 205, 52))
-                : sf::Color(210, 105, 90, 46);
-            const sf::Color outline = available
-                ? (hovered ? sf::Color(248, 214, 112, 230) : sf::Color(143, 220, 205, 180))
-                : sf::Color(210, 105, 90, 150);
-
-            sf::CircleShape glow(TrashCanSize * 0.58f);
-            glow.setOrigin({TrashCanSize * 0.58f, TrashCanSize * 0.58f});
-            glow.setPosition({TrashCanX + TrashCanSize * 0.5f, TrashCanY + TrashCanSize * 0.5f});
-            glow.setFillColor(highlight);
-            glow.setOutlineThickness(hovered ? 3.0f : 2.0f);
-            glow.setOutlineColor(outline);
-            window.draw(glow);
+            drawCutPlate(
+                {TrashCanX - 4.0f, TrashCanY - 4.0f},
+                {TrashCanWidth + 8.0f, TrashCanHeight - 14.0f + 8.0f},
+                9.0f,
+                withAlpha(accent, hovered ? 88 : 40),
+                withAlpha(accent, hovered ? 240 : 160),
+                hovered ? 2.0f : 1.2f);
         }
+        drawCutPlate(
+            {TrashCanX, TrashCanY},
+            {TrashCanWidth, TrashCanHeight - 14.0f},
+            6.0f,
+            sf::Color(14, 19, 20, 240),
+            available ? accent : sf::Color(78, 66, 56),
+            1.5f);
 
         if (sf::Texture* trashCan = textures.load("ui/trash-can.png"))
         {
             const sf::Color iconTint = available
-                ? sf::Color::White
-                : sf::Color(112, 108, 102, 190);
+                ? (draggingCard && hovered ? sf::Color::White : sf::Color(226, 216, 198))
+                : sf::Color(112, 104, 96, 190);
             drawContainSprite(
                 window,
                 *trashCan,
-                {{TrashCanX + 5.0f, TrashCanY + 4.0f}, {TrashCanSize - 10.0f, TrashCanSize - 8.0f}},
+                {{TrashCanX + 12.0f, TrashCanY + 3.0f},
+                 {TrashCanWidth - 24.0f, TrashCanHeight - 20.0f}},
                 iconTint);
         }
-        else
+
+        drawSlotCaption(
+            centerX,
+            TrashCanY + TrashCanHeight - 5.0f,
+            available ? "DISCARD" : "USED",
+            withAlpha(available ? BoardParchmentMuted : sf::Color(140, 110, 98), 206));
+    };
+
+    // Essence available to spend, sitting beside the hand where it is needed.
+    auto drawEssenceGauge = [&](const std::string& value, int spendable) {
+        drawCutPlate(
+            {GameResourcePlateX, GameResourcePlateY},
+            {GameResourcePlateWidth, GameResourcePlateHeight},
+            9.0f,
+            sf::Color(13, 19, 21, 240),
+            BoardBrass,
+            1.5f);
+
+        // A faceted crystal rather than a plain disc, to distinguish essence from
+        // the coin glyph the menus use for currency.
+        const sf::Vector2f crystalCenter{
+            GameResourcePlateX + 24.0f, GameResourcePlateY + GameResourcePlateHeight * 0.5f};
+        sf::ConvexShape crystal(6);
+        crystal.setPoint(0, {crystalCenter.x, crystalCenter.y - 13.0f});
+        crystal.setPoint(1, {crystalCenter.x + 9.0f, crystalCenter.y - 5.0f});
+        crystal.setPoint(2, {crystalCenter.x + 9.0f, crystalCenter.y + 6.0f});
+        crystal.setPoint(3, {crystalCenter.x, crystalCenter.y + 13.0f});
+        crystal.setPoint(4, {crystalCenter.x - 9.0f, crystalCenter.y + 6.0f});
+        crystal.setPoint(5, {crystalCenter.x - 9.0f, crystalCenter.y - 5.0f});
+        crystal.setFillColor(sf::Color(46, 92, 106, 244));
+        crystal.setOutlineThickness(1.4f);
+        crystal.setOutlineColor(withAlpha(BoardBrassBright, 226));
+        window.draw(crystal);
+        drawEdgeLine(
+            window,
+            {crystalCenter.x - 4.0f, crystalCenter.y - 6.0f},
+            {crystalCenter.x + 1.0f, crystalCenter.y + 7.0f},
+            1.6f,
+            sf::Color(158, 214, 226, 190));
+
+        sf::Text valueText(font, value, 24);
+        valueText.setFillColor(BoardParchment);
+        valueText.setOutlineThickness(1.2f);
+        valueText.setOutlineColor(sf::Color(0, 0, 0, 190));
+        valueText.setPosition({GameResourcePlateX + 42.0f, GameResourcePlateY + 6.0f});
+        drawCrispText(window, valueText);
+
+        drawSlotCaption(
+            GameResourcePlateX + GameResourcePlateWidth - 34.0f,
+            GameResourcePlateY + 13.0f,
+            "ESSENCE",
+            withAlpha(BoardParchmentMuted, 216));
+        if (spendable >= 0)
         {
-            sf::RectangleShape bin({TrashCanSize - 24.0f, TrashCanSize - 20.0f});
-            bin.setPosition({TrashCanX + 12.0f, TrashCanY + 16.0f});
-            bin.setFillColor(available ? sf::Color(52, 64, 65) : sf::Color(54, 52, 50));
-            bin.setOutlineThickness(2.0f);
-            bin.setOutlineColor(draggingCard ? sf::Color(248, 214, 112) : sf::Color(86, 78, 70));
-            window.draw(bin);
+            sf::Text playable(
+                font,
+                std::to_string(spendable) + (spendable == 1 ? " card" : " cards"),
+                10);
+            playable.setFillColor(spendable > 0
+                ? withAlpha(ownerColorBright(1), 236)
+                : withAlpha(BoardParchmentMuted, 170));
+            centerText(
+                playable,
+                {GameResourcePlateX + GameResourcePlateWidth - 34.0f, GameResourcePlateY + 28.0f});
+            drawCrispText(window, playable);
         }
     };
 
@@ -265,126 +657,224 @@
         window.draw(overlay);
 
         drawPanel(window, {PiecePopupX, PiecePopupY}, {PiecePopupWidth, PiecePopupHeight});
-        drawText(window, font, piece ? piece->name : card->title, 24, {PiecePopupX + 22.0f, PiecePopupY + 18.0f},
-                 sf::Color(248, 239, 216), PiecePopupWidth - 44.0f);
 
+        // ---- Header: portrait, name, owner, stat chips, trait tags ------------
+        const int inspectedOwner = piece ? piece->owner : gameSnapshot.yourPlayer;
+        const std::string inspectedType = piece
+            ? (piece->isHero ? std::string("Hero") : std::string("Unit"))
+            : card->type;
+
+        const sf::Vector2f portraitPosition{PiecePopupX + 22.0f, PiecePopupY + 20.0f};
+        const sf::Vector2f portraitSize{112.0f, 130.0f};
         drawBeveledPlate(
             window,
-            {PiecePopupX + 22.0f, PiecePopupY + 62.0f},
-            {104.0f, 104.0f},
-            sf::Color(8, 14, 15),
-            sf::Color(155, 111, 59),
+            portraitPosition,
+            portraitSize,
+            withAlpha(ownerColorDeep(inspectedOwner), 246),
+            BoardBrass,
             false,
-            7.0f);
-
-        bool drewArt = false;
+            8.0f);
         if (sf::Texture* art = cardArtTexture(piece ? piece->imagePath : card->imagePath))
         {
-            drawContainSprite(window,
+            drawCoverSprite(
+                window,
                 *art,
-                {{PiecePopupX + 30.0f, PiecePopupY + 70.0f}, {88.0f, 88.0f}});
-            drewArt = true;
+                {{portraitPosition.x + 6.0f, portraitPosition.y + 6.0f},
+                 {portraitSize.x - 12.0f, portraitSize.y - 12.0f}});
         }
-        if (piece)
+        else if (piece)
         {
-            if (!drewArt)
-            {
-                drewArt = drawPieceVisual(
-                    pieceTokenPath(*piece),
-                    pieceWalkAnimPath(*piece),
-                    "",
-                    pieceBasePath(*piece),
-                    piece->owner == 2,
-                    piece->walkAnimFrames,
-                    1,
-                    {PiecePopupX + 74.0f, PiecePopupY + 160.0f},
-                    0.92f,
-                    sf::Color::White,
-                    -1,
-                    -1);
-            }
+            drawPieceVisual(
+                pieceTokenPath(*piece),
+                pieceWalkAnimPath(*piece),
+                "",
+                pieceBasePath(*piece),
+                piece->owner == 2,
+                piece->walkAnimFrames,
+                1,
+                {portraitPosition.x + portraitSize.x * 0.5f,
+                 portraitPosition.y + portraitSize.y - 10.0f},
+                1.05f,
+                sf::Color::White,
+                -1,
+                -1);
         }
+        drawCutPlate(
+            {portraitPosition.x + 4.0f, portraitPosition.y + 4.0f},
+            {portraitSize.x - 8.0f, portraitSize.y - 8.0f},
+            6.0f,
+            sf::Color::Transparent,
+            withAlpha(BoardBrassBright, 90),
+            1.0f);
 
-        float y = PiecePopupY + 66.0f;
-        const float statX = PiecePopupX + 146.0f;
+        const float headerX = portraitPosition.x + portraitSize.x + 18.0f;
+        const float headerWidth = PiecePopupX + PiecePopupWidth - 24.0f - headerX;
+
+        sf::Text nameText(
+            font,
+            elideToWidth(font, piece ? piece->name : card->title, 23, headerWidth),
+            23);
+        nameText.setFillColor(BoardParchment);
+        nameText.setPosition({headerX, PiecePopupY + 20.0f});
+        drawCrispText(window, nameText);
+
+        // Type and allegiance on one muted line, replacing the "Type: Unit" label
+        // that was printed in a raw off-palette blue.
+        sf::Text subtitle(
+            font,
+            inspectedType + std::string(piece
+                ? (piece->owner == gameSnapshot.yourPlayer ? "  ·  Yours" : "  ·  Enemy")
+                : "  ·  In hand"),
+            12);
+        subtitle.setLetterSpacing(1.1f);
+        subtitle.setFillColor(withAlpha(ownerColorBright(inspectedOwner), 230));
+        subtitle.setPosition({headerX + 1.0f, PiecePopupY + 48.0f});
+        drawCrispText(window, subtitle);
+
+        // Stat chips: the numbers a player checks first, as figures rather than
+        // sentences.
+        const auto drawPopupStat = [&](sf::Vector2f chipPosition,
+                                      float chipWidth,
+                                      const std::string& caption,
+                                      const std::string& value,
+                                      sf::Color accent) {
+            drawCutPlate(
+                chipPosition,
+                {chipWidth, 42.0f},
+                6.0f,
+                sf::Color(8, 13, 14, 232),
+                withAlpha(accent, 190),
+                1.2f);
+            sf::Text captionText(font, caption, 8);
+            captionText.setLetterSpacing(1.2f);
+            captionText.setFillColor(withAlpha(BoardParchmentMuted, 216));
+            centerText(captionText, {chipPosition.x + chipWidth * 0.5f, chipPosition.y + 10.0f});
+            drawCrispText(window, captionText);
+            sf::Text valueText(font, value, 17);
+            valueText.setFillColor(accent);
+            centerText(valueText, {chipPosition.x + chipWidth * 0.5f, chipPosition.y + 28.0f});
+            drawCrispText(window, valueText);
+        };
+
+        struct PopupStat
+        {
+            std::string caption;
+            std::string value;
+            sf::Color accent;
+        };
+        std::vector<PopupStat> stats;
         if (piece)
         {
-            const std::string typeLabel = piece->isHero ? "Hero" : "Unit";
-            drawText(window, font, "Type: " + typeLabel,
-                     15, {statX, y}, ownerColor(piece->owner), PiecePopupWidth - 174.0f);
-            y += 22.0f;
-            drawText(window, font, "Health: " + std::to_string(piece->health) + "/" + std::to_string(piece->maxHealth),
-                     14, {statX, y}, sf::Color(224, 210, 176));
+            stats.push_back({
+                "HEALTH",
+                std::to_string(piece->health) + "/" + std::to_string(piece->maxHealth),
+                sf::Color(146, 210, 136)});
+            if (piece->attack > 0)
+            {
+                stats.push_back({"ATTACK", std::to_string(piece->attack), sf::Color(226, 132, 108)});
+            }
             if (piece->tax > 0)
             {
-                y += 22.0f;
-                drawText(window, font, "Tax: " + std::to_string(piece->tax) + " Resources each turn",
-                         14, {statX, y}, sf::Color(248, 214, 112), PiecePopupWidth - 174.0f);
+                stats.push_back({"TAX", std::to_string(piece->tax), BoardBrassBright});
             }
             if (piece->gatherResources > 0)
             {
-                y += 22.0f;
-                drawText(window, font, "Gather: +" + std::to_string(piece->gatherResources) + " Resources each turn",
-                         14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+                stats.push_back({
+                    "GATHER", "+" + std::to_string(piece->gatherResources), BoardBrassBright});
             }
         }
         else
         {
-            drawText(window, font, "Type: " + card->type, 15, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
-            y += 24.0f;
-            if (card->type == "Hero")
-            {
-                drawText(window, font, "Hero cost: " + std::to_string(card->heroCost), 14, {statX, y}, sf::Color(248, 214, 112));
-            }
-            else
-            {
-                drawText(window, font, "Cost: " + std::to_string(card->cost) + " Resources", 14, {statX, y}, sf::Color(150, 210, 235));
-            }
-            y += 24.0f;
+            stats.push_back({
+                card->type == "Hero" ? "HERO COST" : "ESSENCE",
+                std::to_string(card->type == "Hero" ? card->heroCost : card->cost),
+                BoardBrassBright});
             if (card->type == "Unit" || card->type == "Hero")
             {
-                drawText(window, font, "Health: " + std::to_string(card->health), 14, {statX, y}, sf::Color(224, 210, 176));
+                stats.push_back({
+                    "HEALTH", std::to_string(card->health), sf::Color(146, 210, 136)});
+                if (card->attack > 0)
+                {
+                    stats.push_back({
+                        "ATTACK", std::to_string(card->attack), sf::Color(226, 132, 108)});
+                }
                 if (card->tax > 0)
                 {
-                    y += 22.0f;
-                    drawText(window, font, "Tax: " + std::to_string(card->tax) + " Resources each turn",
-                             14, {statX, y}, sf::Color(248, 214, 112), PiecePopupWidth - 174.0f);
-                }
-                if (card->gatherResources > 0)
-                {
-                    y += 22.0f;
-                    drawText(window, font, "Gather: +" + std::to_string(card->gatherResources) + " Resources each turn",
-                             14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+                    stats.push_back({"TAX", std::to_string(card->tax), BoardBrassBright});
                 }
             }
             else
             {
-                drawText(window, font, "Effect: " + (game_data::isResourcesEffect(*card) ? "resources" : card->effect),
-                         14, {statX, y}, sf::Color(224, 210, 176));
-                y += 22.0f;
-                drawText(window, font, "Power: " + std::to_string(card->power), 14, {statX, y}, sf::Color(224, 210, 176));
-                y += 22.0f;
-                drawText(window, font, "Target: " + card->target, 14, {statX, y}, sf::Color(143, 220, 205), PiecePopupWidth - 174.0f);
+                stats.push_back({
+                    "POWER", std::to_string(card->power), sf::Color(186, 138, 234)});
+                stats.push_back({
+                    "TARGET", card->target, withAlpha(BoardParchmentMuted, 240)});
             }
         }
+        if (!stats.empty())
+        {
+            const std::size_t shown = std::min<std::size_t>(4, stats.size());
+            const float chipGap = 6.0f;
+            const float chipWidth =
+                (headerWidth - chipGap * static_cast<float>(shown - 1)) / static_cast<float>(shown);
+            for (std::size_t i = 0; i < shown; ++i)
+            {
+                drawPopupStat(
+                    {headerX + (chipWidth + chipGap) * static_cast<float>(i), PiecePopupY + 68.0f},
+                    chipWidth,
+                    stats[i].caption,
+                    stats[i].value,
+                    stats[i].accent);
+            }
+        }
+
+        // Traits and keywords as tag pills, not a comma-joined label line.
         const std::vector<std::string>& traits = piece ? piece->traits : card->traits;
         const std::vector<std::string>& keywords = piece ? piece->keywords : card->keywords;
-        if (!traits.empty())
         {
-            y += 22.0f;
-            drawText(window, font, "Traits: " + joinStrings(traits, ", "),
-                     14, {statX, y}, sf::Color(248, 214, 112), PiecePopupWidth - 174.0f);
-        }
-        if (!keywords.empty())
-        {
-            y += 22.0f;
-            drawText(window, font, "Keywords: " + joinStrings(keywords, ", "),
-                     14, {statX, y}, sf::Color(198, 180, 142), PiecePopupWidth - 174.0f);
+            float tagX = headerX;
+            float tagY = PiecePopupY + 118.0f;
+            const auto drawTag = [&](const std::string& label, sf::Color accent) {
+                sf::Text tagText(font, label, 10);
+                const float tagWidth = tagText.getLocalBounds().size.x + 16.0f;
+                if (tagX + tagWidth > headerX + headerWidth)
+                {
+                    tagX = headerX;
+                    tagY += 22.0f;
+                }
+                if (tagY > PiecePopupY + 140.0f)
+                {
+                    return;
+                }
+                drawCutPlate(
+                    {tagX, tagY}, {tagWidth, 18.0f}, 5.0f,
+                    withAlpha(accent, 44), withAlpha(accent, 190), 1.0f);
+                tagText.setFillColor(withAlpha(accent, 246));
+                centerText(tagText, {tagX + tagWidth * 0.5f, tagY + 9.0f});
+                drawCrispText(window, tagText);
+                tagX += tagWidth + 5.0f;
+            };
+            for (const std::string& trait : traits)
+            {
+                drawTag(trait, BoardBrassBright);
+            }
+            for (const std::string& keyword : keywords)
+            {
+                drawTag(keyword, sf::Color(146, 206, 226));
+            }
         }
 
         inspectedPieceScroll = std::clamp(inspectedPieceScroll, 0.0f, popupMaxScroll(actionDescriptions));
 
-        drawText(window, font, piece ? "Details" : "Actions", 17, {PiecePopupTextX, PiecePopupActionHeadingY}, sf::Color::White);
+        sf::Text detailHeading(font, piece ? "DETAILS" : "ACTIONS", 13);
+        detailHeading.setLetterSpacing(1.3f);
+        detailHeading.setFillColor(withAlpha(BoardParchmentMuted, 240));
+        detailHeading.setPosition({PiecePopupTextX, PiecePopupActionHeadingY});
+        drawCrispText(window, detailHeading);
+        drawSeparatorRule(
+            window,
+            {PiecePopupTextX + 70.0f, PiecePopupActionHeadingY + 9.0f},
+            PiecePopupTextWidth - 70.0f);
 
         drawBeveledPlate(
             window,
@@ -404,7 +894,7 @@
             {PiecePopupTextWidth / 800.0f, PiecePopupScrollHeight / 600.0f}));
         window.setView(actionView);
 
-        y = drawDetailRows(actionDescriptions, PiecePopupScrollY + PiecePopupScrollTextYInset);
+        drawDetailRows(actionDescriptions, PiecePopupScrollY + PiecePopupScrollTextYInset);
 
         window.setView(previousView);
 
@@ -679,33 +1169,88 @@
             boardEdgePoint(0, game_data::BoardSize),
             boardEdgePoint(game_data::BoardSize, game_data::BoardSize),
             boardEdgePoint(game_data::BoardSize, 0)};
-        drawQuad(offsetQuad(boardTop, {7.0f, 15.0f}), sf::Color(0, 0, 0, 95));
+
+        // Shrinks a quad toward its centroid, for the inset markers that keep the
+        // stone visible underneath a range highlight.
+        const auto insetQuad = [](std::array<sf::Vector2f, 4> corners, float factor) {
+            sf::Vector2f centroid{0.0f, 0.0f};
+            for (const sf::Vector2f& corner : corners)
+            {
+                centroid += corner;
+            }
+            centroid /= 4.0f;
+            for (sf::Vector2f& corner : corners)
+            {
+                corner = centroid + (corner - centroid) * factor;
+            }
+            return corners;
+        };
+
+        // A band running along one edge of the board, offset outward along that
+        // edge's normal. The ends overshoot by the band width so neighbouring
+        // bands overlap into a mitred corner.
+        const auto edgeBand = [](sf::Vector2f from, sf::Vector2f to, float thickness) {
+            const sf::Vector2f delta = to - from;
+            const float length = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+            if (length < 0.001f)
+            {
+                return std::array<sf::Vector2f, 4>{from, to, to, from};
+            }
+            const sf::Vector2f along = delta / length;
+            const sf::Vector2f outward{along.y, -along.x};
+            const sf::Vector2f start = from - along * thickness;
+            const sf::Vector2f end = to + along * thickness;
+            return std::array<sf::Vector2f, 4>{
+                start, end, end + outward * thickness, start + outward * thickness};
+        };
+
+        const auto forEachBoardEdge = [&](float thickness, const auto& body) {
+            for (std::size_t i = 0; i < boardTop.size(); ++i)
+            {
+                body(edgeBand(boardTop[i], boardTop[(i + 1) % boardTop.size()], thickness));
+            }
+        };
+
+        // The board's own shadow on the swamp floor, so it reads as an object
+        // resting in the scene rather than a rectangle pasted over the backdrop.
+        for (int i = 0; i < 4; ++i)
+        {
+            const float spread = 6.0f + static_cast<float>(i) * 7.0f;
+            drawQuad(
+                offsetQuad(boardTop, {spread * 0.45f, spread}),
+                sf::Color(0, 0, 0, static_cast<std::uint8_t>(64 - i * 13)));
+        }
 
         const sf::Vector2f topLeft = boardTop[0];
         const sf::Vector2f topRight = boardTop[1];
         const sf::Vector2f bottomRight = boardTop[2];
         const sf::Vector2f bottomLeft = boardTop[3];
-        drawQuad(
-            {topRight, bottomRight, {bottomRight.x + 10.0f, bottomRight.y + BoardThickness},
-             {topRight.x + 5.0f, topRight.y + BoardThickness * 0.42f}},
-            sf::Color(7, 28, 31, 238),
-            1.0f,
-            sf::Color(35, 83, 77, 170));
-        drawQuad(
-            {topLeft, {topLeft.x - 5.0f, topLeft.y + BoardThickness * 0.42f},
-             {bottomLeft.x - 10.0f, bottomLeft.y + BoardThickness}, bottomLeft},
-            sf::Color(8, 24, 27, 238),
-            1.0f,
-            sf::Color(35, 83, 77, 170));
-        drawQuad(
-            {bottomLeft, bottomRight, {bottomRight.x + 10.0f, bottomRight.y + BoardThickness},
-             {bottomLeft.x - 10.0f, bottomLeft.y + BoardThickness}},
-            sf::Color(77, 49, 28, 246),
-            1.0f,
-            sf::Color(167, 112, 56, 190));
-        drawQuad(boardTop, sf::Color(9, 20, 21, 232), 3.0f, sf::Color(153, 105, 51));
 
-        // Board squares.
+        // Slab sides. Gradients read as a thick stone edge; flat fills read as
+        // three coloured strips.
+        drawGradientQuad(
+            window,
+            {topRight, {topRight.x + 5.0f, topRight.y + BoardThickness * 0.42f},
+             {bottomRight.x + 11.0f, bottomRight.y + BoardThickness}, bottomRight},
+            sf::Color(16, 26, 27, 246),
+            sf::Color(6, 11, 12, 246));
+        drawGradientQuad(
+            window,
+            {topLeft, {topLeft.x - 5.0f, topLeft.y + BoardThickness * 0.42f},
+             {bottomLeft.x - 11.0f, bottomLeft.y + BoardThickness}, bottomLeft},
+            sf::Color(14, 23, 24, 246),
+            sf::Color(5, 10, 11, 246));
+        drawGradientQuad(
+            window,
+            {bottomLeft, bottomRight, {bottomRight.x + 11.0f, bottomRight.y + BoardThickness},
+             {bottomLeft.x - 11.0f, bottomLeft.y + BoardThickness}},
+            shadeColor(BoardBrass, 0.62f),
+            sf::Color(24, 15, 9, 250));
+
+        // Dark ground under the tiles, so grout gaps read as depth.
+        drawQuad(boardTop, sf::Color(7, 11, 12, 250));
+
+        // ---- Playing surface ------------------------------------------------
         for (int screenRow = 0; screenRow < game_data::BoardSize; ++screenRow)
         {
             const int row = rowForScreenRow(screenRow, me);
@@ -713,89 +1258,293 @@
             {
                 const std::size_t idx = static_cast<std::size_t>(game_data::squareIndex(row, column));
                 const BoardCellMetrics metrics = boardCellMetrics(row, column);
-                drawQuad(metrics.corners, ownerTint(gameSnapshot.control[idx]), 1.0f, sf::Color(81, 63, 37));
 
-                if ((row + column) % 2 == 0)
+                // Two stone tones, then a vignette that keeps the middle of the
+                // board the brightest thing on screen, then a slight lift toward
+                // the near edge for the viewer-side light.
+                const bool paleStone = (row + column) % 2 == 0;
+                const sf::Color stone = paleStone ? BoardStoneLight : BoardStoneDark;
+                const float acrossBoard =
+                    (static_cast<float>(column) + 0.5f) / static_cast<float>(game_data::BoardSize)
+                        * 2.0f - 1.0f;
+                const float intoBoard =
+                    (static_cast<float>(screenRow) + 0.5f) / static_cast<float>(game_data::BoardSize)
+                        * 2.0f - 1.0f;
+                const float vignette = 1.0f - 0.22f * std::min(
+                    1.0f, acrossBoard * acrossBoard * 0.9f + intoBoard * intoBoard * 0.5f);
+                const float depth =
+                    static_cast<float>(screenRow) / static_cast<float>(game_data::BoardSize - 1);
+                const float lift = 0.88f + 0.22f * depth;
+                drawGradientQuad(
+                    window,
+                    metrics.corners,
+                    shadeColor(stone, vignette * lift * 0.88f),
+                    shadeColor(stone, vignette * lift * 1.10f));
+
+                // Territory is a wash plus an edge, not a paint-bucket fill: the
+                // stone has to keep showing through or the board reads as two
+                // blocks of colour.
+                const int controller = gameSnapshot.control[idx];
+                if (controller != 0)
                 {
-                    drawQuad(metrics.corners, sf::Color(255, 239, 190, 16));
+                    const sf::Color tint = ownerTint(controller);
+                    drawGradientQuad(
+                        window,
+                        metrics.corners,
+                        withAlpha(tint, static_cast<int>(tint.a * 0.72f)),
+                        tint);
+                    const std::array<sf::Vector2f, 4> rim = insetQuad(metrics.corners, 0.9f);
+                    for (std::size_t i = 0; i < rim.size(); ++i)
+                    {
+                        drawEdgeLine(
+                            window,
+                            rim[i],
+                            rim[(i + 1) % rim.size()],
+                            1.0f,
+                            withAlpha(ownerColor(controller), 74));
+                    }
                 }
 
                 if (gameSnapshot.holes[idx] != 0)
                 {
+                    // A collapsed square: a dark shaft with a lit near lip.
                     const sf::Vector2f anchor = boardCellAnchor(metrics);
-                    const float radius = 8.0f * metrics.depthScale;
-                    sf::CircleShape hole(radius);
-                    hole.setScale({1.0f, 0.48f});
-                    hole.setPosition({anchor.x - radius, anchor.y - radius * 0.42f});
-                    hole.setFillColor(sf::Color(3, 7, 8, 225));
-                    hole.setOutlineThickness(1.5f);
-                    hole.setOutlineColor(sf::Color(108, 78, 46));
-                    window.draw(hole);
+                    const sf::Vector2f mouth{anchor.x, anchor.y - 6.0f * metrics.depthScale};
+                    drawSoftEllipse(
+                        window,
+                        mouth,
+                        18.0f * metrics.depthScale,
+                        8.0f * metrics.depthScale,
+                        sf::Color(0, 0, 0, 235),
+                        5);
+                    drawEllipseOutline(
+                        window,
+                        {mouth.x, mouth.y + 1.6f * metrics.depthScale},
+                        13.0f * metrics.depthScale,
+                        5.4f * metrics.depthScale,
+                        1.2f,
+                        sf::Color(96, 74, 46, 170));
                 }
+            }
+        }
 
-                if (highlight[idx] != 0)
+        // ---- Grout ----------------------------------------------------------
+        // Drawn in one pass over the whole grid rather than as per-cell outlines,
+        // so every joint is one consistent dark seam with a lit upper lip instead
+        // of the doubled bright hairline an outlined quad leaves behind.
+        for (int screenEdge = 0; screenEdge <= game_data::BoardSize; ++screenEdge)
+        {
+            const float depth =
+                static_cast<float>(screenEdge) / static_cast<float>(game_data::BoardSize);
+            const float weight = 0.9f + 1.5f * depth;
+            const sf::Vector2f left = boardEdgePoint(screenEdge, 0);
+            const sf::Vector2f right = boardEdgePoint(screenEdge, game_data::BoardSize);
+            drawEdgeLine(window, left, right, weight, withAlpha(BoardGrout, 225));
+            drawEdgeLine(
+                window,
+                {left.x, left.y - weight * 0.7f},
+                {right.x, right.y - weight * 0.7f},
+                std::max(0.6f, weight * 0.45f),
+                sf::Color(126, 138, 128, 40));
+        }
+        for (int columnEdge = 0; columnEdge <= game_data::BoardSize; ++columnEdge)
+        {
+            for (int screenEdge = 0; screenEdge < game_data::BoardSize; ++screenEdge)
+            {
+                // Row spacing is non-linear, so a column seam has to be walked
+                // segment by segment rather than drawn as one straight line.
+                const float depth =
+                    static_cast<float>(screenEdge) / static_cast<float>(game_data::BoardSize);
+                drawEdgeLine(
+                    window,
+                    boardEdgePoint(screenEdge, columnEdge),
+                    boardEdgePoint(screenEdge + 1, columnEdge),
+                    0.9f + 1.3f * depth,
+                    withAlpha(BoardGrout, 215));
+            }
+        }
+
+        // ---- Range indicators and drop previews ------------------------------
+        for (int screenRow = 0; screenRow < game_data::BoardSize; ++screenRow)
+        {
+            const int row = rowForScreenRow(screenRow, me);
+            for (int column = 0; column < game_data::BoardSize; ++column)
+            {
+                const std::size_t idx = static_cast<std::size_t>(game_data::squareIndex(row, column));
+                const BoardCellMetrics metrics = boardCellMetrics(row, column);
+
+                if (highlight[idx] != 0 && highlight[idx] != 5)
                 {
-                    sf::Color colors[6] = {
-                        sf::Color::Transparent,
-                        sf::Color(90, 200, 120, 90),
-                        sf::Color(220, 90, 80, 110),
-                        sf::Color(90, 200, 210, 90),
-                        sf::Color(110, 200, 150, 90),
-                        sf::Color(248, 214, 112, 135)};
-                    drawQuad(metrics.corners, colors[highlight[idx]]);
+                    // Markers sit inside the tile so the surface stays readable.
+                    // A translucent sheet over half the board is what made the old
+                    // move range look like a paint-bucket accident.
+                    struct RangeStyle
+                    {
+                        sf::Color accent;
+                        bool reticle;
+                    };
+                    const RangeStyle styles[5] = {
+                        {sf::Color::Transparent, false},
+                        {sf::Color(126, 214, 178), false},  // move
+                        {sf::Color(226, 108, 88), true},    // attack
+                        {BoardBrassBright, false},          // deploy
+                        {sf::Color(186, 138, 234), false},  // spell target
+                    };
+                    const RangeStyle& style = styles[highlight[idx]];
+                    const sf::Vector2f anchor = boardCellAnchor(metrics);
+                    const std::array<sf::Vector2f, 4> face = insetQuad(metrics.corners, 0.82f);
+
+                    drawGradientQuad(
+                        window, face, withAlpha(style.accent, 26), withAlpha(style.accent, 46));
+                    for (std::size_t i = 0; i < face.size(); ++i)
+                    {
+                        drawEdgeLine(
+                            window,
+                            face[i],
+                            face[(i + 1) % face.size()],
+                            1.3f,
+                            withAlpha(style.accent, 168));
+                    }
+                    drawSoftEllipse(
+                        window,
+                        {anchor.x, anchor.y - 4.0f * metrics.depthScale},
+                        13.0f * metrics.depthScale,
+                        5.5f * metrics.depthScale,
+                        withAlpha(style.accent, 132),
+                        4);
+
+                    if (style.reticle)
+                    {
+                        // Attack squares get corner brackets, so an attack is
+                        // distinguishable from a move without relying on colour.
+                        const std::array<sf::Vector2f, 4> outer =
+                            insetQuad(metrics.corners, 0.94f);
+                        for (std::size_t i = 0; i < outer.size(); ++i)
+                        {
+                            const sf::Vector2f corner = outer[i];
+                            const sf::Vector2f next = outer[(i + 1) % outer.size()];
+                            const sf::Vector2f previous = outer[(i + 3) % outer.size()];
+                            drawEdgeLine(
+                                window, corner, corner + (next - corner) * 0.28f, 2.0f,
+                                withAlpha(style.accent, 236));
+                            drawEdgeLine(
+                                window, corner, corner + (previous - corner) * 0.28f, 2.0f,
+                                withAlpha(style.accent, 236));
+                        }
+                    }
                 }
 
                 if (storyMode && row == storyTargetRow && column == storyTargetColumn)
                 {
+                    // Objective marker: a pulsing brass target ring set into the
+                    // square, rather than the flat rectangle it replaces.
                     const sf::Vector2f anchor = boardCellAnchor(metrics);
-                    const float pulse = 1.0f + std::sin(animationTime * 4.0f) * 0.12f;
-                    const float radius = 14.0f * metrics.depthScale * pulse;
-                    sf::CircleShape glow(radius);
-                    glow.setOrigin({radius, radius});
-                    glow.setScale({1.35f, 0.62f});
-                    glow.setPosition({anchor.x, anchor.y - 6.0f * metrics.depthScale});
-                    glow.setFillColor(sf::Color(248, 214, 112, 92));
-                    window.draw(glow);
-
-                    sf::RectangleShape valve({30.0f * metrics.depthScale, 8.0f * metrics.depthScale});
-                    valve.setOrigin({15.0f * metrics.depthScale, 4.0f * metrics.depthScale});
-                    valve.setPosition({anchor.x, anchor.y - 12.0f * metrics.depthScale});
-                    valve.setFillColor(sf::Color(93, 64, 39));
-                    valve.setOutlineThickness(1.5f);
-                    valve.setOutlineColor(sf::Color(248, 214, 112));
-                    window.draw(valve);
+                    const float pulse = 0.5f + 0.5f * std::sin(animationTime * 3.2f);
+                    const sf::Vector2f center{anchor.x, anchor.y - 6.0f * metrics.depthScale};
+                    const std::array<sf::Vector2f, 4> face = insetQuad(metrics.corners, 0.8f);
+                    drawGradientQuad(
+                        window, face, withAlpha(BoardBrassBright, 30),
+                        withAlpha(BoardBrassBright, 58));
+                    for (std::size_t i = 0; i < face.size(); ++i)
+                    {
+                        drawEdgeLine(
+                            window, face[i], face[(i + 1) % face.size()], 1.4f,
+                            withAlpha(BoardBrassBright, 190));
+                    }
+                    drawSoftEllipse(
+                        window,
+                        center,
+                        (15.0f + 3.0f * pulse) * metrics.depthScale,
+                        (6.5f + 1.4f * pulse) * metrics.depthScale,
+                        withAlpha(BoardBrassBright, static_cast<int>(96.0f + 54.0f * pulse)),
+                        5);
+                    drawEllipseOutline(
+                        window,
+                        center,
+                        (13.0f + 2.4f * pulse) * metrics.depthScale,
+                        (5.6f + 1.1f * pulse) * metrics.depthScale,
+                        1.6f,
+                        withAlpha(BoardBrassBright, 240));
+                    drawEllipseOutline(
+                        window,
+                        center,
+                        6.0f * metrics.depthScale,
+                        2.6f * metrics.depthScale,
+                        1.3f,
+                        withAlpha(BoardBrassBright, 210));
                 }
 
-                if (draggedHandSquare && draggedHandCard &&
-                    row >= draggedHandSquare->first && row < draggedHandSquare->first + draggedHandCard->height &&
-                    column >= draggedHandSquare->second && column < draggedHandSquare->second + draggedHandCard->width)
+                const bool hoveringHandDrop = draggedHandSquare && draggedHandCard &&
+                    row >= draggedHandSquare->first &&
+                    row < draggedHandSquare->first + draggedHandCard->height &&
+                    column >= draggedHandSquare->second &&
+                    column < draggedHandSquare->second + draggedHandCard->width;
+                const bool hoveringPieceDrop = draggedPieceSquare && draggedPiece &&
+                    row >= draggedPieceSquare->first &&
+                    row < draggedPieceSquare->first + draggedPiece->height &&
+                    column >= draggedPieceSquare->second &&
+                    column < draggedPieceSquare->second + draggedPiece->width;
+                if (hoveringHandDrop || hoveringPieceDrop)
                 {
-                    drawQuad(
+                    const bool valid = hoveringHandDrop ? draggedHandDropValid : draggedPieceDropValid;
+                    const sf::Color accent = valid
+                        ? sf::Color(132, 232, 186)
+                        : sf::Color(232, 104, 92);
+                    drawGradientQuad(
+                        window,
                         metrics.corners,
-                        draggedHandDropValid
-                            ? sf::Color(90, 225, 170, 125)
-                            : sf::Color(225, 75, 65, 125),
-                        2.5f,
-                        draggedHandDropValid
-                            ? sf::Color(145, 255, 215, 235)
-                            : sf::Color(255, 135, 120, 235));
-                }
-
-                if (draggedPieceSquare && draggedPiece &&
-                    row >= draggedPieceSquare->first && row < draggedPieceSquare->first + draggedPiece->height &&
-                    column >= draggedPieceSquare->second && column < draggedPieceSquare->second + draggedPiece->width)
-                {
-                    drawQuad(
-                        metrics.corners,
-                        draggedPieceDropValid
-                            ? sf::Color(90, 225, 170, 125)
-                            : sf::Color(225, 75, 65, 125),
-                        2.5f,
-                        draggedPieceDropValid
-                            ? sf::Color(145, 255, 215, 235)
-                            : sf::Color(255, 135, 120, 235));
+                        withAlpha(accent, 52),
+                        withAlpha(accent, 88));
+                    for (std::size_t i = 0; i < metrics.corners.size(); ++i)
+                    {
+                        drawEdgeLine(
+                            window,
+                            metrics.corners[i],
+                            metrics.corners[(i + 1) % metrics.corners.size()],
+                            2.4f,
+                            withAlpha(accent, 246));
+                    }
                 }
             }
+        }
+
+        // ---- Board frame -----------------------------------------------------
+        // Drawn over the outermost tiles so the brass reads as a rim capping the
+        // slab. Bands overlap at the corners, which mitres them.
+        forEachBoardEdge(3.0f, [&](const std::array<sf::Vector2f, 4>& band) {
+            drawQuad(offsetQuad(band, {2.0f, 3.0f}), sf::Color(0, 0, 0, 120));
+        });
+        forEachBoardEdge(9.0f, [&](const std::array<sf::Vector2f, 4>& band) {
+            drawGradientQuad(window, band, shadeColor(BoardBrass, 1.02f), BoardBrassDim);
+        });
+        forEachBoardEdge(2.0f, [&](const std::array<sf::Vector2f, 4>& band) {
+            drawGradientQuad(
+                window, band, withAlpha(BoardBrassBright, 168), withAlpha(BoardBrassBright, 44));
+        });
+        for (std::size_t i = 0; i < boardTop.size(); ++i)
+        {
+            // Outer keeper line, and a rivet at each mitre.
+            const sf::Vector2f from = boardTop[i];
+            const sf::Vector2f to = boardTop[(i + 1) % boardTop.size()];
+            const sf::Vector2f delta = to - from;
+            const float length = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+            if (length > 0.001f)
+            {
+                const sf::Vector2f outward{delta.y / length, -delta.x / length};
+                drawEdgeLine(
+                    window,
+                    from + outward * 9.0f,
+                    to + outward * 9.0f,
+                    1.2f,
+                    sf::Color(28, 18, 10, 220));
+            }
+            sf::CircleShape rivet(2.6f, 14);
+            rivet.setOrigin({2.6f, 2.6f});
+            rivet.setPosition(from);
+            rivet.setFillColor(sf::Color(206, 152, 74));
+            rivet.setOutlineThickness(1.0f);
+            rivet.setOutlineColor(sf::Color(46, 28, 14, 210));
+            window.draw(rivet);
         }
 
         // Pieces.
@@ -895,13 +1644,6 @@
                 ((piece.hasActed ||
                   (gameSnapshot.relentlessPieceId != 0 && piece.id != gameSnapshot.relentlessPieceId)) &&
                  piece.owner == gameSnapshot.activePlayer) || piece.disabledTurns > 0;
-            sf::Color color = ownerColor(piece.owner);
-            if (pieceUnavailable)
-            {
-                color = sf::Color(static_cast<std::uint8_t>(color.r * 0.55f),
-                                  static_cast<std::uint8_t>(color.g * 0.55f),
-                                  static_cast<std::uint8_t>(color.b * 0.55f));
-            }
 
             const std::string& walkPath = pieceWalkAnimPath(piece);
             const std::string& tokenPath = pieceTokenPath(piece);
@@ -994,6 +1736,28 @@
                     }
                 }
             }
+            // Plinth and contact shadow first, so the piece stands on the board
+            // instead of reading as a cut-out laid over it.
+            drawPieceBase(
+                window,
+                anchor,
+                pieceScale,
+                piece.owner,
+                pieceUnavailable,
+                static_cast<float>(piece.width));
+
+            const bool pieceIsSelected = selectedPieceId && *selectedPieceId == piece.id;
+            if (pieceIsSelected)
+            {
+                const float pulse = 0.5f + 0.5f * std::sin(animationTime * 3.4f);
+                drawPieceSelectionRing(window, anchor, pieceScale, pulse, BoardBrassBright);
+            }
+            else if (highlightedPiece && highlightedPiece->id == piece.id)
+            {
+                drawPieceSelectionRing(
+                    window, anchor, pieceScale, 0.35f, withAlpha(BoardBrassBright, 170));
+            }
+
             bool drewPiece = drawPieceVisual(
                 tokenPath,
                 reactionPath ? *reactionPath : walkPath,
@@ -1011,25 +1775,12 @@
                 piece.height);
             if (!drewPiece)
             {
-                if (sf::Texture* art = cardArtTexture(piece.imagePath))
-                {
-                    sf::Color artTint = pieceUnavailable
-                        ? sf::Color(130, 130, 130)
-                        : sf::Color::White;
-                    artTint.a = pieceTint.a;
-                    drawContainSprite(window, *art, pieceTargetRect(
-                        anchor, pieceScale, false, piece.width, piece.height), artTint);
-                    drewPiece = true;
-                }
-            }
-            if (!drewPiece)
-            {
-                const float radius = PieceBaseWidth * 0.28f * pieceScale;
-                sf::CircleShape body(radius);
-                body.setPosition({anchor.x - radius, anchor.y - radius * 2.0f});
-                color.a = pieceTint.a;
-                body.setFillColor(color);
-                window.draw(body);
+                sf::Color cameoTint = pieceUnavailable
+                    ? sf::Color(150, 146, 140)
+                    : sf::Color::White;
+                cameoTint.a = pieceTint.a;
+                drawPieceCameo(anchor, pieceScale, piece.owner, piece.imagePath, cameoTint);
+                drewPiece = true;
             }
             if (attackImpactAnchor && attackAnimationProgress >= 0.22f && attackAnimationProgress <= 0.78f)
             {
@@ -1061,27 +1812,57 @@
                 slashB.setFillColor(sf::Color(255, 202, 102, alpha));
                 window.draw(slashB);
             }
-            const unsigned int healthSize = static_cast<unsigned int>(std::clamp(12.0f * pieceScale, 10.0f, 17.0f));
-            drawText(window, font, std::to_string(piece.health), healthSize,
-                     {anchor.x - 5.0f * pieceScale, anchor.y - 21.0f * pieceScale}, sf::Color(248, 239, 216));
+            drawPieceStatChip(
+                anchor, pieceScale, piece.health, piece.maxHealth, piece.owner, pieceUnavailable);
+
+            if (piece.isHero)
+            {
+                // A hero's loss ends the match, so mark it. Anchored to the stat
+                // chip rather than the art bounds: tall sprites pushed a bounds-
+                // relative badge far enough away that it read as loose debris.
+                const float chipHeight = std::clamp(16.0f * pieceScale, 13.0f, 22.0f);
+                const float chipWidth = std::clamp(31.0f * pieceScale, 25.0f, 44.0f);
+                const float span = std::clamp(13.0f * pieceScale, 11.0f, 17.0f);
+                const float crownX = anchor.x + chipWidth * 0.5f - span * 0.14f;
+                const float crownY = anchor.y - chipHeight * 0.34f - span * 0.34f;
+                sf::ConvexShape crown(7);
+                crown.setPoint(0, {crownX - span * 0.5f, crownY + span * 0.32f});
+                crown.setPoint(1, {crownX - span * 0.5f, crownY - span * 0.18f});
+                crown.setPoint(2, {crownX - span * 0.25f, crownY + span * 0.04f});
+                crown.setPoint(3, {crownX, crownY - span * 0.32f});
+                crown.setPoint(4, {crownX + span * 0.25f, crownY + span * 0.04f});
+                crown.setPoint(5, {crownX + span * 0.5f, crownY - span * 0.18f});
+                crown.setPoint(6, {crownX + span * 0.5f, crownY + span * 0.32f});
+                crown.setFillColor(withAlpha(BoardBrassBright, pieceUnavailable ? 155 : 245));
+                crown.setOutlineThickness(1.0f);
+                crown.setOutlineColor(sf::Color(32, 20, 10, 230));
+                window.draw(crown);
+            }
+
             if (piece.controlTurnsRemaining > 0)
             {
-                const sf::FloatRect artBounds = pieceTargetRect(
-                    anchor, pieceScale, true, piece.width, piece.height);
-                const float iconSize = std::clamp(24.0f * pieceScale, 18.0f, 30.0f);
-                const float iconY = artBounds.position.y - iconSize * 0.72f;
-                const float iconX = anchor.x - iconSize - 5.0f * pieceScale;
-                if (sf::Texture* icon = textures.load("ui/under-control.png"))
-                {
-                    drawContainSprite(window, *icon, {{iconX, iconY}, {iconSize, iconSize}});
-                }
-                drawText(
-                    window,
+                // Held piece: a violet badge on the chip's other shoulder, so the
+                // duration reads as a labelled count rather than a loose glyph.
+                const float chipHeight = std::clamp(16.0f * pieceScale, 13.0f, 22.0f);
+                const float chipWidth = std::clamp(31.0f * pieceScale, 25.0f, 44.0f);
+                const float radius = std::clamp(8.0f * pieceScale, 7.0f, 11.0f);
+                const sf::Vector2f center{
+                    anchor.x - chipWidth * 0.5f + radius * 0.2f,
+                    anchor.y - chipHeight * 0.34f - radius * 0.32f};
+                sf::CircleShape badge(radius, 18);
+                badge.setOrigin({radius, radius});
+                badge.setPosition(center);
+                badge.setFillColor(sf::Color(58, 30, 78, 244));
+                badge.setOutlineThickness(1.3f);
+                badge.setOutlineColor(withAlpha(sf::Color(206, 162, 240), 240));
+                window.draw(badge);
+                sf::Text turns(
                     font,
                     std::to_string(piece.controlTurnsRemaining),
-                    static_cast<unsigned int>(std::clamp(14.0f * pieceScale, 11.0f, 18.0f)),
-                    {iconX + iconSize + 2.0f * pieceScale, iconY + iconSize * 0.22f},
-                    sf::Color(248, 239, 216));
+                    static_cast<unsigned int>(std::clamp(11.0f * pieceScale, 9.0f, 14.0f)));
+                turns.setFillColor(BoardParchment);
+                centerText(turns, center);
+                drawCrispText(window, turns);
             }
         }
 
@@ -1105,7 +1886,15 @@
                 killedFrameCount - 1);
             sf::Color tint = sf::Color::White;
             tint.a = static_cast<std::uint8_t>(std::clamp(255.0f * (1.0f - progress * 0.35f), 0.0f, 255.0f));
-            bool drewKilledPiece = drawPieceVisual(
+            // The plinth fades out with the piece standing on it.
+            drawPieceBase(
+                window,
+                anchor,
+                cell.depthScale * (1.0f - progress * 0.2f),
+                killedPiece.owner,
+                true,
+                static_cast<float>(killedPiece.width));
+            const bool drewKilledPiece = drawPieceVisual(
                 pieceTokenPath(killedPiece),
                 killedPiece.killedAnimPath,
                 "",
@@ -1171,22 +1960,7 @@
                     ghostPiece.height);
                 if (!drewGhost)
                 {
-                    if (sf::Texture* art = cardArtTexture(ghostPiece.imagePath))
-                    {
-                        drawContainSprite(window, *art, pieceTargetRect(
-                            anchor, scale, false, ghostPiece.width, ghostPiece.height), tint);
-                        drewGhost = true;
-                    }
-                }
-                if (!drewGhost)
-                {
-                    const float radius = PieceBaseWidth * 0.28f * scale;
-                    sf::CircleShape body(radius);
-                    body.setPosition({anchor.x - radius, anchor.y - radius * 2.0f});
-                    sf::Color bodyColor = ownerColor(ghostPiece.owner);
-                    bodyColor.a = alpha;
-                    body.setFillColor(bodyColor);
-                    window.draw(body);
+                    drawPieceCameo(anchor, scale, ghostPiece.owner, ghostPiece.imagePath, tint);
                 }
             }
             ++ghost;
@@ -1264,8 +2038,6 @@
             : (sandboxMode
             ? "Player " + std::to_string(activePlayer)
             : (activePlayer == me ? loggedInUsername : "Opponent"));
-        drawText(window, font, "Turn: " + activePlayerName, 16, {BoardOriginX, GameTurnLabelY},
-                 ownerColor(activePlayer), GameTurnReadoutWidth);
 
         auto timerText = [](std::int64_t milliseconds) {
             const std::int64_t totalSeconds =
@@ -1303,35 +2075,99 @@
                 0,
                 remainingMs - (ticking ? snapshotAgeMs : 0));
         };
-        if (gameSnapshot.timersEnabled)
-        {
-            const std::int64_t liveTurnRemainingMs = liveTimer(
-                gameSnapshot.turnRemainingMs,
-                phase == game_data::Phase::Playing);
-            const std::string turnTimer =
-                "Turn time: " + timerText(liveTurnRemainingMs);
-            const sf::Text turnTimerMeasure(font, turnTimer, 16);
-            const sf::FloatRect turnTimerBounds = turnTimerMeasure.getLocalBounds();
-            drawText(
-                window,
-                font,
-                turnTimer,
-                16,
-                {BoardOriginX + BoardBottomWidth -
-                     (turnTimerBounds.position.x + turnTimerBounds.size.x),
-                 GameTurnLabelY},
-                liveTurnRemainingMs <= 30'000
-                    ? sf::Color(245, 115, 105)
-                    : sf::Color(248, 224, 172));
-        }
+        // ---- Owner banners ---------------------------------------------------
+        // Each side gets a plate carrying its name, resources, held territory and
+        // clock as separate labelled figures. The single run-on line this replaces
+        // leaked internal placeholders ("Resources: story") and abbreviations
+        // ("R: 7") straight to the player.
+        const auto playerDisplayName = [&](int playerNumber) {
+            if (storyMode)
+            {
+                return playerNumber == 1 ? std::string("Tinkering Tom") : std::string("The Mire");
+            }
+            if (sandboxMode)
+            {
+                return "Player " + std::to_string(playerNumber);
+            }
+            return playerNumber == me ? loggedInUsername : std::string("Opponent");
+        };
 
-        auto playerReadout = [&](int playerNumber, const game_data::PlayerSnapshot& player) {
-            const std::string resources = storyMode
-                ? "story"
-                : (sandboxMode ? "free" : std::to_string(player.resources));
-            const std::string control = storyMode
-                ? "story"
-                : std::to_string(player.controlledSquares);
+        // A labelled figure: small muted caption over a large parchment number.
+        const auto drawBannerFigure = [&](sf::Vector2f center,
+                                          const std::string& caption,
+                                          const std::string& value,
+                                          sf::Color valueColor) {
+            sf::Text captionText(font, caption, 9);
+            captionText.setFillColor(withAlpha(BoardParchmentMuted, 208));
+            centerText(captionText, {center.x, center.y - 8.0f});
+            drawCrispText(window, captionText);
+
+            sf::Text valueText(font, value, 17);
+            valueText.setFillColor(valueColor);
+            valueText.setOutlineThickness(1.0f);
+            valueText.setOutlineColor(sf::Color(0, 0, 0, 170));
+            centerText(valueText, {center.x, center.y + 8.0f});
+            drawCrispText(window, valueText);
+        };
+
+        const auto drawPlayerBanner = [&](int playerNumber,
+                                          const game_data::PlayerSnapshot& player) {
+            const bool leftSide = playerNumber == 1;
+            const float x = leftSide ? GamePlayerBannerLeftX : GamePlayerBannerRightX;
+            const bool isActive = playerNumber == activePlayer &&
+                phase != game_data::Phase::GameOver;
+            const sf::Color accent = ownerColor(playerNumber);
+
+            const bool enchantmentTarget = draggedHandCard &&
+                draggedHandCard->type == "Enchantment" && draggedHandCard->target == "player";
+            const bool hoveredForEnchantment = enchantmentTarget &&
+                playerReadoutAtPixel(gameDragCurrentPos) == std::optional<int>(playerNumber);
+
+            if (isActive)
+            {
+                // The side to move gets an outer bloom rather than a colour swap,
+                // so turn ownership is obvious without recolouring the type.
+                drawCutPlate(
+                    {x - 3.0f, GameTopBarY - 3.0f},
+                    {GamePlayerBannerWidth + 6.0f, GamePlayerBannerHeight + 6.0f},
+                    11.0f,
+                    withAlpha(accent, 40),
+                    withAlpha(accent, 150),
+                    1.4f);
+            }
+            drawBeveledPlate(
+                window,
+                {x, GameTopBarY},
+                {GamePlayerBannerWidth, GamePlayerBannerHeight},
+                withAlpha(ownerColorDeep(playerNumber), 236),
+                hoveredForEnchantment ? sf::Color(223, 164, 255)
+                                      : (isActive ? BoardBrassBright : BoardBrass),
+                isActive,
+                9.0f);
+            if (enchantmentTarget)
+            {
+                drawCutPlate(
+                    {x + 3.0f, GameTopBarY + 3.0f},
+                    {GamePlayerBannerWidth - 6.0f, GamePlayerBannerHeight - 6.0f},
+                    7.0f,
+                    withAlpha(BoardArcane, hoveredForEnchantment ? 96 : 44),
+                    withAlpha(sf::Color(223, 164, 255), hoveredForEnchantment ? 235 : 150),
+                    hoveredForEnchantment ? 1.8f : 1.0f);
+            }
+
+            // Owner sigil at the outer edge, name inboard of it.
+            const float sigilX = leftSide ? x + 19.0f : x + GamePlayerBannerWidth - 19.0f;
+            const float sigilY = GameTopBarY + GamePlayerBannerHeight * 0.5f;
+            drawEllipseOutline(window, {sigilX, sigilY}, 12.0f, 12.0f, 1.4f, withAlpha(accent, 210));
+            sf::CircleShape sigil(7.5f, 6);
+            sigil.setOrigin({7.5f, 7.5f});
+            sigil.setPosition({sigilX, sigilY});
+            sigil.setRotation(sf::degrees(leftSide ? 0.0f : 30.0f));
+            sigil.setFillColor(withAlpha(accent, isActive ? 235 : 170));
+            sigil.setOutlineThickness(1.0f);
+            sigil.setOutlineColor(sf::Color(20, 14, 9, 210));
+            window.draw(sigil);
+
             const int enchantmentCount = static_cast<int>(std::count_if(
                 gameSnapshot.enchantments.begin(),
                 gameSnapshot.enchantments.end(),
@@ -1340,67 +2176,148 @@
                             static_cast<std::uint8_t>(game_data::EnchantmentTarget::Player) &&
                         enchantment.targetPlayer == playerNumber;
                 }));
-            const std::string enchantmentReadout = enchantmentCount > 0
-                ? "  Enchantments: " + std::to_string(enchantmentCount)
-                : "";
+
+            // Essence is unbounded in sandbox. The tutorial has no economy at all,
+            // so it drops the figures rather than printing a placeholder in them —
+            // this readout used to render the literal string "story" in both.
+            const std::string resources =
+                sandboxMode && !storyMode ? std::string("Free") : std::to_string(player.resources);
+            const std::string control = std::to_string(player.controlledSquares);
+
+            // Figures occupy the half of the plate away from the sigil, laid out
+            // in the same reading order on both sides.
+            const float figureStep = 40.0f;
+            const int figureCount = storyMode ? 0 : (enchantmentCount > 0 ? 3 : 2);
+            const float figureBlockWidth = figureStep * static_cast<float>(figureCount);
+            const float figureBlockX = leftSide
+                ? x + GamePlayerBannerWidth - 8.0f - figureBlockWidth
+                : x + 8.0f;
+            const float figureY = GameTopBarY + GamePlayerBannerHeight * 0.5f;
+
+            float slot = 0.0f;
+            const auto nextFigureCenter = [&]() {
+                const float center = figureBlockX + figureStep * (slot + 0.5f);
+                slot += 1.0f;
+                return sf::Vector2f{center, figureY};
+            };
+            if (!storyMode)
+            {
+                drawBannerFigure(nextFigureCenter(), "ESSENCE", resources, BoardBrassBright);
+                drawBannerFigure(
+                    nextFigureCenter(), "LANDS", control,
+                    withAlpha(ownerColorBright(playerNumber), 255));
+                if (enchantmentCount > 0)
+                {
+                    drawBannerFigure(
+                        nextFigureCenter(), "HEX", std::to_string(enchantmentCount),
+                        sf::Color(206, 162, 240));
+                }
+            }
+
+            // Name and clock fill the gap between the sigil and the figures.
+            const float textLeft = leftSide ? x + 37.0f : x + 8.0f + figureBlockWidth + 6.0f;
+            const float textRight = leftSide ? figureBlockX - 6.0f : x + GamePlayerBannerWidth - 37.0f;
+            const float textWidth = std::max(30.0f, textRight - textLeft);
+            sf::Text nameText(
+                font,
+                elideToWidth(font, playerDisplayName(playerNumber), 14, textWidth),
+                14);
+            nameText.setFillColor(isActive ? BoardParchment : withAlpha(BoardParchmentMuted, 226));
+            nameText.setPosition({
+                textLeft,
+                GameTopBarY + (gameSnapshot.timersEnabled ? 7.0f : 15.0f)});
+            drawCrispText(window, nameText);
+
             if (gameSnapshot.timersEnabled)
             {
-                return "Player " + std::to_string(playerNumber) + "  Clock: " +
-                    timerText(liveTimer(
-                        player.clockRemainingMs,
-                        phase == game_data::Phase::Playing &&
-                            playerNumber == gameSnapshot.activePlayer)) + "  R: " + resources +
-                    "  Control: " + control + enchantmentReadout;
+                const std::int64_t clockMs = liveTimer(
+                    player.clockRemainingMs,
+                    phase == game_data::Phase::Playing &&
+                        playerNumber == gameSnapshot.activePlayer);
+                sf::Text clockText(font, timerText(clockMs), 13);
+                clockText.setFillColor(clockMs <= 30'000
+                    ? sf::Color(233, 128, 106)
+                    : withAlpha(BoardParchmentMuted, 232));
+                clockText.setPosition({textLeft, GameTopBarY + 26.0f});
+                drawCrispText(window, clockText);
             }
-            return "Player " + std::to_string(playerNumber) + "  Resources: " + resources +
-                "  Control: " + control + enchantmentReadout;
         };
 
-        if (draggedHandCard && draggedHandCard->type == "Enchantment" &&
-            draggedHandCard->target == "player")
+        drawPlayerBanner(1, playerOne);
+        drawPlayerBanner(2, playerTwo);
+
+        // ---- Turn plaque -----------------------------------------------------
         {
-            for (int playerNumber = 1; playerNumber <= 2; ++playerNumber)
+            const bool myTurn = sandboxMode || activePlayer == me;
+            const std::string turnLabel = phase == game_data::Phase::GameOver
+                ? std::string("MATCH OVER")
+                : (phase == game_data::Phase::HeroPlacement
+                    ? std::string("DEPLOY YOUR HEROES")
+                    : (storyMode ? std::string("TUTORIAL")
+                                 : (myTurn ? std::string("YOUR TURN")
+                                           : std::string("OPPONENT'S TURN"))));
+            const sf::Color accent = phase == game_data::Phase::GameOver
+                ? BoardBrass
+                : ownerColor(activePlayer);
+
+            drawBeveledPlate(
+                window,
+                {GameTurnPlaqueX, GameTurnPlaqueY},
+                {GameTurnPlaqueWidth, GameTurnPlaqueHeight},
+                withAlpha(BoardPlate, 238),
+                accent,
+                true,
+                12.0f);
+
+            sf::Text label(font, turnLabel, 15);
+            label.setLetterSpacing(1.28f);
+            label.setFillColor(BoardParchment);
+            label.setOutlineThickness(1.0f);
+            label.setOutlineColor(sf::Color(0, 0, 0, 190));
+            centerText(
+                label,
+                {BoardCenterX,
+                 GameTurnPlaqueY + (gameSnapshot.timersEnabled ? 17.0f : 24.0f)});
+            drawCrispText(window, label);
+
+            if (gameSnapshot.timersEnabled)
             {
-                const bool hovered = playerReadoutAtPixel(gameDragCurrentPos) ==
-                    std::optional<int>(playerNumber);
-                sf::RectangleShape targetGlow({GamePlayerReadoutWidth, 25.0f});
-                targetGlow.setPosition({
-                    playerNumber == 1
-                        ? BoardOriginX
-                        : BoardOriginX + BoardBottomWidth - GamePlayerReadoutWidth,
-                    GameLabelY - 3.0f});
-                targetGlow.setFillColor(hovered
-                    ? sf::Color(137, 72, 180, 105)
-                    : sf::Color(105, 62, 140, 55));
-                targetGlow.setOutlineThickness(hovered ? 2.0f : 1.0f);
-                targetGlow.setOutlineColor(sf::Color(223, 164, 255, 220));
-                window.draw(targetGlow);
+                const std::int64_t liveTurnRemainingMs = liveTimer(
+                    gameSnapshot.turnRemainingMs, phase == game_data::Phase::Playing);
+                const bool urgent = liveTurnRemainingMs <= 30'000;
+
+                // A drain bar beside the figure, so time pressure is felt rather
+                // than only read off a clock string.
+                sf::Text turnClock(font, timerText(liveTurnRemainingMs), 13);
+                turnClock.setFillColor(urgent
+                    ? sf::Color(240, 152, 132)
+                    : withAlpha(BoardParchmentMuted, 240));
+                const float clockWidth = turnClock.getLocalBounds().size.x;
+                const float trackWidth = GameTurnPlaqueWidth - 74.0f - clockWidth;
+                const float trackX = BoardCenterX - (trackWidth + clockWidth + 8.0f) * 0.5f;
+                const float rowY = GameTurnPlaqueY + 34.0f;
+
+                turnClock.setPosition({trackX + trackWidth + 8.0f, rowY - 8.0f});
+                drawCrispText(window, turnClock);
+
+                sf::RectangleShape track({trackWidth, 4.0f});
+                track.setPosition({trackX, rowY - 2.0f});
+                track.setFillColor(sf::Color(0, 0, 0, 200));
+                window.draw(track);
+                const float fraction = std::clamp(
+                    static_cast<float>(liveTurnRemainingMs) / 60'000.0f, 0.0f, 1.0f);
+                sf::RectangleShape fill({std::max(1.0f, trackWidth * fraction), 4.0f});
+                fill.setPosition({trackX, rowY - 2.0f});
+                fill.setFillColor(urgent ? sf::Color(233, 128, 106) : BoardBrass);
+                window.draw(fill);
+                drawEdgeLine(
+                    window,
+                    {trackX, rowY - 2.5f},
+                    {trackX + trackWidth, rowY - 2.5f},
+                    1.0f,
+                    withAlpha(BoardBrassDim, 220));
             }
         }
-
-        drawText(
-            window,
-            font,
-            playerReadout(1, playerOne),
-            16,
-            {BoardOriginX, GameLabelY},
-            ownerColor(1),
-            GamePlayerReadoutWidth);
-
-        const std::string playerTwoReadout = playerReadout(2, playerTwo);
-        const std::string displayedPlayerTwoReadout =
-            elideToWidth(font, playerTwoReadout, 16, GamePlayerReadoutWidth);
-        const sf::Text playerTwoText(font, displayedPlayerTwoReadout, 16);
-        const sf::FloatRect playerTwoBounds = playerTwoText.getLocalBounds();
-        const float playerTwoX = BoardOriginX + BoardBottomWidth -
-            (playerTwoBounds.position.x + playerTwoBounds.size.x);
-        drawText(
-            window,
-            font,
-            displayedPlayerTwoReadout,
-            16,
-            {playerTwoX, GameLabelY},
-            ownerColor(2));
 
         if (displayedClockWarning &&
             std::chrono::steady_clock::now() < displayedClockWarning->visibleUntil)
@@ -1438,14 +2355,112 @@
             window.draw(clockWarningText);
         }
 
+        // ---- Command bar ------------------------------------------------------
+        // A rail carrying resources, the piles, the hand and the turn actions. The
+        // whole region used to be unstyled screen, with the buttons running off
+        // the bottom edge.
+        {
+            const sf::Vector2f barPosition{14.0f, GameBottomBarY};
+            const sf::Vector2f barSize{772.0f, GameBottomBarHeight};
+            drawCutPlate(
+                barPosition, barSize, 14.0f, sf::Color(10, 15, 16, 236), BoardBrassDim, 1.6f);
+            // Lit top lip, so the rail reads as a raised ledge under the board.
+            drawEdgeLine(
+                window,
+                {barPosition.x + 16.0f, barPosition.y + 1.0f},
+                {barPosition.x + barSize.x - 16.0f, barPosition.y + 1.0f},
+                1.4f,
+                withAlpha(BoardBrass, 176));
+            drawEdgeLine(
+                window,
+                {barPosition.x + 20.0f, barPosition.y + 3.5f},
+                {barPosition.x + barSize.x - 20.0f, barPosition.y + 3.5f},
+                1.0f,
+                sf::Color(0, 0, 0, 130));
+        }
+
+        // Whether a hand card can actually be played right now. Shared by the card
+        // faces and the essence gauge so the two never disagree.
+        const auto handCardPlayable = [&](const game_data::GameCard& card) {
+            if (phase == game_data::Phase::HeroPlacement)
+            {
+                return true;
+            }
+            return gameSnapshot.relentlessPieceId == 0 &&
+                (sandboxMode || card.cost <= mine.resources) &&
+                (sandboxMode || gameSnapshot.activePlayer == me) &&
+                phase == game_data::Phase::Playing &&
+                (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, card));
+        };
+
+        const bool commandBarActive = phase == game_data::Phase::Playing && !storyMode;
+        if (commandBarActive)
+        {
+            const int playableCount = static_cast<int>(std::count_if(
+                gameSnapshot.hand.begin(), gameSnapshot.hand.end(), handCardPlayable));
+            drawEssenceGauge(
+                sandboxMode ? std::string("Free") : std::to_string(mine.resources),
+                sandboxMode ? -1 : playableCount);
+            drawDrawPile(mine.drawPileCount);
+
+            const bool draggingHandCard =
+                gameDragActive &&
+                gameDragKind == GameDragKind::HandCard &&
+                draggingHandIndex;
+            const bool draggingHandOverTrash =
+                draggingHandCard &&
+                isDiscardTrashCanAtPixel(gameDragCurrentPos);
+            drawDiscardTrashCan(playerCanDiscardThisTurn(), draggingHandCard, draggingHandOverTrash);
+        }
+
+        const bool abilityAvailable = phase == game_data::Phase::Playing &&
+            (sandboxMode || gameSnapshot.activePlayer == me) && selectedPiece &&
+            pieceCanTakeGameAction(*selectedPiece) &&
+            game_data::pieceAbilityAvailable(gameSnapshot.pieces, *selectedPiece);
+        if (!abilityAvailable && !storyMode)
+        {
+            // The opponent's hand size was not surfaced anywhere before, and it
+            // keeps the ability slot from reading as a hole in the bar.
+            drawCutPlate(
+                {GameActionButtonX, GameAbilityButtonY},
+                {GameActionButtonWidth, GameActionButtonHeight},
+                7.0f,
+                sf::Color(13, 19, 20, 226),
+                withAlpha(BoardBrassDim, 220),
+                1.2f);
+            sf::Text caption(font, "OPPONENT'S HAND", 8);
+            caption.setLetterSpacing(1.2f);
+            caption.setFillColor(withAlpha(BoardParchmentMuted, 210));
+            caption.setPosition({GameActionButtonX + 12.0f, GameAbilityButtonY + 9.0f});
+            drawCrispText(window, caption);
+            sf::Text count(
+                font,
+                std::to_string(gameSnapshot.players[me == 1 ? 1 : 0].handCount),
+                14);
+            count.setFillColor(BoardParchment);
+            centerText(
+                count,
+                {GameActionButtonX + GameActionButtonWidth - 18.0f,
+                 GameAbilityButtonY + GameActionButtonHeight * 0.5f});
+            drawCrispText(window, count);
+        }
+
         if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
         {
-            if (selectedPiece && pieceCanTakeGameAction(*selectedPiece) &&
-                game_data::pieceAbilityAvailable(gameSnapshot.pieces, *selectedPiece))
+            if (abilityAvailable)
             {
                 abilityButton.setLabel(game_data::pieceAbilityLabel(*selectedPiece));
                 abilityButton.draw(window);
             }
+            // Warm bloom behind the primary action, so ending the turn outranks
+            // leaving the match instead of the two reading as equal peers.
+            drawCutPlate(
+                {GameActionButtonX - 4.0f, GameActionButtonY - 4.0f},
+                {GameActionButtonWidth + 8.0f, GamePrimaryButtonHeight + 8.0f},
+                11.0f,
+                withAlpha(BoardBrassBright, 34),
+                withAlpha(BoardBrassBright, 128),
+                1.4f);
             if (sandboxMode && !storyMode)
             {
                 sandboxPlayerButton.draw(window);
@@ -1458,82 +2473,87 @@
         }
         leaveGameButton.draw(window);
 
-        if (phase == game_data::Phase::Playing && !storyMode)
-        {
-            const bool draggingHandCard =
-                gameDragActive &&
-                gameDragKind == GameDragKind::HandCard &&
-                draggingHandIndex;
-            const bool draggingHandOverTrash =
-                draggingHandCard &&
-                isDiscardTrashCanAtPixel(gameDragCurrentPos);
-            drawDiscardTrashCan(playerCanDiscardThisTurn(), draggingHandCard, draggingHandOverTrash);
-        }
-
         if (storyMode)
         {
-            drawPanel(window, {24.0f, 506.0f}, {752.0f, 74.0f});
+            // Tutorial coaching, as a lit instruction plaque rather than body text
+            // on a plain plate.
+            const char* stepHeading = "First Part Complete";
+            const char* stepBody =
+                "Tom steadies the marshworks. Leave returns to the menu; the story "
+                "will continue later.";
+            int stepNumber = 3;
+            sf::Color stepAccent = sf::Color(146, 232, 166);
             if (storyStage == StoryStage::MoveTutorial)
             {
-                drawText(window, font, "Move Tinkering Tom", 18, {44.0f, 516.0f}, sf::Color(248, 224, 172), 220.0f);
-                drawWrappedText(
-                    window,
-                    font,
-                    "Click Tom, then click the glowing square beside him. You can also drag him there.",
-                    15,
-                    {44.0f, 542.0f},
-                    sf::Color(220, 224, 230),
-                    650.0f,
-                    3.0f);
+                stepHeading = "Move Tinkering Tom";
+                stepBody = "Click Tom, then click the glowing square beside him. "
+                           "You can also drag him there.";
+                stepNumber = 1;
+                stepAccent = BoardBrassBright;
             }
             else if (storyStage == StoryStage::ValveChallenge)
             {
-                drawText(window, font, "Repair the Valve", 18, {44.0f, 516.0f}, sf::Color(248, 224, 172), 220.0f);
-                drawWrappedText(
-                    window,
-                    font,
-                    "Guide Tom to the glowing valve. He moves one square per step, so choose a clear path.",
-                    15,
-                    {44.0f, 542.0f},
-                    sf::Color(220, 224, 230),
-                    650.0f,
-                    3.0f);
+                stepHeading = "Repair the Valve";
+                stepBody = "Guide Tom to the glowing valve. He moves one square per "
+                           "step, so choose a clear path.";
+                stepNumber = 2;
+                stepAccent = BoardBrassBright;
             }
-            else
-            {
-                drawText(window, font, "First Part Complete", 18, {44.0f, 516.0f}, sf::Color(120, 220, 150), 260.0f);
-                drawWrappedText(
-                    window,
-                    font,
-                    "Tom steadies the marshworks. Leave returns to the menu; the story will continue later.",
-                    15,
-                    {44.0f, 542.0f},
-                    sf::Color(220, 224, 230),
-                    650.0f,
-                    3.0f);
-            }
+
+            const sf::Vector2f plaquePosition{GameResourcePlateX, GameBottomBarY + 14.0f};
+            const sf::Vector2f plaqueSize{560.0f, GameBottomBarHeight - 28.0f};
+            drawBeveledPlate(
+                window,
+                plaquePosition,
+                plaqueSize,
+                withAlpha(BoardPlate, 242),
+                stepAccent,
+                true,
+                12.0f);
+
+            // Step medallion, so progress through the tutorial is legible.
+            const sf::Vector2f medallion{
+                plaquePosition.x + 32.0f, plaquePosition.y + plaqueSize.y * 0.5f};
+            drawEllipseOutline(window, medallion, 19.0f, 19.0f, 1.4f, withAlpha(stepAccent, 150));
+            sf::CircleShape medallionFace(15.0f, 24);
+            medallionFace.setOrigin({15.0f, 15.0f});
+            medallionFace.setPosition(medallion);
+            medallionFace.setFillColor(sf::Color(22, 30, 28, 246));
+            medallionFace.setOutlineThickness(1.6f);
+            medallionFace.setOutlineColor(withAlpha(stepAccent, 235));
+            window.draw(medallionFace);
+            sf::Text stepText(font, std::to_string(stepNumber), 17);
+            stepText.setFillColor(stepAccent);
+            centerText(stepText, medallion);
+            drawCrispText(window, stepText);
+
+            const float textX = plaquePosition.x + 62.0f;
+            sf::Text heading(font, stepHeading, 17);
+            heading.setLetterSpacing(1.1f);
+            heading.setFillColor(BoardParchment);
+            heading.setPosition({textX, plaquePosition.y + 16.0f});
+            drawCrispText(window, heading);
+            drawWrappedText(
+                window,
+                font,
+                stepBody,
+                13,
+                {textX, plaquePosition.y + 44.0f},
+                withAlpha(BoardParchmentMuted, 240),
+                plaqueSize.x - 78.0f,
+                3.0f);
         }
 
-        // Hand.
+        // ---- Hand -------------------------------------------------------------
         if (!storyMode)
         {
             clampListOffset(gameHandOffset, gameSnapshot.hand.size(), VisibleGameHandCards);
-            const std::size_t lastHandCard = std::min(gameSnapshot.hand.size(), gameHandOffset + VisibleGameHandCards);
-            if (gameSnapshot.hand.size() > VisibleGameHandCards)
-            {
-                drawText(
-                    window,
-                    font,
-                    "Cards " + std::to_string(gameHandOffset + 1) + "-" +
-                        std::to_string(lastHandCard) + "/" + std::to_string(gameSnapshot.hand.size()),
-                    12,
-                    {HandStartX, HandY - 18.0f},
-                    sf::Color(190, 198, 214),
-                    240.0f);
-            }
+            const std::size_t lastHandCard =
+                std::min(gameSnapshot.hand.size(), gameHandOffset + VisibleGameHandCards);
             for (std::size_t i = gameHandOffset; i < lastHandCard; ++i)
             {
-                const float x = HandStartX + static_cast<float>(i - gameHandOffset) * (HandCardWidth + HandGap);
+                const float x =
+                    HandStartX + static_cast<float>(i - gameHandOffset) * (HandCardWidth + HandGap);
                 const game_data::GameCard& card = gameSnapshot.hand[i];
                 const bool affordable = phase == game_data::Phase::HeroPlacement ||
                     (gameSnapshot.relentlessPieceId == 0 &&
@@ -1541,6 +2561,49 @@
                      phase == game_data::Phase::Playing &&
                      (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, card)));
                 drawGameCardFace({x, HandY}, card, selectedHandIndex && *selectedHandIndex == i, affordable);
+            }
+
+            if (gameSnapshot.hand.empty())
+            {
+                sf::Text emptyHand(font, "No cards in hand", 13);
+                emptyHand.setFillColor(withAlpha(BoardParchmentMuted, 168));
+                centerText(
+                    emptyHand,
+                    {HandStartX + (HandCardWidth * static_cast<float>(VisibleGameHandCards) +
+                                   HandGap * static_cast<float>(VisibleGameHandCards - 1)) * 0.5f,
+                     HandY + HandCardHeight * 0.5f});
+                drawCrispText(window, emptyHand);
+            }
+            else if (gameSnapshot.hand.size() > VisibleGameHandCards)
+            {
+                // Overflow chevrons instead of the "Cards 1-5/6" debug readout.
+                const float handRight = HandStartX +
+                    HandCardWidth * static_cast<float>(VisibleGameHandCards) +
+                    HandGap * static_cast<float>(VisibleGameHandCards - 1);
+                const float arrowY = HandY + HandCardHeight * 0.5f;
+                const auto drawChevron = [&](float centerX, bool pointsLeft, bool enabled) {
+                    const sf::Color accent = enabled
+                        ? withAlpha(BoardBrassBright, 236)
+                        : withAlpha(BoardBrassDim, 150);
+                    const float reach = pointsLeft ? -4.5f : 4.5f;
+                    drawEdgeLine(
+                        window, {centerX - reach, arrowY - 7.0f}, {centerX + reach, arrowY}, 2.2f,
+                        accent);
+                    drawEdgeLine(
+                        window, {centerX - reach, arrowY + 7.0f}, {centerX + reach, arrowY}, 2.2f,
+                        accent);
+                };
+                drawChevron(HandStartX - 8.0f, true, gameHandOffset > 0);
+                drawChevron(handRight + 8.0f, false, lastHandCard < gameSnapshot.hand.size());
+
+                const std::size_t hidden = gameSnapshot.hand.size() - (lastHandCard - gameHandOffset);
+                if (hidden > 0)
+                {
+                    sf::Text more(font, "+" + std::to_string(hidden), 10);
+                    more.setFillColor(withAlpha(BoardParchmentMuted, 226));
+                    centerText(more, {handRight + 8.0f, arrowY + 18.0f});
+                    drawCrispText(window, more);
+                }
             }
         }
 
@@ -1601,7 +2664,20 @@
                 const sf::Color tint = draggedPieceDropValid
                     ? sf::Color(255, 255, 255, 220)
                     : sf::Color(220, 120, 110, 190);
-                bool drewPiece = drawPieceVisual(
+                drawPieceBase(
+                    window,
+                    anchor,
+                    scale,
+                    draggedPiece->owner,
+                    false,
+                    static_cast<float>(draggedPiece->width));
+                drawPieceSelectionRing(
+                    window,
+                    anchor,
+                    scale,
+                    0.7f,
+                    draggedPieceDropValid ? BoardBrassBright : sf::Color(232, 104, 92));
+                const bool drewPiece = drawPieceVisual(
                     pieceTokenPath(*draggedPiece),
                     pieceWalkAnimPath(*draggedPiece),
                     "",
@@ -1618,35 +2694,17 @@
                     draggedPiece->height);
                 if (!drewPiece)
                 {
-                    if (sf::Texture* art = cardArtTexture(draggedPiece->imagePath))
-                    {
-                        drawContainSprite(window, *art, pieceTargetRect(
-                            anchor, scale, false, draggedPiece->width, draggedPiece->height), tint);
-                        drewPiece = true;
-                    }
+                    drawPieceCameo(
+                        anchor, scale, draggedPiece->owner, draggedPiece->imagePath, tint);
                 }
 
-                if (!drewPiece)
-                {
-                    const float radius = PieceBaseWidth * 0.28f * scale;
-                    sf::CircleShape body(radius);
-                    body.setPosition({anchor.x - radius, anchor.y - radius * 2.0f});
-                    body.setFillColor(
-                        draggedPieceDropValid
-                            ? ownerColor(draggedPiece->owner)
-                            : sf::Color(180, 75, 65, 210));
-                    window.draw(body);
-                }
-
-                const unsigned int healthSize =
-                    static_cast<unsigned int>(std::clamp(12.0f * scale, 10.0f, 17.0f));
-                drawText(
-                    window,
-                    font,
-                    std::to_string(draggedPiece->health),
-                    healthSize,
-                    {anchor.x - 5.0f * scale, anchor.y - 21.0f * scale},
-                    sf::Color(248, 239, 216, 220));
+                drawPieceStatChip(
+                    anchor,
+                    scale,
+                    draggedPiece->health,
+                    draggedPiece->maxHealth,
+                    draggedPiece->owner,
+                    false);
             }
         }
 
@@ -1668,74 +2726,99 @@
             overlay.setFillColor(sf::Color(5, 8, 9, 170));
             window.draw(overlay);
 
-            // Soft halo in the result color behind the plaque.
-            for (const float radius : {225.0f, 175.0f, 130.0f})
-            {
-                sf::CircleShape halo(radius);
-                halo.setOrigin({radius, radius});
-                halo.setPosition({400.0f, 285.0f});
-                halo.setFillColor(sf::Color(accent.r, accent.g, accent.b, 12));
-                window.draw(halo);
-            }
+            // Halo in the result colour. Three discrete circles left visible
+            // banding rings, so this stacks many faint layers instead.
+            drawSoftEllipse(window, {400.0f, 268.0f}, 132.0f, 118.0f, withAlpha(accent, 58), 14);
 
-            const sf::Vector2f panelPosition{244.0f, 200.0f};
-            const sf::Vector2f panelSize{312.0f, 190.0f};
+            const sf::Vector2f panelPosition{252.0f, 186.0f};
+            const sf::Vector2f panelSize{296.0f, 176.0f};
             drawPanel(window, panelPosition, panelSize);
 
             // Header plate straddles the panel's top edge and carries the result color.
             drawBeveledPlate(
                 window,
-                {270.0f, 174.0f},
-                {260.0f, 58.0f},
+                {278.0f, 162.0f},
+                {244.0f, 56.0f},
                 victory ? sf::Color(17, 34, 24, 250) : sf::Color(38, 19, 16, 250),
                 accent,
                 true,
                 14.0f);
 
-            const std::string result = victory ? "Victory!" : "Defeat";
-            sf::Text titleShadow(font, result, 40);
-            titleShadow.setFillColor(sf::Color(0, 0, 0, 190));
-            centerText(titleShadow, {402.0f, 206.0f});
-            window.draw(titleShadow);
-            sf::Text titleText(font, result, 40);
+            const std::string result = victory ? "VICTORY" : "DEFEAT";
+            sf::Text titleShadow(font, result, 32);
+            titleShadow.setLetterSpacing(1.5f);
+            titleShadow.setFillColor(sf::Color(0, 0, 0, 200));
+            centerText(titleShadow, {401.5f, 192.0f});
+            drawCrispText(window, titleShadow);
+            sf::Text titleText(font, result, 32);
+            titleText.setLetterSpacing(1.5f);
             titleText.setFillColor(accent);
             titleText.setOutlineThickness(1.5f);
             titleText.setOutlineColor(accentDeep);
-            centerText(titleText, {400.0f, 203.0f});
-            window.draw(titleText);
+            centerText(titleText, {400.0f, 190.0f});
+            drawCrispText(window, titleText);
 
-            drawSeparatorRule(window, {310.0f, 248.0f}, 180.0f);
+            drawSeparatorRule(window, {310.0f, 236.0f}, 180.0f);
 
-            const std::string ratingText = conquestBattleMode
-                ? "Conquest battle result recorded"
-                : (gameResultReceived && gameResultSuccess
-                    ? "Rating " +
-                        std::string(gameRatingChange >= 0 ? "+" : "") +
-                        std::to_string(gameRatingChange)
-                    : (gameResultReceived
-                        ? "Rating update unavailable"
-                        : "Rating update pending..."));
-            sf::Text ratingLine(font, elideToWidth(font, ratingText, 18, panelSize.x - 40.0f), 18);
-            ratingLine.setFillColor(sf::Color(151, 192, 255));
-            centerText(ratingLine, {400.0f, 278.0f});
-            window.draw(ratingLine);
+            // Result figures, laid out as labelled rows rather than a stack of
+            // loose centred sentences with dead space between them.
+            const auto drawResultRow = [&](float y,
+                                           const std::string& caption,
+                                           const std::string& value,
+                                           sf::Color valueColor) {
+                sf::Text captionText(font, caption, 9);
+                captionText.setLetterSpacing(1.2f);
+                captionText.setFillColor(withAlpha(BoardParchmentMuted, 208));
+                captionText.setPosition({panelPosition.x + 26.0f, y});
+                drawCrispText(window, captionText);
 
+                sf::Text valueText(font, value, 16);
+                valueText.setFillColor(valueColor);
+                sf::FloatRect bounds = valueText.getLocalBounds();
+                valueText.setPosition({
+                    panelPosition.x + panelSize.x - 26.0f - (bounds.position.x + bounds.size.x),
+                    y - 5.0f});
+                drawCrispText(window, valueText);
+            };
+
+            if (conquestBattleMode)
+            {
+                drawResultRow(254.0f, "CAMPAIGN", "Result recorded", BoardParchment);
+            }
+            else if (gameResultReceived && gameResultSuccess)
+            {
+                drawResultRow(
+                    254.0f,
+                    "RATING",
+                    std::string(gameRatingChange >= 0 ? "+" : "") + std::to_string(gameRatingChange),
+                    gameRatingChange >= 0 ? sf::Color(146, 232, 166) : sf::Color(233, 128, 106));
+            }
+            else
+            {
+                drawResultRow(
+                    254.0f,
+                    "RATING",
+                    gameResultReceived ? "Unavailable" : "Pending...",
+                    withAlpha(BoardParchmentMuted, 226));
+            }
             if (!gameRewardText.empty())
             {
-                sf::Text rewardLine(
-                    font, elideToWidth(font, gameRewardText, 16, panelSize.x - 40.0f), 16);
-                rewardLine.setFillColor(sf::Color(248, 214, 112));
-                centerText(rewardLine, {400.0f, 308.0f});
-                window.draw(rewardLine);
+                drawResultRow(
+                    282.0f,
+                    "REWARD",
+                    elideToWidth(font, gameRewardText, 16, 150.0f),
+                    BoardBrassBright);
             }
+
+            drawSeparatorRule(window, {310.0f, 312.0f}, 180.0f);
 
             sf::Text hintLine(
                 font,
                 conquestBattleMode ? "Press Map to return to the campaign." : "Press Leave to return.",
-                13);
-            hintLine.setFillColor(sf::Color(172, 178, 190));
-            centerText(hintLine, {400.0f, 352.0f});
-            window.draw(hintLine);
+                12);
+            hintLine.setFillColor(withAlpha(BoardParchmentMuted, 200));
+            centerText(hintLine, {400.0f, 336.0f});
+            drawCrispText(window, hintLine);
 
             // Keep the Leave button bright above the dimmed battlefield.
             leaveGameButton.draw(window);
