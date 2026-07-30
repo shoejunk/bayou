@@ -861,6 +861,12 @@ int main(int argc, char** argv)
         resolveAssetPath("fonts/gloomthorn/GloomthornDisplay-Regular.ttf");
     const bool gloomthornFontLoaded =
         gloomthornFontPath && gloomthornFont.openFromFile(*gloomthornFontPath);
+    if (gloomthornFontLoaded)
+    {
+        // Registering the display face lets the shared helpers set titles,
+        // headings and plaque numerals in it while body copy stays Roboto.
+        setDisplayFont(&gloomthornFont);
+    }
 
     TextureStore textures;
     sf::Texture* backdropTexture = textures.load("ui/gloomthorn-backdrop.png");
@@ -885,6 +891,9 @@ int main(int argc, char** argv)
     sf::Texture* mainMenuSmallHexTexture = textures.load("ui/main-menu/small_hex_frame.png");
     sf::Texture* mainMenuTitleFrameTexture = textures.load("ui/main-menu/title_frame.png");
     sf::Texture* mainMenuWoodLeagueTexture = textures.load("ui/main-menu/wood_league_leaf.png");
+    // Stands in for a player-chosen avatar until portraits are a real feature; an
+    // empty portrait frame is the loudest "unfinished" signal on the menu.
+    sf::Texture* mainMenuAvatarTexture = textures.load("characters/sylvara.png");
 
     sf::Text title(font, "Gloomthorn", 48);
     title.setFillColor(sf::Color(248, 224, 172));
@@ -1378,28 +1387,52 @@ int main(int argc, char** argv)
     };
 
     auto layoutAuthenticatedButtons = [&]() {
-        constexpr float x = 300.0f;
-        constexpr float firstButtonY = 152.0f;
-        constexpr float gap = 15.0f;
-        constexpr float height = 48.0f;
-        // Match the evenly stacked button rhythm from the main-menu artwork.
-        float y = firstButtonY;
+        // Three tiers instead of seven identical plates. Play is the reason the
+        // player opened the game, so it is the only wide plate; the four modes
+        // below share one rhythm; Admin and Log Out are shrunk into a footer pair
+        // so leaving the game never competes with entering it.
+        constexpr float centerX = 400.0f;
+        constexpr float primaryWidth = 264.0f;
+        constexpr float primaryHeight = 62.0f;
+        constexpr float secondaryWidth = 214.0f;
+        constexpr float secondaryHeight = 46.0f;
+        constexpr float footerWidth = 104.0f;
+        constexpr float footerHeight = 32.0f;
 
-        auto place = [&](Button& button) {
-            button.setPosition({x, y});
-            y += height + gap;
+        playButton.setVariant(ButtonVariant::Primary);
+        playButton.setSize({primaryWidth, primaryHeight});
+        playButton.setPosition({centerX - primaryWidth * 0.5f, 168.0f});
+
+        float y = 256.0f;
+        auto placeSecondary = [&](Button& button) {
+            button.setVariant(ButtonVariant::Secondary);
+            button.setSize({secondaryWidth, secondaryHeight});
+            button.setPosition({centerX - secondaryWidth * 0.5f, y});
+            y += secondaryHeight + 13.0f;
         };
 
-        place(storyButton);
-        place(playButton);
-        place(conquestButton);
-        place(deckEditorButton);
-        place(shopButton);
-        if (loggedInIsAdmin)
+        placeSecondary(storyButton);
+        placeSecondary(conquestButton);
+        placeSecondary(deckEditorButton);
+        placeSecondary(shopButton);
+
+        const float footerY = y + 10.0f;
+        const bool showAdmin = loggedInIsAdmin;
+        const float footerSpan = showAdmin ? footerWidth * 2.0f + 12.0f : footerWidth;
+        float footerX = centerX - footerSpan * 0.5f;
+        auto placeFooter = [&](Button& button) {
+            button.setVariant(ButtonVariant::Quiet);
+            button.setSize({footerWidth, footerHeight});
+            button.setLabelSize(type::Caption);
+            button.setPosition({footerX, footerY});
+            footerX += footerWidth + 12.0f;
+        };
+
+        if (showAdmin)
         {
-            place(adminUsersButton);
+            placeFooter(adminUsersButton);
         }
-        place(logoutButton);
+        placeFooter(logoutButton);
     };
 
     auto drawMainMenuTextureStretched =
@@ -1510,17 +1543,35 @@ int main(int argc, char** argv)
     };
 
     auto drawAuthenticatedMenuButton = [&](const Button& button, sf::Texture* iconTexture) {
-        if (!mainMenuButtonTexture)
+        const sf::Vector2f position = button.shape.getPosition();
+        const sf::Vector2f size = button.shape.getSize();
+        const sf::Vector2f center{position.x + size.x * 0.5f, position.y + size.y * 0.5f};
+        const bool primary = button.getVariant() == ButtonVariant::Primary;
+        const bool footer = button.getVariant() == ButtonVariant::Quiet;
+
+        // The footer pair is deliberately plain metal: reusing the ornate
+        // button_blank plaque at that size would put Log Out on the same visual
+        // footing as Play.
+        if (footer || !mainMenuButtonTexture)
         {
-            button.draw(window);
+            button.draw(window, animationTime);
             return;
         }
 
-        const sf::Vector2f position = button.shape.getPosition();
-        const sf::Vector2f size = button.shape.getSize();
+        if (primary)
+        {
+            // Warm bloom under the primary plaque, so Play reads first even
+            // before the eye resolves any text.
+            drawRadialGlow(
+                window,
+                center,
+                size.x * 0.72f,
+                sf::Color(232, 168, 76, button.hovered ? 62 : 34));
+        }
+
         // Scale button_blank slightly past the hitbox so the plaque reads larger.
-        constexpr float bgPadX = 14.0f;
-        constexpr float bgPadY = 8.0f;
+        const float bgPadX = primary ? 20.0f : 14.0f;
+        const float bgPadY = primary ? 11.0f : 8.0f;
         drawTextureRectContain(
             window,
             *mainMenuButtonTexture,
@@ -1528,20 +1579,28 @@ int main(int argc, char** argv)
             {
                 {position.x - bgPadX, position.y - bgPadY},
                 {size.x + bgPadX * 2.0f, size.y + bgPadY * 2.0f}},
-            button.hovered ? sf::Color::White : sf::Color(232, 232, 232));
+            button.hovered ? sf::Color::White : sf::Color(primary ? 244 : 226, primary ? 244 : 226, primary ? 244 : 226));
 
-        const float iconSize = 25.0f;
+        const float iconSize = primary ? 30.0f : 23.0f;
+        const float iconLeft = position.x + (primary ? 24.0f : 18.0f);
         drawMainMenuTextureContained(
             iconTexture,
-            {position.x + 18.0f, position.y + (size.y - iconSize) * 0.5f},
+            {iconLeft, position.y + (size.y - iconSize) * 0.5f},
             {iconSize, iconSize},
             button.hovered ? sf::Color::White : sf::Color(235, 225, 202));
 
-        // Slightly smaller label so the larger button_blank has more internal padding.
-        sf::Text label = button.text;
-        label.setCharacterSize(18);
-        centerButtonText(label, {position.x + size.x * 0.5f, position.y + size.y * 0.5f});
-        window.draw(label);
+        // Menu labels take the display face: a main menu is exactly where
+        // display type belongs, and it separates navigation from body copy.
+        sf::Text label(
+            displayFontOr(font),
+            button.text.getString(),
+            primary ? 27u : 19u);
+        label.setFillColor(button.hovered ? palette::InkBright : palette::Ink);
+        label.setOutlineThickness(primary ? 1.0f : 0.0f);
+        label.setOutlineColor(sf::Color(58, 33, 14, 190));
+        // Nudge off the icon so the label optically centres in the clear space.
+        centerButtonText(label, {center.x + (primary ? 12.0f : 8.0f), center.y});
+        drawCrispText(window, label);
     };
 
     auto drawAuthenticatedMenuTitle = [&]() {
@@ -1563,66 +1622,206 @@ int main(int argc, char** argv)
         drawGloomthornWordmark({400.0f, 75.0f}, {310.0f, 54.0f});
     };
 
-    auto drawAuthenticatedMenuChrome = [&]() {
-        sf::RectangleShape outerBorder({792.0f, 592.0f});
-        outerBorder.setPosition({4.0f, 4.0f});
-        outerBorder.setFillColor(sf::Color::Transparent);
-        outerBorder.setOutlineThickness(1.0f);
-        outerBorder.setOutlineColor(sf::Color(112, 76, 34, 170));
-        window.draw(outerBorder);
+    // League identity colours. A rank is the one place a cool accent belongs on
+    // this menu, and each tier needs its own so the badge reads at a glance.
+    auto leagueAccent = [](ranking::League league) {
+        switch (league)
+        {
+        case ranking::League::Wood: return sf::Color(150, 118, 78);
+        case ranking::League::Bronze: return sf::Color(198, 126, 66);
+        case ranking::League::Silver: return sf::Color(196, 205, 214);
+        case ranking::League::Gold: return sf::Color(238, 194, 96);
+        case ranking::League::Diamond: return sf::Color(140, 202, 226);
+        case ranking::League::Master: return sf::Color(176, 132, 224);
+        case ranking::League::Grandmaster: return sf::Color(236, 148, 116);
+        }
+        return palette::Brass;
+    };
 
-        sf::RectangleShape innerBorder({784.0f, 584.0f});
-        innerBorder.setPosition({8.0f, 8.0f});
-        innerBorder.setFillColor(sf::Color::Transparent);
-        innerBorder.setOutlineThickness(1.0f);
-        innerBorder.setOutlineColor(sf::Color(54, 38, 22, 205));
-        window.draw(innerBorder);
+    auto drawLeagueSigil = [&](sf::Vector2f center, float radius, sf::Color accent) {
+        // A faceted gem rather than a circle: it has to look struck, not drawn.
+        drawRadialGlow(window, center, radius * 2.1f, sf::Color(accent.r, accent.g, accent.b, 58));
 
-        drawMainMenuTextureContained(
-            mainMenuProfileFrameTexture,
-            {13.0f, 16.0f},
-            {54.0f, 56.0f});
-        drawText(
+        sf::CircleShape ring(radius, 6);
+        ring.setOrigin({radius, radius});
+        ring.setPosition(center);
+        ring.setRotation(sf::degrees(30.0f));
+        ring.setFillColor(sf::Color(14, 18, 19, 240));
+        ring.setOutlineThickness(1.6f);
+        ring.setOutlineColor(accent);
+        window.draw(ring);
+
+        sf::CircleShape gem(radius * 0.52f, 6);
+        gem.setOrigin({radius * 0.52f, radius * 0.52f});
+        gem.setPosition(center);
+        gem.setRotation(sf::degrees(30.0f));
+        gem.setFillColor(sf::Color(accent.r, accent.g, accent.b, 225));
+        window.draw(gem);
+
+        sf::CircleShape glint(radius * 0.2f, 6);
+        glint.setOrigin({radius * 0.2f, radius * 0.2f});
+        glint.setPosition(center + sf::Vector2f(-radius * 0.18f, -radius * 0.22f));
+        glint.setFillColor(sf::Color(255, 250, 236, 205));
+        window.draw(glint);
+    };
+
+    auto drawPlayerBadge = [&]() {
+        // Width is bounded by the title frame, which starts at x = 190 and cannot
+        // move: the wordmark is centred on the screen.
+        constexpr sf::Vector2f BadgePosition{10.0f, 14.0f};
+        constexpr sf::Vector2f BadgeSize{174.0f, 100.0f};
+
+        PlateStyle badge;
+        badge.fill = sf::Color(11, 16, 17, 226);
+        badge.frame = palette::Brass;
+        badge.cut = 13.0f;
+        badge.rivets = false;
+        drawMaterialPlate(window, BadgePosition, BadgeSize, badge);
+
+        // ---- portrait -----------------------------------------------------
+        constexpr sf::Vector2f PortraitCenter{46.0f, 55.0f};
+        constexpr float PortraitRadius = 25.0f;
+        // account_profile_circle_frame is a filled disc rather than a ring, so it
+        // has to go down first as the bezel; drawing it last is what left the
+        // portrait looking permanently empty.
+        if (mainMenuProfileFrameTexture)
+        {
+            drawMainMenuTextureContained(
+                mainMenuProfileFrameTexture,
+                {PortraitCenter.x - PortraitRadius - 4.0f, PortraitCenter.y - PortraitRadius - 4.5f},
+                {(PortraitRadius + 4.0f) * 2.0f, (PortraitRadius + 4.5f) * 2.0f});
+        }
+
+        // Character art is drawn on transparency, so the well needs its own
+        // ground before the figure goes on top.
+        constexpr float AvatarRadius = 21.5f;
+        sf::CircleShape portraitGround(AvatarRadius, 40);
+        portraitGround.setOrigin({AvatarRadius, AvatarRadius});
+        portraitGround.setPosition(PortraitCenter);
+        portraitGround.setFillColor(sf::Color(17, 25, 27, 255));
+        window.draw(portraitGround);
+
+        if (mainMenuAvatarTexture)
+        {
+            // A textured CircleShape is the only masking SFML offers, and it is
+            // exactly what a round portrait wants. The rect crops to head and
+            // antlers; the full figure would be illegible at this size.
+            sf::CircleShape portrait(AvatarRadius, 40);
+            portrait.setOrigin({AvatarRadius, AvatarRadius});
+            portrait.setPosition(PortraitCenter);
+            portrait.setTexture(mainMenuAvatarTexture);
+            portrait.setTextureRect(sf::IntRect({98, 38}, {54, 54}));
+            window.draw(portrait);
+        }
+
+        // A whisper of shade at the bottom of the well so the bezel reads as
+        // sitting over the art rather than beside a flat cut-out.
+        sf::CircleShape portraitShade(AvatarRadius, 40);
+        portraitShade.setOrigin({AvatarRadius, AvatarRadius});
+        portraitShade.setPosition(PortraitCenter + sf::Vector2f(0.0f, AvatarRadius * 0.66f));
+        portraitShade.setFillColor(sf::Color(4, 8, 9, 74));
+        window.draw(portraitShade);
+
+        sf::CircleShape portraitRing(AvatarRadius + 0.5f, 40);
+        portraitRing.setOrigin({AvatarRadius + 0.5f, AvatarRadius + 0.5f});
+        portraitRing.setPosition(PortraitCenter);
+        portraitRing.setFillColor(sf::Color::Transparent);
+        portraitRing.setOutlineThickness(1.5f);
+        portraitRing.setOutlineColor(sf::Color(158, 112, 56, 220));
+        window.draw(portraitRing);
+
+        // ---- identity -----------------------------------------------------
+        constexpr float TextLeft = 80.0f;
+        const float textRight = BadgePosition.x + BadgeSize.x - 10.0f;
+        const float column = textRight - TextLeft;
+
+        unsigned int nameSize = 17;
+        sf::Text name(displayFontOr(font), loggedInUsername, nameSize);
+        while (nameSize > 11 && name.getLocalBounds().size.x > column - 6.0f)
+        {
+            name.setCharacterSize(--nameSize);
+        }
+        name.setFillColor(palette::Ink);
+        name.setPosition({TextLeft, 22.0f});
+        drawCrispText(window, name);
+
+        drawSeparatorRule(window, {TextLeft, 45.0f}, column);
+
+        // ---- rank ---------------------------------------------------------
+        const sf::Color accent = leagueAccent(playerLeague);
+        drawLeagueSigil({TextLeft + 8.0f, 58.0f}, 8.0f, accent);
+        const float leagueWidth = drawLabelText(
             window,
             font,
-            signedInLabel(),
-            14,
-            {72.0f, 24.0f},
-            sf::Color(246, 238, 218),
-            190.0f);
-        drawText(
-            window,
-            font,
-            "Rating: " + std::to_string(playerRating),
-            12,
-            {72.0f, 43.0f},
-            sf::Color(151, 192, 255),
-            150.0f);
-        drawText(
-            window,
-            font,
-            "League: " + std::string(ranking::leagueName(playerLeague)),
-            12,
-            {72.0f, 61.0f},
-            sf::Color(192, 164, 120),
-            150.0f);
-        if (playerLeague == ranking::League::Wood)
+            std::string(ranking::leagueName(playerLeague)) + " league",
+            9,
+            {TextLeft + 20.0f, 54.0f},
+            accent,
+            1.5f);
+
+        if (playerLeague == ranking::League::Wood && mainMenuWoodLeagueTexture)
         {
             drawMainMenuTextureContained(
                 mainMenuWoodLeagueTexture,
-                {145.0f, 51.0f},
-                {31.0f, 32.0f});
+                {TextLeft + 23.0f + leagueWidth, 51.0f},
+                {14.0f, 15.0f});
         }
-        drawCoinIcon({72.0f, 82.0f}, 8.5f);
-        drawText(
+
+        if (loggedInIsAdmin)
+        {
+            // A violet tag rather than "[Admin]" welded onto the name: a role is
+            // metadata, not part of what the player calls themselves. It hangs
+            // below the badge so it can never crowd the rank or the rating.
+            const sf::Vector2f tagSize{54.0f, 15.0f};
+            const sf::Vector2f tagPosition{
+                BadgePosition.x + 8.0f,
+                BadgePosition.y + BadgeSize.y + 6.0f};
+            PlateStyle tag;
+            tag.fill = sf::Color(38, 24, 54, 232);
+            tag.frame = palette::Arcane;
+            tag.cut = 4.0f;
+            tag.rivets = false;
+            tag.brackets = false;
+            tag.sheen = 0.3f;
+            drawMaterialPlate(window, tagPosition, tagSize, tag);
+            drawLabelText(
+                window,
+                font,
+                "admin",
+                9,
+                {tagPosition.x + 9.0f, tagPosition.y + 3.0f},
+                palette::ArcaneBright,
+                1.4f);
+        }
+
+        // Position the numerals off the measured label width rather than a magic
+        // offset, so a longer word can never run into the number.
+        const float ratingLabelWidth =
+            drawLabelText(window, font, "rating", 8, {TextLeft + 20.0f, 69.0f}, palette::InkFaint, 1.4f);
+        sf::Text rating(displayFontOr(font), std::to_string(playerRating), 14);
+        rating.setFillColor(palette::BrassBright);
+        rating.setPosition({TextLeft + 26.0f + ratingLabelWidth, 64.0f});
+        drawCrispText(window, rating);
+
+        // ---- currency -----------------------------------------------------
+        const sf::Vector2f coinPill{TextLeft, 82.0f};
+        const sf::Vector2f pillSize{std::min(78.0f, column), 19.0f};
+        drawValuePill(
             window,
             font,
+            coinPill,
+            pillSize,
             std::to_string(playerCoins),
-            14,
-            {94.0f, 81.0f},
-            sf::Color(248, 239, 216),
-            120.0f);
+            palette::Gold,
+            20.0f);
+        drawCoinIcon({coinPill.x + 2.5f, coinPill.y + 1.5f}, 8.0f);
+    };
 
+    auto drawAuthenticatedMenuChrome = [&]() {
+        // Motes first: ambient life belongs behind the interface, never over it.
+        drawAmbientMotes(window, animationTime, 40, sf::Color(178, 138, 224, 138));
+
+        drawPlayerBadge();
         drawAuthenticatedMenuTitle();
 
         drawMainMenuTextureContained(
@@ -1636,11 +1835,21 @@ int main(int argc, char** argv)
             {20.0f, 20.0f},
             authenticatedSettingsHovered ? sf::Color::White : sf::Color(235, 225, 202));
 
-        sf::Text version(font, "v1.0.0", 10);
-        version.setFillColor(sf::Color(205, 188, 151));
-        const sf::FloatRect versionBounds = version.getLocalBounds();
-        version.setPosition({782.0f - versionBounds.size.x, 575.0f});
-        window.draw(version);
+        // Version stamp: a tracked-caps build mark on a hairline, the way a
+        // shipping client marks itself, rather than bare text in the corner.
+        constexpr float StampRight = 786.0f;
+        constexpr float StampY = 578.0f;
+        sf::Text version(font, "BUILD 1.0.0", type::Micro);
+        version.setLetterSpacing(1.6f);
+        version.setFillColor(sf::Color(156, 140, 112, 215));
+        const float versionWidth = version.getLocalBounds().size.x;
+        version.setPosition({StampRight - versionWidth, StampY});
+        drawCrispText(window, version);
+
+        sf::RectangleShape stampRule({28.0f, 1.0f});
+        stampRule.setPosition({StampRight - versionWidth - 34.0f, StampY + 5.0f});
+        stampRule.setFillColor(sf::Color(146, 104, 52, 130));
+        window.draw(stampRule);
     };
 
     auto authenticatedSettingsButtonClicked = [&](sf::Vector2f point) {
@@ -5647,6 +5856,9 @@ int main(int argc, char** argv)
     std::size_t captureIndex = 0;
     int captureFramesOnScreen = 0;
     bool captureScreenReady = false;
+    // Lets a capture screen pin the pointer somewhere, so hover treatments are
+    // reviewable instead of only existing while a human holds the mouse still.
+    std::optional<sf::Vector2f> captureHoverPoint;
 
     auto seedCaptureState = [&]() {
         loggedInUsername = "Thistlewisp";
@@ -5698,6 +5910,10 @@ int main(int argc, char** argv)
         setMessage(messageText, "", sf::Color::Red);
         title.setString("Gloomthorn");
         centerText(title, 400.0f);
+        captureHoverPoint.reset();
+        usernameInput.setError(false);
+        passwordInput.setError(false);
+        confirmInput.setError(false);
         exitDesktopPopupVisible = false;
         deckUnsavedChangesPopupVisible = false;
         passwordChangedPopupVisible = false;
@@ -5711,20 +5927,61 @@ int main(int argc, char** argv)
             currentState = GameState::Login;
             usernameInput.setContent("Thistlewisp");
             passwordInput.setContent("marshlight");
+            usernameInput.setActive(true);
+            passwordInput.setActive(false);
+        }
+        else if (screen == "login-error")
+        {
+            currentState = GameState::Login;
+            usernameInput.setContent("Thistlewisp");
+            passwordInput.setContent("wrongpass");
+            usernameInput.setActive(false);
+            passwordInput.setActive(true);
+            passwordInput.setError(true);
+            setMessage(messageText, "That username and password do not match.", palette::DangerBright);
         }
         else if (screen == "create-account")
         {
             currentState = GameState::CreateAccount;
+            usernameInput.setActive(true);
         }
-        else if (screen == "options")
+        else if (screen == "create-account-invalid")
+        {
+            currentState = GameState::CreateAccount;
+            usernameInput.setContent("Thistlewisp");
+            passwordInput.setContent("marsh");
+            confirmInput.setContent("marshlight");
+            confirmInput.setActive(true);
+            passwordInput.setError(true);
+            confirmInput.setError(true);
+            setMessage(messageText, "Passwords do not match.", palette::DangerBright);
+        }
+        else if (screen == "options" || screen == "options-audio" || screen == "options-account")
         {
             currentState = GameState::Options;
             optionsReturnState = GameState::Authenticated;
-            activeOptionsTab = OptionsTab::Graphics;
+            activeOptionsTab = screen == "options-audio" ? OptionsTab::Audio
+                : screen == "options-account"           ? OptionsTab::Account
+                                                        : OptionsTab::Graphics;
+            optionsTabs.setActive(static_cast<std::size_t>(activeOptionsTab));
+            // Without this the graphics tab captures with empty value plates: the
+            // labels are only refreshed when a human opens the screen.
+            updateOptionsLabels();
         }
         else if (screen == "main-menu")
         {
             currentState = GameState::Authenticated;
+        }
+        else if (screen == "main-menu-hover")
+        {
+            currentState = GameState::Authenticated;
+            // Centre of the primary Play plate.
+            captureHoverPoint = sf::Vector2f{400.0f, 199.0f};
+        }
+        else if (screen == "main-menu-exit")
+        {
+            currentState = GameState::Authenticated;
+            exitDesktopPopupVisible = true;
         }
         else if (screen == "deck-select")
         {
@@ -5799,6 +6056,12 @@ int main(int argc, char** argv)
         animationTime += deltaTime;
         audioSystem.update();
         sf::Vector2f mousePos = window.mapPixelToCoords(sf::Mouse::getPosition(window));
+        if (captureHoverPoint)
+        {
+            // Capture runs have no real pointer, so a screen that wants to show a
+            // hover treatment pins one here.
+            mousePos = *captureHoverPoint;
+        }
 
         if (currentState == GameState::Game)
         {
@@ -8340,8 +8603,8 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Authenticated)
         {
             drawAuthenticatedMenuChrome();
-            drawAuthenticatedMenuButton(storyButton, mainMenuStoryIconTexture);
             drawAuthenticatedMenuButton(playButton, mainMenuPlayIconTexture);
+            drawAuthenticatedMenuButton(storyButton, mainMenuStoryIconTexture);
             drawAuthenticatedMenuButton(conquestButton, mainMenuConquestIconTexture);
             drawAuthenticatedMenuButton(deckEditorButton, mainMenuDeckEditorIconTexture);
             drawAuthenticatedMenuButton(shopButton, mainMenuShopIconTexture);

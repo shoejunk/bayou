@@ -3,7 +3,10 @@ module;
 #include <SFML/Graphics.hpp>
 #include <SFML/Window/Clipboard.hpp>
 
+#include "../client/client_ui.hpp"
+
 #include <algorithm>
+#include <cctype>
 #include <optional>
 #include <string>
 #include <utility>
@@ -29,6 +32,11 @@ export struct InputBoxStyle
     float selectionHeight = 24.0f;
     float selectionOffsetY = 8.0f;
     float horizontalPadding = 20.0f;
+    sf::Color errorOutline = sf::Color(196, 72, 58);
+    sf::Color placeholderColor = sf::Color(112, 104, 90);
+    // Field labels read as tracked small caps; a sentence-case label beside a
+    // sentence-case value gives the eye nothing to separate them by.
+    bool trackedCapsLabel = true;
 };
 
 export struct InputBox
@@ -135,6 +143,21 @@ export struct InputBox
         refreshText();
     }
 
+    // Marks the field as failing validation. Cleared as soon as the player edits
+    // it, so an error never outlives the mistake that caused it.
+    void setError(bool next)
+    {
+        errored = next;
+    }
+
+    bool hasError() const { return errored; }
+
+    // Ghost text shown while the field is empty and unfocused.
+    void setPlaceholder(std::string text)
+    {
+        placeholder = std::move(text);
+    }
+
     void setActive(bool next)
     {
         active = next;
@@ -214,6 +237,9 @@ export struct InputBox
         const char c = static_cast<char>(textEvent.unicode);
         if (c >= 32 && c < 127)
         {
+            // Editing the field is the player acting on the error, so the error
+            // state goes away with the first keystroke.
+            errored = false;
             replaceSelection(std::string(1, c));
             resetCursorBlink();
             refreshText();
@@ -239,15 +265,49 @@ export struct InputBox
     {
         if (label)
         {
-            window.draw(*label);
+            sf::Text drawnLabel = *label;
+            if (style.trackedCapsLabel)
+            {
+                std::string upper = drawnLabel.getString().toAnsiString();
+                for (char& character : upper)
+                {
+                    character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+                }
+                drawnLabel.setString(upper);
+                drawnLabel.setCharacterSize(std::max(9u, style.labelSize - 5u));
+                drawnLabel.setLetterSpacing(1.75f);
+                drawnLabel.setFillColor(
+                    errored ? style.errorOutline
+                            : (active ? sf::Color(238, 206, 146) : sf::Color(168, 152, 124)));
+                // Keep the baseline where the caller placed it despite the
+                // smaller size, so existing layouts do not shift.
+                drawnLabel.setPosition(
+                    label->getPosition() + sf::Vector2f(0.0f, static_cast<float>(style.labelSize) * 0.28f));
+            }
+            bayou::client::drawCrispText(window, drawnLabel);
         }
+
         drawFieldFrame(window);
         drawSelection(window);
+
         if (text)
         {
-            window.draw(*text);
+            if (content.empty() && !active && !placeholder.empty())
+            {
+                sf::Text ghost = *text;
+                ghost.setString(placeholder);
+                ghost.setFillColor(style.placeholderColor);
+                ghost.setStyle(sf::Text::Italic);
+                bayou::client::drawCrispText(window, ghost);
+            }
+            else
+            {
+                sf::Text drawnText = *text;
+                bayou::client::drawCrispText(window, drawnText);
+            }
         }
-        if (active)
+
+        if (active && showCursor)
         {
             sf::RectangleShape cursor(style.cursorSize);
             cursor.setPosition({caretX(), shape.getPosition().y + style.cursorOffsetY});
@@ -300,6 +360,8 @@ private:
     std::size_t displayStart = 0;
     bool draggingSelection = false;
     float rightContentInset = 0.0f;
+    bool errored = false;
+    std::string placeholder;
 
     static sf::ConvexShape cutRect(sf::Vector2f position, sf::Vector2f size, float cut)
     {
@@ -322,26 +384,29 @@ private:
         const sf::Vector2f size = shape.getSize();
         const float cut = std::clamp(size.y * 0.16f, 3.0f, 7.0f);
 
-        sf::ConvexShape shadow = cutRect(position + sf::Vector2f(3.0f, 4.0f), size, cut);
-        shadow.setFillColor(sf::Color(0, 0, 0, 100));
-        window.draw(shadow);
-
-        sf::ConvexShape field = cutRect(position, size, cut);
-        field.setFillColor(style.fieldFill);
-        field.setOutlineThickness(style.outlineThickness);
-        field.setOutlineColor(active ? style.activeOutline : style.inactiveOutline);
-        window.draw(field);
-
-        sf::ConvexShape inner = cutRect(position + sf::Vector2f(4.0f, 4.0f), size - sf::Vector2f(8.0f, 8.0f), std::max(0.0f, cut - 2.0f));
-        inner.setFillColor(sf::Color::Transparent);
-        inner.setOutlineThickness(1.0f);
-        inner.setOutlineColor(active ? sf::Color(255, 218, 140, 155) : sf::Color(102, 68, 35, 120));
-        window.draw(inner);
+        // A text field is a well cut into the panel, not a plate sitting on it.
+        // The shared inset renderer supplies the top-edge shadow that sells it.
+        bayou::client::drawInsetSlot(
+            window,
+            position,
+            size,
+            cut,
+            style.fieldFill,
+            active ? style.activeOutline : style.inactiveOutline,
+            active,
+            errored);
 
         sf::RectangleShape topGlow({std::max(0.0f, size.x - 18.0f), 1.0f});
         topGlow.setPosition({position.x + 9.0f, position.y + 6.0f});
         topGlow.setFillColor(sf::Color(255, 224, 154, active ? 95 : 42));
         window.draw(topGlow);
+
+        // The caret alone is a weak focus cue on a dark field, and it is invisible
+        // to anyone navigating by keyboard before they type.
+        if (active)
+        {
+            bayou::client::drawFocusRing(window, position, size, cut);
+        }
     }
 
     static bool shiftPressed()
@@ -592,6 +657,7 @@ private:
         }
         else if (keyEvent.code == sf::Keyboard::Key::Backspace)
         {
+            errored = false;
             if (hasSelection())
             {
                 eraseSelection();

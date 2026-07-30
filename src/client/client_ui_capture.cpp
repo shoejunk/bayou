@@ -123,9 +123,15 @@ const std::vector<std::string>& knownScreens()
 {
     static const std::vector<std::string> screens = {
         "login",
+        "login-error",
         "create-account",
+        "create-account-invalid",
         "options",
+        "options-audio",
+        "options-account",
         "main-menu",
+        "main-menu-hover",
+        "main-menu-exit",
         "deck-select",
         "matchmaking",
         "deck-editor",

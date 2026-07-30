@@ -1,9 +1,13 @@
 #include "client_textures.hpp"
 
 #include "client_config.hpp"
+#include "client_ui.hpp"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 
 namespace bayou::client
@@ -96,6 +100,126 @@ void drawTextureRectContain(
     window.draw(sprite);
 }
 
+namespace
+{
+
+// Deterministic scatter. A real RNG would make every captured frame differ and
+// every mote pop in at the origin on the first frame; hashing the index instead
+// gives a stable, well-spread field that is already correct at t = 0.
+float hashUnit(unsigned int seed)
+{
+    seed = seed * 1664525u + 1013904223u;
+    seed ^= seed >> 16;
+    seed *= 0x7feb352du;
+    seed ^= seed >> 15;
+    return static_cast<float>(seed & 0xFFFFFFu) / static_cast<float>(0xFFFFFF);
+}
+
+void runFullWindowView(sf::RenderWindow& window, const std::function<void(sf::Vector2f)>& body)
+{
+    const sf::View logicalView = window.getView();
+    const sf::Vector2u windowSize = window.getSize();
+    const sf::Vector2f fullSize{
+        static_cast<float>(std::max(windowSize.x, 1u)),
+        static_cast<float>(std::max(windowSize.y, 1u))};
+    window.setView(sf::View(sf::FloatRect({0.0f, 0.0f}, fullSize)));
+    body(fullSize);
+    window.setView(logicalView);
+}
+
+} // namespace
+
+void drawVignette(sf::RenderWindow& window, float strength)
+{
+    runFullWindowView(window, [&](sf::Vector2f fullSize) {
+        // Four edge gradients rather than a radial texture: darkening the frame
+        // is what stops a full-bleed backdrop from competing with the UI, and
+        // the corners double up naturally where the bands overlap.
+        const auto band = static_cast<std::uint8_t>(
+            std::clamp(std::lround(150.0f * strength), 0L, 255L));
+        const sf::Color dark(0, 0, 0, band);
+        const sf::Color clear(0, 0, 0, 0);
+
+        const float vertical = fullSize.y * 0.30f;
+        const float horizontal = fullSize.x * 0.24f;
+
+        auto gradient = [&](sf::Vector2f a, sf::Vector2f b, sf::Vector2f c, sf::Vector2f d,
+                            sf::Color edge) {
+            sf::VertexArray quad(sf::PrimitiveType::TriangleStrip, 4);
+            quad[0] = {a, edge};
+            quad[1] = {b, edge};
+            quad[2] = {c, clear};
+            quad[3] = {d, clear};
+            window.draw(quad);
+        };
+
+        gradient({0.0f, 0.0f}, {fullSize.x, 0.0f}, {0.0f, vertical}, {fullSize.x, vertical}, dark);
+        gradient(
+            {0.0f, fullSize.y},
+            {fullSize.x, fullSize.y},
+            {0.0f, fullSize.y - vertical},
+            {fullSize.x, fullSize.y - vertical},
+            dark);
+        gradient({0.0f, 0.0f}, {0.0f, fullSize.y}, {horizontal, 0.0f}, {horizontal, fullSize.y}, dark);
+        gradient(
+            {fullSize.x, 0.0f},
+            {fullSize.x, fullSize.y},
+            {fullSize.x - horizontal, 0.0f},
+            {fullSize.x - horizontal, fullSize.y},
+            dark);
+    });
+}
+
+void drawAmbientMotes(
+    sf::RenderWindow& window,
+    float timeSeconds,
+    int count,
+    sf::Color color,
+    float scale)
+{
+    if (count <= 0)
+    {
+        return;
+    }
+
+    runFullWindowView(window, [&](sf::Vector2f fullSize) {
+        for (int i = 0; i < count; ++i)
+        {
+            const auto seed = static_cast<unsigned int>(i);
+            const float baseX = hashUnit(seed * 3u + 1u);
+            const float baseY = hashUnit(seed * 7u + 13u);
+            const float speed = 0.010f + hashUnit(seed * 11u + 29u) * 0.028f;
+            const float sway = hashUnit(seed * 17u + 41u);
+            const float radius = (1.4f + hashUnit(seed * 23u + 53u) * 3.1f) * scale;
+
+            // Drift upward and wrap; the sway keeps the columns from marching.
+            float y = baseY - timeSeconds * speed;
+            y -= std::floor(y);
+            const float x = baseX + std::sin(timeSeconds * (0.32f + sway * 0.5f) + sway * 6.28f) * 0.012f;
+
+            const sf::Vector2f center{
+                (x - std::floor(x)) * fullSize.x,
+                y * fullSize.y};
+
+            // Twinkle so the field has life even in a still frame.
+            const float twinkle =
+                0.45f + 0.55f * (0.5f + 0.5f * std::sin(timeSeconds * (1.1f + sway * 1.7f) + sway * 9.4f));
+            const auto coreAlpha =
+                static_cast<std::uint8_t>(std::clamp(std::lround(color.a * twinkle), 0L, 255L));
+
+            sf::Color halo = color;
+            halo.a = static_cast<std::uint8_t>(coreAlpha / 5);
+            drawRadialGlow(window, center, radius * 4.2f, halo, 12);
+
+            sf::CircleShape mote(radius, 10);
+            mote.setOrigin({radius, radius});
+            mote.setPosition(center);
+            mote.setFillColor(sf::Color(color.r, color.g, color.b, coreAlpha));
+            window.draw(mote);
+        }
+    });
+}
+
 void drawBackdrop(sf::RenderWindow& window, sf::Texture* backdropTexture)
 {
     // The interface is laid out in a 4:3 logical space that gets letterboxed on
@@ -129,6 +253,10 @@ void drawBackdrop(sf::RenderWindow& window, sf::Texture* backdropTexture)
     window.draw(bottomShade);
 
     window.setView(logicalView);
+
+    // Every screen wants the edges pulled down: without it a full-bleed
+    // backdrop fights the interface for attention at the frame's corners.
+    drawVignette(window, 0.85f);
 }
 
 } // namespace bayou::client
