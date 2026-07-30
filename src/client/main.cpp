@@ -1784,7 +1784,10 @@ int main(int argc, char** argv)
         // Width is bounded by the title frame, which starts at x = 190 and cannot
         // move: the wordmark is centred on the screen.
         constexpr sf::Vector2f BadgePosition{10.0f, 14.0f};
-        constexpr sf::Vector2f BadgeSize{174.0f, 100.0f};
+        // The role tag lives inside the plate, so the badge grows a row to hold
+        // it. Hanging it underneath read as an element that had escaped its
+        // container.
+        const sf::Vector2f BadgeSize{174.0f, loggedInIsAdmin ? 136.0f : 112.0f};
 
         PlateStyle badge;
         badge.fill = sf::Color(11, 16, 17, 226);
@@ -1885,12 +1888,12 @@ int main(int argc, char** argv)
         if (loggedInIsAdmin)
         {
             // A violet tag rather than "[Admin]" welded onto the name: a role is
-            // metadata, not part of what the player calls themselves. It hangs
-            // below the badge so it can never crowd the rank or the rating.
+            // metadata, not part of what the player calls themselves. It sits on
+            // its own row inside the plate, clear of the rank and the rating.
             const sf::Vector2f tagSize{54.0f, 15.0f};
             const sf::Vector2f tagPosition{
-                BadgePosition.x + 8.0f,
-                BadgePosition.y + BadgeSize.y + 6.0f};
+                TextLeft,
+                BadgePosition.y + BadgeSize.y - 15.0f - 9.0f};
             PlateStyle tag;
             tag.fill = sf::Color(38, 24, 54, 232);
             tag.frame = palette::Arcane;
@@ -1919,8 +1922,13 @@ int main(int argc, char** argv)
         drawCrispText(window, rating);
 
         // ---- currency -----------------------------------------------------
-        const sf::Vector2f coinPill{TextLeft, 82.0f};
-        const sf::Vector2f pillSize{std::min(78.0f, column), 19.0f};
+        // Spans the full text column: at 78px the numerals were squeezed into
+        // ~48px after the coin inset and read as an afterthought next to the
+        // rating above them.
+        // Clear of the rating numerals above: at y = 80 the pill's top edge cut
+        // through their descenders.
+        const sf::Vector2f coinPill{TextLeft, 87.0f};
+        const sf::Vector2f pillSize{column, 22.0f};
         drawValuePill(
             window,
             font,
@@ -1929,7 +1937,7 @@ int main(int argc, char** argv)
             std::to_string(playerCoins),
             palette::Gold,
             20.0f);
-        drawCoinIcon({coinPill.x + 2.5f, coinPill.y + 1.5f}, 8.0f);
+        drawCoinIcon({coinPill.x + 3.0f, coinPill.y + 3.0f}, 8.0f);
     };
 
     // A tracked-caps build mark on a hairline, the way a shipping client marks

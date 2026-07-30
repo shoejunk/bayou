@@ -862,7 +862,9 @@ public:
             // rivets ~110px past its nominal box, which ran straight through
             // the subtitle. A section header with a brass rule reads as
             // deliberately designed here and leaves the width predictable.
-            drawText(window, font, "CONQUEST", 30, {24.0f, 14.0f}, Accent);
+            // The display face, so this title belongs to the same family as every
+            // other screen's; the section-header treatment above stays.
+            drawText(window, displayFontOr(font), "Conquest", 30, {24.0f, 14.0f}, Accent);
             drawText(window, font, "Long-running campaigns. Each card copy belongs to one Conquest deck.",
                      13, {252.0f, 30.0f}, Muted, 520.0f);
             drawSeparatorRule(window, {24.0f, 56.0f}, 752.0f);

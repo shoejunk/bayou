@@ -3407,7 +3407,13 @@ private:
             // Which server is being edited matters on an operator tool, so it
             // gets a caption and the full address, right-aligned to the button
             // group rather than truncated mid-host.
-            drawText(window, font, "CARD SERVER", 10, {620.0f, 24.0f}, sf::Color(150, 132, 104));
+            // Right-aligned to the same edge as the address below it. At a fixed
+            // left edge the caption ran under the Actions tab and read "SERVER".
+            sf::Text caption(font, "CARD SERVER", 10);
+            caption.setFillColor(sf::Color(150, 132, 104));
+            caption.setPosition({952.0f - caption.getLocalBounds().size.x, 24.0f});
+            bayou::client::drawCrispText(window, caption);
+
             sf::Text address(font, endpointText(), 14);
             address.setFillColor(Muted);
             address.setPosition({952.0f - address.getLocalBounds().size.x, 40.0f});
