@@ -479,6 +479,9 @@ void playButtonClickSound()
 constexpr bool EnableCoinPurchases = false;
 constexpr const char* CoinPackId = "coins_50";
 constexpr int CoinPackCoins = 50;
+// What a mystery card costs. It was spelled out as a literal 5 in the shop copy,
+// the affordability check and the error message, which could drift apart.
+constexpr int CardPackPrice = 5;
 constexpr float CoinPurchasePollIntervalSeconds = 2.0f;
 constexpr float CoinPurchasePollTimeoutSeconds = 300.0f;
 constexpr float FidgetDelayMinimumSeconds = 3.0f;
@@ -499,6 +502,11 @@ constexpr float DeckPickerPanelWidth = 352.0f;
 constexpr float DeckPickerPanelHeight = 404.0f;
 constexpr float DeckDetailPanelX = 392.0f;
 constexpr float DeckDetailPanelWidth = 384.0f;
+// Pre-match deck picker. It sits lower than the editor's because the Gloomthorn
+// wordmark plaque owns the top of this screen.
+constexpr float DeckSelectPanelY = 112.0f;
+constexpr float DeckSelectPanelHeight = 372.0f;
+constexpr float DeckSelectListY = 150.0f;
 constexpr float DeckPanelX = 24.0f;
 constexpr float CurrentDeckPanelX = 24.0f;
 constexpr float CurrentDeckPanelWidth = 364.0f;
@@ -954,7 +962,7 @@ int main(int argc, char** argv)
     CheckboxControl rememberMeCheckbox({300.0f, 286.0f}, "Remember me", font, rememberCheckTexture);
     Button loginSubmitButton({300.0f, 342.0f}, {200.0f, 50.0f}, "Login", font);
     Button createSubmitButton({300.0f, 410.0f}, {200.0f, 50.0f}, "Create Account", font);
-    Button backButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Back", font);
+    Button backButton({24.0f, 500.0f}, {120.0f, 40.0f}, "Back", font);
     Button exitDesktopButton({20.0f, 520.0f}, {200.0f, 45.0f}, "Exit to Desktop", font);
     Button cancelMatchmakingButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Cancel", font);
     Button playAiButton({150.0f, 520.0f}, {160.0f, 45.0f}, "Play vs AI", font);
@@ -1321,7 +1329,7 @@ int main(int argc, char** argv)
     };
     std::vector<DematerializeGhost> dematerializeGhosts;
 
-    Button findMatchButton({300.0f, 458.0f}, {200.0f, 52.0f}, "Find Match", font);
+    Button findMatchButton({300.0f, 496.0f}, {200.0f, 48.0f}, "Find Match", font);
     Button abilityButton(
         {GameActionButtonX, GameActionButtonY},
         {GameAbilityButtonWidth, GameActionButtonHeight},
@@ -6111,7 +6119,9 @@ int main(int argc, char** argv)
                 {
                     setMessage(
                         messageText,
-                        result.success ? "Spend 5 coins to reveal a random card." : result.message,
+                        result.success
+                            ? "Spend " + std::to_string(CardPackPrice) + " coins to reveal a random card."
+                            : result.message,
                         result.success ? sf::Color(120, 220, 150) : sf::Color::Red);
                 }
             }
@@ -7245,7 +7255,7 @@ int main(int argc, char** argv)
                         findMatch();
                     }
                     else if (const std::optional<std::size_t> deckIndex = rowIndexAt(
-                                 clickPos, 266.0f, 172.0f, 268.0f, DeckRowHeight,
+                                 clickPos, DeckListX, DeckSelectListY, DeckListWidth, DeckRowHeight,
                                  VisibleDeckRows, deckListOffset, playerDecks.size()))
                     {
                         selectedDeck = *deckIndex;
@@ -7575,9 +7585,12 @@ int main(int argc, char** argv)
                         {
                             setMessage(messageText, "Dismiss the revealed card before buying another.", sf::Color::Red);
                         }
-                        else if (playerCoins < 5)
+                        else if (playerCoins < CardPackPrice)
                         {
-                            setMessage(messageText, "Need 5 coins to buy a card", sf::Color::Red);
+                            setMessage(
+                                messageText,
+                                "Need " + std::to_string(CardPackPrice) + " coins to buy a card",
+                                sf::Color::Red);
                         }
                         else
                         {

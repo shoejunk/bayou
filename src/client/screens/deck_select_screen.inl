@@ -1,25 +1,88 @@
     auto drawDeckSelect = [&]() {
-        drawPanel(window, {250.0f, 120.0f}, {300.0f, 312.0f});
-        drawText(window, font, "Your Decks", 22, {266.0f, 132.0f}, sf::Color::White);
-        drawText(window, font, "Coins " + std::to_string(playerCoins), 14, {430.0f, 138.0f}, sf::Color(248, 214, 112), 100.0f);
+        // Same roster and portrait as the deck editor: choosing which deck to take
+        // into a match is the moment a player most needs to see its hero and curve,
+        // and it used to be the screen that showed the least.
+        drawPanel(window, {DeckPickerPanelX, DeckSelectPanelY}, {DeckPickerPanelWidth, DeckSelectPanelHeight});
+        drawSectionHeading(
+            collectionUi,
+            {DeckListX, DeckSelectPanelY + 10.0f},
+            "Choose Your Deck",
+            DeckListWidth * 0.72f);
 
         const std::size_t lastDeck = std::min(playerDecks.size(), deckListOffset + VisibleDeckRows);
+        const std::optional<std::size_t> hovered = hoveredRow(
+            DeckListX, DeckSelectListY, DeckListWidth, DeckRowHeight,
+            VisibleDeckRows, deckListOffset, playerDecks.size());
         for (std::size_t i = deckListOffset; i < lastDeck; ++i)
         {
-            const float rowY = 172.0f + static_cast<float>(i - deckListOffset) * DeckRowHeight;
-            drawRow(window, font, {266.0f, rowY}, {268.0f, DeckRowHeight - 4.0f},
-                    playerDecks[i].name,
-                    std::to_string(playerDecks[i].cardTitles.size()) + " cards",
-                    selectedDeck && *selectedDeck == i);
+            const float rowY = DeckSelectListY + static_cast<float>(i - deckListOffset) * DeckRowHeight;
+            drawDeckRosterRow(
+                collectionUi,
+                {{DeckListX, rowY}, {DeckListWidth, DeckRowHeight - 4.0f}},
+                deckSummaryFor(playerDecks[i]),
+                selectedDeck && *selectedDeck == i,
+                hovered && *hovered == i);
         }
+        drawListScrollTrack(
+            DeckListX + DeckListWidth + 6.0f, DeckSelectListY, DeckRowHeight * VisibleDeckRows - 4.0f,
+            deckListOffset, VisibleDeckRows, playerDecks.size());
+
         if (playerDecks.empty() && !pendingPlayLoad)
         {
-            drawText(window, font, "No decks. Build one in the", 15, {268.0f, 220.0f}, sf::Color(190, 198, 214));
-            drawText(window, font, "Deck Editor first.", 15, {268.0f, 242.0f}, sf::Color(190, 198, 214));
+            drawEmptyState(
+                collectionUi,
+                {{DeckListX, DeckSelectListY},
+                 {DeckListWidth, DeckSelectPanelY + DeckSelectPanelHeight - DeckSelectListY - 14.0f}},
+                "No Decks Yet",
+                "Build a deck in the Deck Editor before looking for a match.");
         }
 
-        findMatchButton.draw(window);
+        const bool hasSelection = selectedDeck && *selectedDeck < playerDecks.size();
+        if (hasSelection)
+        {
+            drawDeckDetailPanel(
+                collectionUi,
+                {{DeckDetailPanelX, DeckSelectPanelY}, {DeckDetailPanelWidth, DeckSelectPanelHeight}},
+                deckSummaryFor(playerDecks[*selectedDeck]));
+        }
+        else
+        {
+            drawPanel(window, {DeckDetailPanelX, DeckSelectPanelY}, {DeckDetailPanelWidth, DeckSelectPanelHeight});
+            const sf::FloatRect slot{
+                {DeckDetailPanelX + 16.0f, DeckSelectPanelY + 22.0f},
+                {DeckDetailPanelWidth - 32.0f, DeckSelectPanelHeight - 44.0f}};
+            if (playerDecks.empty())
+            {
+                drawFactionRoster(
+                    collectionUi,
+                    slot,
+                    "Claim a faction deck from the shop to get into a match quickly.");
+            }
+            else
+            {
+                drawEmptyState(
+                    collectionUi,
+                    slot,
+                    "No Deck Selected",
+                    "Pick a deck to see the hero you will be fielding.");
+            }
+        }
+
+        // Matchmaking needs a deck, so the verb waits until there is one.
+        if (hasSelection)
+        {
+            findMatchButton.draw(window);
+        }
+        else
+        {
+            drawDisabledButton(
+                collectionUi,
+                findMatchButton.shape.getPosition(),
+                findMatchButton.shape.getSize(),
+                "Find Match");
+        }
         backButton.draw(window);
-        window.draw(messageText);
+        setMessageY(messageText, 562.0f);
+        drawCrispText(window, messageText);
     };
 

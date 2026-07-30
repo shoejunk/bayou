@@ -1,97 +1,163 @@
     auto drawShop = [&]() {
-        drawTitlePlaque(window, font, "Shop", {112.0f, 46.0f}, {176.0f, 52.0f});
-        drawText(window, font, "Signed in as " + signedInLabel(), 14, {220.0f, 24.0f}, sf::Color(178, 186, 202), 280.0f);
-
-        sf::CircleShape coin(14.0f);
-        coin.setPosition({534.0f, 24.0f});
-        coin.setFillColor(sf::Color(214, 158, 48));
-        coin.setOutlineThickness(2.0f);
-        coin.setOutlineColor(sf::Color(255, 225, 132));
-        window.draw(coin);
-        drawText(window, font, std::to_string(playerCoins), 18, {570.0f, 22.0f}, sf::Color(248, 239, 216), 80.0f);
+        drawScreenHeader(collectionUi, "Shop", signedInLabel(), playerCoins, 176.0f);
         shopBackButton.draw(window);
 
-        drawPanel(window, {170.0f, 96.0f}, {460.0f, 378.0f});
+        constexpr float ShopPanelX = 96.0f;
+        constexpr float ShopPanelY = 94.0f;
+        constexpr float ShopPanelWidth = 608.0f;
+        constexpr float ShopPanelHeight = 386.0f;
+        drawPanel(window, {ShopPanelX, ShopPanelY}, {ShopPanelWidth, ShopPanelHeight});
 
         const sf::Vector2f center{400.0f, 286.0f};
         if (pendingShopLoad)
         {
-            drawText(window, font, "Loading shop...", 24, {306.0f, 270.0f}, sf::Color(248, 239, 216), 220.0f);
+            drawEmptyState(
+                collectionUi,
+                {{ShopPanelX + 20.0f, ShopPanelY + 40.0f}, {ShopPanelWidth - 40.0f, ShopPanelHeight - 80.0f}},
+                "Opening the Shop",
+                "Fetching today's stock from the card server.");
         }
         else if (revealedCardTitle)
         {
             const float t = animationTime - revealStartedAt;
-            for (int i = 0; i < 4; ++i)
-            {
-                const float radius = 86.0f + static_cast<float>(i) * 24.0f + std::sin(t * 4.0f + static_cast<float>(i)) * 6.0f;
-                sf::CircleShape glow(radius);
-                glow.setOrigin({radius, radius});
-                glow.setPosition(center);
-                glow.setFillColor(sf::Color(229, 183, 83, static_cast<std::uint8_t>(34 - i * 6)));
-                window.draw(glow);
-            }
+            const card_data::Card* card = cardInAllLibraryByTitle(*revealedCardTitle);
+            const sf::Color rarity = card ? cardRarityColor(*card) : palette::BrassPale;
 
-            for (int i = 0; i < 14; ++i)
-            {
-                const float angle = static_cast<float>(i) * 0.72f + t * 1.8f;
-                const float radius = 132.0f + std::sin(t * 3.0f + static_cast<float>(i)) * 18.0f;
-                sf::CircleShape sparkle(3.0f + static_cast<float>(i % 3));
-                sparkle.setPosition({
-                    center.x + std::cos(angle) * radius,
-                    center.y + std::sin(angle) * radius * 0.72f});
-                sparkle.setFillColor(sf::Color(248, 230, 150, 190));
-                window.draw(sparkle);
-            }
+            // One burst in the pulled card's own rarity colour, rather than four
+            // stacked circles and a ring of dots.
+            drawRevealBurst(collectionUi, center, t, rarity);
 
-            drawText(window, font, "Revealed", 22, {350.0f, 112.0f}, sf::Color(248, 214, 112), 120.0f);
-            if (const card_data::Card* card = cardInAllLibraryByTitle(*revealedCardTitle))
+            sf::Text heading(
+                gloomthornFontLoaded ? gloomthornFont : font,
+                card && cardRarity(*card) == "legendary" ? "A Legendary!" : "Card Acquired",
+                24);
+            centerText(heading, {400.0f, ShopPanelY + 30.0f});
+            sf::Text headingShadow(heading);
+            headingShadow.move({1.0f, 2.0f});
+            headingShadow.setFillColor(sf::Color(0, 0, 0, 205));
+            drawCrispText(window, headingShadow);
+            heading.setFillColor(rarity);
+            drawCrispText(window, heading);
+
+            if (card)
             {
-                drawLargeCollectionCard(*card, {290.0f, 144.0f}, {220.0f, 300.0f});
+                drawCardFace(
+                    collectionUi,
+                    {{318.0f, ShopPanelY + 52.0f}, {164.0f, 232.0f}},
+                    *card,
+                    cardRarityLabel(*card),
+                    rarity,
+                    std::string());
+                drawRarityRibbon(
+                    collectionUi,
+                    {{312.0f, ShopPanelY + 296.0f}, {176.0f, 30.0f}},
+                    cardRarityLabel(*card),
+                    rarity);
+                drawText(
+                    window,
+                    font,
+                    "Added to your collection",
+                    12,
+                    {312.0f, ShopPanelY + 334.0f},
+                    palette::MutedDim,
+                    176.0f);
             }
             else
             {
                 drawBeveledPlate(
                     window,
-                    {290.0f, 144.0f},
-                    {220.0f, 300.0f},
+                    {318.0f, ShopPanelY + 52.0f},
+                    {164.0f, 232.0f},
                     sf::Color(18, 23, 23, 244),
-                    sf::Color(232, 187, 83),
+                    palette::BrassBright,
                     true,
                     12.0f);
-                drawText(window, font, *revealedCardTitle, 22, {310.0f, 270.0f}, sf::Color(248, 239, 216), 180.0f);
+                drawText(window, font, *revealedCardTitle, 20, {330.0f, ShopPanelY + 160.0f},
+                         palette::Ink, 140.0f);
             }
         }
         else
         {
-            for (int i = 0; i < 3; ++i)
-            {
-                sf::CircleShape glow(86.0f + static_cast<float>(i) * 28.0f);
-                glow.setOrigin({glow.getRadius(), glow.getRadius()});
-                glow.setPosition(center);
-                glow.setFillColor(sf::Color(42, 120, 112, static_cast<std::uint8_t>(34 - i * 8)));
-                window.draw(glow);
-            }
+            // Left: the pack as an object worth clicking. Right: what it contains.
+            const sf::FloatRect pack{{150.0f, 138.0f}, {176.0f, 244.0f}};
+            drawPackObject(collectionUi, pack, animationTime, false);
 
+            // Price as struck coin under the pack, not a flat band across its face.
+            const sf::FloatRect price{{pack.position.x + 18.0f, pack.position.y + pack.size.y + 22.0f},
+                                      {pack.size.x - 36.0f, 34.0f}};
             drawBeveledPlate(
                 window,
-                {305.0f, 152.0f},
-                {190.0f, 250.0f},
-                sf::Color(22, 28, 28, 245),
-                sf::Color(210, 154, 74),
+                price.position,
+                price.size,
+                sf::Color(30, 24, 14, 246),
+                withAlpha(palette::BrassBright, playerCoins >= CardPackPrice ? 225 : 150),
                 true,
-                14.0f);
+                6.0f);
+            sf::Text amount(font, std::to_string(CardPackPrice), 16);
+            const float amountWidth = amount.getLocalBounds().size.x;
+            const float groupLeft = price.position.x + (price.size.x - (amountWidth + 24.0f)) * 0.5f;
+            drawCoin(collectionUi, {groupLeft + 9.0f, price.position.y + price.size.y * 0.5f}, 9.0f);
+            drawText(
+                window,
+                font,
+                std::to_string(CardPackPrice),
+                16,
+                {groupLeft + 24.0f, price.position.y + price.size.y * 0.5f - 11.0f},
+                playerCoins >= CardPackPrice ? palette::BrassPale : palette::Bad);
 
-            sf::RectangleShape band({190.0f, 54.0f});
-            band.setPosition({305.0f, 252.0f});
-            band.setFillColor(sf::Color(93, 57, 28, 230));
-            window.draw(band);
+            constexpr float InfoX = 366.0f;
+            constexpr float InfoWidth = 306.0f;
+            drawSectionHeading(collectionUi, {InfoX, 128.0f}, "Mystery Card", InfoWidth * 0.6f);
+            drawWrappedText(
+                window,
+                font,
+                "A single card drawn from the whole catalogue and sealed until you open it.",
+                13,
+                {InfoX, 168.0f},
+                palette::Muted,
+                InfoWidth,
+                4.0f);
 
-            drawText(window, font, "Mystery", 26, {345.0f, 190.0f}, sf::Color(248, 239, 216), 120.0f);
-            drawText(window, font, "Card", 26, {370.0f, 222.0f}, sf::Color(248, 239, 216), 90.0f);
-            drawText(window, font, "5 coins", 22, {362.0f, 265.0f}, sf::Color(248, 214, 112), 100.0f);
-            drawText(window, font, "Odds: Common 70%  Rare 25%  Legendary 5%", 14, {248.0f, 412.0f}, sf::Color(248, 239, 216), 304.0f);
-            drawText(window, font, "Cards inside each rarity are equally likely", 13, {278.0f, 436.0f}, sf::Color(190, 198, 214), 244.0f);
-            drawText(window, font, "Starter cards come from the starter decks, not this pack", 13, {222.0f, 456.0f}, sf::Color(190, 198, 214), 356.0f);
+            // Odds as a designed table with the same rarity gems the rows use,
+            // instead of one run-on sentence.
+            drawCaption(collectionUi, {InfoX, 222.0f}, "PULL CHANCES");
+            drawOddsTable(collectionUi, {{InfoX, 240.0f}, {InfoWidth, 66.0f}});
+
+            drawInnerRule(collectionUi, {InfoX, 320.0f}, InfoWidth);
+            drawWrappedText(
+                window,
+                font,
+                "Within a rarity every card is equally likely. Starter cards come from "
+                "the starter decks, never from a pack.",
+                12,
+                {InfoX, 334.0f},
+                palette::MutedDim,
+                InfoWidth,
+                4.0f);
+
+            // Collection progress: the reason to keep buying, and it fills what was
+            // otherwise the panel's dead lower right corner.
+            const int collected = static_cast<int>(cardLibrary.size());
+            const int catalogue = std::max(collected, static_cast<int>(allCardLibrary.size()));
+            if (catalogue > 0)
+            {
+                drawInnerRule(collectionUi, {InfoX, 390.0f}, InfoWidth);
+                drawMeter(
+                    collectionUi,
+                    {InfoX, 406.0f},
+                    {InfoWidth, 20.0f},
+                    "COLLECTION",
+                    std::to_string(collected) + " / " + std::to_string(catalogue) + " cards",
+                    static_cast<float>(collected) / static_cast<float>(catalogue),
+                    palette::BrassPale);
+                drawCaption(
+                    collectionUi,
+                    {InfoX, 432.0f},
+                    collected >= catalogue
+                        ? "Every card in the catalogue is yours."
+                        : std::to_string(catalogue - collected) + " still to find.",
+                    InfoWidth);
+            }
         }
 
         if (revealedCardTitle)
@@ -106,8 +172,20 @@
                 refreshShopButton.draw(window);
             }
             shopStarterDecksButton.draw(window);
-            buyCardButton.draw(window);
+            if (playerCoins >= CardPackPrice && !pendingShopLoad)
+            {
+                buyCardButton.draw(window);
+            }
+            else
+            {
+                drawDisabledButton(
+                    collectionUi,
+                    buyCardButton.shape.getPosition(),
+                    buyCardButton.shape.getSize(),
+                    pendingShopLoad ? "Buy Card" : "Not Enough Coins");
+            }
         }
-        window.draw(messageText);
+        setMessageY(messageText, 562.0f);
+        drawCrispText(window, messageText);
     };
 

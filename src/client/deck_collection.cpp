@@ -239,7 +239,7 @@ const std::array<FactionStyle, 4>& styles()
             "Blackthorn",
             "The Blackthorns",
             "Blackthorns",
-            "Toll roads and hired steel. Grinds value out of every turn.",
+            "Toll roads and hired steel. Grinds out every advantage.",
             sf::Color(198, 116, 72),
             sf::Color(38, 22, 17),
             "cards/blackthornForeman.png",
@@ -248,7 +248,7 @@ const std::array<FactionStyle, 4>& styles()
             "Mirewatch",
             "The Mirewatch Resistance",
             "Mirewatch",
-            "Dug in and patient. Trades bodies until the swamp decides it.",
+            "Dug in and patient. Outlasts you in the mire.",
             sf::Color(104, 174, 162),
             sf::Color(14, 32, 32),
             "cards/marshlandVeteran.png",
@@ -257,19 +257,19 @@ const std::array<FactionStyle, 4>& styles()
             "Seelie",
             "The Seelie Court",
             "Seelie Court",
-            "Bright, fast and merciless about tempo. Strikes before you are set.",
+            "Bright and fast. Strikes before you are set.",
             sf::Color(214, 186, 104),
             sf::Color(30, 28, 16),
-            "cards/Sylvara.png",
+            "cards/sylvanChampion.png",
             Sigil::Leaf},
         FactionStyle{
             "Unseelie",
             "The Unseelie Court",
             "Unseelie Court",
-            "Debts, curses and ambush. Wins from the shadow of your own board.",
+            "Curses and ambush. Wins from the shadows.",
             sf::Color(160, 116, 206),
             sf::Color(26, 18, 38),
-            "cards/princeVesper.png",
+            "cards/thaeronBaelstone.png",
             Sigil::Thorn}};
     return value;
 }
@@ -362,11 +362,23 @@ const FactionStyle& unalignedStyle()
 const FactionStyle& factionStyleForDeckName(const std::string& deckName)
 {
     const std::string needle = lowered(deckName);
-    for (const FactionStyle& style : styles())
+
+    // Longest key first: "Unseelie" contains "Seelie", so a first-match scan gave
+    // the Unseelie Court the Seelie Court's crest, art and blurb.
+    std::array<const FactionStyle*, 4> byKeyLength{};
+    for (std::size_t i = 0; i < styles().size(); ++i)
     {
-        if (needle.find(lowered(style.key)) != std::string::npos)
+        byKeyLength[i] = &styles()[i];
+    }
+    std::sort(byKeyLength.begin(), byKeyLength.end(), [](const FactionStyle* left, const FactionStyle* right) {
+        return left->key.size() > right->key.size();
+    });
+
+    for (const FactionStyle* style : byKeyLength)
+    {
+        if (needle.find(lowered(style->key)) != std::string::npos)
         {
-            return style;
+            return *style;
         }
     }
     return unalignedStyle();
@@ -1364,9 +1376,12 @@ void drawDeckDetailPanel(const UiContext& ui, sf::FloatRect rect, const DeckSumm
 
     // Hero art fills the head of the panel and sinks into it under a scrim, the
     // way a deck box carries its champion.
+    // The panel is used at two heights (the editor's roster and the pre-match
+    // picker), so the art scales and the trait row anchors to the foot rather than
+    // everything being laid out from the top at fixed offsets and overflowing.
     const sf::FloatRect art{
         {rect.position.x + 13.0f, rect.position.y + 13.0f},
-        {rect.size.x - 26.0f, 156.0f}};
+        {rect.size.x - 26.0f, std::clamp(rect.size.y * 0.38f, 118.0f, 156.0f)}};
     fillRect(ui.window, art, sf::Color(4, 7, 8));
     if (sf::Texture* texture = summary.heroArt.empty() ? nullptr : ui.textures.load(summary.heroArt))
     {
@@ -1449,34 +1464,40 @@ void drawDeckDetailPanel(const UiContext& ui, sf::FloatRect rect, const DeckSumm
     y += 36.0f;
     drawInnerRule(ui, {rect.position.x + 22.0f, y}, rect.size.x - 44.0f);
 
+    // Trait row sits a fixed distance off the panel's bottom edge.
+    const float traitsLabelY = rect.position.y + rect.size.y - 52.0f;
+
     y += 12.0f;
     drawText(ui.window, ui.font, "RESOURCE CURVE", 10, {meterX, y}, palette::MutedDim);
+    const float curveHeight = std::clamp(traitsLabelY - (y + 14.0f) - 12.0f, 30.0f, 54.0f);
     drawManaCurve(
         ui,
-        {{meterX, y + 14.0f}, {rect.size.x - 44.0f, 54.0f}},
+        {{meterX, y + 14.0f}, {rect.size.x - 44.0f, curveHeight}},
         summary.curve,
         style.accent,
         true);
 
-    y += 78.0f;
-    drawText(ui.window, ui.font, "TRAITS", 10, {meterX, y}, palette::MutedDim);
+    drawText(ui.window, ui.font, "TRAITS", 10, {meterX, traitsLabelY}, palette::MutedDim);
     if (summary.traits.empty())
     {
-        drawText(ui.window, ui.font, "None yet", 12, {meterX, y + 14.0f}, palette::MutedDim);
+        drawText(ui.window, ui.font, "None yet", 12, {meterX, traitsLabelY + 14.0f}, palette::MutedDim);
         return;
     }
 
-    drawTraitChips(ui, {meterX, y + 14.0f}, rect.size.x - 44.0f, summary.traits);
+    // Only what fits on one row; the full spread is not worth overflowing for.
+    drawTraitChips(ui, {meterX, traitsLabelY + 14.0f}, rect.size.x - 44.0f, summary.traits, 1);
 }
 
 float drawTraitChips(
     const UiContext& ui,
     sf::Vector2f origin,
     float maxWidth,
-    const std::vector<std::pair<std::string, int>>& traits)
+    const std::vector<std::pair<std::string, int>>& traits,
+    int maxRows)
 {
     float x = origin.x;
     float y = origin.y;
+    int row = 1;
     for (const auto& [trait, count] : traits)
     {
         if (trait.empty())
@@ -1488,6 +1509,13 @@ float drawTraitChips(
         const float width = text.getLocalBounds().size.x + 16.0f;
         if (x > origin.x && x + width > origin.x + maxWidth)
         {
+            if (row >= maxRows)
+            {
+                // Anything past the allowed rows is dropped rather than pushed out
+                // of the panel that owns this row.
+                break;
+            }
+            ++row;
             x = origin.x;
             y += 23.0f;
         }
@@ -1625,41 +1653,75 @@ void drawPackObject(const UiContext& ui, sf::FloatRect rect, float time, bool ho
     radialGlow(ui.window, center, field.size.x * 0.72f, withAlpha(palette::Arcane, 96));
     strokeRect(ui.window, field, withAlpha(sf::Color(150, 110, 60), 200), 1.0f);
 
-    // Filigree: thorned vines curling out from the centre gem, drawn as tapering
-    // segments so the back has authored detail rather than flat fill.
-    for (int arm = 0; arm < 4; ++arm)
+    // A lattice of fine diagonals so the field has woven texture rather than being
+    // a flat violet plane.
+    for (float offset = -field.size.y; offset < field.size.x; offset += 13.0f)
     {
-        const float base = static_cast<float>(arm) * 1.5708f + 0.7854f;
-        sf::Vector2f cursor = center;
-        float angle = base;
-        for (int segment = 0; segment < 7; ++segment)
+        for (int direction = 0; direction < 2; ++direction)
         {
-            const float length = 13.0f - static_cast<float>(segment) * 1.3f;
+            const float slope = direction == 0 ? 1.0f : -1.0f;
+            const float startX = direction == 0 ? offset : field.size.x - offset;
+            sf::VertexArray line(sf::PrimitiveType::Lines, 2);
+            const sf::Color tint(150, 112, 178, 40);
+            // Clamped to the field so the lattice cannot bleed past the frame.
+            const float x0 = std::clamp(field.position.x + startX, field.position.x, field.position.x + field.size.x);
+            const float x1 = std::clamp(
+                field.position.x + startX + slope * field.size.y,
+                field.position.x,
+                field.position.x + field.size.x);
+            line[0] = {{x0, field.position.y}, tint};
+            line[1] = {{x1, field.position.y + std::abs(x1 - x0)}, tint};
+            ui.window.draw(line);
+        }
+    }
+
+    // Filigree: eight thorned vines curling out from the centre gem in mirrored
+    // pairs, so the back reads as an authored engraving rather than as scratches.
+    for (int arm = 0; arm < 8; ++arm)
+    {
+        const float base = static_cast<float>(arm) * 0.7854f + 0.3927f;
+        // Mirror the curl direction across the vertical axis for symmetry.
+        const float curl = std::cos(base) >= 0.0f ? 0.26f : -0.26f;
+        sf::Vector2f cursor{
+            center.x + std::cos(base) * 26.0f,
+            center.y + std::sin(base) * 26.0f};
+        float angle = base;
+        for (int segment = 0; segment < 8; ++segment)
+        {
+            const float length = 12.0f - static_cast<float>(segment) * 0.9f;
             const sf::Vector2f next{
                 cursor.x + std::cos(angle) * length,
-                cursor.y + std::sin(angle) * length * 1.16f};
-            const float thickness = 2.6f - static_cast<float>(segment) * 0.30f;
-            sf::RectangleShape stroke({length + 1.0f, std::max(0.7f, thickness)});
-            stroke.setOrigin({0.0f, std::max(0.7f, thickness) * 0.5f});
+                cursor.y + std::sin(angle) * length * 1.12f};
+            const float thickness = std::max(1.0f, 3.4f - static_cast<float>(segment) * 0.34f);
+            sf::RectangleShape stroke({length + 1.2f, thickness});
+            stroke.setOrigin({0.0f, thickness * 0.5f});
             stroke.setPosition(cursor);
             stroke.setRotation(sf::radians(std::atan2(next.y - cursor.y, next.x - cursor.x)));
-            stroke.setFillColor(withAlpha(sf::Color(196, 148, 78), static_cast<int>(200 - segment * 22)));
+            stroke.setFillColor(withAlpha(sf::Color(214, 166, 92), static_cast<int>(238 - segment * 16)));
             ui.window.draw(stroke);
 
-            // A barb every other segment.
+            // A barb every other segment, on the outside of the curl.
             if (segment % 2 == 1)
             {
+                const float barbAngle = angle - (curl > 0.0f ? 1.85f : -1.85f);
                 sf::ConvexShape barb(3);
                 barb.setPoint(0, next);
-                barb.setPoint(1, {next.x + std::cos(angle - 1.9f) * 5.0f, next.y + std::sin(angle - 1.9f) * 5.0f});
-                barb.setPoint(2, {next.x + std::cos(angle - 1.1f) * 2.0f, next.y + std::sin(angle - 1.1f) * 2.0f});
-                barb.setFillColor(withAlpha(sf::Color(212, 164, 88), 180));
+                barb.setPoint(1, {next.x + std::cos(barbAngle) * 6.4f, next.y + std::sin(barbAngle) * 6.4f});
+                barb.setPoint(2, {next.x + std::cos(angle) * 3.4f, next.y + std::sin(angle) * 3.4f});
+                barb.setFillColor(withAlpha(sf::Color(228, 180, 102), 215));
                 ui.window.draw(barb);
             }
             cursor = next;
-            angle += 0.30f;
+            angle += curl;
         }
     }
+
+    // An inner keyline, the double-rule the menu frames carry.
+    strokeRect(
+        ui.window,
+        {{field.position.x + 5.0f, field.position.y + 5.0f}, {field.size.x - 10.0f, field.size.y - 10.0f}},
+        withAlpha(sf::Color(206, 158, 86), 120),
+        1.0f);
 
     // Centre gem: faceted, breathing, the thing you want to click.
     const float gemRadius = 21.0f + breathe * 1.6f;
@@ -1761,37 +1823,46 @@ void drawRevealBurst(const UiContext& ui, sf::Vector2f center, float time, sf::C
     // Ease out, so the burst lands rather than creeping.
     const float eased = 1.0f - (1.0f - settle) * (1.0f - settle);
 
-    radialGlow(ui.window, center, 150.0f + eased * 110.0f, withAlpha(color, 66), 1.02f);
-    radialGlow(ui.window, center, 90.0f * eased, withAlpha(mix(color, sf::Color::White, 0.4f), 52));
+    radialGlow(ui.window, center, 232.0f + eased * 96.0f, withAlpha(color, 58), 0.94f);
+    radialGlow(ui.window, center, 132.0f * eased, withAlpha(mix(color, sf::Color::White, 0.4f), 46));
 
-    // God rays: tapered wedges that sweep slowly.
-    for (int i = 0; i < 12; ++i)
+    // Rays: many thin ones that fade to nothing along their length. A dozen wide
+    // flat wedges at a flat alpha read as cardboard blades rather than as light.
+    constexpr int RayCount = 30;
+    for (int i = 0; i < RayCount; ++i)
     {
-        const float angle = static_cast<float>(i) / 12.0f * 6.2831853f + time * 0.22f;
-        const float length = (168.0f + std::sin(time * 1.7f + static_cast<float>(i)) * 22.0f) * eased;
-        const float spread = 0.052f;
-        sf::ConvexShape ray(3);
-        ray.setPoint(0, {center.x + std::cos(angle) * 34.0f, center.y + std::sin(angle) * 34.0f});
-        ray.setPoint(1, {center.x + std::cos(angle - spread) * length, center.y + std::sin(angle - spread) * length});
-        ray.setPoint(2, {center.x + std::cos(angle + spread) * length, center.y + std::sin(angle + spread) * length});
-        ray.setFillColor(withAlpha(color, 40));
+        const float angle = static_cast<float>(i) / static_cast<float>(RayCount) * 6.2831853f + time * 0.16f;
+        // Vary the length per ray so the fan does not look mechanical.
+        const float wobble = std::sin(static_cast<float>(i) * 2.399f) * 0.5f + 0.5f;
+        const float length = (128.0f + wobble * 128.0f + std::sin(time * 1.4f + static_cast<float>(i)) * 14.0f) * eased;
+        const float spread = 0.013f + wobble * 0.012f;
+        const float inner = 40.0f;
+
+        // Alpha ramps to zero at the tip, which is what makes it read as a beam.
+        const sf::Color hot = withAlpha(mix(color, sf::Color::White, 0.35f), 62);
+        const sf::Color cold = withAlpha(color, 0);
+        sf::VertexArray ray(sf::PrimitiveType::TriangleStrip, 4);
+        ray[0] = {{center.x + std::cos(angle - spread) * inner, center.y + std::sin(angle - spread) * inner}, hot};
+        ray[1] = {{center.x + std::cos(angle + spread) * inner, center.y + std::sin(angle + spread) * inner}, hot};
+        ray[2] = {{center.x + std::cos(angle - spread * 0.4f) * length, center.y + std::sin(angle - spread * 0.4f) * length}, cold};
+        ray[3] = {{center.x + std::cos(angle + spread * 0.4f) * length, center.y + std::sin(angle + spread * 0.4f) * length}, cold};
         ui.window.draw(ray);
     }
 
-    // Motes drifting outward.
-    for (int i = 0; i < 18; ++i)
+    // Motes drifting outward, bright enough to register.
+    for (int i = 0; i < 26; ++i)
     {
         const float seed = static_cast<float>(i) * 0.9163f;
-        const float angle = seed + time * 0.55f;
-        const float drift = std::fmod(time * 26.0f + static_cast<float>(i) * 19.0f, 150.0f);
-        const float radius = (58.0f + drift) * eased;
-        const float fade = 1.0f - drift / 150.0f;
+        const float angle = seed + time * 0.5f;
+        const float drift = std::fmod(time * 30.0f + static_cast<float>(i) * 17.0f, 190.0f);
+        const float radius = (52.0f + drift) * eased;
+        const float fade = 1.0f - drift / 190.0f;
         sf::ConvexShape mote = makeGem(
-            {center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius * 0.86f},
-            1.4f + static_cast<float>(i % 3) * 0.7f,
+            {center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius * 0.88f},
+            1.5f + static_cast<float>(i % 3) * 0.8f,
             4,
             0.7854f);
-        mote.setFillColor(withAlpha(mix(color, sf::Color::White, 0.55f), static_cast<int>(210.0f * fade)));
+        mote.setFillColor(withAlpha(mix(color, sf::Color::White, 0.6f), static_cast<int>(235.0f * fade)));
         ui.window.draw(mote);
     }
 }
@@ -1884,7 +1955,18 @@ void drawCardFace(
         withAlpha(mix(rarityColor, palette::Brass, 0.4f), 220),
         false,
         6.0f);
-    sf::Text name(ui.displayFont, elideToWidth(ui.displayFont, card.title, 18, plate.size.x - 26.0f), 18);
+    // Shrink the name to fit rather than eliding it: "Crystal Unico..." on a card
+    // face is worse than the same name a point or two smaller.
+    unsigned int nameSize = 18;
+    sf::Text name(ui.displayFont, card.title, nameSize);
+    while (nameSize > 12 && name.getLocalBounds().size.x > plate.size.x - 24.0f)
+    {
+        name.setCharacterSize(--nameSize);
+    }
+    if (name.getLocalBounds().size.x > plate.size.x - 24.0f)
+    {
+        name.setString(elideToWidth(ui.displayFont, card.title, nameSize, plate.size.x - 24.0f));
+    }
     centerText(name, {plate.position.x + plate.size.x * 0.5f, plate.position.y + plate.size.y * 0.5f});
     name.setFillColor(palette::Ink);
     drawCrispText(ui.window, name);
@@ -2017,7 +2099,11 @@ void drawFactionTile(
         {{art.position.x, art.position.y + art.size.y * 0.44f}, {art.size.x, art.size.y * 0.56f}},
         sf::Color(8, 12, 13, 0),
         sf::Color(8, 12, 13, 252));
-    strokeRect(ui.window, {{art.position.x, art.position.y}, {art.size.x, art.size.y * 0.6f}}, withAlpha(accent, 120), 1.0f);
+    // Only the art's top and sides are framed; its foot dissolves into the tile,
+    // so a stroke across the middle of the illustration is wrong.
+    fillRect(ui.window, {{art.position.x, art.position.y}, {art.size.x, 1.0f}}, withAlpha(accent, 150));
+    fillRect(ui.window, {{art.position.x, art.position.y}, {1.0f, art.size.y * 0.62f}}, withAlpha(accent, 110));
+    fillRect(ui.window, {{art.position.x + art.size.x - 1.0f, art.position.y}, {1.0f, art.size.y * 0.62f}}, withAlpha(accent, 110));
 
     // Crest straddles the art/text boundary.
     const sf::Vector2f crest{rect.position.x + rect.size.x * 0.5f, art.position.y + art.size.y - 12.0f};
@@ -2049,7 +2135,7 @@ void drawFactionTile(
     drawCrispText(ui.window, count);
 
     y += 16.0f;
-    drawSeparatorRule(ui.window, {textX, y}, textWidth);
+    drawInnerRule(ui, {textX, y}, textWidth);
 
     // Strategy blurb, so a tile is not two thirds dead space.
     y += 10.0f;
@@ -2099,7 +2185,7 @@ void drawFactionTile(
     {
         // A faint veil rather than a colour change, so unselected tiles keep
         // their art readable while clearly sitting behind the choice.
-        fillRect(ui.window, rect, sf::Color(6, 9, 10, static_cast<std::uint8_t>((1.0f - presence) * 110.0f)));
+        fillRect(ui.window, rect, sf::Color(6, 9, 10, static_cast<std::uint8_t>((1.0f - presence) * 62.0f)));
     }
 }
 }

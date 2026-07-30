@@ -273,7 +273,8 @@ float drawTraitChips(
     const UiContext& ui,
     sf::Vector2f origin,
     float maxWidth,
-    const std::vector<std::pair<std::string, int>>& traits);
+    const std::vector<std::pair<std::string, int>>& traits,
+    int maxRows = 16);
 
 // --- shop ------------------------------------------------------------------
 
