@@ -47,6 +47,9 @@ bool saveWindow(const sf::RenderWindow& window, const std::filesystem::path& pat
 // Fabricated data for the screens that would otherwise be empty offline.
 std::vector<card_data::Card> sampleCardLibrary();
 std::vector<deck_data::Deck> sampleDecks(const std::vector<card_data::Card>& library);
+// A deck that satisfies every deck-building rule, for reviewing the editor's
+// populated counters, curve and "deck is legal" state.
+deck_data::Deck sampleLegalDeck(const std::vector<card_data::Card>& library);
 std::vector<account_data::CollectionCard> sampleCollection(
     const std::vector<card_data::Card>& library);
 

@@ -491,28 +491,36 @@ constexpr const char* ClientConfigFileName = "client_release.cfg";
 constexpr const char* ClientConfigFileName = "client_debug.cfg";
 #endif
 
-constexpr float DeckPickerPanelX = 220.0f;
-constexpr float DeckPickerPanelY = 96.0f;
-constexpr float DeckPickerPanelWidth = 360.0f;
-constexpr float DeckPickerPanelHeight = 400.0f;
+// Deck picker: a roster of decks on the left, the selected deck's portrait on
+// the right. The single narrow centred panel it replaces was two thirds empty.
+constexpr float DeckPickerPanelX = 24.0f;
+constexpr float DeckPickerPanelY = 92.0f;
+constexpr float DeckPickerPanelWidth = 352.0f;
+constexpr float DeckPickerPanelHeight = 404.0f;
+constexpr float DeckDetailPanelX = 392.0f;
+constexpr float DeckDetailPanelWidth = 384.0f;
 constexpr float DeckPanelX = 24.0f;
 constexpr float CurrentDeckPanelX = 24.0f;
-constexpr float CurrentDeckPanelWidth = 360.0f;
-constexpr float LibraryPanelX = 410.0f;
-constexpr float LibraryPanelWidth = 366.0f;
-constexpr float DeckEditorPanelY = 96.0f;
-constexpr float DeckEditorPanelHeight = 400.0f;
-constexpr float DeckListX = 244.0f;
-constexpr float DeckListY = 194.0f;
-constexpr float DeckListWidth = 312.0f;
-constexpr float DeckRowHeight = 52.0f;
+constexpr float CurrentDeckPanelWidth = 364.0f;
+constexpr float LibraryPanelX = 404.0f;
+constexpr float LibraryPanelWidth = 372.0f;
+constexpr float DeckEditorPanelY = 92.0f;
+constexpr float DeckEditorPanelHeight = 404.0f;
+constexpr float DeckListX = 40.0f;
+constexpr float DeckListY = 146.0f;
+constexpr float DeckListWidth = 320.0f;
+constexpr float DeckRowHeight = 66.0f;
 constexpr std::size_t VisibleDeckRows = 5;
 
-constexpr float DeckCardsX = 42.0f;
-constexpr float DeckCardsY = 164.0f;
+constexpr float DeckCardsX = 40.0f;
+constexpr float DeckCardsY = 186.0f;
 constexpr float DeckCardsWidth = 324.0f;
-constexpr float DeckCardRowHeight = 52.0f;
+constexpr float DeckCardRowHeight = 42.0f;
 constexpr std::size_t VisibleDeckCardRows = 6;
+// Reserved slot for deck-legality messages, so they are never drawn across the
+// collection panel the way the old centred warning string was.
+constexpr float DeckValidationY = 444.0f;
+constexpr float DeckValidationHeight = 44.0f;
 constexpr float PasswordIconInset = 42.0f;
 constexpr std::uint32_t AdminUsersPageSize = 6;
 constexpr float AdminUserRowY = 174.0f;
@@ -523,12 +531,20 @@ constexpr std::size_t VisibleAdminCardRows = 5;
 constexpr float AdminStarterDeckRowY = 232.0f;
 constexpr float AdminStarterDeckRowHeight = 42.0f;
 
-constexpr float LibraryX = 430.0f;
-constexpr float LibraryY = 276.0f;
-constexpr float LibraryWidth = 326.0f;
-constexpr float LibraryRowHeight = 52.0f;
-constexpr std::size_t VisibleLibraryRows = 4;
-constexpr std::array<const char*, 3> CollectionTypeLabels = {"Heroes", "Units", "Spells & Enchantments"};
+constexpr float LibraryX = 420.0f;
+constexpr float LibraryY = 284.0f;
+constexpr float LibraryWidth = 332.0f;
+constexpr float LibraryRowHeight = 42.0f;
+constexpr std::size_t VisibleLibraryRows = 5;
+// "Spells & Enchantments" overran the filter row and was clipped by the panel
+// edge. The category still covers both; the label no longer has to spell it out.
+constexpr std::array<const char*, 3> CollectionTypeLabels = {"Heroes", "Units", "Spells"};
+// Filter chips are measured from the font and wrapped inside the panel.
+constexpr float CollectionTypeChipsY = 160.0f;
+constexpr float CollectionTraitChipsY = 200.0f;
+constexpr float CollectionChipHeight = 20.0f;
+constexpr float CollectionChipGap = 4.0f;
+constexpr unsigned int CollectionChipTextSize = 12;
 
 struct PasswordVisibilityIcon
 {
@@ -749,6 +765,25 @@ constexpr float PiecePopupScrollY = PiecePopupActionHeadingY + 26.0f;
 constexpr float PiecePopupScrollHeight = PiecePopupHeight - (PiecePopupScrollY - PiecePopupY) - 66.0f;
 constexpr float PiecePopupScrollTextXInset = 24.0f;
 constexpr float PiecePopupScrollTextYInset = 14.0f;
+
+// The deck editor's card inspector. It used to borrow the in-game piece popup's
+// geometry, which left its two text columns overlapping and gave it no room for a
+// card face. Its own box keeps the abilities strip at exactly PiecePopupTextWidth
+// so the shared ability renderer draws into it unscaled.
+constexpr float CardPopupX = 150.0f;
+constexpr float CardPopupY = 84.0f;
+constexpr float CardPopupWidth = 500.0f;
+constexpr float CardPopupHeight = 436.0f;
+constexpr float CardPopupFaceX = CardPopupX + 24.0f;
+constexpr float CardPopupFaceY = CardPopupY + 22.0f;
+constexpr float CardPopupFaceWidth = 168.0f;
+constexpr float CardPopupFaceHeight = 214.0f;
+constexpr float CardPopupStatsX = CardPopupX + 206.0f;
+constexpr float CardPopupStatsWidth = CardPopupWidth - 230.0f;
+constexpr float CardPopupAbilitiesX = PiecePopupTextX;
+constexpr float CardPopupAbilitiesY = CardPopupY + 282.0f;
+constexpr float CardPopupAbilitiesWidth = PiecePopupTextWidth;
+constexpr float CardPopupAbilitiesHeight = 88.0f;
 constexpr float PieceDoubleClickSeconds = 0.38f;
 constexpr float DeckCardDoubleClickSeconds = 0.38f;
 constexpr float GameDragStartDistanceSquared = 36.0f;
@@ -911,7 +946,7 @@ int main(int argc, char** argv)
     PasswordVisibilityIcon currentPasswordVisibilityIcon(currentPasswordInput.bounds(), showPasswordTexture, hidePasswordTexture);
     PasswordVisibilityIcon newPasswordVisibilityIcon(newPasswordInput.bounds(), showPasswordTexture, hidePasswordTexture);
     PasswordVisibilityIcon confirmNewPasswordVisibilityIcon(confirmNewPasswordInput.bounds(), showPasswordTexture, hidePasswordTexture);
-    InputBox deckNameInput({304.0f, 154.0f}, {210.0f, 40.0f}, "", font);
+    InputBox deckNameInput({304.0f, 154.0f}, {212.0f, 32.0f}, "", font);
     InputBox adminSearchInput({120.0f, 94.0f}, {390.0f, 36.0f}, "", font);
     InputBox adminGoldInput({234.0f, 460.0f}, {130.0f, 36.0f}, "Gold amount", font);
     InputBox adminCardInput({240.0f, 224.0f}, {320.0f, 36.0f}, "Card name", font);
@@ -955,22 +990,30 @@ int main(int argc, char** argv)
     Button editDeckButton({244.0f, 508.0f}, {110.0f, 38.0f}, "Edit", font);
     Button deleteDeckButton({34.0f, 508.0f}, {110.0f, 38.0f}, "Delete", font);
     Button removeCardButton({304.0f, 508.0f}, {110.0f, 38.0f}, "Remove", font);
-    CheckboxControl collectionHeroFilterCheckbox({430.0f, 172.0f}, "Heroes", font, rememberCheckTexture, 13, 16.0f, 22.0f);
-    CheckboxControl collectionUnitFilterCheckbox({560.0f, 172.0f}, "Units", font, rememberCheckTexture, 13, 16.0f, 22.0f);
-    CheckboxControl collectionSpellFilterCheckbox({646.0f, 172.0f}, "Spells & Enchantments", font, rememberCheckTexture, 13, 16.0f, 22.0f);
-    std::vector<CheckboxControl> collectionTraitFilterCheckboxes;
-    collectionTraitFilterCheckboxes.reserve(game_data::CardTraitLabels.size());
-    for (std::size_t i = 0; i < game_data::CardTraitLabels.size(); ++i)
-    {
-        collectionTraitFilterCheckboxes.emplace_back(
-            sf::Vector2f{430.0f + static_cast<float>(i % 3) * 105.0f, 217.0f + static_cast<float>(i / 3) * 24.0f},
-            game_data::CardTraitLabels[i],
-            font,
-            rememberCheckTexture,
-            13,
-            16.0f,
-            22.0f);
-    }
+    // The type and trait filters were a fixed grid of checkboxes: the widest
+    // label ran off the panel and the last trait row collided with the card list
+    // below it. Chips are measured from the font and wrapped inside the panel's
+    // inner width, so no label can clip however long it is.
+    const std::vector<std::string> collectionTypeLabels(
+        CollectionTypeLabels.begin(), CollectionTypeLabels.end());
+    const std::vector<std::string> collectionTraitLabels(
+        game_data::CardTraitLabels.begin(), game_data::CardTraitLabels.end());
+    const std::vector<FilterChip> collectionTypeChips = layoutFilterChips(
+        font,
+        collectionTypeLabels,
+        {LibraryX, CollectionTypeChipsY},
+        LibraryWidth,
+        CollectionChipTextSize,
+        CollectionChipHeight,
+        CollectionChipGap);
+    const std::vector<FilterChip> collectionTraitChips = layoutFilterChips(
+        font,
+        collectionTraitLabels,
+        {LibraryX, CollectionTraitChipsY},
+        LibraryWidth,
+        CollectionChipTextSize,
+        CollectionChipHeight,
+        CollectionChipGap);
     Button addCardButton({574.0f, 508.0f}, {88.0f, 38.0f}, "Add", font);
     Button saveDeckButton({668.0f, 508.0f}, {108.0f, 38.0f}, "Save", font);
     Button shopBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
@@ -1016,9 +1059,10 @@ int main(int argc, char** argv)
     Button confirmDeleteUserButton({420.0f, 366.0f}, {130.0f, 42.0f}, "Delete", font);
     Button cancelExitDesktopButton({250.0f, 356.0f}, {130.0f, 42.0f}, "Cancel", font);
     Button confirmExitDesktopButton({420.0f, 356.0f}, {130.0f, 42.0f}, "Exit", font);
-    Button keepEditingDeckButton({232.0f, 356.0f}, {160.0f, 42.0f}, "Keep Editing", font);
-    Button discardDeckChangesButton({420.0f, 356.0f}, {148.0f, 42.0f}, "Discard", font);
-    Button closeDeckCardPopupButton({PiecePopupX + 190.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
+    // Centred as a pair inside the unsaved-changes dialog.
+    Button keepEditingDeckButton({250.0f, 352.0f}, {140.0f, 40.0f}, "Keep Editing", font);
+    Button discardDeckChangesButton({410.0f, 352.0f}, {140.0f, 40.0f}, "Discard", font);
+    Button closeDeckCardPopupButton({CardPopupX + 190.0f, CardPopupY + CardPopupHeight - 48.0f}, {120.0f, 38.0f}, "Close", font);
 
     sf::Text messageText(font, "", 20);
     messageText.setFillColor(sf::Color::Red);
@@ -1361,19 +1405,28 @@ int main(int argc, char** argv)
     auto layoutDeckEditorControls = [&]() {
         if (deckEditorMode == DeckEditorMode::DeckList)
         {
-            // Starter decks cannot be created or deleted, so Refresh and Edit
-            // take the centre of the row on their own.
-            newDeckButton.setPosition({244.0f, 140.0f});
-            refreshDeckButton.setPosition({starterDeckMode ? 345.0f : 376.0f, 140.0f});
-            editDeckButton.setPosition({starterDeckMode ? 345.0f : 244.0f, 508.0f});
-            deleteDeckButton.setPosition({446.0f, 508.0f});
+            // The action row sits under the panels it belongs to: roster verbs on
+            // the left, the verbs that act on the selected deck under its portrait.
+            newDeckButton.shape.setSize({112.0f, 38.0f});
+            refreshDeckButton.shape.setSize({112.0f, 38.0f});
+            // Starter decks cannot be created or deleted, so Edit takes the
+            // detail column on its own.
+            editDeckButton.shape.setSize({starterDeckMode ? DeckDetailPanelWidth : 184.0f, 38.0f});
+            deleteDeckButton.shape.setSize({184.0f, 38.0f});
+            newDeckButton.setPosition({DeckPickerPanelX, 510.0f});
+            refreshDeckButton.setPosition({DeckPickerPanelX + 122.0f, 510.0f});
+            editDeckButton.setPosition({DeckDetailPanelX, 510.0f});
+            deleteDeckButton.setPosition({DeckDetailPanelX + 200.0f, 510.0f});
         }
         else
         {
-            deckNameInput.setPosition({42.0f, 112.0f});
-            removeCardButton.setPosition({42.0f, 508.0f});
-            addCardButton.setPosition({430.0f, 508.0f});
-            saveDeckButton.setPosition({648.0f, 508.0f});
+            removeCardButton.shape.setSize({120.0f, 38.0f});
+            addCardButton.shape.setSize({110.0f, 38.0f});
+            saveDeckButton.shape.setSize({124.0f, 38.0f});
+            deckNameInput.setPosition({DeckCardsX, 112.0f});
+            removeCardButton.setPosition({DeckCardsX, 510.0f});
+            addCardButton.setPosition({LibraryX, 510.0f});
+            saveDeckButton.setPosition({652.0f, 510.0f});
         }
     };
 
@@ -1970,12 +2023,25 @@ int main(int argc, char** argv)
     };
 
     auto clickCollectionTraitFilter = [&](sf::Vector2f clickPos) {
-        for (std::size_t i = 0; i < collectionTraitFilterCheckboxes.size(); ++i)
+        for (std::size_t i = 0; i < collectionTraitChips.size(); ++i)
         {
-            if (collectionTraitFilterCheckboxes[i].isClicked(clickPos))
+            if (collectionTraitChips[i].rect.contains(clickPos))
             {
                 clearFocus();
                 toggleCollectionTraitFilter(i);
+                return true;
+            }
+        }
+        return false;
+    };
+
+    auto clickCollectionTypeFilter = [&](sf::Vector2f clickPos) {
+        for (std::size_t i = 0; i < collectionTypeChips.size(); ++i)
+        {
+            if (collectionTypeChips[i].rect.contains(clickPos))
+            {
+                clearFocus();
+                toggleCollectionTypeFilter(i);
                 return true;
             }
         }
@@ -3169,6 +3235,68 @@ int main(int argc, char** argv)
             sf::Color(220, 180, 120));
     };
 
+    // Everything the collection presentation kit needs. The display face carries
+    // headings so the screens have a type hierarchy beyond Roboto at four sizes.
+    const UiContext collectionUi{
+        window,
+        font,
+        gloomthornFontLoaded ? gloomthornFont : font,
+        textures};
+
+    // The draw lambdas are defined before the frame loop's mouse position exists,
+    // so hover states sample the pointer at draw time instead of capturing it.
+    auto collectionPointer = [&]() {
+        return window.mapPixelToCoords(sf::Mouse::getPosition(window));
+    };
+
+    // Index of the list row under the pointer, for hover treatment.
+    auto hoveredRow = [&](float x, float y, float width, float rowHeight,
+                          std::size_t visibleRows, std::size_t offset, std::size_t totalRows) {
+        return rowIndexAt(collectionPointer(), x, y, width, rowHeight, visibleRows, offset, totalRows);
+    };
+
+    // Deck rows and the inspect popup need art for cards the player may not own,
+    // so they fall back to the full catalogue. Defined here rather than beside the
+    // other card helpers because every collection screen below needs it.
+    auto cardInAllLibraryByTitle = [&](const std::string& title) -> const card_data::Card* {
+        const auto found = std::find_if(allCardLibrary.begin(), allCardLibrary.end(), [&](const card_data::Card& card) {
+            return card.title == title;
+        });
+        if (found != allCardLibrary.end())
+        {
+            return &*found;
+        }
+        return cardByTitle(title);
+    };
+
+    auto deckSummaryFor = [&](const deck_data::Deck& deck) {
+        // Prefer the full catalogue so a deck's art and curve still resolve when
+        // the player does not own every card in it.
+        return summarizeDeck(deck, allCardLibrary.empty() ? cardLibrary : allCardLibrary);
+    };
+
+    // A thin track that appears only when a list actually overflows.
+    auto drawListScrollTrack = [&](float x, float y, float height,
+                                   std::size_t offset, std::size_t visibleRows, std::size_t totalRows) {
+        if (totalRows <= visibleRows)
+        {
+            return;
+        }
+        sf::RectangleShape track({3.0f, height});
+        track.setPosition({x, y});
+        track.setFillColor(sf::Color(0, 0, 0, 170));
+        window.draw(track);
+
+        const float ratio = static_cast<float>(visibleRows) / static_cast<float>(totalRows);
+        const float thumbHeight = std::max(20.0f, height * ratio);
+        const float travel = height - thumbHeight;
+        const float progress = static_cast<float>(offset) / static_cast<float>(totalRows - visibleRows);
+        sf::RectangleShape thumb({3.0f, thumbHeight});
+        thumb.setPosition({x, y + travel * progress});
+        thumb.setFillColor(sf::Color(198, 146, 70, 225));
+        window.draw(thumb);
+    };
+
     #include "screens/deck_editor_screen.inl"
 
     auto showDeckSelect = [&]() {
@@ -4045,17 +4173,6 @@ int main(int argc, char** argv)
             sf::Color(248, 239, 216, 220));
     };
 
-    auto cardInAllLibraryByTitle = [&](const std::string& title) -> const card_data::Card* {
-        const auto found = std::find_if(allCardLibrary.begin(), allCardLibrary.end(), [&](const card_data::Card& card) {
-            return card.title == title;
-        });
-        if (found != allCardLibrary.end())
-        {
-            return &*found;
-        }
-        return cardByTitle(title);
-    };
-
     auto drawLargeCollectionCard = [&](const card_data::Card& card, sf::Vector2f position, sf::Vector2f size) {
         drawBeveledPlate(
             window,
@@ -4110,6 +4227,28 @@ int main(int argc, char** argv)
             size.x - 36.0f);
     };
 
+    // The deck editor's inspector shows rarity, cost, holdings and health itself,
+    // on the card face and in its badge row. deckEditorCardDetails leads with the
+    // same five facts, so the popup used to print every one of them twice; keep
+    // only what the face does not already say.
+    auto deckEditorAbilityRows = [&](const card_data::Card& card) {
+        static constexpr const char* Duplicated[] = {
+            "Rarity:", "Hero cost:", "Cost:", "Deck limit:", "Health:"};
+        DetailRows rows;
+        for (DetailRow& row : deckEditorCardDetails(card))
+        {
+            const bool duplicated = !row.action &&
+                std::any_of(std::begin(Duplicated), std::end(Duplicated), [&](const char* prefix) {
+                    return row.text.rfind(prefix, 0) == 0;
+                });
+            if (!duplicated)
+            {
+                rows.push_back(std::move(row));
+            }
+        }
+        return rows;
+    };
+
     auto detailRowsHeight = [&](const DetailRows& details) {
         float height = 0.0f;
         for (const DetailRow& row : details)
@@ -4128,6 +4267,12 @@ int main(int argc, char** argv)
 
     auto detailRowsMaxScroll = [&](const DetailRows& details) {
         return std::max(0.0f, detailRowsHeight(details) - PiecePopupScrollHeight);
+    };
+
+    // The inspector's abilities strip is shorter than the in-game piece popup's,
+    // so it needs its own travel.
+    auto deckEditorAbilityMaxScroll = [&](const DetailRows& details) {
+        return std::max(0.0f, detailRowsHeight(details) - CardPopupAbilitiesHeight);
     };
 
     auto drawDetailRows = [&](const DetailRows& details, float y) {
@@ -5664,6 +5809,10 @@ int main(int argc, char** argv)
         playerDecks = ui_capture::sampleDecks(allCardLibrary);
         editingDeck = playerDecks.empty() ? deck_data::Deck{} : playerDecks.front();
         activeDeckOriginalName = editingDeck.name;
+        deckNameInput.setContent(editingDeck.name);
+        // The roster's detail panel needs a subject; a player arriving from the
+        // menu has their first deck highlighted the same way.
+        selectedDeck = playerDecks.empty() ? std::optional<std::size_t>{} : std::optional<std::size_t>{0};
 
         starterDeckOffers.clear();
         for (std::size_t i = 0; i < starter_decks::Names.size(); ++i)
@@ -5705,6 +5854,16 @@ int main(int argc, char** argv)
         giveStarterDeckPopupVisible = false;
         deckEditorMode = DeckEditorMode::DeckList;
         starterDeckMode = false;
+        // Screens are visited in one process, so anything a previous screen turned
+        // on has to be turned back off or it bleeds into the next capture.
+        inspectedDeckEditorCardTitle.reset();
+        inspectedDeckEditorCardScroll = 0.0f;
+        lastDeckEditorClickedCardTitle.reset();
+        revealedCardTitle.reset();
+        starterDeckPickRequired = false;
+        deckListOffset = 0;
+        deckCardListOffset = 0;
+        libraryOffset = 0;
 
         if (screen == "login")
         {
@@ -5741,18 +5900,67 @@ int main(int argc, char** argv)
         {
             currentState = GameState::DeckEditor;
         }
-        else if (screen == "deck-editor-cards")
+        else if (screen == "deck-editor-empty")
+        {
+            // The no-decks-yet roster, so the empty state can be reviewed.
+            currentState = GameState::DeckEditor;
+            playerDecks.clear();
+            selectedDeck.reset();
+        }
+        else if (screen == "deck-editor-cards" || screen == "deck-editor-full" ||
+                 screen == "deck-editor-popup" || screen == "deck-editor-unsaved")
         {
             currentState = GameState::DeckEditor;
             deckEditorMode = DeckEditorMode::EditDeck;
+            // "cards" edits the half-built deck so the warning slot has something
+            // to say; "full" edits the legal one so every counter is satisfied.
+            editingDeck = screen == "deck-editor-cards" && playerDecks.size() > 1
+                ? playerDecks[1]
+                : ui_capture::sampleLegalDeck(allCardLibrary);
+            activeDeckOriginalName = editingDeck.name;
+            deckNameInput.setContent(editingDeck.name);
+            selectedDeckCard = 0;
+            selectedLibraryCard = 0;
+            if (screen == "deck-editor-popup")
+            {
+                inspectedDeckEditorCardTitle = editingDeck.cardTitles.empty()
+                    ? allCardLibrary.front().title
+                    : editingDeck.cardTitles.front();
+                inspectedDeckEditorCardScroll = 0.0f;
+            }
+            else if (screen == "deck-editor-unsaved")
+            {
+                // A pending rename is the cheapest way to make the deck dirty.
+                editingDeck.name += " v2";
+                deckNameInput.setContent(editingDeck.name);
+                deckUnsavedChangesPopupVisible = true;
+            }
         }
         else if (screen == "shop")
         {
             currentState = GameState::Shop;
         }
-        else if (screen == "starter-decks")
+        else if (screen == "shop-reveal")
+        {
+            currentState = GameState::Shop;
+            // Mid-reveal, a few frames in, so the burst has opened but not settled.
+            revealedCardTitle = "Crystal Unicorn";
+            revealStartedAt = animationTime - 0.42f;
+        }
+        else if (screen == "starter-decks" || screen == "starter-decks-pick")
         {
             currentState = GameState::StarterDecks;
+            // The forced first pick reads differently from the shop's store: no
+            // deck is owned yet and the only way out is signing back out.
+            starterDeckPickRequired = screen == "starter-decks-pick";
+            for (std::size_t i = 0; i < starterDeckOffers.size(); ++i)
+            {
+                starterDeckOffers[i].owned = !starterDeckPickRequired && i == 0;
+                starterDeckOffers[i].price = starterDeckPickRequired
+                    ? 0
+                    : (i == 0 ? 0 : starter_decks::StarterDeckPrice);
+            }
+            selectedStarterDeckOffer = starterDeckPickRequired ? 2 : 1;
         }
         else if (screen == "admin-users")
         {
@@ -7134,7 +7342,7 @@ int main(int argc, char** argv)
                     if (inspectedDeckEditorCardTitle)
                     {
                         if (closeDeckCardPopupButton.isClicked(clickPos) ||
-                            !isInsideRect(clickPos, PiecePopupX, PiecePopupY, PiecePopupWidth, PiecePopupHeight))
+                            !isInsideRect(clickPos, CardPopupX, CardPopupY, CardPopupWidth, CardPopupHeight))
                         {
                             inspectedDeckEditorCardTitle.reset();
                             lastDeckEditorClickedCardTitle.reset();
@@ -7203,20 +7411,8 @@ int main(int argc, char** argv)
                         {
                             removeSelectedCard();
                         }
-                        else if (deckEditorMode == DeckEditorMode::EditDeck && collectionHeroFilterCheckbox.isClicked(clickPos))
+                        else if (deckEditorMode == DeckEditorMode::EditDeck && clickCollectionTypeFilter(clickPos))
                         {
-                            clearFocus();
-                            toggleCollectionTypeFilter(0);
-                        }
-                        else if (deckEditorMode == DeckEditorMode::EditDeck && collectionUnitFilterCheckbox.isClicked(clickPos))
-                        {
-                            clearFocus();
-                            toggleCollectionTypeFilter(1);
-                        }
-                        else if (deckEditorMode == DeckEditorMode::EditDeck && collectionSpellFilterCheckbox.isClicked(clickPos))
-                        {
-                            clearFocus();
-                            toggleCollectionTypeFilter(2);
                         }
                         else if (deckEditorMode == DeckEditorMode::EditDeck && clickCollectionTraitFilter(clickPos))
                         {
@@ -7508,7 +7704,8 @@ int main(int argc, char** argv)
             {
                 const sf::Vector2f wheelPos = window.mapPixelToCoords(wheel->position);
                 if (inspectedDeckEditorCardTitle &&
-                    isInsideRect(wheelPos, PiecePopupTextX, PiecePopupScrollY, PiecePopupTextWidth, PiecePopupScrollHeight))
+                    isInsideRect(wheelPos, CardPopupAbilitiesX, CardPopupAbilitiesY,
+                                 CardPopupAbilitiesWidth, CardPopupAbilitiesHeight))
                 {
                     const card_data::Card* card = cardByTitle(*inspectedDeckEditorCardTitle);
                     if (!card)
@@ -7517,11 +7714,10 @@ int main(int argc, char** argv)
                     }
                     if (card)
                     {
-                        const DetailRows details = deckEditorCardDetails(*card);
                         inspectedDeckEditorCardScroll = std::clamp(
                             inspectedDeckEditorCardScroll - wheel->delta * 34.0f,
                             0.0f,
-                            detailRowsMaxScroll(details));
+                            deckEditorAbilityMaxScroll(deckEditorAbilityRows(*card)));
                     }
                 }
                 else if (!inspectedDeckEditorCardTitle &&
@@ -8083,13 +8279,6 @@ int main(int argc, char** argv)
             else
             {
                 removeCardButton.update(mousePos);
-                collectionHeroFilterCheckbox.update(mousePos);
-                collectionUnitFilterCheckbox.update(mousePos);
-                collectionSpellFilterCheckbox.update(mousePos);
-                for (CheckboxControl& checkbox : collectionTraitFilterCheckboxes)
-                {
-                    checkbox.update(mousePos);
-                }
                 addCardButton.update(mousePos);
                 if (deckHasUnsavedChanges())
                 {
