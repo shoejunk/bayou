@@ -423,7 +423,13 @@ void drawBrassFrame(
     window.draw(frame);
 }
 
-void drawFocusRing(sf::RenderWindow& window, sf::Vector2f position, sf::Vector2f size, float cut, float phase)
+void drawFocusRing(
+    sf::RenderWindow& window,
+    sf::Vector2f position,
+    sf::Vector2f size,
+    float cut,
+    float phase,
+    sf::Color color)
 {
     // Two rings: a wide soft halo plus a tight bright line, so the ring reads on
     // both dark plate and bright art. The pulse keeps it alive without motion.
@@ -436,14 +442,14 @@ void drawFocusRing(sf::RenderWindow& window, sf::Vector2f position, sf::Vector2f
         position - sf::Vector2f(5.0f, 5.0f),
         size + sf::Vector2f(10.0f, 10.0f),
         cut + 4.0f,
-        withAlpha(palette::BrassPale, haloAlpha),
+        withAlpha(color, haloAlpha),
         3.0f);
     drawBrassFrame(
         window,
         position - sf::Vector2f(2.5f, 2.5f),
         size + sf::Vector2f(5.0f, 5.0f),
         cut + 2.0f,
-        withAlpha(palette::BrassPale, lineAlpha),
+        withAlpha(color, lineAlpha),
         1.5f);
 }
 
@@ -804,6 +810,11 @@ void drawValuePill(
 
 void drawSeparatorRule(sf::RenderWindow& window, sf::Vector2f position, float width)
 {
+    drawSeparatorRule(window, position, width, true);
+}
+
+void drawSeparatorRule(sf::RenderWindow& window, sf::Vector2f position, float width, bool ornament)
+{
     if (width <= 0.0f)
     {
         return;
@@ -833,6 +844,13 @@ void drawSeparatorRule(sf::RenderWindow& window, sf::Vector2f position, float wi
         {position.x + width * 0.14f, position.y + 2.0f},
         {width * 0.72f, 1.0f},
         sf::Color(38, 25, 15, 130));
+
+    if (!ornament)
+    {
+        // Row dividers inside a panel stay plain: a column of centred lozenges
+        // down a settings list reads as a seam, not as decoration.
+        return;
+    }
 
     constexpr float LozengeHalf = 5.5f;
     sf::ConvexShape lozenge(4);

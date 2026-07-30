@@ -122,6 +122,7 @@ card_data::Card makeCard(const SampleCard& source)
 const std::vector<std::string>& knownScreens()
 {
     static const std::vector<std::string> screens = {
+        "title-screen",
         "login",
         "login-error",
         "create-account",

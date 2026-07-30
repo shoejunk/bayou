@@ -405,7 +405,15 @@ private:
         // to anyone navigating by keyboard before they type.
         if (active)
         {
-            bayou::client::drawFocusRing(window, position, size, cut);
+            // Match the ring to the state: a brass focus halo over a red error
+            // frame mixes into salmon and reads as neither.
+            bayou::client::drawFocusRing(
+                window,
+                position,
+                size,
+                cut,
+                0.0f,
+                errored ? style.errorOutline : bayou::client::palette::BrassPale);
         }
     }
 

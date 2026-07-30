@@ -624,6 +624,15 @@ struct CheckboxControl
         label.setPosition({position.x + labelOffset, position.y - 1.0f});
     }
 
+    // Lets a screen lay the control out at draw time rather than only at
+    // construction, so a form can be reflowed without moving its declaration.
+    void setPosition(sf::Vector2f position)
+    {
+        const sf::Vector2f offset = label.getPosition() - box.getPosition();
+        box.setPosition(position);
+        label.setPosition(position + offset);
+    }
+
     sf::FloatRect bounds() const
     {
         const sf::FloatRect boxBounds = box.getGlobalBounds();
@@ -1043,6 +1052,10 @@ int main(int argc, char** argv)
 
     sf::Clock clock;
     float animationTime = 0.0f;
+    // Armed the first frame the matchmaking screen is shown, so the elapsed
+    // search time counts from when the player actually started queuing.
+    float matchmakingSearchStart = 0.0f;
+    GameState lastFrameState = GameState::Menu;
     GameState currentState = GameState::Menu;
     GameState optionsReturnState = GameState::Menu;
     OptionsTab activeOptionsTab = OptionsTab::Graphics;
@@ -3004,17 +3017,383 @@ int main(int argc, char** argv)
         }
     };
 
+    // ---- entry form geometry ----------------------------------------------
+    // Both entry forms are laid out from one place: a floating column of fields
+    // on the backdrop reads as an unfinished form, and the reserved notice row is
+    // what stops the layout jumping when validation fails.
+    const sf::Vector2f LoginPanelPosition{252.0f, 116.0f};
+    const sf::Vector2f LoginPanelSize{296.0f, 352.0f};
+    const sf::Vector2f CreatePanelPosition{252.0f, 108.0f};
+    const sf::Vector2f CreatePanelSize{296.0f, 412.0f};
+    constexpr float LoginNoticeY = 358.0f;
+    constexpr float CreateNoticeY = 406.0f;
+    constexpr float FormFieldX = 300.0f;
+    constexpr float FormFieldWidth = 200.0f;
+
+    // ---- options screen geometry -------------------------------------------
+    // Label on the left, control on the right, separated by rules. Centred
+    // labels stacked over centred controls is what made the old screen read as a
+    // debug menu.
+    const sf::Vector2f OptionsPanelPosition{140.0f, 156.0f};
+    const sf::Vector2f OptionsPanelSize{519.0f, 302.0f};
+
+    auto layoutOptionsScreen = [&]() {
+        optionsTabs.position = {OptionsPanelPosition.x, 110.0f};
+        optionsTabs.tabSize = {OptionsPanelSize.x / 3.0f, 46.0f};
+
+        constexpr float ControlRight = 636.0f;
+        displayModeButton.setSize({224.0f, 40.0f});
+        displayModeButton.setPosition({ControlRight - 224.0f, 202.0f});
+        displayModeButton.setLabelSize(type::Body);
+
+        previousResolutionButton.setSize({38.0f, 40.0f});
+        previousResolutionButton.setPosition({ControlRight - 224.0f, 270.0f});
+        resolutionButton.setSize({144.0f, 40.0f});
+        resolutionButton.setPosition({ControlRight - 182.0f, 270.0f});
+        resolutionButton.setLabelSize(type::Body);
+        nextResolutionButton.setSize({38.0f, 40.0f});
+        nextResolutionButton.setPosition({ControlRight - 38.0f, 270.0f});
+
+        applyOptionsButton.setVariant(ButtonVariant::Primary);
+        applyOptionsButton.setSize({170.0f, 42.0f});
+        applyOptionsButton.setPosition({ControlRight - 170.0f, 396.0f});
+        applyOptionsButton.setLabelSize(type::Subheading);
+
+        changePasswordOptionButton.setSize({224.0f, 40.0f});
+        changePasswordOptionButton.setPosition({ControlRight - 224.0f, 270.0f});
+        changePasswordOptionButton.setLabelSize(type::Body);
+
+        // Sliders share one column with the mute toggles parked at its right.
+        constexpr float SliderX = 168.0f;
+        const sf::Vector2f sliderSize{330.0f, 50.0f};
+        allAudioSlider.position = {SliderX, 202.0f};
+        allAudioSlider.size = sliderSize;
+        musicAudioSlider.position = {SliderX, 278.0f};
+        musicAudioSlider.size = sliderSize;
+        soundFxAudioSlider.position = {SliderX, 354.0f};
+        soundFxAudioSlider.size = sliderSize;
+        muteAllAudioCheckbox.setPosition({552.0f, 236.0f});
+        muteMusicCheckbox.setPosition({552.0f, 312.0f});
+        muteSoundFxCheckbox.setPosition({552.0f, 388.0f});
+
+        optionsBackButton.setVariant(ButtonVariant::Quiet);
+        optionsBackButton.setSize({170.0f, 40.0f});
+        optionsBackButton.setPosition({315.0f, 474.0f});
+        optionsBackButton.setLabelSize(type::Body);
+    };
+
+    auto layoutEntryForms = [&]() {
+        loginSubmitButton.setVariant(ButtonVariant::Primary);
+        createSubmitButton.setVariant(ButtonVariant::Primary);
+        backButton.setVariant(ButtonVariant::Quiet);
+
+        loginSubmitButton.setSize({FormFieldWidth, 46.0f});
+        createSubmitButton.setSize({FormFieldWidth, 46.0f});
+        backButton.setSize({132.0f, 34.0f});
+        backButton.setLabelSize(type::Body);
+    };
+
+    auto layoutLoginForm = [&]() {
+        layoutEntryForms();
+        usernameInput.setPosition({FormFieldX, 214.0f});
+        passwordInput.setPosition({FormFieldX, 286.0f});
+        passwordVisibilityIcon.fieldBounds = passwordInput.bounds();
+        rememberMeCheckbox.setPosition({FormFieldX, 336.0f});
+        loginSubmitButton.setPosition({FormFieldX, 402.0f});
+        backButton.setPosition({334.0f, 480.0f});
+    };
+
+    auto layoutCreateAccountForm = [&]() {
+        layoutEntryForms();
+        usernameInput.setPosition({FormFieldX, 186.0f});
+        passwordInput.setPosition({FormFieldX, 254.0f});
+        confirmInput.setPosition({FormFieldX, 322.0f});
+        passwordVisibilityIcon.fieldBounds = passwordInput.bounds();
+        confirmVisibilityIcon.fieldBounds = confirmInput.bounds();
+        createSubmitButton.setLabelSize(type::Heading);
+        createSubmitButton.setPosition({FormFieldX, 456.0f});
+        backButton.setPosition({334.0f, 532.0f});
+    };
+
+    // A validation notice that belongs to the form rather than floating loose at
+    // the bottom of the screen. The row is always reserved, so the button never
+    // moves when a message appears.
+    auto drawFormNotice = [&](float y) {
+        const std::string message = messageText.getString().toAnsiString();
+        if (message.empty())
+        {
+            return;
+        }
+
+        const sf::Color messageColor = messageText.getFillColor();
+        const bool problem = messageColor.r > messageColor.g + 40 && messageColor.r > messageColor.b + 40;
+        const sf::Color accent = problem ? palette::Danger : palette::Brass;
+        const sf::Color ink = problem ? palette::DangerBright : palette::Ink;
+
+        // Size the strip to the wrapped copy: a fixed-height notice either clips
+        // the second line or leaves a hole under the first.
+        constexpr float LineHeight = 15.0f;
+        const sf::Vector2f position{264.0f, y};
+        const float textWidth = 232.0f;
+        const std::size_t lineCount =
+            std::max<std::size_t>(1, wrapText(font, message, type::Caption, textWidth).size());
+        const sf::Vector2f size{
+            272.0f,
+            std::max(26.0f, 11.0f + static_cast<float>(lineCount) * LineHeight)};
+
+        drawInsetSlot(
+            window,
+            position,
+            size,
+            4.0f,
+            problem ? sf::Color(38, 14, 12, 236) : sf::Color(24, 20, 15, 232),
+            accent,
+            false,
+            false);
+
+        // A glyph, not just colour: red text on a dark plate is easy to miss and
+        // impossible for a colour-blind player to distinguish from brass.
+        const sf::Vector2f markCenter{position.x + 17.0f, position.y + size.y * 0.5f};
+        if (problem)
+        {
+            sf::CircleShape mark(7.5f, 3);
+            mark.setOrigin({7.5f, 7.5f});
+            mark.setPosition(markCenter + sf::Vector2f(0.0f, -0.5f));
+            mark.setFillColor(sf::Color(214, 88, 72, 245));
+            window.draw(mark);
+            drawCenteredText(window, font, "!", 11, markCenter + sf::Vector2f(0.0f, 1.5f), sf::Color(28, 10, 8));
+        }
+        else
+        {
+            drawStud(window, markCenter, 5.0f, palette::Brass);
+        }
+
+        drawWrappedText(
+            window,
+            font,
+            message,
+            type::Caption,
+            {position.x + 32.0f,
+             position.y + (size.y - static_cast<float>(lineCount) * LineHeight) * 0.5f},
+            ink,
+            textWidth,
+            3.0f);
+    };
+
+    // Heading band shared by both entry forms.
+    auto drawEntryFormHeader = [&](sf::Vector2f panelPosition,
+                                   sf::Vector2f panelSize,
+                                   const std::string& heading,
+                                   const std::string& flavour) {
+        const float centerX = panelPosition.x + panelSize.x * 0.5f;
+        drawCenteredText(
+            window,
+            displayFontOr(font),
+            heading,
+            type::Heading,
+            {centerX, panelPosition.y + 24.0f},
+            palette::Ink);
+
+        if (!flavour.empty())
+        {
+            sf::Text line(font, flavour, type::Caption);
+            line.setStyle(sf::Text::Italic);
+            line.setFillColor(palette::InkMuted);
+            centerText(line, {centerX, panelPosition.y + 44.0f});
+            drawCrispText(window, line);
+        }
+
+        drawSeparatorRule(
+            window,
+            {panelPosition.x + 28.0f, panelPosition.y + (flavour.empty() ? 44.0f : 60.0f)},
+            panelSize.x - 56.0f);
+    };
+
+    // ---- matchmaking --------------------------------------------------------
+    // Two portrait slots and a live search ring, so waiting reads as the game
+    // hunting for an opponent rather than a sentence over a static backdrop.
+    auto drawSearchRing = [&](sf::Vector2f center, float radius, float phase, sf::Color color) {
+        constexpr int Arcs = 3;
+        constexpr int SegmentsPerArc = 9;
+        for (int arc = 0; arc < Arcs; ++arc)
+        {
+            const float arcPhase = phase * (arc % 2 == 0 ? 1.0f : -0.72f) +
+                static_cast<float>(arc) * 2.094f;
+            const float arcRadius = radius + static_cast<float>(arc) * 5.5f;
+            for (int segment = 0; segment < SegmentsPerArc; ++segment)
+            {
+                const float t = static_cast<float>(segment) / static_cast<float>(SegmentsPerArc);
+                // Fade each dash along the arc so the ring reads as sweeping
+                // rather than merely spinning.
+                const float fade = 0.15f + 0.85f * t;
+                const float angle = arcPhase + t * 1.35f;
+                const sf::Vector2f point{
+                    center.x + std::cos(angle) * arcRadius,
+                    center.y + std::sin(angle) * arcRadius};
+
+                sf::CircleShape dash(1.9f, 8);
+                dash.setOrigin({1.9f, 1.9f});
+                dash.setPosition(point);
+                dash.setFillColor(sf::Color(
+                    color.r,
+                    color.g,
+                    color.b,
+                    static_cast<std::uint8_t>(std::lround(200.0f * fade))));
+                window.draw(dash);
+            }
+        }
+    };
+
+    auto drawOpponentSlot = [&](sf::Vector2f center, bool unknown, const std::string& caption) {
+        constexpr float Radius = 42.0f;
+
+        drawRadialGlow(
+            window,
+            center,
+            Radius * 1.65f,
+            unknown ? sf::Color(123, 79, 168, 62) : sf::Color(196, 138, 62, 52));
+
+        sf::CircleShape well(Radius, 44);
+        well.setOrigin({Radius, Radius});
+        well.setPosition(center);
+        well.setFillColor(sf::Color(10, 15, 16, 246));
+        window.draw(well);
+
+        if (!unknown && mainMenuAvatarTexture)
+        {
+            sf::CircleShape portrait(Radius - 4.0f, 44);
+            portrait.setOrigin({Radius - 4.0f, Radius - 4.0f});
+            portrait.setPosition(center);
+            portrait.setTexture(mainMenuAvatarTexture);
+            portrait.setTextureRect(sf::IntRect({98, 38}, {54, 54}));
+            window.draw(portrait);
+        }
+        else if (unknown)
+        {
+            // A breathing question sigil: the opponent is not a blank, they are
+            // being looked for.
+            const float pulse = 0.62f + 0.38f * (0.5f + 0.5f * std::sin(animationTime * 2.3f));
+            sf::Text mark(displayFontOr(font), "?", 44);
+            mark.setFillColor(sf::Color(
+                palette::ArcaneBright.r,
+                palette::ArcaneBright.g,
+                palette::ArcaneBright.b,
+                static_cast<std::uint8_t>(std::lround(235.0f * pulse))));
+            centerText(mark, center);
+            drawCrispText(window, mark);
+        }
+
+        sf::CircleShape rim(Radius, 44);
+        rim.setOrigin({Radius, Radius});
+        rim.setPosition(center);
+        rim.setFillColor(sf::Color::Transparent);
+        rim.setOutlineThickness(2.0f);
+        rim.setOutlineColor(unknown ? sf::Color(112, 84, 138) : palette::Brass);
+        window.draw(rim);
+
+        if (unknown)
+        {
+            drawSearchRing(center, Radius + 9.0f, animationTime * 1.15f, palette::ArcaneBright);
+        }
+
+        drawCenteredText(
+            window,
+            displayFontOr(font),
+            caption,
+            type::Subheading,
+            {center.x, center.y + Radius + 22.0f},
+            unknown ? palette::InkMuted : palette::Ink);
+    };
+
+    auto drawMatchmakingScreen = [&]() {
+        const sf::Vector2f panelPosition{176.0f, 150.0f};
+        const sf::Vector2f panelSize{448.0f, 296.0f};
+
+        // Cancel and Play vs AI belong under the panel they act on, not stranded
+        // in the bottom-left corner of the screen.
+        cancelMatchmakingButton.setVariant(ButtonVariant::Quiet);
+        cancelMatchmakingButton.setSize({148.0f, 40.0f});
+        cancelMatchmakingButton.setPosition({248.0f, 464.0f});
+        cancelMatchmakingButton.setLabelSize(type::Body);
+        playAiButton.setSize({148.0f, 40.0f});
+        playAiButton.setPosition({404.0f, 464.0f});
+        playAiButton.setLabelSize(type::Body);
+
+        // Ambience goes behind the panel, never over it.
+        drawAmbientMotes(window, animationTime, 26, sf::Color(178, 138, 224, 118));
+        drawPanel(window, panelPosition, panelSize);
+
+        const float centerX = panelPosition.x + panelSize.x * 0.5f;
+        const std::string status = messageText.getString().toAnsiString();
+
+        // Animated ellipsis so the screen is visibly working even when the
+        // service has nothing new to say.
+        const int dots = static_cast<int>(std::fmod(animationTime * 1.6f, 4.0f));
+        std::string heading = status.empty() ? "Searching for an opponent" : status;
+        while (!heading.empty() && (heading.back() == '.' || heading.back() == ' '))
+        {
+            heading.pop_back();
+        }
+
+        drawLabelText(
+            window,
+            font,
+            heading + std::string(static_cast<std::size_t>(dots), '.'),
+            type::Label,
+            {panelPosition.x + 30.0f, panelPosition.y + 22.0f},
+            palette::Brass,
+            2.0f);
+        drawSeparatorRule(window, {panelPosition.x + 28.0f, panelPosition.y + 44.0f}, panelSize.x - 56.0f);
+
+        const float slotY = panelPosition.y + 128.0f;
+        drawOpponentSlot({centerX - 112.0f, slotY}, false, loggedInUsername);
+        drawOpponentSlot({centerX + 112.0f, slotY}, true, "Unknown");
+
+        // The crossed-swords glyph already carries "versus" elsewhere in the
+        // menu, so reuse it rather than inventing a second symbol.
+        if (mainMenuPlayIconTexture)
+        {
+            drawMainMenuTextureContained(
+                mainMenuPlayIconTexture,
+                {centerX - 17.0f, slotY - 17.0f},
+                {34.0f, 34.0f},
+                sf::Color(232, 198, 140, 210));
+        }
+
+        const int elapsedSeconds =
+            static_cast<int>(std::max(0.0f, animationTime - matchmakingSearchStart));
+        char elapsed[16] = {};
+        std::snprintf(elapsed, sizeof(elapsed), "%02d:%02d", elapsedSeconds / 60, elapsedSeconds % 60);
+
+        drawValuePill(
+            window,
+            font,
+            {centerX - 44.0f, panelPosition.y + panelSize.y - 62.0f},
+            {88.0f, 24.0f},
+            elapsed,
+            palette::BrassBright);
+        drawCenteredText(
+            window,
+            font,
+            "Matching you against a similar rating.",
+            type::Caption,
+            {centerX, panelPosition.y + panelSize.y - 24.0f},
+            palette::InkMuted);
+    };
+
     auto drawPasswordRequirementHint = [&](float firstLineY) {
         auto drawCenteredHintLine = [&](const char* value, float y) {
-            sf::Text hint(font, value, 14);
-            hint.setFillColor(sf::Color(190, 198, 214));
+            // Muted parchment rather than the old blue-grey, which was the only
+            // cool-neutral text anywhere in the interface.
+            sf::Text hint(font, value, type::Caption);
+            hint.setFillColor(palette::InkMuted);
             hint.setPosition({400.0f, y});
             centerText(hint, 400.0f);
-            window.draw(hint);
+            drawCrispText(window, hint);
         };
 
         drawCenteredHintLine(PasswordRequirementHintLineOne, firstLineY);
-        drawCenteredHintLine(PasswordRequirementHintLineTwo, firstLineY + 20.0f);
+        drawCenteredHintLine(PasswordRequirementHintLineTwo, firstLineY + 17.0f);
     };
 
     auto cardByTitle = [&](const std::string& title) -> const card_data::Card* {
@@ -5922,7 +6301,13 @@ int main(int argc, char** argv)
         deckEditorMode = DeckEditorMode::DeckList;
         starterDeckMode = false;
 
-        if (screen == "login")
+        if (screen == "title-screen")
+        {
+            // The pre-sign-in screen had no capture key at all, so nobody had
+            // ever reviewed it.
+            currentState = GameState::Menu;
+        }
+        else if (screen == "login")
         {
             currentState = GameState::Login;
             usernameInput.setContent("Thistlewisp");
@@ -8159,6 +8544,9 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Options)
         {
+            // Lay out before hit-testing, so the first frame on the screen picks
+            // up the same geometry the draw pass will use.
+            layoutOptionsScreen();
             optionsTabs.update(mousePos);
             if (activeOptionsTab == OptionsTab::Graphics)
             {
@@ -8207,6 +8595,7 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Login)
         {
+            layoutLoginForm();
             rememberMeCheckbox.update(mousePos);
             passwordVisibilityIcon.update(mousePos);
             loginSubmitButton.update(mousePos);
@@ -8216,6 +8605,7 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::CreateAccount)
         {
+            layoutCreateAccountForm();
             passwordVisibilityIcon.update(mousePos);
             confirmVisibilityIcon.update(mousePos);
             createSubmitButton.update(mousePos);
@@ -8320,6 +8710,14 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Matchmaking)
         {
+            if (lastFrameState != GameState::Matchmaking)
+            {
+                matchmakingSearchStart = animationTime;
+            }
+            cancelMatchmakingButton.setSize({148.0f, 40.0f});
+            cancelMatchmakingButton.setPosition({248.0f, 464.0f});
+            playAiButton.setSize({148.0f, 40.0f});
+            playAiButton.setPosition({404.0f, 464.0f});
             cancelMatchmakingButton.update(mousePos);
             playAiButton.update(mousePos);
         }
@@ -8490,20 +8888,44 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Options)
         {
-            drawPanel(window, {112.0f, 164.0f}, {576.0f, 302.0f});
+            layoutOptionsScreen();
+            drawPanel(window, OptionsPanelPosition, OptionsPanelSize);
             optionsTabs.draw(window);
+
+            constexpr float RowLabelX = 168.0f;
+            const float ruleLeft = OptionsPanelPosition.x + 28.0f;
+            const float ruleWidth = OptionsPanelSize.x - 56.0f;
+
             if (activeOptionsTab == OptionsTab::Graphics)
             {
-                drawText(window, font, "Display Mode", 18, {332.0f, 180.0f}, sf::Color(246, 232, 200));
-                displayModeButton.draw(window);
-                drawText(window, font, "Resolution", 18, {350.0f, 286.0f}, sf::Color(246, 232, 200));
-                previousResolutionButton.draw(window);
-                resolutionButton.draw(window);
-                nextResolutionButton.draw(window);
-                applyOptionsButton.draw(window);
+                drawLabelText(
+                    window, font, "display", type::Label, {RowLabelX, 172.0f}, palette::Brass, 2.0f);
+                drawSeparatorRule(window, {ruleLeft, 190.0f}, ruleWidth);
+
+                drawText(window, font, "Display Mode", type::Body, {RowLabelX, 214.0f}, palette::Ink);
+                displayModeButton.draw(window, animationTime);
+                drawSeparatorRule(window, {ruleLeft, 258.0f}, ruleWidth, false);
+
+                drawText(window, font, "Resolution", type::Body, {RowLabelX, 282.0f}, palette::Ink);
+                previousResolutionButton.draw(window, animationTime);
+                resolutionButton.draw(window, animationTime);
+                nextResolutionButton.draw(window, animationTime);
+                drawSeparatorRule(window, {ruleLeft, 326.0f}, ruleWidth, false);
+
+                drawText(
+                    window,
+                    font,
+                    "Display changes take effect when you apply them.",
+                    type::Caption,
+                    {RowLabelX, 348.0f},
+                    palette::InkMuted);
+                applyOptionsButton.draw(window, animationTime);
             }
             else if (activeOptionsTab == OptionsTab::Audio)
             {
+                drawLabelText(
+                    window, font, "volume", type::Label, {RowLabelX, 172.0f}, palette::Brass, 2.0f);
+                drawSeparatorRule(window, {ruleLeft, 190.0f}, ruleWidth);
                 allAudioSlider.draw(window);
                 musicAudioSlider.draw(window);
                 soundFxAudioSlider.draw(window);
@@ -8511,22 +8933,51 @@ int main(int argc, char** argv)
                 muteMusicCheckbox.draw(window, audioSystem.isMusicMuted());
                 muteSoundFxCheckbox.draw(window, audioSystem.isSoundEffectsMuted());
             }
-            else if (optionsReturnState == GameState::Authenticated)
-            {
-                changePasswordOptionButton.draw(window);
-            }
             else
             {
-                drawText(
-                    window,
-                    font,
-                    "Sign in to manage account settings.",
-                    18,
-                    {246.0f, 248.0f},
-                    sf::Color(220, 224, 230),
-                    320.0f);
+                drawLabelText(
+                    window, font, "account", type::Label, {RowLabelX, 172.0f}, palette::Brass, 2.0f);
+                drawSeparatorRule(window, {ruleLeft, 190.0f}, ruleWidth);
+
+                if (optionsReturnState == GameState::Authenticated)
+                {
+                    drawText(window, font, "Signed in as", type::Body, {RowLabelX, 214.0f}, palette::InkMuted);
+                    sf::Text signedIn(displayFontOr(font), loggedInUsername, type::Subheading);
+                    signedIn.setFillColor(palette::Ink);
+                    signedIn.setPosition({RowLabelX + 96.0f, 210.0f});
+                    drawCrispText(window, signedIn);
+                    drawSeparatorRule(window, {ruleLeft, 258.0f}, ruleWidth, false);
+
+                    drawText(window, font, "Password", type::Body, {RowLabelX, 282.0f}, palette::Ink);
+                    changePasswordOptionButton.draw(window, animationTime);
+                }
+                else
+                {
+                    // A designed empty state rather than a bare sentence in the
+                    // middle of an otherwise empty panel.
+                    const sf::Vector2f center{
+                        OptionsPanelPosition.x + OptionsPanelSize.x * 0.5f,
+                        OptionsPanelPosition.y + OptionsPanelSize.y * 0.52f};
+                    drawRadialGlow(window, center - sf::Vector2f(0.0f, 26.0f), 46.0f, sf::Color(123, 79, 168, 52));
+                    drawLeagueSigil(center - sf::Vector2f(0.0f, 26.0f), 17.0f, palette::Arcane);
+                    drawCenteredText(
+                        window,
+                        displayFontOr(font),
+                        "Not Signed In",
+                        type::Subheading,
+                        center + sf::Vector2f(0.0f, 12.0f),
+                        palette::Ink);
+                    drawCenteredText(
+                        window,
+                        font,
+                        "Sign in to manage your account settings.",
+                        type::Caption,
+                        center + sf::Vector2f(0.0f, 34.0f),
+                        palette::InkMuted);
+                }
             }
-            optionsBackButton.draw(window);
+
+            optionsBackButton.draw(window, animationTime);
             window.draw(messageText);
         }
         else if (currentState == GameState::StoryIntro)
@@ -8580,25 +9031,35 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Login)
         {
+            layoutLoginForm();
+            drawPanel(window, LoginPanelPosition, LoginPanelSize);
+            drawEntryFormHeader(
+                LoginPanelPosition,
+                LoginPanelSize,
+                "Sign In",
+                "The mire remembers you.");
             usernameInput.draw(window);
             passwordInput.draw(window);
             passwordVisibilityIcon.draw(window, passwordVisible);
             rememberMeCheckbox.draw(window, rememberMeChecked);
-            loginSubmitButton.draw(window);
-            backButton.draw(window);
-            window.draw(messageText);
+            drawFormNotice(LoginNoticeY);
+            loginSubmitButton.draw(window, animationTime);
+            backButton.draw(window, animationTime);
         }
         else if (currentState == GameState::CreateAccount)
         {
+            layoutCreateAccountForm();
+            drawPanel(window, CreatePanelPosition, CreatePanelSize);
+            drawEntryFormHeader(CreatePanelPosition, CreatePanelSize, "Create Account", "");
             usernameInput.draw(window);
             passwordInput.draw(window);
             confirmInput.draw(window);
-            drawPasswordRequirementHint(348.0f);
+            drawPasswordRequirementHint(372.0f);
             passwordVisibilityIcon.draw(window, passwordVisible);
             confirmVisibilityIcon.draw(window, passwordVisible);
-            createSubmitButton.draw(window);
-            backButton.draw(window);
-            window.draw(messageText);
+            drawFormNotice(CreateNoticeY);
+            createSubmitButton.draw(window, animationTime);
+            backButton.draw(window, animationTime);
         }
         else if (currentState == GameState::Authenticated)
         {
@@ -8634,9 +9095,9 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Matchmaking)
         {
-            window.draw(messageText);
-            cancelMatchmakingButton.draw(window);
-            playAiButton.draw(window);
+            drawMatchmakingScreen();
+            cancelMatchmakingButton.draw(window, animationTime);
+            playAiButton.draw(window, animationTime);
         }
         else if (currentState == GameState::DeckEditor)
         {
@@ -8665,6 +9126,9 @@ int main(int argc, char** argv)
             drawGame();
         }
 
+        // Lets a screen tell that this is its first frame (matchmaking arms its
+        // elapsed-search timer off this).
+        lastFrameState = currentState;
         window.display();
 
         if (captureRequest && captureScreenReady)

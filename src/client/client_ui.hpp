@@ -191,7 +191,8 @@ void drawFocusRing(
     sf::Vector2f position,
     sf::Vector2f size,
     float cut,
-    float phase = 0.0f);
+    float phase = 0.0f,
+    sf::Color color = palette::BrassPale);
 void drawVerticalGradient(
     sf::RenderWindow& window,
     sf::FloatRect rect,
@@ -212,6 +213,9 @@ void drawTitlePlaque(
     sf::Vector2f center,
     sf::Vector2f size);
 void drawSeparatorRule(sf::RenderWindow& window, sf::Vector2f position, float width);
+// `ornament = false` drops the centre lozenge. Use it for row dividers inside a
+// list or a settings panel; keep the ornament for section breaks.
+void drawSeparatorRule(sf::RenderWindow& window, sf::Vector2f position, float width, bool ornament);
 std::vector<std::string> wrapText(sf::Font& font, const std::string& value, unsigned int size, float maxWidth);
 float drawWrappedText(
     sf::RenderWindow& window,

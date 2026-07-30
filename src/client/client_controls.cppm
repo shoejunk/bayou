@@ -56,12 +56,18 @@ export struct TabStrip
 
     void draw(sf::RenderWindow& window) const
     {
-        const float totalWidth = static_cast<float>(labels.size()) * tabSize.x;
-        bayou::client::drawSeparatorRule(window, {position.x + 6.0f, position.y + tabSize.y + 9.0f}, totalWidth - 12.0f);
-
+        // Inactive tabs first, so the active plate's frame and its connector bar
+        // sit over its neighbours rather than being clipped by them.
         for (std::size_t i = 0; i < labels.size(); ++i)
         {
-            drawTab(window, i);
+            if (i != activeIndex)
+            {
+                drawTab(window, i);
+            }
+        }
+        if (activeIndex < labels.size())
+        {
+            drawTab(window, activeIndex);
         }
     }
 
@@ -98,24 +104,44 @@ private:
             : hovered ? sf::Color(55, 39, 27, 242) : sf::Color(24, 23, 21, 236);
         const sf::Color outline = active || hovered ? sf::Color(239, 190, 98) : sf::Color(147, 101, 54);
 
-        bayou::client::drawBeveledPlate(window, pos, tabSize, fill, outline, active || hovered, 10.0f);
+        bayou::client::PlateStyle style;
+        style.fill = fill;
+        style.frame = outline;
+        style.cut = 10.0f;
+        style.state = active ? bayou::client::PlateState::Selected
+            : hovered      ? bayou::client::PlateState::Hover
+                           : bayou::client::PlateState::Normal;
+        // An inactive tab is a lid, not a button: dropping the sheen and studs is
+        // what lets the active one come forward.
+        style.sheen = active ? 1.0f : 0.35f;
+        style.rivets = active;
+        bayou::client::drawMaterialPlate(window, pos, tabSize, style);
 
         if (active)
         {
-            sf::ConvexShape pointer(3);
-            pointer.setPoint(0, {pos.x + tabSize.x * 0.5f - 12.0f, pos.y + tabSize.y + 2.0f});
-            pointer.setPoint(1, {pos.x + tabSize.x * 0.5f + 12.0f, pos.y + tabSize.y + 2.0f});
-            pointer.setPoint(2, {pos.x + tabSize.x * 0.5f, pos.y + tabSize.y + 18.0f});
-            pointer.setFillColor(sf::Color(239, 190, 98));
-            pointer.setOutlineThickness(1.0f);
-            pointer.setOutlineColor(sf::Color(76, 44, 20));
-            window.draw(pointer);
+            // A brass connector along the bottom edge instead of a pointer
+            // triangle: the tab reads as joined to the content below it, and it
+            // cannot collide with whatever the panel draws at its own top edge.
+            sf::RectangleShape connector({tabSize.x - 12.0f, 4.0f});
+            connector.setPosition({pos.x + 6.0f, pos.y + tabSize.y - 2.0f});
+            connector.setFillColor(sf::Color(239, 190, 98));
+            window.draw(connector);
+
+            sf::RectangleShape connectorShade({tabSize.x - 12.0f, 1.0f});
+            connectorShade.setPosition({pos.x + 6.0f, pos.y + tabSize.y + 2.0f});
+            connectorShade.setFillColor(sf::Color(76, 44, 20, 200));
+            window.draw(connectorShade);
         }
 
-        sf::Text text(font, labels[index], active ? 19 : 18);
-        text.setFillColor(active || hovered ? sf::Color(255, 244, 215) : sf::Color(221, 198, 157));
+        // Tab labels are tracked caps in the display face when one is available:
+        // navigation type should never match the body copy it switches between.
+        sf::Text text(
+            bayou::client::displayFontOr(font),
+            labels[index],
+            active ? 19u : 18u);
+        text.setFillColor(active || hovered ? sf::Color(255, 244, 215) : sf::Color(203, 182, 146));
         bayou::client::centerButtonText(text, {pos.x + tabSize.x * 0.5f, pos.y + tabSize.y * 0.52f});
-        window.draw(text);
+        bayou::client::drawCrispText(window, text);
     }
 };
 
