@@ -1,0 +1,33 @@
+# Aggregate reference members are initialized at every UiContext construction.
+uninitMemberVarNoCtor:src/client/deck_collection.hpp:60
+uninitMemberVarNoCtor:src/client/deck_collection.hpp:61
+uninitMemberVarNoCtor:src/client/deck_collection.hpp:62
+
+# These local aggregate members are initialized in each table entry.
+uninitMemberVarNoCtor:src/client/deck_collection.cpp:1777
+uninitMemberVarNoCtor:src/client/deck_collection.cpp:1778
+uninitMemberVarNoCtor:src/client/screens/game_screen.inl:1401
+
+# Fixture setup is intentionally sequenced after the in-memory database opens.
+useInitializationList:src/conquesttest/main.cpp:190
+
+# The public entry point transfers ownership; the implementation only reads it.
+passedByValue:src/gameserver/conquest_battle_manager.cpp:383
+
+# Passing fallback by value permits either the environment value or fallback to
+# be returned without an additional copy.
+passedByValue:src/shared/tls_socket.cpp:67
+
+# activeAudioSystem is used only while main's AudioSystem remains alive.
+danglingLifetime:src/client/main.cpp:1145
+
+# Cppcheck 2.21 accepts module declarations but does not parse these legal
+# `export namespace` declarations. Keep these exact so later analyzer releases
+# can make the suppressions obsolete without hiding syntax errors elsewhere.
+syntaxError:src/client/client_services.cppm:26
+syntaxError:src/client/conquest_screen.cppm:447
+syntaxError:src/client/conquest_services.cppm:89
+syntaxError:src/shared/network.cppm:11
+
+# InputBoxStyle is a small value returned as a temporary by both callers.
+passedByValue:src/shared/inputbox.cppm:88

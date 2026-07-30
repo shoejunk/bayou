@@ -12,3 +12,4 @@ __pycache__/
 shots/
 # Regenerable UI captures: rebuild any of them with --ui-capture (see agents.md).
 /output/ui-review/
+/output/cppcheck/

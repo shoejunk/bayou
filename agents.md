@@ -49,6 +49,13 @@ the game coordinator spawns per-match processes via `CreateProcessA` (see the
   `BAYOU_SEED_PASSWORD`) set. The test creates its `alpha`/`bravo` accounts if
   they do not exist and submits each account's saved starter deck.
 
+## Static analysis
+
+- `cppcheck.bat` runs Cppcheck over Bayou-owned C/C++ sources, including
+  `.cppm` module units. Reviewed baseline findings are documented in
+  `cppcheck-suppressions.txt`; reports and incremental cache data are written
+  under `output/cppcheck/`. See `CPPCHECK.md` for installation and usage.
+
 ## Deploy
 
 - For repeated Oracle deployments, use
