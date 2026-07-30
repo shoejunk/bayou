@@ -913,8 +913,13 @@ int main(int argc, char** argv)
     PasswordVisibilityIcon confirmNewPasswordVisibilityIcon(confirmNewPasswordInput.bounds(), showPasswordTexture, hidePasswordTexture);
     InputBox deckNameInput({304.0f, 154.0f}, {210.0f, 40.0f}, "", font);
     InputBox adminSearchInput({120.0f, 94.0f}, {390.0f, 36.0f}, "", font);
-    InputBox adminGoldInput({234.0f, 460.0f}, {130.0f, 36.0f}, "Gold amount", font);
-    InputBox adminCardInput({240.0f, 224.0f}, {320.0f, 36.0f}, "Card name", font);
+    // No built-in label: InputBox draws one at 18px, which outweighed every
+    // button label around it and read as a heading. The admin screen draws its
+    // own 11px caption in the same style as its other column captions.
+    InputBox adminGoldInput({236.0f, 482.0f}, {124.0f, 36.0f}, "", font);
+    // Caption drawn by the dialog instead of InputBox's own 18px label, which
+    // outweighed the dialog's body copy.
+    InputBox adminCardInput({240.0f, 224.0f}, {320.0f, 36.0f}, "", font);
 
     CheckboxControl rememberMeCheckbox({300.0f, 286.0f}, "Remember me", font, rememberCheckTexture);
     Button loginSubmitButton({300.0f, 342.0f}, {200.0f, 50.0f}, "Login", font);
@@ -999,19 +1004,26 @@ int main(int argc, char** argv)
     Button adminPrevPageButton({530.0f, 93.0f}, {52.0f, 38.0f}, "<", font);
     Button adminNextPageButton({706.0f, 93.0f}, {52.0f, 38.0f}, ">", font);
     Button adminRefreshButton({592.0f, 93.0f}, {104.0f, 38.0f}, "Refresh", font);
-    Button adminGrantButton({42.0f, 458.0f}, {150.0f, 42.0f}, "Grant Admin", font);
-    Button adminRevokeButton({42.0f, 458.0f}, {150.0f, 42.0f}, "Revoke Admin", font);
-    Button adminGrantGoldButton({378.0f, 458.0f}, {150.0f, 42.0f}, "Grant Gold", font);
-    Button adminRemoveGoldButton({542.0f, 458.0f}, {150.0f, 42.0f}, "Remove Gold", font);
-    Button adminAddCardButton({42.0f, 514.0f}, {176.0f, 40.0f}, "Add Card", font);
-    Button adminGiveStarterDeckButton({228.0f, 514.0f}, {176.0f, 40.0f}, "Give Deck", font);
-    Button adminSandboxButton({48.0f, 152.0f}, {220.0f, 54.0f}, "Sandbox", font);
-    Button adminCardEditorButton({48.0f, 246.0f}, {220.0f, 54.0f}, "Card Editor", font);
-    Button adminDeleteButton({600.0f, 514.0f}, {176.0f, 40.0f}, "Delete User", font);
-    Button cancelAddCardButton({250.0f, 476.0f}, {130.0f, 42.0f}, "Cancel", font);
-    Button confirmAddCardButton({420.0f, 476.0f}, {130.0f, 42.0f}, "Add Card", font);
-    Button cancelGiveStarterDeckButton({250.0f, 424.0f}, {130.0f, 42.0f}, "Cancel", font);
-    Button confirmGiveStarterDeckButton({420.0f, 424.0f}, {130.0f, 42.0f}, "Give Deck", font);
+    // Two aligned rows inside the actions panel. The old row sat at y=458 with
+    // the gold input at 460, so nothing shared a baseline, and 150px plates were
+    // narrower than labels like "Revoke Admin".
+    Button adminGrantButton({40.0f, 482.0f}, {176.0f, 36.0f}, "Grant Admin", font);
+    Button adminRevokeButton({40.0f, 482.0f}, {176.0f, 36.0f}, "Revoke Admin", font);
+    Button adminGrantGoldButton({376.0f, 482.0f}, {156.0f, 36.0f}, "Grant Gold", font);
+    Button adminRemoveGoldButton({548.0f, 482.0f}, {172.0f, 36.0f}, "Remove Gold", font);
+    Button adminAddCardButton({40.0f, 526.0f}, {156.0f, 34.0f}, "Add Card", font);
+    Button adminGiveStarterDeckButton({212.0f, 526.0f}, {156.0f, 34.0f}, "Give Deck", font);
+    // Seated inside their tool cards on the admin Tools tab.
+    Button adminSandboxButton({58.0f, 134.0f}, {206.0f, 52.0f}, "Sandbox", font);
+    Button adminCardEditorButton({58.0f, 234.0f}, {206.0f, 52.0f}, "Card Editor", font);
+    // Held apart from the benign actions so the destructive one is not adjacent
+    // to anything routine.
+    Button adminDeleteButton({564.0f, 526.0f}, {156.0f, 34.0f}, "Delete User", font);
+    // 130px was narrower than "Add Card" and "Give Deck" render at this face.
+    Button cancelAddCardButton({246.0f, 476.0f}, {132.0f, 42.0f}, "Cancel", font);
+    Button confirmAddCardButton({408.0f, 476.0f}, {156.0f, 42.0f}, "Add Card", font);
+    Button cancelGiveStarterDeckButton({246.0f, 424.0f}, {132.0f, 42.0f}, "Cancel", font);
+    Button confirmGiveStarterDeckButton({408.0f, 424.0f}, {156.0f, 42.0f}, "Give Deck", font);
     Button cancelDeleteUserButton({250.0f, 366.0f}, {130.0f, 42.0f}, "Cancel", font);
     Button confirmDeleteUserButton({420.0f, 366.0f}, {130.0f, 42.0f}, "Delete", font);
     Button cancelExitDesktopButton({250.0f, 356.0f}, {130.0f, 42.0f}, "Cancel", font);
@@ -2316,6 +2328,22 @@ int main(int argc, char** argv)
             titles.resize(VisibleAdminCardRows);
         }
         return titles;
+    };
+
+    // The Add Card dialog sizes itself to the number of suggestions on show, so
+    // its footer moves. Both the draw and the click path resolve the button row
+    // through this, otherwise the hit regions trail the drawn buttons by a frame
+    // as the player types.
+    auto layoutAddCardPopupButtons = [&]() {
+        const bool showsMessage = pendingAdminCardListLoad || !adminCardLoadError.empty() ||
+            visibleAdminCardTitles().empty();
+        const float listHeight = showsMessage
+            ? 30.0f
+            : static_cast<float>(visibleAdminCardTitles().size()) * AdminCardRowHeight;
+        const float buttonsY = AdminCardRowY + listHeight + 18.0f;
+        cancelAddCardButton.setPosition({246.0f, buttonsY});
+        confirmAddCardButton.setPosition({408.0f, buttonsY});
+        return buttonsY;
     };
 
     auto openAddCardPopup = [&]() {
@@ -5757,10 +5785,14 @@ int main(int argc, char** argv)
         else if (screen == "admin-users")
         {
             currentState = GameState::AdminUsers;
+            adminTabs.setActive(0);
         }
         else if (screen == "admin-tools")
         {
+            // Without this the capture showed the Tools body under a highlighted
+            // Users tab, which made the shot misleading to review.
             currentState = GameState::AdminTools;
+            adminTabs.setActive(2);
         }
         else if (screen == "card-editor")
         {
@@ -5776,15 +5808,19 @@ int main(int argc, char** argv)
         else if (screen == "admin-users-selected")
         {
             currentState = GameState::AdminUsers;
+            adminTabs.setActive(0);
             selectedAdminUser = 3;
             adminGoldInput.setContent("250");
         }
         else if (screen == "admin-users-popup")
         {
             currentState = GameState::AdminUsers;
+            adminTabs.setActive(0);
             selectedAdminUser = 3;
             addCardPopupVisible = true;
-            adminCardInput.setContent("Thorn Griffin");
+            // A partial query, so the suggestion list has several rows and the
+            // dialog's content sizing is actually exercised.
+            adminCardInput.setContent("th");
         }
         else if (screen == "card-editor-loaded")
         {
@@ -6868,6 +6904,9 @@ int main(int argc, char** argv)
                     }
                     else if (addCardPopupVisible)
                     {
+                        // Resolve the footer before hit-testing it: the dialog
+                        // grows and shrinks with the suggestion list.
+                        layoutAddCardPopupButtons();
                         if (confirmAddCardButton.isClicked(clickPos))
                         {
                             confirmAddCard();
