@@ -13,6 +13,7 @@ module;
 #include "../shared/game_data.hpp"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <chrono>
 #include <cmath>
@@ -47,8 +48,10 @@ const sf::Color Bad(225, 104, 88);
 
 constexpr sf::Vector2f MapPosition{20.0f, 78.0f};
 constexpr sf::Vector2f MapSize{560.0f, 373.3333f};
-constexpr float EventRowY = 134.0f;
-constexpr float EventRowHeight = 66.0f;
+// 70px pitch with a 62px plate: drawBeveledPlate's usable band is height-18, so a
+// two-line row needs 62 to keep the badges clear of its inner rule.
+constexpr float EventRowY = 116.0f;
+constexpr float EventRowHeight = 70.0f;
 constexpr std::size_t VisibleEventRows = 6;
 constexpr float LoadoutRowY = 134.0f;
 constexpr float LoadoutRowHeight = 40.0f;
@@ -100,6 +103,37 @@ void drawPanel(sf::RenderWindow& window, sf::FloatRect bounds, sf::Color fill = 
     drawBeveledPlate(
         window, bounds.position, bounds.size, fill, Line, false,
         std::clamp(bounds.size.y * 0.04f, 5.0f, 12.0f));
+}
+
+// drawBeveledPlate carries an inner hairline 5px inside its edge plus highlight
+// and shade rules 7-8px in, which is right for a large panel but leaves only
+// (height - 18) of usable band. On a two-line list row ~40px tall that rule cuts
+// straight through the second line. This is the same cut-corner plate with the
+// interior ornament dropped, for rows small enough that the ornament does not
+// fit -- and it reads cleaner in a dense list besides.
+void drawCompactPlate(
+    sf::RenderWindow& window,
+    sf::FloatRect bounds,
+    sf::Color fill,
+    sf::Color outline,
+    float cut = 4.0f)
+{
+    const sf::Vector2f position = bounds.position;
+    const sf::Vector2f size = bounds.size;
+
+    sf::ConvexShape plate(8);
+    plate.setPoint(0, {position.x + cut, position.y});
+    plate.setPoint(1, {position.x + size.x - cut, position.y});
+    plate.setPoint(2, {position.x + size.x, position.y + cut});
+    plate.setPoint(3, {position.x + size.x, position.y + size.y - cut});
+    plate.setPoint(4, {position.x + size.x - cut, position.y + size.y});
+    plate.setPoint(5, {position.x + cut, position.y + size.y});
+    plate.setPoint(6, {position.x, position.y + size.y - cut});
+    plate.setPoint(7, {position.x, position.y + cut});
+    plate.setFillColor(fill);
+    plate.setOutlineThickness(1.0f);
+    plate.setOutlineColor(outline);
+    window.draw(plate);
 }
 
 void drawButton(
@@ -187,14 +221,15 @@ void drawBadge(
 {
     sf::Text text(font, label, size);
     const float width = text.getLocalBounds().size.x + 16.0f;
-    const float height = static_cast<float>(size) + 9.0f;
+    const float height = static_cast<float>(size) + 7.0f;
 
-    sf::RectangleShape plate({width, height});
-    plate.setPosition(position);
-    plate.setFillColor(sf::Color(color.r, color.g, color.b, 46));
-    plate.setOutlineThickness(1.0f);
-    plate.setOutlineColor(sf::Color(color.r, color.g, color.b, 190));
-    window.draw(plate);
+    // Chamfered: a square-cornered rectangle was the only 90-degree corner on a
+    // screen where every other plate is cut.
+    drawCompactPlate(
+        window, {position, {width, height}},
+        sf::Color(color.r, color.g, color.b, 46),
+        sf::Color(color.r, color.g, color.b, 190),
+        3.0f);
 
     text.setFillColor(color);
     centerButtonText(text, position + sf::Vector2f(width, height) * 0.5f);
@@ -260,11 +295,32 @@ bool ready(const std::optional<std::future<T>>& future)
     return future && future->wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
 
+// conquest_map::PlayerColors is a saturated primary set -- a web blue, a pure
+// red, a cyan -- chosen for unambiguous identity in the authoritative services,
+// which also read that header. On screen next to brass frames and painted swamp
+// they read as debug colours, and one of them sits close enough to bright brass
+// to compete with the UI itself. These are the same twelve identities restated
+// as desaturated heraldic tints of the game's own palette. Presentation only:
+// the shared header is untouched, so the services keep their canonical set.
+constexpr std::array<sf::Color, 12> HeraldicColors{{
+    {170, 62, 62},    // crimson
+    {68, 96, 156},    // indigo
+    {82, 130, 90},    // moss
+    {182, 146, 66},   // ochre
+    {123, 79, 168},   // arcane violet
+    {74, 132, 136},   // verdigris
+    {174, 96, 132},   // roseblood
+    {180, 108, 60},   // rust
+    {126, 146, 74},   // fen green
+    {96, 96, 158},    // dusk blue
+    {148, 74, 96},    // wine
+    {138, 118, 88}    // ash brass
+}};
+
 sf::Color playerColor(std::uint8_t index, std::uint8_t alpha = 255)
 {
-    const conquest_map::PlayerColor color =
-        conquest_map::PlayerColors[index % conquest_map::PlayerColors.size()];
-    return {color.red, color.green, color.blue, alpha};
+    const sf::Color color = HeraldicColors[index % HeraldicColors.size()];
+    return {color.r, color.g, color.b, alpha};
 }
 
 sf::Color brighten(sf::Color color, int amount)
@@ -2263,10 +2319,9 @@ private:
             return;
         }
 
-        // Clear of the panel's inner hairline: at y=110 the border cut the caps.
-        drawText(window, font, "CAMPAIGN", 11, {48.0f, 115.0f}, sf::Color(150, 132, 104));
-        drawTextRight(window, font, "DEADLINE", 11, {752.0f, 115.0f}, sf::Color(150, 132, 104));
-
+        // The CAMPAIGN / DEADLINE column captions are gone: they cost the rows
+        // 18px of height they needed, and each row already labels its own
+        // countdown ("Orders due", "Registration closes").
         for (std::size_t row = 0; row < VisibleEventRows; ++row)
         {
             const std::size_t index = eventOffset + row;
@@ -2277,6 +2332,7 @@ private:
             drawEventRow(window, events[index],
                          rect(34, EventRowY + row * EventRowHeight, 732, EventRowHeight - 8));
         }
+        drawEventScrollTrack(window);
 
         drawText(window, font, "Select a campaign to inspect its map, plan moves, or resume battles.",
                  13, {24.0f, 556.0f}, Muted);
@@ -2305,8 +2361,10 @@ private:
         window.draw(spine);
 
         // A crop of the campaign map stands in for per-event key art.
+        // Clear of the plate's inner rule at +5, which the thumbnail's own border
+        // was doubling up against.
         const sf::FloatRect thumbnail(
-            bounds.position + sf::Vector2f(18.0f, 8.0f), {74.0f, bounds.size.y - 16.0f});
+            bounds.position + sf::Vector2f(24.0f, 11.0f), {76.0f, bounds.size.y - 22.0f});
         if (mapTexture)
         {
             drawMapThumbnail(window, thumbnail, event.id,
@@ -2319,13 +2377,14 @@ private:
         thumbnailFrame.setOutlineColor(sf::Color(103, 72, 39));
         window.draw(thumbnailFrame);
 
-        const float textX = bounds.position.x + 104.0f;
-        drawText(window, font, elide(font, event.name, 19, 356.0f), 19,
-                 {textX, bounds.position.y + 8.0f}, ended ? Muted : Ink);
+        const float textX = bounds.position.x + 112.0f;
+        drawText(window, font, elide(font, event.name, 19, 344.0f), 19,
+                 {textX, bounds.position.y + 10.0f}, ended ? Muted : Ink);
 
         // One shared centre line for every element on the metadata row, so the
-        // badges, the pip tally and the turn count sit on a single axis.
-        constexpr float BadgeHeight = 20.0f;
+        // badges, the roster bar and the turn count sit on a single axis. Kept
+        // inside y+8 .. y+height-10, the band drawBeveledPlate leaves free.
+        constexpr float BadgeHeight = 18.0f;
         const float metaTop = bounds.position.y + 34.0f;
         const float metaCenterY = metaTop + BadgeHeight * 0.5f;
 
@@ -2349,13 +2408,15 @@ private:
                      {detailX, metaCenterY - 8.0f}, Muted);
         }
 
-        const float rightEdge = bounds.position.x + bounds.size.x - 14.0f;
+        // Inset past the plate's inner rule and its right-hand rivet, which the
+        // countdown was sitting 3px from.
+        const float rightEdge = bounds.position.x + bounds.size.x - 26.0f;
         if (ended)
         {
-            drawTextRight(window, font, "Final", 12, {rightEdge, bounds.position.y + 14.0f}, Muted);
+            drawTextRight(window, font, "Final", 11, {rightEdge, bounds.position.y + 14.0f}, Muted);
             drawTextRight(window, font,
                           event.winner.empty() ? "No winner" : event.winner + " won",
-                          15, {rightEdge, bounds.position.y + 33.0f}, Accent);
+                          15, {rightEdge, bounds.position.y + 32.0f}, Accent);
             return;
         }
 
@@ -2368,12 +2429,12 @@ private:
         }
         drawTextRight(window, font, deadlineCaption(event.phase), 11,
                       {rightEdge, bounds.position.y + 13.0f}, sf::Color(150, 132, 104));
-        // Under an hour the countdown turns urgent; it is the only cue that a
-        // planning turn is about to be auto-resolved.
+        // Under an hour the countdown turns urgent. Bright brass rather than a
+        // UI warning red, which was the one pure red left in the palette.
         const bool urgent = duration.find('d') == std::string::npos &&
             duration.find('h') == std::string::npos;
-        drawTextRight(window, font, duration, 20,
-                      {rightEdge, bounds.position.y + 30.0f}, urgent ? Bad : Ink);
+        drawTextRight(window, font, duration, 17,
+                      {rightEdge, bounds.position.y + 30.0f}, urgent ? Accent : Ink);
     }
 
     // There is one map asset, so drawing the same crop on every row reads as
