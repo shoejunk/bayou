@@ -12,6 +12,7 @@
 #include "client_string.hpp"
 #include "client_textures.hpp"
 #include "client_ui.hpp"
+#include "client_ui_capture.hpp"
 #include "deck_collection.hpp"
 
 #include "../shared/account_data.hpp"
@@ -826,6 +827,9 @@ int main(int argc, char** argv)
 {
     setExecutableDirectory(argc > 0 ? argv[0] : nullptr);
 
+    const std::optional<ui_capture::Request> captureRequest =
+        ui_capture::parseCommandLine(argc, argv);
+
     const sf::VideoMode desktopMode = sf::VideoMode::getDesktopMode();
     const std::vector<sf::VideoMode>& fullscreenModes = sf::VideoMode::getFullscreenModes();
     std::vector<sf::Vector2u> displayResolutions =
@@ -833,6 +837,14 @@ int main(int argc, char** argv)
 
     DisplaySettings displaySettings = loadDisplaySettings();
     normalizeDisplaySettings(displaySettings, desktopMode.size, displayResolutions);
+    if (captureRequest)
+    {
+        // Windowed at exactly the requested size so captures are reproducible
+        // regardless of the machine's desktop resolution.
+        displaySettings.fullscreen = false;
+        displaySettings.width = captureRequest->width;
+        displaySettings.height = captureRequest->height;
+    }
 
     sf::RenderWindow window;
     createDisplayWindow(window, displaySettings, desktopMode, fullscreenModes);
@@ -5628,7 +5640,149 @@ int main(int argc, char** argv)
 
     #include "screens/deck_select_screen.inl"
 
-    if (const std::optional<std::string> savedToken = loadRememberToken())
+    // ---- offline screenshot harness ---------------------------------------
+    // Populates the account state the services would normally supply, then
+    // walks the requested screens writing one PNG each. See
+    // client_ui_capture.hpp.
+    std::size_t captureIndex = 0;
+    int captureFramesOnScreen = 0;
+    bool captureScreenReady = false;
+
+    auto seedCaptureState = [&]() {
+        loggedInUsername = "Thistlewisp";
+        activeAccessToken = "ui-capture";
+        loggedInIsAdmin = true;
+        playerCoins = 1240;
+        playerRating = 1780;
+        playerLeague = ranking::League::Gold;
+
+        allCardLibrary = ui_capture::sampleCardLibrary();
+        cardLibrary = allCardLibrary;
+        filteredCardLibrary = allCardLibrary;
+        adminCardLibrary = allCardLibrary;
+        playerCollection = ui_capture::sampleCollection(allCardLibrary);
+        playerDecks = ui_capture::sampleDecks(allCardLibrary);
+        editingDeck = playerDecks.empty() ? deck_data::Deck{} : playerDecks.front();
+        activeDeckOriginalName = editingDeck.name;
+
+        starterDeckOffers.clear();
+        for (std::size_t i = 0; i < starter_decks::Names.size(); ++i)
+        {
+            network::StarterDeckOffer offer;
+            offer.name = starter_decks::Names[i];
+            offer.cardCount = 30;
+            offer.owned = i == 0;
+            offer.price = i == 0 ? 0 : starter_decks::StarterDeckPrice;
+            starterDeckOffers.push_back(offer);
+        }
+        selectedStarterDeckOffer = 0;
+
+        adminUsers.clear();
+        static constexpr const char* AdminSampleNames[] = {
+            "Thistlewisp", "brackenmoor", "Fenwick", "gallowglass",
+            "Mirefoot", "nettlejack", "Rushlight", "sootpetal"};
+        for (std::size_t i = 0; i < std::size(AdminSampleNames); ++i)
+        {
+            network::AdminUserSummary user;
+            user.username = AdminSampleNames[i];
+            user.isAdmin = i == 0;
+            user.gold = 120 + static_cast<int>(i) * 385;
+            adminUsers.push_back(user);
+        }
+        adminUsersTotalCount = static_cast<std::uint32_t>(adminUsers.size());
+        adminUsersPage = 0;
+        selectedAdminUser = 0;
+    };
+
+    auto applyCaptureScreen = [&](const std::string& screen) {
+        setMessage(messageText, "", sf::Color::Red);
+        title.setString("Gloomthorn");
+        centerText(title, 400.0f);
+        exitDesktopPopupVisible = false;
+        deckUnsavedChangesPopupVisible = false;
+        passwordChangedPopupVisible = false;
+        addCardPopupVisible = false;
+        giveStarterDeckPopupVisible = false;
+        deckEditorMode = DeckEditorMode::DeckList;
+        starterDeckMode = false;
+
+        if (screen == "login")
+        {
+            currentState = GameState::Login;
+            usernameInput.setContent("Thistlewisp");
+            passwordInput.setContent("marshlight");
+        }
+        else if (screen == "create-account")
+        {
+            currentState = GameState::CreateAccount;
+        }
+        else if (screen == "options")
+        {
+            currentState = GameState::Options;
+            optionsReturnState = GameState::Authenticated;
+            activeOptionsTab = OptionsTab::Graphics;
+        }
+        else if (screen == "main-menu")
+        {
+            currentState = GameState::Authenticated;
+        }
+        else if (screen == "deck-select")
+        {
+            currentState = GameState::DeckSelect;
+        }
+        else if (screen == "matchmaking")
+        {
+            currentState = GameState::Matchmaking;
+            title.setString("Matchmaking");
+            centerText(title, 400.0f);
+            setMessage(messageText, "Searching for an opponent...", sf::Color(226, 196, 118));
+        }
+        else if (screen == "deck-editor")
+        {
+            currentState = GameState::DeckEditor;
+        }
+        else if (screen == "deck-editor-cards")
+        {
+            currentState = GameState::DeckEditor;
+            deckEditorMode = DeckEditorMode::EditDeck;
+        }
+        else if (screen == "shop")
+        {
+            currentState = GameState::Shop;
+        }
+        else if (screen == "starter-decks")
+        {
+            currentState = GameState::StarterDecks;
+        }
+        else if (screen == "admin-users")
+        {
+            currentState = GameState::AdminUsers;
+        }
+        else if (screen == "admin-tools")
+        {
+            currentState = GameState::AdminTools;
+        }
+        else if (screen == "card-editor")
+        {
+            currentState = GameState::CardEditor;
+        }
+        else if (screen == "conquest")
+        {
+            currentState = GameState::Conquest;
+        }
+        else if (screen == "game")
+        {
+            beginStory();
+        }
+    };
+
+    if (captureRequest)
+    {
+        seedCaptureState();
+        applyCaptureScreen(captureRequest->screens.front());
+        captureScreenReady = true;
+    }
+    else if (const std::optional<std::string> savedToken = loadRememberToken())
     {
         activeRememberToken = *savedToken;
         pendingAutoLogin = true;
@@ -8249,6 +8403,30 @@ int main(int argc, char** argv)
         }
 
         window.display();
+
+        if (captureRequest && captureScreenReady)
+        {
+            if (++captureFramesOnScreen >= captureRequest->warmupFrames)
+            {
+                const std::string& screen = captureRequest->screens[captureIndex];
+                char ordinal[8] = {};
+                std::snprintf(ordinal, sizeof(ordinal), "%02zu", captureIndex + 1);
+                ui_capture::saveWindow(
+                    window,
+                    captureRequest->outputDirectory / (std::string(ordinal) + "-" + screen + ".png"));
+
+                captureFramesOnScreen = 0;
+                ++captureIndex;
+                if (captureIndex >= captureRequest->screens.size())
+                {
+                    window.close();
+                }
+                else
+                {
+                    applyCaptureScreen(captureRequest->screens[captureIndex]);
+                }
+            }
+        }
     }
 
     return 0;

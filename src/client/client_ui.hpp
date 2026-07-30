@@ -14,6 +14,13 @@ void centerButtonText(sf::Text& text, sf::Vector2f center);
 void setMessage(sf::Text& text, const std::string& message, const sf::Color& color);
 void setMessageY(sf::Text& text, float y);
 
+// Device pixels per logical unit for the target's current view.
+float logicalRenderScale(const sf::RenderTarget& target);
+// Draws text rasterized at device resolution instead of letting the view
+// transform magnify (and soften) logical-size glyphs. Prefer this over
+// window.draw(text) for every sf::Text. The text object is left unchanged.
+void drawCrispText(sf::RenderWindow& window, sf::Text& text);
+
 std::string elideToWidth(sf::Font& font, const std::string& value, unsigned int size, float maxWidth);
 void drawText(
     sf::RenderWindow& window,

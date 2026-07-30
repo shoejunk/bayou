@@ -98,23 +98,37 @@ void drawTextureRectContain(
 
 void drawBackdrop(sf::RenderWindow& window, sf::Texture* backdropTexture)
 {
+    // The interface is laid out in a 4:3 logical space that gets letterboxed on
+    // a wider display. Painting the backdrop through a full-window view instead
+    // fills those margins, so the art bleeds to the screen edges rather than
+    // leaving black bars beside the UI.
+    const sf::View logicalView = window.getView();
+    const sf::Vector2u windowSize = window.getSize();
+    const sf::Vector2f fullSize{
+        static_cast<float>(std::max(windowSize.x, 1u)),
+        static_cast<float>(std::max(windowSize.y, 1u))};
+
+    window.setView(sf::View(sf::FloatRect({0.0f, 0.0f}, fullSize)));
+
     if (backdropTexture)
     {
-        drawCoverSprite(window, *backdropTexture, {{0.0f, 0.0f}, {800.0f, 600.0f}});
+        drawCoverSprite(window, *backdropTexture, {{0.0f, 0.0f}, fullSize});
     }
     else
     {
         window.clear(sf::Color(9, 17, 19));
     }
 
-    sf::RectangleShape wash({800.0f, 600.0f});
+    sf::RectangleShape wash(fullSize);
     wash.setFillColor(sf::Color(3, 8, 10, 145));
     window.draw(wash);
 
-    sf::RectangleShape bottomShade({800.0f, 96.0f});
-    bottomShade.setPosition({0.0f, 504.0f});
+    sf::RectangleShape bottomShade({fullSize.x, fullSize.y * 0.16f});
+    bottomShade.setPosition({0.0f, fullSize.y * 0.84f});
     bottomShade.setFillColor(sf::Color(2, 5, 6, 92));
     window.draw(bottomShade);
+
+    window.setView(logicalView);
 }
 
 } // namespace bayou::client

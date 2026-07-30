@@ -8,10 +8,10 @@ module;
 
 export module button;
 
-namespace
-{
+// Module linkage rather than an anonymous namespace: the exported inline
+// members below reference this, and an internal-linkage entity cannot be
+// referenced from an inline function that importers instantiate.
 std::function<void()> buttonClickHandler;
-}
 
 export void setButtonClickHandler(std::function<void()> handler)
 {

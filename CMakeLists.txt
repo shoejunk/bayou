@@ -107,6 +107,7 @@ if(BAYOU_BUILD_CLIENTS)
             src/client/client_string.cpp
             src/client/client_textures.cpp
             src/client/client_ui.cpp
+            src/client/client_ui_capture.cpp
             src/client/deck_collection.cpp
         PUBLIC
             FILE_SET CXX_MODULES FILES
@@ -119,6 +120,12 @@ if(BAYOU_BUILD_CLIENTS)
                 src/client/conquest_screen.cppm
                 src/client/card_editor_screen.cppm
     )
+
+    if(MSVC)
+        # main.cpp plus the imported screen modules exceed the default COFF
+        # section limit.
+        target_compile_options(client PRIVATE /bigobj)
+    endif()
 
     target_link_libraries(client PRIVATE fmt::fmt SFML::Audio SFML::Graphics SFML::Window SFML::System SFML::Network bayou_transport)
     if(WIN32)

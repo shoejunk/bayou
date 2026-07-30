@@ -31,8 +31,9 @@ import client_controls;
 import inputbox;
 import network;
 
-namespace
-{
+// Module linkage rather than an anonymous namespace: the exported class below
+// defines its members inline, so importers instantiate code that references
+// these helpers. Internal-linkage entities are not visible there.
 using bayou::client::lowerKey;
 using bayou::client::trim;
 using bayou::client::card_editor_assets::assetRelativeImagePath;
@@ -291,8 +292,6 @@ std::string uniqueCopyName(const std::string& sourceName, const std::set<std::st
             return candidate;
         }
     }
-}
-
 }
 
 export struct CardEditorEndpoint

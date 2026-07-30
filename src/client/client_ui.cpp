@@ -140,6 +140,70 @@ std::string elideToWidth(sf::Font& font, const std::string& value, unsigned int 
     return "...";
 }
 
+float logicalRenderScale(const sf::RenderTarget& target)
+{
+    const sf::View& view = target.getView();
+    const sf::Vector2u targetSize = target.getSize();
+    if (view.getSize().y <= 0.0f || targetSize.y == 0)
+    {
+        return 1.0f;
+    }
+
+    // How many device pixels one logical unit covers, taking the letterboxed
+    // viewport into account.
+    const float viewportPixels =
+        static_cast<float>(targetSize.y) * view.getViewport().size.y;
+    const float scale = viewportPixels / view.getSize().y;
+    return std::clamp(scale, 1.0f, 8.0f);
+}
+
+void drawCrispText(sf::RenderWindow& window, sf::Text& text)
+{
+    const float scale = logicalRenderScale(window);
+    if (scale <= 1.01f)
+    {
+        window.draw(text);
+        return;
+    }
+
+    // Glyphs are rasterized at the logical character size and then magnified by
+    // the view transform, which softens every edge. Rasterizing at the device
+    // size and scaling back down instead keeps text sharp at the size the
+    // layout already reserved for it.
+    const unsigned int logicalSize = text.getCharacterSize();
+    const auto rasterSize = static_cast<unsigned int>(
+        std::lround(static_cast<float>(logicalSize) * scale));
+    if (rasterSize == 0 || rasterSize == logicalSize)
+    {
+        window.draw(text);
+        return;
+    }
+
+    const float inverse = static_cast<float>(logicalSize) / static_cast<float>(rasterSize);
+    const sf::Vector2f originalScale = text.getScale();
+    const sf::Vector2f originalOrigin = text.getOrigin();
+    const float originalOutline = text.getOutlineThickness();
+    const float originalLetterSpacing = text.getLetterSpacing();
+
+    text.setCharacterSize(rasterSize);
+    // Origin and outline were expressed in logical units, so undo the raster
+    // magnification on both before the scale-down puts everything back.
+    text.setOrigin({originalOrigin.x / inverse, originalOrigin.y / inverse});
+    if (originalOutline != 0.0f)
+    {
+        text.setOutlineThickness(originalOutline / inverse);
+    }
+    text.setLetterSpacing(originalLetterSpacing);
+    text.setScale({originalScale.x * inverse, originalScale.y * inverse});
+
+    window.draw(text);
+
+    text.setScale(originalScale);
+    text.setCharacterSize(logicalSize);
+    text.setOrigin(originalOrigin);
+    text.setOutlineThickness(originalOutline);
+}
+
 void drawText(
     sf::RenderWindow& window,
     sf::Font& font,
@@ -152,7 +216,7 @@ void drawText(
     sf::Text text(font, maxWidth > 0.0f ? elideToWidth(font, value, size, maxWidth) : value, size);
     text.setFillColor(color);
     text.setPosition(position);
-    window.draw(text);
+    drawCrispText(window, text);
 }
 
 void drawBeveledPlate(

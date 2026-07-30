@@ -31,8 +31,9 @@ import conquest_services;
 import client_services;
 import inputbox;
 
-namespace
-{
+// Module linkage rather than an anonymous namespace: the exported class below
+// defines its members inline, so importers instantiate code that references
+// these helpers. Internal-linkage entities are not visible there.
 using namespace bayou::client;
 
 const sf::Color Ink(246, 232, 200);
@@ -257,7 +258,6 @@ void drawControlFlag(sf::RenderWindow& window, sf::Vector2f regionCenter, sf::Co
     finial.setOutlineThickness(0.75f);
     finial.setOutlineColor(sf::Color(54, 39, 22));
     window.draw(finial);
-}
 }
 
 export namespace bayou::client
