@@ -309,7 +309,10 @@ public:
         std::filesystem::path assetRoot = "assets")
         : font(screenFont)
         , endpoint(std::move(screenEndpoint))
-        , editorTabs({340.0f, 14.0f}, {128.0f, 44.0f}, {"Cards", "Actions"}, screenFont)
+        // drawTitlePlaque widens itself to its label and throws pipes and rivets
+        // ~50px past that, so the "Card Editor" plaque reached x=354 and its
+        // right rivet sat on the first tab at x=340.
+        , editorTabs({392.0f, 14.0f}, {128.0f, 44.0f}, {"Cards", "Actions"}, screenFont)
     {
         setAssetRoot(std::move(assetRoot));
         buildControls();
@@ -328,6 +331,35 @@ public:
         unsavedChangesError.clear();
         loadCards();
         loadActions();
+    }
+
+    // Offline review support. Without a card server the editor opens with an
+    // empty library and a blank form, which shows none of the layout that
+    // matters. This loads a fabricated library and selects a card so the form,
+    // its field groups, and the preview are all populated.
+    void applyCaptureState(const std::string& key, const std::vector<card_data::Card>& library)
+    {
+        unsavedChangesPopupVisible = false;
+        instructionsVisible = false;
+        pendingTransition = PendingTransition::None;
+        pendingSelectionName.clear();
+        unsavedChangesError.clear();
+        editorMode = EditorMode::Cards;
+
+        cards = library;
+        std::sort(cards.begin(), cards.end(),
+                  [](const card_data::Card& a, const card_data::Card& b) { return a.title < b.title; });
+        listOffset = 0;
+
+        if (key == "card-editor-loaded" && !cards.empty())
+        {
+            // Prefer a unit: it carries the fullest set of stat and text fields.
+            const auto unit = std::find_if(cards.begin(), cards.end(),
+                [](const card_data::Card& card) { return card.type == "Unit"; });
+            selectCard(static_cast<std::size_t>(
+                (unit == cards.end() ? cards.begin() : unit) - cards.begin()));
+            setStatus("Loaded from card server", Muted);
+        }
     }
 
     bool handleEvent(const sf::Event& event, sf::RenderWindow& window)
@@ -3371,7 +3403,15 @@ private:
         }
         else
         {
-            drawText(window, font, fmt::format("Card server {}", endpointText()), 15, {744.0f, 31.0f}, Muted, 214.0f);
+            // Elided into 214px this read "Card server game.gloomthorn....".
+            // Which server is being edited matters on an operator tool, so it
+            // gets a caption and the full address, right-aligned to the button
+            // group rather than truncated mid-host.
+            drawText(window, font, "CARD SERVER", 10, {620.0f, 24.0f}, sf::Color(150, 132, 104));
+            sf::Text address(font, endpointText(), 14);
+            address.setFillColor(Muted);
+            address.setPosition({952.0f - address.getLocalBounds().size.x, 40.0f});
+            bayou::client::drawCrispText(window, address);
             editorTabs.draw(window);
             instructionsButton.draw(window);
             backButton.draw(window);

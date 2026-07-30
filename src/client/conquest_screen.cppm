@@ -13,6 +13,7 @@ module;
 #include "../shared/game_data.hpp"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <chrono>
 #include <cmath>
@@ -47,10 +48,12 @@ const sf::Color Bad(225, 104, 88);
 
 constexpr sf::Vector2f MapPosition{20.0f, 78.0f};
 constexpr sf::Vector2f MapSize{560.0f, 373.3333f};
-constexpr float EventRowY = 112.0f;
-constexpr float EventRowHeight = 54.0f;
-constexpr std::size_t VisibleEventRows = 7;
-constexpr float LoadoutRowY = 126.0f;
+// 70px pitch with a 62px plate: drawBeveledPlate's usable band is height-18, so a
+// two-line row needs 62 to keep the badges clear of its inner rule.
+constexpr float EventRowY = 116.0f;
+constexpr float EventRowHeight = 70.0f;
+constexpr std::size_t VisibleEventRows = 6;
+constexpr float LoadoutRowY = 134.0f;
 constexpr float LoadoutRowHeight = 40.0f;
 constexpr std::size_t VisibleLoadoutRows = 8;
 constexpr float CardRowY = 147.0f;
@@ -102,6 +105,37 @@ void drawPanel(sf::RenderWindow& window, sf::FloatRect bounds, sf::Color fill = 
         std::clamp(bounds.size.y * 0.04f, 5.0f, 12.0f));
 }
 
+// drawBeveledPlate carries an inner hairline 5px inside its edge plus highlight
+// and shade rules 7-8px in, which is right for a large panel but leaves only
+// (height - 18) of usable band. On a two-line list row ~40px tall that rule cuts
+// straight through the second line. This is the same cut-corner plate with the
+// interior ornament dropped, for rows small enough that the ornament does not
+// fit -- and it reads cleaner in a dense list besides.
+void drawCompactPlate(
+    sf::RenderWindow& window,
+    sf::FloatRect bounds,
+    sf::Color fill,
+    sf::Color outline,
+    float cut = 4.0f)
+{
+    const sf::Vector2f position = bounds.position;
+    const sf::Vector2f size = bounds.size;
+
+    sf::ConvexShape plate(8);
+    plate.setPoint(0, {position.x + cut, position.y});
+    plate.setPoint(1, {position.x + size.x - cut, position.y});
+    plate.setPoint(2, {position.x + size.x, position.y + cut});
+    plate.setPoint(3, {position.x + size.x, position.y + size.y - cut});
+    plate.setPoint(4, {position.x + size.x - cut, position.y + size.y});
+    plate.setPoint(5, {position.x + cut, position.y + size.y});
+    plate.setPoint(6, {position.x, position.y + size.y - cut});
+    plate.setPoint(7, {position.x, position.y + cut});
+    plate.setFillColor(fill);
+    plate.setOutlineThickness(1.0f);
+    plate.setOutlineColor(outline);
+    window.draw(plate);
+}
+
 void drawButton(
     sf::RenderWindow& window,
     sf::Font& font,
@@ -119,6 +153,87 @@ void drawButton(
     text.setFillColor(enabled ? Ink : sf::Color(126, 126, 120));
     centerButtonText(text, bounds.position + bounds.size * 0.5f);
     window.draw(text);
+}
+
+// Each phase gets its own identity colour so the list can be scanned by state
+// rather than read line by line: brass invites entry, violet marks the arcane
+// planning window, ember means battles are resolving, ash means it is over.
+sf::Color phaseColor(conquest_data::EventPhase phase)
+{
+    switch (phase)
+    {
+        case conquest_data::EventPhase::Registration: return {224, 168, 74};
+        case conquest_data::EventPhase::Planning: return {150, 108, 206};
+        case conquest_data::EventPhase::Resolving: return {214, 106, 74};
+        case conquest_data::EventPhase::Complete: return {132, 130, 122};
+    }
+    return Muted;
+}
+
+std::string phaseBadge(conquest_data::EventPhase phase)
+{
+    switch (phase)
+    {
+        case conquest_data::EventPhase::Registration: return "OPEN";
+        case conquest_data::EventPhase::Planning: return "PLANNING";
+        case conquest_data::EventPhase::Resolving: return "BATTLES";
+        case conquest_data::EventPhase::Complete: return "ENDED";
+    }
+    return "";
+}
+
+// What the countdown on a row actually refers to, so the bare duration is not
+// left for the player to guess at.
+std::string deadlineCaption(conquest_data::EventPhase phase)
+{
+    switch (phase)
+    {
+        case conquest_data::EventPhase::Registration: return "Registration closes";
+        case conquest_data::EventPhase::Planning: return "Orders due";
+        case conquest_data::EventPhase::Resolving: return "Battles resolve";
+        case conquest_data::EventPhase::Complete: return "";
+    }
+    return "";
+}
+
+void drawTextRight(
+    sf::RenderWindow& window,
+    sf::Font& font,
+    const std::string& value,
+    unsigned int size,
+    sf::Vector2f rightBaseline,
+    sf::Color color)
+{
+    sf::Text text(font, value, size);
+    text.setFillColor(color);
+    text.setPosition({rightBaseline.x - text.getLocalBounds().size.x, rightBaseline.y});
+    drawCrispText(window, text);
+}
+
+// A small filled pill. Used for phase state and for the joined marker.
+void drawBadge(
+    sf::RenderWindow& window,
+    sf::Font& font,
+    sf::Vector2f position,
+    const std::string& label,
+    sf::Color color,
+    unsigned int size = 11)
+{
+    sf::Text text(font, label, size);
+    const float width = text.getLocalBounds().size.x + 16.0f;
+    const float height = static_cast<float>(size) + 7.0f;
+
+    // Chamfered: a square-cornered rectangle was the only 90-degree corner on a
+    // screen where every other plate is cut.
+    drawCompactPlate(
+        window, {position, {width, height}},
+        sf::Color(color.r, color.g, color.b, 46),
+        sf::Color(color.r, color.g, color.b, 190),
+        3.0f);
+
+    text.setFillColor(color);
+    centerButtonText(text, position + sf::Vector2f(width, height) * 0.5f);
+    drawCrispText(window, text);
 }
 
 std::string phaseName(conquest_data::EventPhase phase)
@@ -146,19 +261,24 @@ std::string remainingDurationText(std::int64_t timestamp)
     seconds %= 86400;
     const std::int64_t hours = seconds / 3600;
     const std::int64_t minutes = (seconds % 3600) / 60;
+    // A zero-valued trailing unit reads as unfinished ("19h 0m"), so only the
+    // coarse unit is shown once the finer one has run out.
     if (days > 0)
     {
-        return std::to_string(days) + "d " + std::to_string(hours) + "h";
+        return hours > 0 ? std::to_string(days) + "d " + std::to_string(hours) + "h"
+                         : std::to_string(days) + "d";
     }
     if (hours > 0)
     {
-        return std::to_string(hours) + "h " + std::to_string(minutes) + "m";
+        return minutes > 0 ? std::to_string(hours) + "h " + std::to_string(minutes) + "m"
+                           : std::to_string(hours) + "h";
     }
     const std::int64_t remainingSeconds = seconds % 60;
     if (minutes > 0)
     {
-        return std::to_string(minutes) + "m " +
-            std::to_string(remainingSeconds) + "s";
+        return remainingSeconds > 0
+            ? std::to_string(minutes) + "m " + std::to_string(remainingSeconds) + "s"
+            : std::to_string(minutes) + "m";
     }
     return std::to_string(remainingSeconds) + "s";
 }
@@ -175,11 +295,32 @@ bool ready(const std::optional<std::future<T>>& future)
     return future && future->wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
 
+// conquest_map::PlayerColors is a saturated primary set -- a web blue, a pure
+// red, a cyan -- chosen for unambiguous identity in the authoritative services,
+// which also read that header. On screen next to brass frames and painted swamp
+// they read as debug colours, and one of them sits close enough to bright brass
+// to compete with the UI itself. These are the same twelve identities restated
+// as desaturated heraldic tints of the game's own palette. Presentation only:
+// the shared header is untouched, so the services keep their canonical set.
+constexpr std::array<sf::Color, 12> HeraldicColors{{
+    {170, 62, 62},    // crimson
+    {68, 96, 156},    // indigo
+    {82, 130, 90},    // moss
+    {182, 146, 66},   // ochre
+    {123, 79, 168},   // arcane violet
+    {74, 132, 136},   // verdigris
+    {174, 96, 132},   // roseblood
+    {180, 108, 60},   // rust
+    {126, 146, 74},   // fen green
+    {96, 96, 158},    // dusk blue
+    {148, 74, 96},    // wine
+    {138, 118, 88}    // ash brass
+}};
+
 sf::Color playerColor(std::uint8_t index, std::uint8_t alpha = 255)
 {
-    const conquest_map::PlayerColor color =
-        conquest_map::PlayerColors[index % conquest_map::PlayerColors.size()];
-    return {color.red, color.green, color.blue, alpha};
+    const sf::Color color = HeraldicColors[index % HeraldicColors.size()];
+    return {color.r, color.g, color.b, alpha};
 }
 
 sf::Color brighten(sf::Color color, int amount)
@@ -188,6 +329,49 @@ sf::Color brighten(sf::Color color, int amount)
         return static_cast<std::uint8_t>(std::clamp(static_cast<int>(value) + amount, 0, 255));
     };
     return {channel(color.r), channel(color.g), channel(color.b), color.a};
+}
+
+// The interface is laid out in a 4:3 logical space that is letterboxed on a
+// wider display, so a wash drawn in logical coordinates stops at x=0 and x=800
+// and leaves a hard vertical seam against the full-bleed backdrop. Painting
+// through a full-window view instead keeps the tint edge to edge.
+void drawFullWindowTint(sf::RenderWindow& window, sf::Color color)
+{
+    const sf::View logicalView = window.getView();
+    const sf::Vector2u windowSize = window.getSize();
+    const sf::Vector2f fullSize{
+        static_cast<float>(std::max(windowSize.x, 1u)),
+        static_cast<float>(std::max(windowSize.y, 1u))};
+
+    window.setView(sf::View(sf::FloatRect({0.0f, 0.0f}, fullSize)));
+    sf::RectangleShape wash(fullSize);
+    wash.setFillColor(color);
+    window.draw(wash);
+
+    // A soft corner vignette pushes the eye to the centre panels without the
+    // banding a single large gradient rectangle would show.
+    constexpr int Bands = 7;
+    for (int band = 0; band < Bands; ++band)
+    {
+        const float inset = static_cast<float>(band) * (fullSize.y * 0.022f);
+        const float thickness = fullSize.y * 0.030f;
+        const auto alpha = static_cast<std::uint8_t>(20 - band * 2);
+        sf::RectangleShape edge;
+        edge.setFillColor(sf::Color(0, 0, 0, alpha));
+
+        edge.setSize({fullSize.x, thickness});
+        edge.setPosition({0.0f, inset});
+        window.draw(edge);
+        edge.setPosition({0.0f, fullSize.y - inset - thickness});
+        window.draw(edge);
+
+        edge.setSize({thickness, fullSize.y});
+        edge.setPosition({inset, 0.0f});
+        window.draw(edge);
+        edge.setPosition({fullSize.x - inset - thickness, 0.0f});
+        window.draw(edge);
+    }
+    window.setView(logicalView);
 }
 
 void drawFlagCloth(
@@ -359,6 +543,212 @@ public:
         statusSuccess = success;
     }
 
+    // Offline review support. The capture harness has no Conquest service to
+    // talk to, so the screen would otherwise only ever show its empty state.
+    // This fabricates a campaign mid-flight -- events at several phases, a
+    // contested map, and a saved army -- so the presentation can be judged.
+    // accessToken stays empty so no refresh ever reaches the network.
+    void applyCaptureState(const std::string& key, const std::vector<card_data::Card>& library)
+    {
+        const std::int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+        accessToken.clear();
+        username = "Thistlewisp";
+        accountIsAdmin = true;
+        catalog = library;
+        collection.clear();
+        for (const card_data::Card& card : library)
+        {
+            collection.push_back({card.title, 3});
+        }
+
+        events.clear();
+        const auto addEvent = [&](std::uint64_t id, const char* name,
+                                  conquest_data::EventPhase phase, int turn,
+                                  std::uint32_t players, bool joined,
+                                  std::int64_t registrationIn, std::int64_t turnIn,
+                                  const char* winner = "") {
+            conquest_data::EventSummary summary;
+            summary.id = id;
+            summary.name = name;
+            summary.mapId = std::string(conquest_map::DarkRealmsId);
+            summary.phase = phase;
+            summary.turn = turn;
+            summary.participantCount = players;
+            summary.joined = joined;
+            summary.registrationEndsAt = registrationIn > 0 ? now + registrationIn : 0;
+            summary.turnEndsAt = turnIn > 0 ? now + turnIn : 0;
+            summary.winner = winner;
+            events.push_back(summary);
+        };
+
+        addEvent(41, "Siege of the Bramble Throne", conquest_data::EventPhase::Planning,
+                 3, 6, true, 0, 5 * 60 * 60 + 42 * 60);
+        addEvent(42, "The Mirewatch Compact", conquest_data::EventPhase::Registration,
+                 0, 4, true, 19 * 60 * 60, 0);
+        addEvent(43, "Blackthorn Toll War", conquest_data::EventPhase::Resolving,
+                 7, 8, false, 0, 47 * 60);
+        addEvent(44, "Long Night Over Sunken Reef", conquest_data::EventPhase::Registration,
+                 0, 2, false, 2 * 24 * 60 * 60 + 3 * 60 * 60, 0);
+        addEvent(45, "Harrowing of Frostbourne", conquest_data::EventPhase::Planning,
+                 5, 5, false, 0, 22 * 60 * 60);
+        addEvent(46, "Winter Court Ascendant", conquest_data::EventPhase::Complete,
+                 12, 6, true, 0, 0, "gallowglass");
+
+        decks.clear();
+        static constexpr const char* DeckNames[] = {
+            "Seelie Court Tempo", "Mirewatch Attrition", "Blackthorn Toll Road",
+            "Gloomfen Swarm", "Heartwood Bulwark", "Erevan's Ambush"};
+        for (std::size_t i = 0; i < std::size(DeckNames); ++i)
+        {
+            conquest_data::ConquestDeck deck;
+            deck.id = static_cast<std::int64_t>(100 + i);
+            deck.revision = 3;
+            deck.deck.name = DeckNames[i];
+            for (const card_data::Card& card : library)
+            {
+                if (card.type == "Unit" && deck.deck.cardTitles.size() < 24)
+                {
+                    deck.deck.cardTitles.push_back(card.title);
+                    deck.deck.cardTitles.push_back(card.title);
+                }
+            }
+            decks.push_back(std::move(deck));
+        }
+        army.revision = 4;
+        army.deckIds = {100, 101, 102, 103, 104};
+
+        if (key == "conquest-loadouts")
+        {
+            view = View::Loadout;
+            selectedDeck = 1;
+            setStatus("Army saved. 5 decks committed to Conquest.", true);
+            return;
+        }
+
+        if (key == "conquest-events")
+        {
+            view = View::Events;
+            status.clear();
+            return;
+        }
+
+        // conquest-map: a contested campaign mid-planning.
+        view = View::Event;
+        eventState = {};
+        eventState.summary = events.front();
+
+        static constexpr const char* Rivals[] = {
+            "Thistlewisp", "gallowglass", "Mirefoot", "nettlejack", "Rushlight", "sootpetal"};
+        for (std::size_t i = 0; i < std::size(Rivals); ++i)
+        {
+            conquest_data::PlayerState player;
+            player.username = Rivals[i];
+            player.colorIndex = static_cast<std::uint8_t>(i);
+            player.controlledRegions = static_cast<int>(4 - (i % 3));
+            player.ordersSubmitted = i % 2 == 0;
+            player.eliminated = i == 5;
+            player.reinforcementsAvailable = i == 0 ? 2 : 1;
+            player.nextReinforcementAt = i == 0 ? 0 : now + 3600;
+            eventState.players.push_back(player);
+        }
+
+        // Spread the 20 regions across the six rivals, leaving a few unclaimed
+        // so the map reads as genuinely contested rather than fully painted.
+        static constexpr int RegionOwners[20] = {
+            0, 1, 1, 0, 0, 2, 1, 3, 0, 2,
+            -1, 3, 4, 3, 2, -1, 4, 1, 0, 4};
+        for (std::size_t i = 0; i < std::size(RegionOwners); ++i)
+        {
+            if (RegionOwners[i] < 0)
+            {
+                continue;
+            }
+            conquest_data::RegionState region;
+            region.regionId = static_cast<int>(i + 1);
+            region.controller = Rivals[RegionOwners[i]];
+            eventState.regions.push_back(region);
+        }
+
+        // Deployed armies, including three of ours so the route overlay and the
+        // army panel both have something to show.
+        struct SeedDeck
+        {
+            std::uint64_t id;
+            const char* owner;
+            const char* name;
+            int slot;
+            int region;
+            int destination;
+        };
+        static constexpr SeedDeck SeedDecks[] = {
+            {900, "Thistlewisp", "Seelie Court Tempo", 1, 5, 6},
+            {901, "Thistlewisp", "Mirewatch Attrition", 2, 1, 1},
+            {902, "Thistlewisp", "Blackthorn Toll Road", 3, 19, 16},
+            {903, "gallowglass", "Frostbourne Vanguard", 1, 2, 2},
+            {904, "gallowglass", "Ironwood Levy", 2, 7, 7},
+            {905, "Mirefoot", "Bogwater Reavers", 1, 10, 10},
+            {906, "Mirefoot", "Sable Column", 2, 15, 15},
+            {907, "nettlejack", "Grimhold Wardens", 1, 8, 8},
+            {908, "Rushlight", "Emberfall Choir", 1, 13, 13},
+        };
+        for (const SeedDeck& seed : SeedDecks)
+        {
+            conquest_data::EventDeckState deck;
+            deck.id = seed.id;
+            deck.sourceDeckId = seed.id - 800;
+            deck.owner = seed.owner;
+            deck.deckName = seed.name;
+            deck.armySlot = seed.slot;
+            deck.deployed = true;
+            deck.regionId = seed.region;
+            deck.destinationRegionId = seed.destination;
+            eventState.decks.push_back(deck);
+        }
+        // Two committed moves, so the map shows planned routes.
+        plannedOrders.clear();
+        plannedOrders[900] = 6;
+        plannedOrders[902] = 16;
+
+        static constexpr struct SeedBattle
+        {
+            std::uint64_t id;
+            int region;
+            const char* one;
+            const char* two;
+            const char* deckOne;
+            const char* deckTwo;
+            conquest_data::BattleStatus status;
+            bool canJoin;
+        } SeedBattles[] = {
+            {700, 6, "Thistlewisp", "gallowglass", "Seelie Court Tempo", "Ironwood Levy",
+             conquest_data::BattleStatus::Ready, true},
+            {701, 16, "Thistlewisp", "Mirefoot", "Blackthorn Toll Road", "Sable Column",
+             conquest_data::BattleStatus::Ready, true},
+            {702, 12, "nettlejack", "Rushlight", "Grimhold Wardens", "Emberfall Choir",
+             conquest_data::BattleStatus::Queued, false},
+        };
+        for (const SeedBattle& seed : SeedBattles)
+        {
+            conquest_data::BattleState battle;
+            battle.id = seed.id;
+            battle.kind = conquest_data::BattleKind::Region;
+            battle.status = seed.status;
+            battle.regionId = seed.region;
+            battle.playerOne = seed.one;
+            battle.playerTwo = seed.two;
+            battle.deckOneName = seed.deckOne;
+            battle.deckTwoName = seed.deckTwo;
+            battle.canJoin = seed.canJoin;
+            eventState.battles.push_back(battle);
+        }
+
+        selectedRegionId = 6;
+        selectedEventDeckId = 900;
+        status.clear();
+    }
+
     std::optional<ConquestScreenAction> takeAction()
     {
         std::optional<ConquestScreenAction> result = pendingAction;
@@ -459,18 +849,23 @@ public:
 
     void draw(sf::RenderWindow& window)
     {
-        sf::RectangleShape shade({800.0f, 600.0f});
-        shade.setFillColor(sf::Color(5, 8, 9, 225));
-        window.draw(shade);
+        // A tint rather than the near-opaque plate this used to draw: the swamp
+        // backdrop every other screen shows should still read through here.
+        drawFullWindowTint(window, sf::Color(5, 8, 9, 76));
 
         // The event detail view supplies its own two-line toolbar. Drawing the
         // generic Conquest banner behind it makes the title, phase, and nav
         // controls compete for the same pixels.
         if (view != View::Event)
         {
-            drawText(window, font, "CONQUEST", 32, {24.0f, 18.0f}, Accent);
+            // drawTitlePlaque widens itself to its label and throws pipes and
+            // rivets ~110px past its nominal box, which ran straight through
+            // the subtitle. A section header with a brass rule reads as
+            // deliberately designed here and leaves the width predictable.
+            drawText(window, font, "CONQUEST", 30, {24.0f, 14.0f}, Accent);
             drawText(window, font, "Long-running campaigns. Each card copy belongs to one Conquest deck.",
-                     15, {212.0f, 31.0f}, Muted);
+                     13, {252.0f, 30.0f}, Muted, 520.0f);
+            drawSeparatorRule(window, {24.0f, 56.0f}, 752.0f);
         }
 
         if (view == View::Events)
@@ -511,15 +906,19 @@ public:
     }
 
 private:
+    // Forwards to the shared helper rather than the module-local one so every
+    // string on this screen is rasterized at device resolution, and so callers
+    // can elide to a width.
     static void drawText(
         sf::RenderWindow& window,
         sf::Font& font,
         const std::string& value,
         unsigned int size,
         sf::Vector2f position,
-        sf::Color color = Ink)
+        sf::Color color = Ink,
+        float maxWidth = 0.0f)
     {
-        ::drawText(window, font, value, size, position, color);
+        bayou::client::drawText(window, font, value, size, position, color, maxWidth);
     }
 
     static void drawPanel(
@@ -1081,7 +1480,7 @@ private:
             refreshEvents();
             return;
         }
-        if (accountIsAdmin && !busy() && rect(520, 64, 134, 36).contains(mouse))
+        if (accountIsAdmin && !busy() && rect(498, 64, 156, 36).contains(mouse))
         {
             eventNameInput.clear();
             eventNameInput.setActive(true);
@@ -1177,11 +1576,11 @@ private:
             pendingCommandGeneration = sessionGeneration;
             pendingCommandEventId = 0;
         }
-        else if (rect(410, 492, 166, 38).contains(mouse) && selectedDeck)
+        else if (rect(410, 492, 182, 38).contains(mouse) && selectedDeck)
         {
             toggleArmyDeck(decks[*selectedDeck].id);
         }
-        else if (rect(584, 492, 186, 38).contains(mouse) && !pendingArmySave)
+        else if (rect(600, 492, 170, 38).contains(mouse) && !pendingArmySave)
         {
             conquest_data::ConquestArmy next = army;
             pendingArmySave.emplace(std::async(
@@ -1409,6 +1808,12 @@ private:
         return found == eventState.players.end() ? nullptr : &*found;
     }
 
+    static std::string regionName(int id)
+    {
+        const conquest_map::RegionDefinition* found = conquest_map::region(id);
+        return found ? std::string(found->name) : std::string("Unknown");
+    }
+
     std::string regionController(int id) const
     {
         const auto found = std::find_if(eventState.regions.begin(), eventState.regions.end(),
@@ -1448,11 +1853,24 @@ private:
         return nearest;
     }
 
-    sf::Vector2f mapPoint(int x, int y) const
+    // The art is inset inside its plate so the brass frame reads as a mount.
+    // Markers must be projected onto that same inset rect or every flag drifts
+    // off its territory.
+    static sf::FloatRect mapArtBounds()
     {
+        constexpr float Inset = 5.0f;
+        return {MapPosition + sf::Vector2f(Inset, Inset),
+                MapSize - sf::Vector2f(Inset * 2.0f, Inset * 2.0f)};
+    }
+
+    static sf::Vector2f mapPoint(int x, int y)
+    {
+        const sf::FloatRect art = mapArtBounds();
         return {
-            MapPosition.x + static_cast<float>(x) / conquest_map::DarkRealmsImageWidth * MapSize.x,
-            MapPosition.y + static_cast<float>(y) / conquest_map::DarkRealmsImageHeight * MapSize.y};
+            art.position.x +
+                static_cast<float>(x) / conquest_map::DarkRealmsImageWidth * art.size.x,
+            art.position.y +
+                static_cast<float>(y) / conquest_map::DarkRealmsImageHeight * art.size.y};
     }
 
     void clickEvent(sf::Vector2f mouse)
@@ -1490,7 +1908,7 @@ private:
             {
                 const std::size_t index = eventDeckOffset + row;
                 if (index < eventDecks.size() &&
-                    rect(590, 146 + row * 35.0f, 190, 31).contains(mouse))
+                    rect(590, 146 + row * 42.0f, 188, 38).contains(mouse))
                 {
                     selectedEventDeckId = eventDecks[index]->id;
                     return;
@@ -1504,7 +1922,7 @@ private:
             {
                 const std::size_t index = eventDeckOffset + row;
                 if (index < armyDecks.size() &&
-                    rect(590, 146 + row * 35.0f, 190, 31).contains(mouse))
+                    rect(590, 146 + row * 42.0f, 188, 38).contains(mouse))
                 {
                     selectedEventDeckId = static_cast<std::uint64_t>(armyDecks[index]->id);
                     return;
@@ -1516,7 +1934,7 @@ private:
         for (std::size_t row = 0; row < 2; ++row)
         {
             const std::size_t index = battleOffset + row;
-            if (index < battles.size() && rect(24, 486 + row * 34.0f, 552, 30).contains(mouse))
+            if (index < battles.size() && rect(24, 492 + row * 33.0f, 552, 29).contains(mouse))
             {
                 pendingAction = ConquestScreenAction{
                     ConquestScreenAction::Kind::JoinBattle,
@@ -1886,14 +2304,24 @@ private:
         drawHeaderButtons(window, false);
         if (accountIsAdmin)
         {
-            drawButton(window, font, rect(520, 64, 134, 36), "New Conquest",
-                       hovered(rect(520, 64, 134, 36), mousePosition), !busy());
+            drawButton(window, font, rect(498, 64, 156, 36), "New Conquest",
+                       hovered(rect(498, 64, 156, 36), mousePosition), !busy());
         }
         drawPanel(window, rect(20, 104, 760, 444));
         if (events.empty() && !pendingEvents)
         {
-            drawText(window, font, "No Conquest events are available.", 19, {48.0f, 140.0f}, Muted);
+            drawEventsEmptyState(window);
+            return;
         }
+        if (events.empty() && pendingEvents)
+        {
+            drawText(window, font, "Summoning campaigns...", 17, {48.0f, 150.0f}, Muted);
+            return;
+        }
+
+        // The CAMPAIGN / DEADLINE column captions are gone: they cost the rows
+        // 18px of height they needed, and each row already labels its own
+        // countdown ("Orders due", "Registration closes").
         for (std::size_t row = 0; row < VisibleEventRows; ++row)
         {
             const std::size_t index = eventOffset + row;
@@ -1901,26 +2329,210 @@ private:
             {
                 break;
             }
-            const conquest_data::EventSummary& event = events[index];
-            const sf::FloatRect bounds = rect(34, EventRowY + row * EventRowHeight, 732, EventRowHeight - 6);
-            sf::RectangleShape background(bounds.size);
-            background.setPosition(bounds.position);
-            background.setFillColor(hovered(bounds, mousePosition) ? sf::Color(67, 50, 31, 230) : PanelAlt);
-            background.setOutlineThickness(1.0f);
-            background.setOutlineColor(event.joined ? Good : Line);
-            window.draw(background);
-            drawText(window, font, event.name, 18, bounds.position + sf::Vector2f(12.0f, 5.0f));
-            drawText(window, font,
-                     phaseName(event.phase) + "  |  " + std::to_string(event.participantCount) + " players" +
-                         (event.joined ? "  |  Joined" : ""),
-                     14, bounds.position + sf::Vector2f(12.0f, 28.0f), event.joined ? Good : Muted);
-            const std::int64_t deadline = event.phase == conquest_data::EventPhase::Registration
-                ? event.registrationEndsAt : event.turnEndsAt;
-            drawText(window, font, remainingText(deadline), 14,
-                     bounds.position + sf::Vector2f(530.0f, 16.0f), Muted);
+            drawEventRow(window, events[index],
+                         rect(34, EventRowY + row * EventRowHeight, 732, EventRowHeight - 8));
         }
-        drawText(window, font, "Select an event to inspect its map, join, plan moves, or resume battles.",
-                 14, {36.0f, 554.0f}, Muted);
+        drawEventScrollTrack(window);
+
+        drawText(window, font, "Select a campaign to inspect its map, plan moves, or resume battles.",
+                 13, {24.0f, 556.0f}, Muted);
+    }
+
+    void drawEventRow(
+        sf::RenderWindow& window,
+        const conquest_data::EventSummary& event,
+        sf::FloatRect bounds)
+    {
+        const bool isHovered = hovered(bounds, mousePosition);
+        const bool ended = event.phase == conquest_data::EventPhase::Complete;
+        const sf::Color phase = phaseColor(event.phase);
+
+        drawBeveledPlate(
+            window, bounds.position, bounds.size,
+            isHovered ? sf::Color(46, 38, 28, 242) : sf::Color(17, 24, 25, 232),
+            isHovered ? Accent : sf::Color(96, 68, 38),
+            isHovered, 6.0f);
+
+        // A phase-coloured spine down the leading edge: the fastest read of
+        // state in the list, and it doubles as the row's visual anchor.
+        sf::RectangleShape spine({3.0f, bounds.size.y - 12.0f});
+        spine.setPosition(bounds.position + sf::Vector2f(6.0f, 6.0f));
+        spine.setFillColor(ended ? sf::Color(phase.r, phase.g, phase.b, 150) : phase);
+        window.draw(spine);
+
+        // A crop of the campaign map stands in for per-event key art.
+        // Clear of the plate's inner rule at +5, which the thumbnail's own border
+        // was doubling up against.
+        const sf::FloatRect thumbnail(
+            bounds.position + sf::Vector2f(24.0f, 11.0f), {76.0f, bounds.size.y - 22.0f});
+        if (mapTexture)
+        {
+            drawMapThumbnail(window, thumbnail, event.id,
+                             ended ? sf::Color(120, 120, 120) : sf::Color(210, 210, 210));
+        }
+        sf::RectangleShape thumbnailFrame(thumbnail.size);
+        thumbnailFrame.setPosition(thumbnail.position);
+        thumbnailFrame.setFillColor(sf::Color::Transparent);
+        thumbnailFrame.setOutlineThickness(1.0f);
+        thumbnailFrame.setOutlineColor(sf::Color(103, 72, 39));
+        window.draw(thumbnailFrame);
+
+        const float textX = bounds.position.x + 112.0f;
+        drawText(window, font, elide(font, event.name, 19, 344.0f), 19,
+                 {textX, bounds.position.y + 10.0f}, ended ? Muted : Ink);
+
+        // One shared centre line for every element on the metadata row, so the
+        // badges, the roster bar and the turn count sit on a single axis. Kept
+        // inside y+8 .. y+height-10, the band drawBeveledPlate leaves free.
+        constexpr float BadgeHeight = 18.0f;
+        const float metaTop = bounds.position.y + 34.0f;
+        const float metaCenterY = metaTop + BadgeHeight * 0.5f;
+
+        drawBadge(window, font, {textX, metaTop}, phaseBadge(event.phase), phase);
+        sf::Text badgeProbe(font, phaseBadge(event.phase), 11);
+        float detailX = textX + badgeProbe.getLocalBounds().size.x + 16.0f + 8.0f;
+
+        if (event.joined)
+        {
+            drawBadge(window, font, {detailX, metaTop}, "JOINED", Good);
+            sf::Text joinedProbe(font, "JOINED", 11);
+            detailX += joinedProbe.getLocalBounds().size.x + 16.0f + 8.0f;
+        }
+
+        detailX += drawPlayerPips(window, event.participantCount, {detailX, metaCenterY}, ended) + 14.0f;
+
+        // Turn number carries the campaign's progress once it is under way.
+        if (event.turn > 0)
+        {
+            drawText(window, font, "Turn " + std::to_string(event.turn), 12,
+                     {detailX, metaCenterY - 8.0f}, Muted);
+        }
+
+        // Inset past the plate's inner rule and its right-hand rivet, which the
+        // countdown was sitting 3px from.
+        const float rightEdge = bounds.position.x + bounds.size.x - 26.0f;
+        if (ended)
+        {
+            drawTextRight(window, font, "Final", 11, {rightEdge, bounds.position.y + 14.0f}, Muted);
+            drawTextRight(window, font,
+                          event.winner.empty() ? "No winner" : event.winner + " won",
+                          15, {rightEdge, bounds.position.y + 32.0f}, Accent);
+            return;
+        }
+
+        const std::int64_t deadline = event.phase == conquest_data::EventPhase::Registration
+            ? event.registrationEndsAt : event.turnEndsAt;
+        const std::string duration = remainingDurationText(deadline);
+        if (duration.empty())
+        {
+            return;
+        }
+        drawTextRight(window, font, deadlineCaption(event.phase), 11,
+                      {rightEdge, bounds.position.y + 13.0f}, sf::Color(150, 132, 104));
+        // Under an hour the countdown turns urgent. Bright brass rather than a
+        // UI warning red, which was the one pure red left in the palette.
+        const bool urgent = duration.find('d') == std::string::npos &&
+            duration.find('h') == std::string::npos;
+        drawTextRight(window, font, duration, 17,
+                      {rightEdge, bounds.position.y + 30.0f}, urgent ? Accent : Ink);
+    }
+
+    // There is one map asset, so drawing the same crop on every row reads as
+    // repeated wallpaper. Each campaign instead gets a stable crop keyed off
+    // its id, which makes the rows feel like distinct theatres of war.
+    void drawMapThumbnail(
+        sf::RenderWindow& window, sf::FloatRect bounds, std::uint64_t eventId, sf::Color tint)
+    {
+        if (!mapTexture)
+        {
+            return;
+        }
+        const sf::Vector2f textureSize{
+            static_cast<float>(mapTexture->getSize().x),
+            static_cast<float>(mapTexture->getSize().y)};
+
+        // Cover the destination, then slide the source window within whatever
+        // slack the aspect difference leaves.
+        const float scale = std::max(
+            bounds.size.x / textureSize.x, bounds.size.y / textureSize.y) * 2.2f;
+        const sf::Vector2f windowSize{bounds.size.x / scale, bounds.size.y / scale};
+        const float slackX = std::max(0.0f, textureSize.x - windowSize.x);
+        const float slackY = std::max(0.0f, textureSize.y - windowSize.y);
+        const float fractionX = static_cast<float>(eventId * 37 % 100) / 100.0f;
+        const float fractionY = static_cast<float>(eventId * 61 % 100) / 100.0f;
+
+        sf::Sprite sprite(*mapTexture);
+        sprite.setTextureRect(sf::IntRect(
+            {static_cast<int>(slackX * fractionX), static_cast<int>(slackY * fractionY)},
+            {static_cast<int>(windowSize.x), static_cast<int>(windowSize.y)}));
+        sprite.setPosition(bounds.position);
+        sprite.setScale({scale, scale});
+        sprite.setColor(tint);
+        window.draw(sprite);
+    }
+
+    // Roster strength against the lobby cap. A slim fill bar rather than one pip
+    // per seat: twelve dots at this size degrade into a dotted rule and the
+    // filled/empty distinction stops reading.
+    // Returns the width consumed so callers can lay out after it.
+    float drawPlayerPips(
+        sf::RenderWindow& window, std::uint32_t count, sf::Vector2f center, bool dim)
+    {
+        const auto seats = static_cast<float>(conquest_data::MaxConquestPlayers);
+        const float filled = std::clamp(static_cast<float>(count) / seats, 0.0f, 1.0f);
+        constexpr float BarWidth = 54.0f;
+        constexpr float BarHeight = 5.0f;
+
+        sf::RectangleShape track({BarWidth, BarHeight});
+        track.setPosition({center.x, center.y - BarHeight * 0.5f});
+        track.setFillColor(sf::Color(58, 52, 43, 235));
+        track.setOutlineThickness(1.0f);
+        track.setOutlineColor(sf::Color(88, 66, 40));
+        window.draw(track);
+
+        sf::RectangleShape fill({BarWidth * filled, BarHeight});
+        fill.setPosition({center.x, center.y - BarHeight * 0.5f});
+        fill.setFillColor(dim ? sf::Color(132, 130, 122) : Accent);
+        window.draw(fill);
+
+        const std::string label = std::to_string(count) + " / " +
+            std::to_string(static_cast<int>(seats)) + " players";
+        drawText(window, font, label, 12, {center.x + BarWidth + 8.0f, center.y - 8.0f}, Muted);
+        sf::Text probe(font, label, 12);
+        return BarWidth + 8.0f + probe.getLocalBounds().size.x;
+    }
+
+    // A designed empty state: the mode still has to sell itself when there is
+    // nothing to join, so this shows the map it is played on and what happens
+    // next rather than a bare apology.
+    void drawEventsEmptyState(sf::RenderWindow& window)
+    {
+        const sf::FloatRect art(rect(250.0f, 152.0f, 300.0f, 200.0f));
+        if (mapTexture)
+        {
+            drawContainSprite(window, *mapTexture, art, sf::Color(118, 122, 120));
+        }
+        sf::RectangleShape frame(art.size);
+        frame.setPosition(art.position);
+        frame.setFillColor(sf::Color::Transparent);
+        frame.setOutlineThickness(1.0f);
+        frame.setOutlineColor(sf::Color(84, 60, 34));
+        window.draw(frame);
+
+        sf::Text heading(font, "The Dark Realms lie quiet", 24);
+        heading.setFillColor(Accent);
+        centerText(heading, {400.0f, 384.0f});
+        drawCrispText(window, heading);
+
+        drawWrappedText(
+            window, font,
+            "No campaign is mustering right now. Build the army you will march "
+            "with, and you will be ready the moment the next war is called.",
+            15, {230.0f, 412.0f}, Muted, 340.0f);
+
+        drawText(window, font,
+                 accountIsAdmin ? "Use New Conquest above to open a campaign." : "Check back soon.",
+                 13, {230.0f, 478.0f}, sf::Color(150, 132, 104), 340.0f);
     }
 
     void clickEventCreate(sf::Vector2f mouse)
@@ -1970,10 +2582,18 @@ private:
     void drawLoadout(sf::RenderWindow& window)
     {
         drawHeaderButtons(window, true);
-        drawPanel(window, rect(20, 108, 360, 370));
-        drawPanel(window, rect(400, 108, 380, 370));
-        drawText(window, font, "Conquest Decks", 21, {32.0f, 108.0f}, Accent);
-        drawText(window, font, "Army (1-10 decks)", 21, {412.0f, 108.0f}, Accent);
+        // Headings sat exactly on the panel's top edge, so the border cut
+        // through the glyphs. They now sit above their panels as captions.
+        drawText(window, font, "CONQUEST DECKS", 13, {24.0f, 106.0f}, sf::Color(150, 132, 104));
+        drawTextRight(window, font, std::to_string(decks.size()) + " saved", 13,
+                      {376.0f, 106.0f}, Muted);
+        drawText(window, font, "MARCHING ARMY", 13, {404.0f, 106.0f}, sf::Color(150, 132, 104));
+        drawTextRight(window, font,
+                      std::to_string(army.deckIds.size()) + " of " +
+                          std::to_string(conquest_data::MaxConquestArmyDecks),
+                      13, {776.0f, 106.0f}, Muted);
+        drawPanel(window, rect(20, 124, 360, 354));
+        drawPanel(window, rect(400, 124, 380, 354));
 
         for (std::size_t row = 0; row < VisibleLoadoutRows; ++row)
         {
@@ -1982,17 +2602,37 @@ private:
             {
                 break;
             }
+            const bool isSelected = selectedDeck == index;
             const sf::FloatRect bounds = rect(30, LoadoutRowY + row * LoadoutRowHeight, 340, LoadoutRowHeight - 4);
-            sf::RectangleShape background(bounds.size);
-            background.setPosition(bounds.position);
-            background.setFillColor(selectedDeck == index ? sf::Color(91, 60, 29, 245) : PanelAlt);
-            background.setOutlineThickness(1.0f);
-            background.setOutlineColor(selectedDeck == index ? Accent : Line);
-            window.draw(background);
-            drawText(window, font, elide(font, decks[index].deck.name, 17, 230.0f), 17,
-                     bounds.position + sf::Vector2f(9.0f, 7.0f));
-            drawText(window, font, std::to_string(decks[index].deck.cardTitles.size()) + " cards", 13,
-                     bounds.position + sf::Vector2f(260.0f, 10.0f), Muted);
+            drawBeveledPlate(
+                window, bounds.position, bounds.size,
+                isSelected ? sf::Color(76, 49, 25, 240) : sf::Color(17, 24, 25, 228),
+                isSelected ? Accent : sf::Color(96, 68, 38), isSelected, 5.0f);
+            // Decks already marching are marked so the two lists can be
+            // reconciled without counting back and forth between them.
+            const bool marching = std::find(army.deckIds.begin(), army.deckIds.end(),
+                                            decks[index].id) != army.deckIds.end();
+            if (marching)
+            {
+                sf::CircleShape pip(3.0f);
+                pip.setOrigin({3.0f, 3.0f});
+                pip.setPosition(bounds.position + sf::Vector2f(14.0f, bounds.size.y * 0.5f));
+                pip.setFillColor(Good);
+                window.draw(pip);
+            }
+            drawText(window, font, elide(font, decks[index].deck.name, 16, 216.0f), 16,
+                     bounds.position + sf::Vector2f(26.0f, 8.0f));
+            // Inset clear of the plate's corner rivet, which the count ran into.
+            drawTextRight(window, font, std::to_string(decks[index].deck.cardTitles.size()) + " cards", 12,
+                          {bounds.position.x + bounds.size.x - 22.0f, bounds.position.y + 11.0f}, Muted);
+        }
+        if (decks.empty() && !pendingLoadout)
+        {
+            drawText(window, font, "No Conquest decks yet.", 16, {36.0f, 150.0f}, Muted);
+            drawWrappedText(window, font,
+                            "Build one with New below. Conquest decks draw on their own "
+                            "pool of card copies.",
+                            13, {36.0f, 176.0f}, sf::Color(150, 132, 104), 320.0f);
         }
 
         for (std::size_t row = 0; row < VisibleLoadoutRows; ++row)
@@ -2002,16 +2642,31 @@ private:
             {
                 break;
             }
+            const bool isSelected = selectedArmySlot == slot;
             const sf::FloatRect bounds = rect(410, LoadoutRowY + row * LoadoutRowHeight, 360, LoadoutRowHeight - 4);
-            sf::RectangleShape background(bounds.size);
-            background.setPosition(bounds.position);
-            background.setFillColor(selectedArmySlot == slot ? sf::Color(91, 60, 29, 245) : PanelAlt);
-            background.setOutlineThickness(1.0f);
-            background.setOutlineColor(selectedArmySlot == slot ? Accent : Line);
-            window.draw(background);
-            drawText(window, font, std::to_string(slot + 1) + ".  " +
-                     elide(font, armyDeckName(army.deckIds[slot]), 17, 280.0f), 17,
-                     bounds.position + sf::Vector2f(9.0f, 7.0f));
+            drawBeveledPlate(
+                window, bounds.position, bounds.size,
+                isSelected ? sf::Color(76, 49, 25, 240) : sf::Color(17, 24, 25, 228),
+                isSelected ? Accent : sf::Color(96, 68, 38), isSelected, 5.0f);
+            // The slot number is the march order, so it is set apart from the
+            // deck name rather than run together with it.
+            // Clear of the plate's left corner rivet, which clipped the digit.
+            drawText(window, font, std::to_string(slot + 1), 13,
+                     bounds.position + sf::Vector2f(19.0f, 11.0f), Accent);
+            sf::RectangleShape divider({1.0f, bounds.size.y - 16.0f});
+            divider.setPosition(bounds.position + sf::Vector2f(36.0f, 8.0f));
+            divider.setFillColor(sf::Color(96, 68, 38, 170));
+            window.draw(divider);
+            drawText(window, font, elide(font, armyDeckName(army.deckIds[slot]), 16, 292.0f), 16,
+                     bounds.position + sf::Vector2f(47.0f, 8.0f));
+        }
+        if (army.deckIds.empty())
+        {
+            drawText(window, font, "No army committed.", 16, {416.0f, 150.0f}, Muted);
+            drawWrappedText(window, font,
+                            "Select a Conquest deck and add it to your army. Every deck you "
+                            "commit marches as a separate force on the map.",
+                            13, {416.0f, 176.0f}, sf::Color(150, 132, 104), 340.0f);
         }
 
         drawButton(window, font, rect(24, 492, 100, 38), "New",
@@ -2022,15 +2677,17 @@ private:
                    hovered(rect(240, 492, 124, 38), mousePosition), selectedDeck.has_value() && !busy());
         const bool selectedInArmy = selectedDeck &&
             std::find(army.deckIds.begin(), army.deckIds.end(), decks[*selectedDeck].id) != army.deckIds.end();
-        drawButton(window, font, rect(410, 492, 166, 38),
-                   selectedInArmy ? "Remove from Army" : "Add to Army",
-                   hovered(rect(410, 492, 166, 38), mousePosition), selectedDeck.has_value());
-        drawButton(window, font, rect(584, 492, 186, 38), "Save Army",
-                   hovered(rect(584, 492, 186, 38), mousePosition),
+        // "Remove from Army" overran its plate at 166px wide.
+        drawButton(window, font, rect(410, 492, 182, 38),
+                   selectedInArmy ? "Remove" : "Add to Army",
+                   hovered(rect(410, 492, 182, 38), mousePosition), selectedDeck.has_value());
+        drawButton(window, font, rect(600, 492, 170, 38), "Save Army",
+                   hovered(rect(600, 492, 170, 38), mousePosition),
                    !pendingArmySave && !army.deckIds.empty());
+        drawSeparatorRule(window, {24.0f, 538.0f}, 752.0f);
         drawText(window, font,
-                 "Copies are shared across Conquest decks only. Regular decks never consume this allocation.",
-                 14, {24.0f, 544.0f}, Muted);
+                 "Conquest decks draw on their own pool of copies. Your regular decks are untouched.",
+                 13, {24.0f, 550.0f}, Muted);
     }
 
     void drawDeckEditor(sf::RenderWindow& window)
@@ -2130,27 +2787,40 @@ private:
                  22, {150.0f, 13.0f}, Accent);
         if (!eventState.summary.name.empty())
         {
-            std::string phaseDetails = phaseName(eventState.summary.phase) + "  |  Turn " +
-                std::to_string(eventState.summary.turn);
-            if (eventState.summary.phase == conquest_data::EventPhase::Registration)
+            const conquest_data::EventPhase phase = eventState.summary.phase;
+            drawBadge(window, font, {150.0f, 44.0f}, phaseBadge(phase), phaseColor(phase));
+            sf::Text badgeProbe(font, phaseBadge(phase), 11);
+            float detailX = 150.0f + badgeProbe.getLocalBounds().size.x + 16.0f + 10.0f;
+            if (eventState.summary.turn > 0)
             {
-                const std::string duration =
-                    remainingDurationText(eventState.summary.registrationEndsAt);
-                if (!duration.empty())
-                {
-                    phaseDetails += "  |  Starts in " + duration;
-                }
+                drawText(window, font, "Turn " + std::to_string(eventState.summary.turn), 13,
+                         {detailX, 46.0f}, Muted);
+                detailX += 56.0f;
             }
-            drawText(window, font,
-                     elide(font, phaseDetails, 14, canForceEnd ? 365.0f : 500.0f),
-                     14, {150.0f, 47.0f}, Muted);
+
+            // The countdown was previously shown only during registration, so a
+            // planning turn gave no hint that orders were about to auto-resolve
+            // -- the single most important number on this screen.
+            const std::int64_t deadline = phase == conquest_data::EventPhase::Registration
+                ? eventState.summary.registrationEndsAt : eventState.summary.turnEndsAt;
+            const std::string duration = remainingDurationText(deadline);
+            if (!duration.empty())
+            {
+                const std::string caption = deadlineCaption(phase);
+                const bool urgent = duration.find('d') == std::string::npos &&
+                    duration.find('h') == std::string::npos;
+                drawText(window, font, caption, 11, {detailX, 40.0f}, sf::Color(150, 132, 104));
+                drawText(window, font, duration, 15, {detailX, 53.0f}, urgent ? Bad : Ink);
+            }
         }
 
+        // The sprite used to cover the plate exactly, hiding its brass frame and
+        // leaving the map as a bare rectangle. Inset so the frame reads as a
+        // mount around the art, the way every other panel on the screen does.
         drawPanel(window, rect(MapPosition.x, MapPosition.y, MapSize.x, MapSize.y));
         if (mapTexture)
         {
-            drawContainSprite(window, *mapTexture,
-                {MapPosition, MapSize}, sf::Color(225, 225, 225));
+            drawContainSprite(window, *mapTexture, mapArtBounds(), sf::Color(225, 225, 225));
         }
         drawOwnership(window);
         drawRegionMarkers(window);
@@ -2241,22 +2911,36 @@ private:
             window.draw(destinationMarker);
         }
 
+        // The map art already names every territory just below its centre. A
+        // numbered disc drawn at that centre sat straight on top of the label
+        // in all twenty regions, and the id it showed is not something a player
+        // ever needs -- the battle panel names regions now. So: no discs, no
+        // numbers. Uncontrolled regions get a small neutral pin, controlled
+        // ones are marked by their owner's flag, and selection is shown by a
+        // caret above the region where nothing can collide with it.
         for (const conquest_map::RegionDefinition& region : conquest_map::DarkRealmsRegions)
         {
             const sf::Vector2f center = mapPoint(region.centerX, region.centerY);
-            sf::CircleShape marker(selectedRegionId == region.id ? 11.0f : 8.0f);
-            marker.setOrigin({marker.getRadius(), marker.getRadius()});
-            marker.setPosition(center);
-            marker.setFillColor(sf::Color(12, 12, 12, 205));
-            marker.setOutlineThickness(selectedRegionId == region.id ? 3.0f : 1.5f);
-            marker.setOutlineColor(selectedRegionId == region.id ? Accent : sf::Color(244, 222, 172));
-            window.draw(marker);
-            sf::Text label(font, std::to_string(region.id), 11);
-            label.setFillColor(Ink);
-            centerButtonText(label, center);
-            window.draw(label);
+            if (regionController(region.id).empty())
+            {
+                sf::CircleShape pin(4.0f);
+                pin.setOrigin({4.0f, 4.0f});
+                pin.setPosition(center + sf::Vector2f(0.0f, -4.0f));
+                pin.setFillColor(sf::Color(14, 16, 16, 215));
+                pin.setOutlineThickness(1.25f);
+                pin.setOutlineColor(sf::Color(196, 174, 130, 225));
+                window.draw(pin);
+            }
+            if (selectedRegionId == region.id)
+            {
+                drawSelectionHalo(window, center);
+            }
         }
 
+        // Every deck in a region used to draw at one fixed offset, so a stack of
+        // armies rendered as a single dot. They now fan out in a row beside the
+        // flag, clear of both the cloth and the region's baked-in name.
+        std::unordered_map<int, int> piecesInRegion;
         for (const conquest_data::EventDeckState& deck : eventState.decks)
         {
             if (!deck.deployed || deck.eliminated || deck.regionId == 0)
@@ -2269,12 +2953,16 @@ private:
             {
                 continue;
             }
-            sf::CircleShape piece(5.0f);
-            piece.setOrigin({5.0f, 5.0f});
-            piece.setPosition(mapPoint(region->centerX + 28, region->centerY + 2));
+            const int slot = piecesInRegion[deck.regionId]++;
+            const bool isSelected = selectedEventDeckId == deck.id;
+            sf::CircleShape piece(4.5f);
+            piece.setOrigin({4.5f, 4.5f});
+            piece.setPosition(
+                mapPoint(region->centerX, region->centerY) +
+                sf::Vector2f(17.0f + static_cast<float>(slot) * 10.0f, -13.0f));
             piece.setFillColor(playerColor(*colorIndex));
-            piece.setOutlineThickness(selectedEventDeckId == deck.id ? 3.0f : 1.0f);
-            piece.setOutlineColor(selectedEventDeckId == deck.id ? Accent : sf::Color::Black);
+            piece.setOutlineThickness(isSelected ? 2.0f : 1.0f);
+            piece.setOutlineColor(isSelected ? Accent : sf::Color(10, 10, 10, 230));
             window.draw(piece);
         }
 
@@ -2285,14 +2973,47 @@ private:
             {
                 continue;
             }
-            sf::CircleShape piece(7.0f);
-            piece.setOrigin({7.0f, 7.0f});
-            piece.setPosition(mapPoint(region->centerX + 28, region->centerY + 2));
+            const int slot = piecesInRegion[placement.regionId]++;
+            sf::CircleShape piece(5.5f);
+            piece.setOrigin({5.5f, 5.5f});
+            piece.setPosition(
+                mapPoint(region->centerX, region->centerY) +
+                sf::Vector2f(17.0f + static_cast<float>(slot) * 10.0f, -13.0f));
             piece.setFillColor(Good);
-            piece.setOutlineThickness(2.0f);
+            piece.setOutlineThickness(1.5f);
             piece.setOutlineColor(Accent);
             window.draw(piece);
         }
+    }
+
+    // Selection as a soft brass halo bloomed around the region rather than a
+    // marker placed near it. Anything drawn above a region lands on the label of
+    // the region above -- the map is packed tightly enough that only a glow
+    // centred on the territory itself collides with nothing.
+    void drawSelectionHalo(sf::RenderWindow& window, sf::Vector2f regionCenter)
+    {
+        // Biased up a few pixels: centred exactly, the rim reached the top of
+        // the region's baked-in name and the flag pole beside it.
+        const sf::Vector2f origin = regionCenter + sf::Vector2f(0.0f, -3.0f);
+        constexpr int Rings = 6;
+        for (int ring = Rings; ring > 0; --ring)
+        {
+            const float radius = 7.0f + static_cast<float>(ring) * 3.2f;
+            const auto alpha = static_cast<std::uint8_t>(9 + (Rings - ring) * 5);
+            sf::CircleShape glow(radius);
+            glow.setOrigin({radius, radius});
+            glow.setPosition(origin);
+            glow.setFillColor(sf::Color(Accent.r, Accent.g, Accent.b, alpha));
+            window.draw(glow);
+        }
+
+        sf::CircleShape rim(8.0f);
+        rim.setOrigin({8.0f, 8.0f});
+        rim.setPosition(origin);
+        rim.setFillColor(sf::Color::Transparent);
+        rim.setOutlineThickness(1.5f);
+        rim.setOutlineColor(sf::Color(Accent.r, Accent.g, Accent.b, 225));
+        window.draw(rim);
     }
 
     void drawEventDeckPanel(sf::RenderWindow& window)
@@ -2305,8 +3026,8 @@ private:
         {
             const std::string armyStatus = player->eliminated
                 ? "Army defeated"
-                : std::to_string(player->controlledRegions) + " regions  |  " +
-                    std::to_string(player->reinforcementsAvailable) + " deploys";
+                : std::to_string(player->controlledRegions) + " regions held, " +
+                    std::to_string(player->reinforcementsAvailable) + " in reserve";
             drawText(window, font, armyStatus, 12, {598.0f, 115.0f},
                      player->eliminated ? Bad : Muted);
             if (!player->eliminated && player->nextReinforcementAt > 0)
@@ -2337,26 +3058,33 @@ private:
                     break;
                 }
                 const auto& deck = *eventDecks[index];
-                const sf::FloatRect bounds = rect(590, 146 + row * 35.0f, 190, 31);
-                sf::RectangleShape background(bounds.size);
-                background.setPosition(bounds.position);
-                background.setFillColor(selectedEventDeckId == deck.id ? sf::Color(91, 60, 29, 245) : PanelAlt);
-                window.draw(background);
-                std::string state = "reserve";
+                const bool isSelected = selectedEventDeckId == deck.id;
+                const sf::FloatRect bounds = rect(590, 146 + row * 42.0f, 188, 38);
+                drawBeveledPlate(
+                    window, bounds.position, bounds.size,
+                    isSelected ? sf::Color(76, 49, 25, 240) : sf::Color(17, 24, 25, 228),
+                    isSelected ? Accent : sf::Color(96, 68, 38), isSelected, 4.0f);
+
+                // Region names, not "R5>R6": the shorthand was internal
+                // notation leaking into a player-facing panel.
+                std::string state = "In reserve";
+                bool moving = false;
                 if (deck.deployed)
                 {
                     const auto order = plannedOrders.find(deck.id);
                     const int destination = order == plannedOrders.end()
                         ? deck.regionId : order->second;
-                    state = "R" + std::to_string(deck.regionId);
+                    state = regionName(deck.regionId);
                     if (destination != deck.regionId)
                     {
-                        state += ">R" + std::to_string(destination);
+                        state += " to " + regionName(destination);
+                        moving = true;
                     }
                 }
-                drawText(window, font, elide(font, deck.deckName, 13, 118.0f), 13,
-                         bounds.position + sf::Vector2f(5.0f, 6.0f));
-                drawText(window, font, state, 11, bounds.position + sf::Vector2f(126.0f, 8.0f), Muted);
+                drawText(window, font, elide(font, deck.deckName, 13, 172.0f), 13,
+                         bounds.position + sf::Vector2f(8.0f, 4.0f));
+                drawText(window, font, elide(font, state, 11, 172.0f), 11,
+                         bounds.position + sf::Vector2f(8.0f, 21.0f), moving ? Accent : Muted);
             }
         }
         else
@@ -2370,16 +3098,26 @@ private:
                     break;
                 }
                 const auto& deck = *armyDecks[index];
-                const sf::FloatRect bounds = rect(590, 146 + row * 35.0f, 190, 31);
-                sf::RectangleShape background(bounds.size);
-                background.setPosition(bounds.position);
-                background.setFillColor(selectedEventDeckId == static_cast<std::uint64_t>(deck.id)
-                    ? sf::Color(91, 60, 29, 245) : PanelAlt);
-                window.draw(background);
+                const bool isSelected =
+                    selectedEventDeckId == static_cast<std::uint64_t>(deck.id);
+                const sf::FloatRect bounds = rect(590, 146 + row * 42.0f, 188, 38);
+                drawBeveledPlate(
+                    window, bounds.position, bounds.size,
+                    isSelected ? sf::Color(76, 49, 25, 240) : sf::Color(17, 24, 25, 228),
+                    isSelected ? Accent : sf::Color(96, 68, 38), isSelected, 4.0f);
                 drawText(window, font, elide(font, deck.deck.name, 13, 172.0f), 13,
-                         bounds.position + sf::Vector2f(5.0f, 6.0f));
+                         bounds.position + sf::Vector2f(8.0f, 4.0f));
+                drawText(window, font, std::to_string(deck.deck.cardTitles.size()) + " cards", 11,
+                         bounds.position + sf::Vector2f(8.0f, 21.0f), Muted);
             }
         }
+
+        // The flags on the map are the only colour key there is, and nothing
+        // said which colour was yours. The slack below the deck rows is enough
+        // for a proper roster, which also carries who has locked in orders.
+        const std::size_t rowsShown = std::min<std::size_t>(
+            7, joinedEvent() ? selectableEventDecks().size() : armyDeckList().size());
+        drawPlayerLegend(window, 146.0f + static_cast<float>(rowsShown) * 42.0f + 18.0f);
 
         std::string actionLabel;
         bool actionEnabled = !pendingCommand;
@@ -2427,19 +3165,94 @@ private:
                    hovered(rect(606, 414, 158, 36), mousePosition), actionEnabled);
     }
 
+    // Campaign roster: colour swatch, name, regions held, and whether that
+    // player has committed this turn's orders. Stops short of the action button.
+    void drawPlayerLegend(sf::RenderWindow& window, float top)
+    {
+        if (eventState.players.empty())
+        {
+            return;
+        }
+        // Sized so a full twelve-seat roster is not silently truncated at the
+        // action button; dropping a player from the key is worse than tight rows.
+        constexpr float RowHeight = 17.0f;
+        constexpr float BottomLimit = 409.0f;
+        if (top + 16.0f + RowHeight > BottomLimit)
+        {
+            return;
+        }
+
+        drawText(window, font, "WARLORDS", 10, {598.0f, top}, sf::Color(150, 132, 104));
+        float y = top + 15.0f;
+        for (const conquest_data::PlayerState& player : eventState.players)
+        {
+            if (y + RowHeight > BottomLimit)
+            {
+                break;
+            }
+            const sf::Color color = playerColor(player.colorIndex);
+            const bool isYou = player.username == username;
+
+            sf::RectangleShape swatch({8.0f, 8.0f});
+            swatch.setPosition({598.0f, y + 3.0f});
+            swatch.setFillColor(player.eliminated ? sf::Color(color.r, color.g, color.b, 90) : color);
+            swatch.setOutlineThickness(1.0f);
+            swatch.setOutlineColor(sf::Color(12, 12, 12, 200));
+            window.draw(swatch);
+
+            const std::string name = isYou ? player.username + " (you)" : player.username;
+            drawText(window, font, elide(font, name, 12, 108.0f), 12, {612.0f, y - 1.0f},
+                     player.eliminated ? sf::Color(120, 116, 110) : (isYou ? Accent : Ink));
+
+            if (player.eliminated)
+            {
+                drawTextRight(window, font, "out", 11, {772.0f, y}, sf::Color(120, 116, 110));
+            }
+            else
+            {
+                drawTextRight(window, font, std::to_string(player.controlledRegions), 12,
+                              {772.0f, y - 1.0f}, Muted);
+                // A filled tick means this player's orders are already locked in.
+                if (player.ordersSubmitted &&
+                    eventState.summary.phase == conquest_data::EventPhase::Planning)
+                {
+                    sf::CircleShape done(3.0f);
+                    done.setOrigin({3.0f, 3.0f});
+                    done.setPosition({754.0f, y + 6.0f});
+                    done.setFillColor(Good);
+                    window.draw(done);
+                }
+            }
+            y += RowHeight;
+        }
+    }
+
     void drawBattlePanel(sf::RenderWindow& window)
     {
         drawPanel(window, rect(20, 462, 760, 101));
         const conquest_map::RegionDefinition* region = selectedRegionId
             ? conquest_map::region(*selectedRegionId) : nullptr;
         const std::string controller = selectedRegionId ? regionController(*selectedRegionId) : "";
-        drawText(window, font,
-                 region ? std::string(region->name) + " (" + std::to_string(region->id) + ")" : "Ready Battles",
-                 15, {30.0f, 466.0f}, Accent);
+        // The region id was exposed as a "(6)" suffix; the map already labels
+        // every territory by name, so the number told the player nothing.
+        // This heading has to clear the panel's inner hairline above it *and*
+        // the battle rows below, which start at 492. 14px at y=470 fits both.
+        drawText(window, font, region ? std::string(region->name) : "Ready Battles",
+                 14, {30.0f, 470.0f}, Accent);
         if (region)
         {
-            drawText(window, font, controller.empty() ? "Unclaimed" : "Controlled by " + controller,
-                     13, {278.0f, 468.0f}, Muted);
+            sf::Text nameProbe(font, std::string(region->name), 14);
+            const float captionX = 30.0f + nameProbe.getLocalBounds().size.x + 14.0f;
+            if (controller.empty())
+            {
+                drawBadge(window, font, {captionX, 469.0f}, "UNCLAIMED", Muted, 10);
+            }
+            else
+            {
+                const std::optional<std::uint8_t> colorIndex = colorForUsername(controller);
+                drawBadge(window, font, {captionX, 469.0f}, controller,
+                          colorIndex ? playerColor(*colorIndex) : Muted, 10);
+            }
         }
         const conquest_data::EventDeckState* selected = selectedEventDeckId
             ? eventDeck(*selectedEventDeckId) : nullptr;
@@ -2468,7 +3281,7 @@ private:
         const std::vector<const conquest_data::BattleState*> battles = joinableBattles();
         if (battles.empty())
         {
-            drawText(window, font, "No tactical battles are waiting for you.", 14, {30.0f, 502.0f}, Muted);
+            drawText(window, font, "No battles are waiting for you this turn.", 14, {30.0f, 502.0f}, Muted);
             return;
         }
         for (std::size_t row = 0; row < 2; ++row)
@@ -2479,14 +3292,14 @@ private:
                 break;
             }
             const auto& battle = *battles[index];
-            const sf::FloatRect bounds = rect(24, 486 + row * 34.0f, 552, 30);
+            const sf::FloatRect bounds = rect(24, 492 + row * 33.0f, 552, 29);
             drawButton(window, font, bounds,
-                       "Resume: " + elide(font, battle.deckOneName + " vs " + battle.deckTwoName, 14, 385.0f),
+                       elide(font, battle.deckOneName + "  vs  " + battle.deckTwoName, 14, 420.0f),
                        hovered(bounds, mousePosition));
         }
-        drawText(window, font, std::to_string(battles.size()) + " asynchronous battle(s)",
+        drawText(window, font,
+                 battles.size() == 1 ? "1 battle ready" : std::to_string(battles.size()) + " battles ready",
                  13, {600.0f, 505.0f}, Good);
-
     }
 };
 }
