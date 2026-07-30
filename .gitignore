@@ -10,4 +10,5 @@ __pycache__/
 .env.stripe
 /tls/
 shots/
-/shots/
+# Regenerable UI captures: rebuild any of them with --ui-capture (see agents.md).
+/output/ui-review/
