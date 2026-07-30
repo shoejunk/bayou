@@ -5,6 +5,7 @@
 #include "../shared/deck_data.hpp"
 
 #include "client_textures.hpp"
+#include "client_ui.hpp"
 
 #include <SFML/Graphics.hpp>
 
@@ -36,25 +37,20 @@ int countHeroes(const std::vector<card_data::Card>& cards);
 
 namespace palette
 {
-// The main menu's warm brass over near-black plate, with violet as the cool
-// arcane counterpoint. Nothing in the collection screens should introduce a hue
-// that is not derived from these.
-inline const sf::Color Brass(174, 117, 54);
-inline const sf::Color BrassBright(239, 190, 98);
-inline const sf::Color BrassPale(248, 214, 112);
-inline const sf::Color BrassDim(83, 54, 29);
-inline const sf::Color Ink(246, 232, 200);
+// Brass, ink, plate, arcane and the rest of the shared ramp live in
+// client_ui.hpp; these are the additional steps the collection screens need.
+// Nothing here should introduce a hue that is not derived from that ramp.
 inline const sf::Color Muted(181, 166, 137);
 inline const sf::Color MutedDim(139, 128, 108);
-inline const sf::Color Plate(12, 17, 18);
 inline const sf::Color PlateLift(24, 31, 32);
-inline const sf::Color Arcane(123, 79, 168);
-inline const sf::Color ArcaneBright(182, 142, 226);
 inline const sf::Color Good(138, 198, 142);
 inline const sf::Color Warn(226, 170, 88);
 inline const sf::Color Bad(206, 106, 90);
 } // namespace palette
 
+// withAlpha is declared by client_board_layout.hpp, which this pulls in through
+// the board's own header where needed; redeclared here so collection code that
+// includes only this header still sees it.
 sf::Color withAlpha(sf::Color color, int alpha);
 sf::Color mix(sf::Color from, sf::Color to, float amount);
 

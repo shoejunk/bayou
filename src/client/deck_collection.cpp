@@ -66,11 +66,8 @@ int countHeroes(const std::vector<card_data::Card>& cards)
 // Collection presentation kit
 // ---------------------------------------------------------------------------
 
-sf::Color withAlpha(sf::Color color, int alpha)
-{
-    color.a = static_cast<std::uint8_t>(std::clamp(alpha, 0, 255));
-    return color;
-}
+// withAlpha lives in client_board_layout.cpp; the board and the collection
+// screens share the one definition rather than each linking their own.
 
 sf::Color mix(sf::Color from, sf::Color to, float amount)
 {

@@ -2338,6 +2338,40 @@ private:
                  13, {24.0f, 556.0f}, Muted);
     }
 
+    // Without a track the list silently truncates at six rows and nothing tells
+    // the player more campaigns exist below. The thumb is sized to the visible
+    // fraction so its length reads as "how much of the list am I seeing".
+    void drawEventScrollTrack(sf::RenderWindow& window)
+    {
+        if (events.size() <= VisibleEventRows)
+        {
+            return;
+        }
+
+        const float top = EventRowY;
+        const float height = VisibleEventRows * EventRowHeight - 8.0f;
+        const float width = 4.0f;
+        const float x = 770.0f;
+
+        sf::RectangleShape track({width, height});
+        track.setPosition({x, top});
+        track.setFillColor(sf::Color(6, 10, 11, 210));
+        window.draw(track);
+
+        const float visibleFraction =
+            static_cast<float>(VisibleEventRows) / static_cast<float>(events.size());
+        const float thumbHeight = std::max(24.0f, height * visibleFraction);
+        const std::size_t maximumOffset = events.size() - VisibleEventRows;
+        const float progress = maximumOffset == 0
+            ? 0.0f
+            : static_cast<float>(eventOffset) / static_cast<float>(maximumOffset);
+
+        sf::RectangleShape thumb({width, thumbHeight});
+        thumb.setPosition({x, top + (height - thumbHeight) * progress});
+        thumb.setFillColor(Accent);
+        window.draw(thumb);
+    }
+
     void drawEventRow(
         sf::RenderWindow& window,
         const conquest_data::EventSummary& event,
