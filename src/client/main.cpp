@@ -3766,7 +3766,15 @@ int main(int argc, char** argv)
         {
             snapshot.control[static_cast<std::size_t>(game_data::squareIndex(row, column))] = 1;
         }
-        spawnSandboxPiece(snapshot, nextSandboxPieceId, 1, makeStoryTomCard(), 4, 0, true);
+        // Tom's own art was never drawn (characters/tinkeringTom.png and
+        // cards/tinkering-tom.png are both absent), which left the tutorial
+        // showing a bare placeholder. Borrow the gearwright, the closest existing
+        // tinkerer, until Tom is illustrated.
+        game_data::GameCard tom = makeStoryTomCard();
+        tom.imagePath = "cards/fizzlewickGearwright.png";
+        tom.tokenPath = "characters/fizzlewickGearwright.png";
+        tom.walkAnimPath.clear();
+        spawnSandboxPiece(snapshot, nextSandboxPieceId, 1, tom, 4, 0, true);
         snapshot.status = "Story: click Tinkering Tom, then click the glowing square to move him.";
 
         haveSnapshot = false;
@@ -5694,6 +5702,197 @@ int main(int argc, char** argv)
         selectedAdminUser = 0;
     };
 
+    // Fabricates a mid-match snapshot for the game-* capture screens. Offline the
+    // only reachable board is the story tutorial: one piece on an otherwise empty
+    // grid, which hides nearly everything about the screen players live in.
+    // Assigns gameSnapshot directly rather than going through
+    // commitSandboxSnapshot, whose sandbox player refresh would overwrite the
+    // spent resources and clocks that make the readouts worth reviewing.
+    auto seedCaptureMatch = [&](const std::string& variant) {
+        sandboxMode = false;
+        storyMode = false;
+        conquestBattleMode = false;
+        storyStage = StoryStage::None;
+        storyTargetRow = -1;
+        storyTargetColumn = -1;
+        currentState = GameState::Game;
+        activeGameSocket.reset();
+        abilityButton.setPosition({GameActionButtonX, GameActionButtonY});
+        title.setString("");
+        centerText(title, 400.0f);
+        setMessage(messageText, "", sf::Color::Red);
+
+        nextSandboxPieceId = 1;
+        gameHandOffset = 0;
+        selectedPieceId.reset();
+        selectedHandIndex.reset();
+        inspectedPieceId.reset();
+        inspectedHandIndex.reset();
+        inspectedPieceScroll = 0.0f;
+        gameDragKind = GameDragKind::None;
+        draggingHandIndex.reset();
+        draggingPieceId.reset();
+        gameDragActive = false;
+        gameResultReceived = false;
+        gameResultSuccess = false;
+        gameOverSoundPlayed = true;
+        gameRatingChange = 0;
+        gameRewardText.clear();
+        clockWarningTracker.reset();
+        displayedClockWarning.reset();
+        pieceMoveAnimations.clear();
+        pieceAttackAnimations.clear();
+        pieceDamagedAnimations.clear();
+        floatingNumberEffects.clear();
+        pieceFidgetAnimations.clear();
+        pieceKilledAnimations.clear();
+        dematerializeGhosts.clear();
+
+        const auto gameCardNamed = [&](const std::string& cardTitle) {
+            for (const card_data::Card& card : allCardLibrary)
+            {
+                if (card.title == cardTitle)
+                {
+                    return game_data::toGameCard(card);
+                }
+            }
+            return game_data::GameCard{};
+        };
+
+        game_data::Snapshot snapshot;
+        snapshot.phase = static_cast<std::uint8_t>(game_data::Phase::Playing);
+        snapshot.activePlayer = 1;
+        snapshot.yourPlayer = 1;
+        snapshot.winner = 0;
+        snapshot.control.fill(0);
+        snapshot.holes.fill(0);
+        for (int playerNumber = 1; playerNumber <= 2; ++playerNumber)
+        {
+            for (const auto& [row, column] : game_data::homeSquares(playerNumber))
+            {
+                snapshot.control[static_cast<std::size_t>(game_data::squareIndex(row, column))] =
+                    static_cast<std::uint8_t>(playerNumber);
+            }
+        }
+        // A couple of collapsed squares, so the hole treatment is reviewable.
+        snapshot.holes[static_cast<std::size_t>(game_data::squareIndex(6, 3))] = 1;
+        snapshot.holes[static_cast<std::size_t>(game_data::squareIndex(1, 4))] = 1;
+
+        // Player 1 holds the left flank, player 2 the right. Health is left short
+        // of maximum on several pieces so damage states are visible.
+        struct CaptureDeployment
+        {
+            const char* title;
+            int owner;
+            int row;
+            int column;
+            int health;
+            bool isHero;
+            bool hasActed;
+        };
+        static constexpr CaptureDeployment Deployments[] = {
+            {"Sylvara", 1, 3, 0, 16, true, false},
+            {"Blightling", 1, 1, 1, 2, false, true},
+            {"Duchess Dewbell", 1, 4, 1, 4, false, false},
+            {"Bog Spearman", 1, 2, 2, 5, false, false},
+            {"Thorn Griffin", 1, 5, 2, 6, false, false},
+            {"Thaeron Baelstone", 2, 4, 7, 21, true, false},
+            {"Gloom Fairy", 2, 2, 4, 1, false, false},
+            {"Marshland Veteran", 2, 3, 5, 3, false, false},
+            {"Goblin Sharpshooter", 2, 5, 6, 4, false, false},
+            {"Erevan the Shadow", 2, 6, 6, 7, false, false},
+        };
+        for (const CaptureDeployment& deployment : Deployments)
+        {
+            const game_data::GameCard card = gameCardNamed(deployment.title);
+            if (card.title.empty())
+            {
+                continue;
+            }
+            spawnSandboxPiece(
+                snapshot,
+                nextSandboxPieceId,
+                deployment.owner,
+                card,
+                deployment.row,
+                deployment.column,
+                deployment.isHero);
+            game_data::Piece& piece = snapshot.pieces.back();
+            piece.health = std::min(deployment.health, piece.maxHealth);
+            piece.hasActed = deployment.hasActed;
+        }
+
+        // One held enemy, so the under-control badge is reviewable.
+        for (game_data::Piece& piece : snapshot.pieces)
+        {
+            if (piece.row == 2 && piece.column == 4)
+            {
+                piece.controlTurnsRemaining = 2;
+            }
+        }
+
+        static constexpr const char* HandTitles[] = {
+            "Thorn Griffin", "Heartshoot", "Crystal Unicorn",
+            "Gloom Fairy", "Hidden Path", "Archivist Mosswake"};
+        for (const char* handTitle : HandTitles)
+        {
+            game_data::GameCard card = gameCardNamed(handTitle);
+            if (!card.title.empty())
+            {
+                snapshot.hand.push_back(std::move(card));
+            }
+        }
+
+        recomputeSandboxControl(snapshot);
+
+        snapshot.timersEnabled = true;
+        snapshot.turnRemainingMs = 47'000;
+        snapshot.players[0].resources = 7;
+        snapshot.players[0].controlledSquares = controlledCountInSnapshot(snapshot, 1);
+        snapshot.players[0].handCount = static_cast<int>(snapshot.hand.size());
+        snapshot.players[0].heroesAlive = heroesAliveInSnapshot(snapshot, 1);
+        snapshot.players[0].drawPileCount = 18;
+        snapshot.players[0].clockRemainingMs = 512'000;
+        snapshot.players[1].resources = 4;
+        snapshot.players[1].controlledSquares = controlledCountInSnapshot(snapshot, 2);
+        snapshot.players[1].handCount = 5;
+        snapshot.players[1].heroesAlive = heroesAliveInSnapshot(snapshot, 2);
+        snapshot.players[1].drawPileCount = 21;
+        snapshot.players[1].clockRemainingMs = 388'000;
+        snapshot.status.clear();
+
+        if (variant == "victory")
+        {
+            snapshot.phase = static_cast<std::uint8_t>(game_data::Phase::GameOver);
+            snapshot.winner = 1;
+            gameResultReceived = true;
+            gameResultSuccess = true;
+            gameRatingChange = 24;
+            gameRewardText = "Reward: 45 coins";
+        }
+
+        gameSnapshot = std::move(snapshot);
+        gameSnapshotReceivedAt = std::chrono::steady_clock::now();
+        haveSnapshot = true;
+
+        // Bog Spearman sits within reach of the held Gloom Fairy, so selecting it
+        // shows move and attack range together rather than one in isolation.
+        if (variant == "selected" || variant == "popup")
+        {
+            if (const game_data::Piece* spearman = gamePieceAt(2, 2))
+            {
+                if (variant == "popup")
+                {
+                    inspectedPieceId = spearman->id;
+                }
+                else
+                {
+                    selectedPieceId = spearman->id;
+                }
+            }
+        }
+    };
+
     auto applyCaptureScreen = [&](const std::string& screen) {
         setMessage(messageText, "", sf::Color::Red);
         title.setString("Gloomthorn");
@@ -5773,6 +5972,22 @@ int main(int argc, char** argv)
         else if (screen == "game")
         {
             beginStory();
+        }
+        else if (screen == "game-midgame")
+        {
+            seedCaptureMatch("midgame");
+        }
+        else if (screen == "game-selected")
+        {
+            seedCaptureMatch("selected");
+        }
+        else if (screen == "game-popup")
+        {
+            seedCaptureMatch("popup");
+        }
+        else if (screen == "game-victory")
+        {
+            seedCaptureMatch("victory");
         }
     };
 

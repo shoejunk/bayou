@@ -46,6 +46,9 @@ struct SampleCard
     const char* title;
     const char* type;
     const char* art;
+    // Standing board token from assets/characters. The board renders tokens, not
+    // card art, so without this every captured piece falls back to a placeholder.
+    const char* token;
     int cost;
     int health;
     int attack;
@@ -59,41 +62,56 @@ struct SampleCard
 // a spell and a structure, so every card-bearing screen has something with the
 // right shape to lay out.
 constexpr SampleCard SampleCards[] = {
-    {"Sylvara", "Hero", "cards/Sylvara.png", 0, 22, 4, 1, "Seelie", "Regal",
+    {"Sylvara", "Hero", "cards/Sylvara.png", "characters/sylvara.png", 0, 22, 4, 1, "Seelie", "Regal",
      "While Sylvara holds a home square, friendly Seelie units gain +1 attack."},
-    {"Nettle Starbright", "Hero", "cards/nettleStarbright.png", 0, 20, 3, 2, "Seelie", "Swift",
+    {"Nettle Starbright", "Hero", "cards/nettleStarbright.png",
+     "characters/nettleStarbright_unmounted.png", 0, 20, 3, 2, "Seelie", "Swift",
      "Deploy: draw a card. Nettle may act again after a kill."},
-    {"Thaeron Baelstone", "Hero", "cards/thaeronBaelstone.png", 0, 24, 5, 1, "Unseelie", "Relentless",
+    {"Thaeron Baelstone", "Hero", "cards/thaeronBaelstone.png", "characters/thaeronBaelstone.png",
+     0, 24, 5, 1, "Unseelie", "Relentless",
      "Relentless. When Thaeron destroys a unit, he may move once more."},
-    {"Duchess Dewbell", "Unit", "cards/duchessDewbell.png", 4, 7, 3, 1, "Seelie", "Command",
+    {"Duchess Dewbell", "Unit", "cards/duchessDewbell.png", "characters/duchessDewbell.png",
+     4, 7, 3, 1, "Seelie", "Command",
      "Command: an adjacent friendly unit may act immediately after Dewbell."},
-    {"Thorn Griffin", "Unit", "cards/thornGriffin.png", 5, 8, 4, 1, "Beast", "Flying",
+    {"Thorn Griffin", "Unit", "cards/thornGriffin.png", "characters/thornGriffin.png",
+     5, 8, 4, 1, "Beast", "Flying",
      "Flying. Thorn Griffin ignores holes and may hop over other pieces."},
-    {"Crystal Unicorn", "Unit", "cards/crystalUnicorn.png", 6, 9, 4, 1, "Beast", "Ward",
+    {"Crystal Unicorn", "Unit", "cards/crystalUnicorn.png", "characters/crystallineUnicorn.png",
+     6, 9, 4, 1, "Beast", "Ward",
      "Ward. The first time Crystal Unicorn would be damaged each turn, prevent it."},
-    {"Gloom Fairy", "Unit", "cards/gloomFairy.png", 2, 3, 2, 2, "Unseelie", "Swift",
+    {"Gloom Fairy", "Unit", "cards/gloomFairy.png", "characters/gloomFairy.png",
+     2, 3, 2, 2, "Unseelie", "Swift",
      "Swift. Gloom Fairy may move after attacking."},
-    {"Blightling", "Unit", "cards/blightling.png", 1, 2, 1, 1, "Unseelie", "Spore",
+    {"Blightling", "Unit", "cards/blightling.png", "characters/blightling.png",
+     1, 2, 1, 1, "Unseelie", "Spore",
      "When Blightling dies, adjacent enemy units take 1 damage."},
-    {"Bog Spearman", "Unit", "cards/bogSpearman.png", 3, 5, 3, 2, "Mirewatch", "Reach",
+    {"Bog Spearman", "Unit", "cards/bogSpearman.png", "characters/bogSpearman.png",
+     3, 5, 3, 2, "Mirewatch", "Reach",
      "Reach. Bog Spearman strikes at range 2 without moving."},
-    {"Marshland Veteran", "Unit", "cards/marshlandVeteran.png", 4, 6, 3, 1, "Mirewatch", "Steadfast",
+    {"Marshland Veteran", "Unit", "cards/marshlandVeteran.png", "characters/marshlandVeteran.png",
+     4, 6, 3, 1, "Mirewatch", "Steadfast",
      "Steadfast. Marshland Veteran cannot be pushed or stunned."},
-    {"Goblin Sharpshooter", "Unit", "cards/goblinSharpshooter.png", 3, 4, 2, 3, "Blackthorn", "Line of Sight",
+    {"Goblin Sharpshooter", "Unit", "cards/goblinSharpshooter.png",
+     "characters/goblinSharpshooter.png", 3, 4, 2, 3, "Blackthorn", "Line of Sight",
      "Line of sight. Deals 2 damage at range 3 along an unobstructed rank."},
-    {"Blackthorn Foreman", "Unit", "cards/blackthornForeman.png", 5, 8, 3, 1, "Blackthorn", "Tax",
+    {"Blackthorn Foreman", "Unit", "cards/blackthornForeman.png", "characters/blackthornForeman.png",
+     5, 8, 3, 1, "Blackthorn", "Tax",
      "Tax 1. Gain 1 extra coin at the start of each of your turns."},
-    {"Heartwood Sister", "Unit", "cards/heartwoodSister.png", 3, 5, 1, 1, "Seelie", "Mend",
+    {"Heartwood Sister", "Unit", "cards/heartwoodSister.png", "characters/heartwoodSister.png",
+     3, 5, 1, 1, "Seelie", "Mend",
      "Ability: heal an adjacent friendly unit for 3."},
-    {"Archivist Mosswake", "Unit", "cards/archivistMosswake.png", 4, 5, 2, 1, "Mirewatch", "Insight",
+    {"Archivist Mosswake", "Unit", "cards/archivistMosswake.png", "characters/archivistMosswake.png",
+     4, 5, 2, 1, "Mirewatch", "Insight",
      "Deploy: look at the top two cards of your deck and keep one."},
-    {"Erevan the Shadow", "Unit", "cards/erevanTheShadow.png", 6, 7, 5, 1, "Unseelie", "Ambush",
+    {"Erevan the Shadow", "Unit", "cards/erevanTheShadow.png", "characters/erevanTheShadow.png",
+     6, 7, 5, 1, "Unseelie", "Ambush",
      "Ambush. Erevan deals double damage to units that have not yet acted."},
-    {"Hidden Path", "Spell", "cards/hiddenPath.png", 2, 0, 0, 0, "Seelie", "Instant",
+    {"Hidden Path", "Spell", "cards/hiddenPath.png", "", 2, 0, 0, 0, "Seelie", "Instant",
      "Move a friendly unit up to three squares. It may not attack this turn."},
-    {"Heartshoot", "Spell", "cards/heartshoot.png", 3, 0, 0, 0, "Seelie", "Instant",
+    {"Heartshoot", "Spell", "cards/heartshoot.png", "", 3, 0, 0, 0, "Seelie", "Instant",
      "Deal 4 damage to a unit at range 3. Heal your hero for 2."},
-    {"Heartwood", "Structure", "cards/heartwood.png", 4, 12, 0, 0, "Seelie", "Grow",
+    {"Heartwood", "Structure", "cards/heartwood.png", "characters/heartwoodTree.png",
+     4, 12, 0, 0, "Seelie", "Grow",
      "Grow 2. After two turns Heartwood produces a Grove Sister on an adjacent square."},
 };
 
@@ -110,10 +128,19 @@ card_data::Card makeCard(const SampleCard& source)
     card.integerValues.push_back({"attack", source.attack});
     card.integerValues.push_back({"attackRange", std::max(1, source.range)});
     card.integerValues.push_back({"moveRange", 1});
+    // toGameCard synthesizes a move/attack action pair from these legacy keys
+    // when a card carries no explicit action list, which is how these samples
+    // acquire the ranges the board highlights are drawn from.
+    card.integerValues.push_back({"move", 2});
+    card.integerValues.push_back({"range", std::max(1, source.range)});
     card.integerValues.push_back({"width", 1});
     card.integerValues.push_back({"height", 1});
     card.stringValues.push_back({"description", source.text});
     card.stringValues.push_back({"movePattern", "omni"});
+    if (source.token[0] != '\0')
+    {
+        card.stringValues.push_back({"Token", source.token});
+    }
     return card;
 }
 
@@ -136,7 +163,13 @@ const std::vector<std::string>& knownScreens()
         "admin-tools",
         "card-editor",
         "conquest",
-        "game"};
+        "game",
+        // Match states. "game" only reaches the one-piece story tutorial, which
+        // shows almost nothing of the board that players actually stare at.
+        "game-midgame",
+        "game-selected",
+        "game-popup",
+        "game-victory"};
     return screens;
 }
 
