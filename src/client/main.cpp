@@ -721,41 +721,72 @@ enum class DeckEditorMode
     EditDeck
 };
 
-constexpr float GameLabelY = 44.0f;
-constexpr float GameTurnLabelY = 20.0f;
-constexpr float GameTurnReadoutWidth = 350.0f;
-constexpr float GamePlayerReadoutGap = 16.0f;
-constexpr float GamePlayerReadoutWidth = (BoardBottomWidth - GamePlayerReadoutGap) * 0.5f;
-constexpr float HandY = 512.0f;
-constexpr float HandCardWidth = 88.0f;
-constexpr float HandCardHeight = 78.0f;
-constexpr float HandGap = 6.0f;
-constexpr float HandStartX = 28.0f;
-constexpr std::size_t VisibleGameHandCards = 4;
-constexpr float TrashCanSize = 86.0f;
-constexpr float TrashCanX = HandStartX + 4.0f * (HandCardWidth + HandGap) + 8.0f;
-constexpr float TrashCanY = HandY;
-constexpr float TrashCanDropPadding = 14.0f;
+// Top readout band: an owner banner at each end with a turn plaque between them.
+constexpr float GameTopBarY = 6.0f;
+constexpr float GamePlayerBannerWidth = 236.0f;
+constexpr float GamePlayerBannerHeight = 48.0f;
+constexpr float GamePlayerBannerLeftX = BoardOriginX;
+constexpr float GamePlayerBannerRightX =
+    BoardOriginX + BoardBottomWidth - GamePlayerBannerWidth;
+constexpr float GameTurnPlaqueWidth = 244.0f;
+constexpr float GameTurnPlaqueHeight = 48.0f;
+constexpr float GameTurnPlaqueX = BoardCenterX - GameTurnPlaqueWidth * 0.5f;
+constexpr float GameTurnPlaqueY = GameTopBarY + 3.0f;
+// The player-enchantment drop test targets the owner banners.
+constexpr float GameLabelY = GameTopBarY;
+constexpr float GamePlayerReadoutWidth = GamePlayerBannerWidth;
+constexpr float GamePlayerReadoutHeight = GamePlayerBannerHeight;
+
+// Bottom command bar: resources and piles at the left, the hand across the
+// middle, turn actions at the right.
+constexpr float GameBottomBarY = 468.0f;
+constexpr float GameBottomBarHeight = 126.0f;
+constexpr float GameResourcePlateX = 22.0f;
+constexpr float GameResourcePlateY = GameBottomBarY + 10.0f;
+constexpr float GameResourcePlateWidth = 152.0f;
+constexpr float GameResourcePlateHeight = 42.0f;
+constexpr float GamePileY = GameResourcePlateY + 48.0f;
+constexpr float GamePileWidth = 70.0f;
+constexpr float GamePileHeight = 56.0f;
+constexpr float GameDeckPileX = GameResourcePlateX;
+constexpr float HandY = 478.0f;
+constexpr float HandCardWidth = 72.0f;
+constexpr float HandCardHeight = 104.0f;
+constexpr float HandGap = 5.0f;
+// Leaves room either side of the fan for the overflow chevrons.
+constexpr float HandStartX = 190.0f;
+constexpr std::size_t VisibleGameHandCards = 5;
+constexpr float TrashCanWidth = GamePileWidth;
+constexpr float TrashCanHeight = GamePileHeight;
+constexpr float TrashCanSize = GamePileWidth;
+constexpr float TrashCanX = GameResourcePlateX + 82.0f;
+constexpr float TrashCanY = GamePileY;
+constexpr float TrashCanDropPadding = 12.0f;
 constexpr float GameActionButtonGap = 6.0f;
-constexpr float GameActionButtonHeight = 30.0f;
-constexpr float GameActionButtonX =
-    TrashCanX + TrashCanSize + TrashCanDropPadding + GameActionButtonGap;
-constexpr float GameActionButtonY =
-    TrashCanY + TrashCanSize - GameActionButtonHeight - GameActionButtonGap;
-constexpr float GameSandboxAbilityButtonY =
-    GameActionButtonY - GameActionButtonHeight - GameActionButtonGap;
-constexpr float GameAbilityButtonWidth = 92.0f;
-constexpr float GameEndTurnButtonWidth = 90.0f;
-constexpr float GameLeaveButtonWidth = 72.0f;
+constexpr float GameActionButtonX = 598.0f;
+constexpr float GameActionButtonWidth = 178.0f;
+// Ending the turn is the primary action, so it gets the tall row at the top;
+// leaving and the contextual ability sit below it in fixed slots, which keeps the
+// primary from shifting when the ability slot appears.
+constexpr float GamePrimaryButtonHeight = 44.0f;
+constexpr float GameActionButtonHeight = 26.0f;
+// The contextual ability takes the top slot; when no ability is available the
+// slot carries the opponent's hand count instead of sitting empty.
+constexpr float GameAbilityButtonY = GameBottomBarY + 8.0f;
+constexpr float GameActionButtonY = GameAbilityButtonY + 32.0f;
+constexpr float GameLeaveButtonY = GameActionButtonY + GamePrimaryButtonHeight + 6.0f;
+constexpr float GameAbilityButtonWidth = GameActionButtonWidth;
+constexpr float GameEndTurnButtonWidth = GameActionButtonWidth;
+constexpr float GameLeaveButtonWidth = GameActionButtonWidth;
 constexpr float PiecePopupX = 150.0f;
-constexpr float PiecePopupY = 92.0f;
+constexpr float PiecePopupY = 74.0f;
 constexpr float PiecePopupWidth = 500.0f;
-constexpr float PiecePopupHeight = 416.0f;
+constexpr float PiecePopupHeight = 382.0f;
 constexpr float PiecePopupTextX = PiecePopupX + 24.0f;
 constexpr float PiecePopupTextWidth = PiecePopupWidth - 48.0f;
-constexpr float PiecePopupActionHeadingY = PiecePopupY + 186.0f;
+constexpr float PiecePopupActionHeadingY = PiecePopupY + 168.0f;
 constexpr float PiecePopupScrollY = PiecePopupActionHeadingY + 26.0f;
-constexpr float PiecePopupScrollHeight = PiecePopupHeight - (PiecePopupScrollY - PiecePopupY) - 66.0f;
+constexpr float PiecePopupScrollHeight = PiecePopupHeight - (PiecePopupScrollY - PiecePopupY) - 62.0f;
 constexpr float PiecePopupScrollTextXInset = 24.0f;
 constexpr float PiecePopupScrollTextYInset = 14.0f;
 constexpr float PieceDoubleClickSeconds = 0.38f;
@@ -1301,26 +1332,24 @@ int main(int argc, char** argv)
 
     Button findMatchButton({300.0f, 458.0f}, {200.0f, 52.0f}, "Find Match", font);
     Button abilityButton(
-        {GameActionButtonX, GameActionButtonY},
+        {GameActionButtonX, GameAbilityButtonY},
         {GameAbilityButtonWidth, GameActionButtonHeight},
         "Use Ability",
         font);
     Button endTurnButton(
-        {GameActionButtonX + GameAbilityButtonWidth + GameActionButtonGap, GameActionButtonY},
-        {GameEndTurnButtonWidth, GameActionButtonHeight},
+        {GameActionButtonX, GameActionButtonY},
+        {GameEndTurnButtonWidth, GamePrimaryButtonHeight},
         "Pass Turn",
         font);
     Button sandboxPlayerButton(
-        {GameActionButtonX, GameActionButtonY}, {48.0f, GameActionButtonHeight}, "P1", font);
+        {GameActionButtonX, GameActionButtonY}, {52.0f, GamePrimaryButtonHeight}, "P1", font);
     Button sandboxAdvanceTurnButton(
-        {GameActionButtonX + 48.0f + GameActionButtonGap, GameActionButtonY},
-        {96.0f, GameActionButtonHeight},
+        {GameActionButtonX + 52.0f + GameActionButtonGap, GameActionButtonY},
+        {GameActionButtonWidth - 52.0f - GameActionButtonGap, GamePrimaryButtonHeight},
         "Advance",
         font);
     Button leaveGameButton(
-        {GameActionButtonX + GameAbilityButtonWidth + GameActionButtonGap +
-             GameEndTurnButtonWidth + GameActionButtonGap,
-         GameActionButtonY},
+        {GameActionButtonX, GameLeaveButtonY},
         {GameLeaveButtonWidth, GameActionButtonHeight},
         "Leave",
         font);
@@ -2761,7 +2790,7 @@ int main(int argc, char** argv)
         activeGameSocket = std::move(gameSocket);
         conquestBattleMode = isConquestBattle;
         currentState = GameState::Game;
-        abilityButton.setPosition({GameActionButtonX, GameActionButtonY});
+        abilityButton.setPosition({GameActionButtonX, GameAbilityButtonY});
         leaveGameButton.setLabel(isConquestBattle ? "Map" : "Leave");
         title.setString("");
         centerText(title, 400.0f);
@@ -3873,40 +3902,25 @@ int main(int argc, char** argv)
             1.15f});
     };
 
-    auto addResourceNumber = [&](int playerNumber, int value, int displayedResources) {
+    auto addResourceNumber = [&](int playerNumber, int value, int /*displayedResources*/) {
         if (value == 0)
         {
             return;
         }
         const std::string effectText = (value > 0 ? "+" : "") + std::to_string(value);
-        const std::string prefixText = "Player " + std::to_string(playerNumber) + "  Resources: ";
-        const sf::Text prefix(font, prefixText, 16);
-        const sf::Text resourceValue(font, std::to_string(displayedResources), 16);
         const sf::Text floatingValue(font, effectText, 20);
-        const game_data::PlayerSnapshot& player =
-            gameSnapshot.players[static_cast<std::size_t>(playerNumber - 1)];
-        const std::string readoutText = elideToWidth(
-            font,
-            prefixText + std::to_string(displayedResources) +
-                "  Control: " + std::to_string(player.controlledSquares),
-            16,
-            GamePlayerReadoutWidth);
-        const sf::Text readout(font, readoutText, 16);
-        const sf::FloatRect readoutBounds = readout.getLocalBounds();
-        const float readoutX = playerNumber == 1
-            ? BoardOriginX
-            : BoardOriginX + BoardBottomWidth -
-                (readoutBounds.position.x + readoutBounds.size.x);
-        const float resourceCenterX = readoutX + prefix.getLocalBounds().size.x +
-            resourceValue.getLocalBounds().size.x * 0.5f;
-        const float x = resourceCenterX - floatingValue.getLocalBounds().size.x * 0.5f;
+        // Float the delta off the resource pip inside that player's banner.
+        const float pipCenterX = playerNumber == 1
+            ? GamePlayerBannerLeftX + 96.0f
+            : GamePlayerBannerRightX + GamePlayerBannerWidth - 96.0f;
+        const float x = pipCenterX - floatingValue.getLocalBounds().size.x * 0.5f;
         floatingNumberEffects.push_back({
             0,
             0,
-            {x, GameLabelY - 22.0f},
+            {x, GameTopBarY + GamePlayerBannerHeight + 2.0f},
             false,
             effectText,
-            value > 0 ? sf::Color(120, 235, 145) : sf::Color(245, 115, 105),
+            value > 0 ? sf::Color(146, 232, 166) : sf::Color(233, 128, 106),
             animationTime,
             1.15f});
     };
@@ -4306,7 +4320,7 @@ int main(int argc, char** argv)
     auto beginStory = [&]() {
         sandboxMode = true;
         storyMode = true;
-        abilityButton.setPosition({GameActionButtonX, GameSandboxAbilityButtonY});
+        abilityButton.setPosition({GameActionButtonX, GameAbilityButtonY});
         storyStage = StoryStage::MoveTutorial;
         storyTargetRow = 4;
         storyTargetColumn = 1;
@@ -4358,7 +4372,15 @@ int main(int argc, char** argv)
         {
             snapshot.control[static_cast<std::size_t>(game_data::squareIndex(row, column))] = 1;
         }
-        spawnSandboxPiece(snapshot, nextSandboxPieceId, 1, makeStoryTomCard(), 4, 0, true);
+        // Tom's own art was never drawn (characters/tinkeringTom.png and
+        // cards/tinkering-tom.png are both absent), which left the tutorial
+        // showing a bare placeholder. Borrow the gearwright, the closest existing
+        // tinkerer, until Tom is illustrated.
+        game_data::GameCard tom = makeStoryTomCard();
+        tom.imagePath = "cards/fizzlewickGearwright.png";
+        tom.tokenPath = "characters/fizzlewickGearwright.png";
+        tom.walkAnimPath.clear();
+        spawnSandboxPiece(snapshot, nextSandboxPieceId, 1, tom, 4, 0, true);
         snapshot.status = "Story: click Tinkering Tom, then click the glowing square to move him.";
 
         haveSnapshot = false;
@@ -4368,7 +4390,7 @@ int main(int argc, char** argv)
     auto beginSandbox = [&](std::vector<card_data::Card> cards) {
         sandboxMode = true;
         storyMode = false;
-        abilityButton.setPosition({GameActionButtonX, GameSandboxAbilityButtonY});
+        abilityButton.setPosition({GameActionButtonX, GameAbilityButtonY});
         storyStage = StoryStage::None;
         storyTargetRow = -1;
         storyTargetColumn = -1;
@@ -4518,11 +4540,14 @@ int main(int argc, char** argv)
         return owner == 1 ? card.pieceBaseBluePath : card.pieceBaseRedPath;
     };
 
+    // basePath is accepted but no longer drawn: the shipped piece-base PNGs are
+    // flat navy discs with a hard white hairline, and drawPieceBase renders a lit
+    // plinth with a contact shadow in their place.
     auto drawPieceVisual = [&](
         const std::string& tokenPath,
         const std::string& walkPath,
         const std::string& idlePath,
-        const std::string& basePath,
+        const std::string& /*basePath*/,
         bool flipX,
         int walkAnimFrames,
         int idleAnimFrames,
@@ -4535,10 +4560,6 @@ int main(int argc, char** argv)
         int footprintHeight = 1) {
         const sf::FloatRect target = pieceTargetRect(
             anchor, scale, true, footprintWidth, footprintHeight);
-        if (sf::Texture* base = textures.load(basePath))
-        {
-            drawContainSprite(window, *base, target, tint);
-        }
 
         auto drawAnimFrame = [&](const std::string& sheetPath, int frameCountValue, int frame) {
             if (sf::Texture* sheet = walkAnimTexture(sheetPath))
@@ -4591,8 +4612,14 @@ int main(int argc, char** argv)
         const std::string& tokenPath = cardTokenPath(card);
         const std::string& walkPath = cardWalkAnimPath(card);
 
-        bool drewPiece = false;
-        drewPiece = drawPieceVisual(
+        drawPieceBase(window, anchor, scale, owner, false, static_cast<float>(card.width));
+        drawPieceSelectionRing(
+            window,
+            anchor,
+            scale,
+            0.7f,
+            valid ? sf::Color(132, 232, 186) : sf::Color(232, 104, 92));
+        const bool drewPiece = drawPieceVisual(
             tokenPath,
             walkPath,
             "",
@@ -4613,28 +4640,8 @@ int main(int argc, char** argv)
             {
                 drawContainSprite(window, *art, pieceTargetRect(
                     anchor, scale, false, card.width, card.height), tint);
-                drewPiece = true;
             }
         }
-
-        if (!drewPiece)
-        {
-            const float radius = PieceBaseWidth * 0.28f * scale;
-            sf::CircleShape body(radius);
-            body.setPosition({anchor.x - radius, anchor.y - radius * 2.0f});
-            body.setFillColor(valid ? ownerColor(owner) : sf::Color(180, 75, 65, 210));
-            window.draw(body);
-        }
-
-        const unsigned int healthSize =
-            static_cast<unsigned int>(std::clamp(12.0f * scale, 10.0f, 17.0f));
-        drawText(
-            window,
-            font,
-            std::to_string(card.health),
-            healthSize,
-            {anchor.x - 5.0f * scale, anchor.y - 21.0f * scale},
-            sf::Color(248, 239, 216, 220));
     };
 
     auto cardInAllLibraryByTitle = [&](const std::string& title) -> const card_data::Card* {
@@ -4833,26 +4840,26 @@ int main(int argc, char** argv)
             point,
             TrashCanX - TrashCanDropPadding,
             TrashCanY - TrashCanDropPadding,
-            TrashCanSize + TrashCanDropPadding * 2.0f,
-            TrashCanSize + TrashCanDropPadding * 2.0f);
+            TrashCanWidth + TrashCanDropPadding * 2.0f,
+            TrashCanHeight + TrashCanDropPadding * 2.0f);
     };
 
     auto playerReadoutAtPixel = [&](sf::Vector2f point) -> std::optional<int> {
         if (isInsideRect(
                 point,
-                BoardOriginX,
-                GameLabelY - 4.0f,
+                GamePlayerBannerLeftX,
+                GameTopBarY,
                 GamePlayerReadoutWidth,
-                26.0f))
+                GamePlayerReadoutHeight))
         {
             return 1;
         }
         if (isInsideRect(
                 point,
-                BoardOriginX + BoardBottomWidth - GamePlayerReadoutWidth,
-                GameLabelY - 4.0f,
+                GamePlayerBannerRightX,
+                GameTopBarY,
                 GamePlayerReadoutWidth,
-                26.0f))
+                GamePlayerReadoutHeight))
         {
             return 2;
         }
@@ -6128,7 +6135,7 @@ int main(int argc, char** argv)
             return;
         }
 
-        // Playing phase Ã¢â‚¬â€ only the active player may act.
+        // Playing phase: only the active player may act.
         if (const std::optional<std::size_t> handIndex = handCardAtPixel(clickPos))
         {
             if (sandboxMode || gameSnapshot.activePlayer == me)
@@ -6289,6 +6296,200 @@ int main(int argc, char** argv)
         selectedAdminUser = 0;
     };
 
+    // Fabricates a mid-match snapshot for the game-* capture screens. Offline the
+    // only reachable board is the story tutorial: one piece on an otherwise empty
+    // grid, which hides nearly everything about the screen players live in.
+    // Assigns gameSnapshot directly rather than going through
+    // commitSandboxSnapshot, whose sandbox player refresh would overwrite the
+    // spent resources and clocks that make the readouts worth reviewing.
+    auto seedCaptureMatch = [&](const std::string& variant) {
+        sandboxMode = false;
+        storyMode = false;
+        conquestBattleMode = false;
+        storyStage = StoryStage::None;
+        storyTargetRow = -1;
+        storyTargetColumn = -1;
+        currentState = GameState::Game;
+        activeGameSocket.reset();
+        abilityButton.setPosition({GameActionButtonX, GameAbilityButtonY});
+        title.setString("");
+        centerText(title, 400.0f);
+        setMessage(messageText, "", sf::Color::Red);
+
+        nextSandboxPieceId = 1;
+        gameHandOffset = 0;
+        selectedPieceId.reset();
+        selectedHandIndex.reset();
+        inspectedPieceId.reset();
+        inspectedHandIndex.reset();
+        inspectedPieceScroll = 0.0f;
+        gameDragKind = GameDragKind::None;
+        draggingHandIndex.reset();
+        draggingPieceId.reset();
+        gameDragActive = false;
+        gameResultReceived = false;
+        gameResultSuccess = false;
+        gameOverSoundPlayed = true;
+        gameRatingChange = 0;
+        gameRewardText.clear();
+        clockWarningTracker.reset();
+        displayedClockWarning.reset();
+        pieceMoveAnimations.clear();
+        pieceAttackAnimations.clear();
+        pieceDamagedAnimations.clear();
+        floatingNumberEffects.clear();
+        pieceFidgetAnimations.clear();
+        pieceKilledAnimations.clear();
+        dematerializeGhosts.clear();
+
+        const auto gameCardNamed = [&](const std::string& cardTitle) {
+            for (const card_data::Card& card : allCardLibrary)
+            {
+                if (card.title == cardTitle)
+                {
+                    return game_data::toGameCard(card);
+                }
+            }
+            return game_data::GameCard{};
+        };
+
+        game_data::Snapshot snapshot;
+        snapshot.phase = static_cast<std::uint8_t>(game_data::Phase::Playing);
+        snapshot.activePlayer = 1;
+        snapshot.yourPlayer = 1;
+        snapshot.winner = 0;
+        snapshot.control.fill(0);
+        snapshot.holes.fill(0);
+        for (int playerNumber = 1; playerNumber <= 2; ++playerNumber)
+        {
+            for (const auto& [row, column] : game_data::homeSquares(playerNumber))
+            {
+                snapshot.control[static_cast<std::size_t>(game_data::squareIndex(row, column))] =
+                    static_cast<std::uint8_t>(playerNumber);
+            }
+        }
+        // A couple of collapsed squares, so the hole treatment is reviewable.
+        snapshot.holes[static_cast<std::size_t>(game_data::squareIndex(6, 3))] = 1;
+        snapshot.holes[static_cast<std::size_t>(game_data::squareIndex(1, 4))] = 1;
+
+        // Player 1 holds the left flank, player 2 the right. Health is left short
+        // of maximum on several pieces so damage states are visible.
+        struct CaptureDeployment
+        {
+            const char* title;
+            int owner;
+            int row;
+            int column;
+            int health;
+            bool isHero;
+            bool hasActed;
+        };
+        static constexpr CaptureDeployment Deployments[] = {
+            {"Sylvara", 1, 3, 0, 16, true, false},
+            {"Blightling", 1, 1, 1, 2, false, true},
+            {"Duchess Dewbell", 1, 4, 1, 4, false, false},
+            {"Bog Spearman", 1, 2, 2, 5, false, false},
+            {"Thorn Griffin", 1, 5, 2, 6, false, false},
+            {"Thaeron Baelstone", 2, 4, 7, 21, true, false},
+            {"Gloom Fairy", 2, 2, 4, 1, false, false},
+            {"Marshland Veteran", 2, 3, 5, 3, false, false},
+            {"Goblin Sharpshooter", 2, 5, 6, 4, false, false},
+            {"Erevan the Shadow", 2, 6, 6, 7, false, false},
+        };
+        for (const CaptureDeployment& deployment : Deployments)
+        {
+            const game_data::GameCard card = gameCardNamed(deployment.title);
+            if (card.title.empty())
+            {
+                continue;
+            }
+            spawnSandboxPiece(
+                snapshot,
+                nextSandboxPieceId,
+                deployment.owner,
+                card,
+                deployment.row,
+                deployment.column,
+                deployment.isHero);
+            game_data::Piece& piece = snapshot.pieces.back();
+            piece.health = std::min(deployment.health, piece.maxHealth);
+            piece.hasActed = deployment.hasActed;
+        }
+
+        // One held enemy, so the under-control badge is reviewable.
+        for (game_data::Piece& piece : snapshot.pieces)
+        {
+            if (piece.row == 2 && piece.column == 4)
+            {
+                piece.controlTurnsRemaining = 2;
+            }
+        }
+
+        // Sylvara's Seelie trait gates which units may be deployed, so the hand
+        // mixes cards she permits with ones she does not and one the player cannot
+        // yet afford. That makes every affordability state visible at once.
+        static constexpr const char* HandTitles[] = {
+            "Heartwood Sister", "Heartshoot", "Duchess Dewbell",
+            "Thorn Griffin", "Hidden Path", "Crystal Unicorn"};
+        for (const char* handTitle : HandTitles)
+        {
+            game_data::GameCard card = gameCardNamed(handTitle);
+            if (!card.title.empty())
+            {
+                snapshot.hand.push_back(std::move(card));
+            }
+        }
+
+        recomputeSandboxControl(snapshot);
+
+        snapshot.timersEnabled = true;
+        snapshot.turnRemainingMs = 47'000;
+        snapshot.players[0].resources = 7;
+        snapshot.players[0].controlledSquares = controlledCountInSnapshot(snapshot, 1);
+        snapshot.players[0].handCount = static_cast<int>(snapshot.hand.size());
+        snapshot.players[0].heroesAlive = heroesAliveInSnapshot(snapshot, 1);
+        snapshot.players[0].drawPileCount = 18;
+        snapshot.players[0].clockRemainingMs = 512'000;
+        snapshot.players[1].resources = 4;
+        snapshot.players[1].controlledSquares = controlledCountInSnapshot(snapshot, 2);
+        snapshot.players[1].handCount = 5;
+        snapshot.players[1].heroesAlive = heroesAliveInSnapshot(snapshot, 2);
+        snapshot.players[1].drawPileCount = 21;
+        snapshot.players[1].clockRemainingMs = 388'000;
+        snapshot.status.clear();
+
+        if (variant == "victory")
+        {
+            snapshot.phase = static_cast<std::uint8_t>(game_data::Phase::GameOver);
+            snapshot.winner = 1;
+            gameResultReceived = true;
+            gameResultSuccess = true;
+            gameRatingChange = 24;
+            gameRewardText = "45 coins";
+        }
+
+        gameSnapshot = std::move(snapshot);
+        gameSnapshotReceivedAt = std::chrono::steady_clock::now();
+        haveSnapshot = true;
+
+        // Bog Spearman sits within reach of the held Gloom Fairy, so selecting it
+        // shows move and attack range together rather than one in isolation.
+        if (variant == "selected" || variant == "popup")
+        {
+            if (const game_data::Piece* spearman = gamePieceAt(2, 2))
+            {
+                if (variant == "popup")
+                {
+                    inspectedPieceId = spearman->id;
+                }
+                else
+                {
+                    selectedPieceId = spearman->id;
+                }
+            }
+        }
+    };
+
     auto applyCaptureScreen = [&](const std::string& screen) {
         setMessage(messageText, "", sf::Color::Red);
         title.setString("Gloomthorn");
@@ -6419,6 +6620,22 @@ int main(int argc, char** argv)
         else if (screen == "game")
         {
             beginStory();
+        }
+        else if (screen == "game-midgame")
+        {
+            seedCaptureMatch("midgame");
+        }
+        else if (screen == "game-selected")
+        {
+            seedCaptureMatch("selected");
+        }
+        else if (screen == "game-popup")
+        {
+            seedCaptureMatch("popup");
+        }
+        else if (screen == "game-victory")
+        {
+            seedCaptureMatch("victory");
         }
     };
 

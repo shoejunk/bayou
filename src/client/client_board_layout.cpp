@@ -1,22 +1,207 @@
 #include "client_board_layout.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace bayou::client
 {
-
-sf::Color ownerColor(int owner)
+namespace
 {
-    if (owner == 1) return sf::Color(80, 132, 214);
-    if (owner == 2) return sf::Color(214, 102, 74);
-    return sf::Color(120, 124, 134);
+
+// Rings are cheap and the board only ever draws a few dozen of them, so soft
+// edges come from stacking rather than from a shader or a blurred texture.
+constexpr std::size_t EllipsePoints = 44;
+
+sf::CircleShape makeEllipse(sf::Vector2f center, float radiusX, float radiusY)
+{
+    const float radius = std::max(0.01f, radiusX);
+    sf::CircleShape shape(radius, EllipsePoints);
+    shape.setOrigin({radius, radius});
+    shape.setPosition(center);
+    shape.setScale({1.0f, radiusY / radius});
+    return shape;
 }
 
+} // namespace
+
+// Player one holds the verdigris side of the palette and player two the ember
+// side. The previous raw blue and orange sat outside the game's colour world.
+sf::Color ownerColor(int owner)
+{
+    if (owner == 1) return sf::Color(96, 176, 156);
+    if (owner == 2) return sf::Color(202, 104, 82);
+    return sf::Color(150, 140, 118);
+}
+
+sf::Color ownerColorDeep(int owner)
+{
+    if (owner == 1) return sf::Color(18, 54, 50);
+    if (owner == 2) return sf::Color(62, 24, 20);
+    return sf::Color(30, 34, 32);
+}
+
+sf::Color ownerColorBright(int owner)
+{
+    if (owner == 1) return sf::Color(158, 226, 202);
+    if (owner == 2) return sf::Color(240, 158, 132);
+    return sf::Color(214, 202, 176);
+}
+
+// A wash, not a paint-bucket fill: the stone underneath has to stay visible or
+// the board reads as two flat blocks of colour.
 sf::Color ownerTint(int owner)
 {
-    if (owner == 1) return sf::Color(24, 64, 72, 226);
-    if (owner == 2) return sf::Color(88, 48, 36, 226);
-    return sf::Color(38, 48, 43, 214);
+    if (owner == 1) return sf::Color(30, 88, 80, 104);
+    if (owner == 2) return sf::Color(104, 44, 36, 104);
+    return sf::Color(0, 0, 0, 0);
+}
+
+sf::Color shadeColor(sf::Color color, float factor)
+{
+    const auto channel = [factor](std::uint8_t value) {
+        return static_cast<std::uint8_t>(
+            std::clamp(static_cast<float>(value) * factor, 0.0f, 255.0f));
+    };
+    return {channel(color.r), channel(color.g), channel(color.b), color.a};
+}
+
+sf::Color withAlpha(sf::Color color, int alpha)
+{
+    color.a = static_cast<std::uint8_t>(std::clamp(alpha, 0, 255));
+    return color;
+}
+
+void drawGradientQuad(
+    sf::RenderTarget& target,
+    const std::array<sf::Vector2f, 4>& corners,
+    sf::Color farColor,
+    sf::Color nearColor)
+{
+    sf::VertexArray quad(sf::PrimitiveType::TriangleFan, 4);
+    quad[0] = {corners[0], farColor};
+    quad[1] = {corners[1], farColor};
+    quad[2] = {corners[2], nearColor};
+    quad[3] = {corners[3], nearColor};
+    target.draw(quad);
+}
+
+void drawEdgeLine(
+    sf::RenderTarget& target, sf::Vector2f from, sf::Vector2f to, float thickness, sf::Color color)
+{
+    const sf::Vector2f delta = to - from;
+    const float length = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+    if (length < 0.001f)
+    {
+        return;
+    }
+    sf::RectangleShape line({length, std::max(0.4f, thickness)});
+    line.setOrigin({0.0f, line.getSize().y * 0.5f});
+    line.setPosition(from);
+    line.setRotation(sf::radians(std::atan2(delta.y, delta.x)));
+    line.setFillColor(color);
+    target.draw(line);
+}
+
+void drawSoftEllipse(
+    sf::RenderTarget& target,
+    sf::Vector2f center,
+    float radiusX,
+    float radiusY,
+    sf::Color color,
+    int layers)
+{
+    const int count = std::max(1, layers);
+    for (int i = 0; i < count; ++i)
+    {
+        // Grow outward while fading, so the stack reads as one blurred blob.
+        const float t = static_cast<float>(i) / static_cast<float>(count);
+        const float grow = 1.0f + t * 0.85f;
+        const float falloff = (1.0f - t) * (1.0f - t);
+        sf::CircleShape ring = makeEllipse(center, radiusX * grow, radiusY * grow);
+        ring.setFillColor(withAlpha(color, static_cast<int>(color.a * falloff * 0.62f)));
+        target.draw(ring);
+    }
+}
+
+void drawEllipseOutline(
+    sf::RenderTarget& target,
+    sf::Vector2f center,
+    float radiusX,
+    float radiusY,
+    float thickness,
+    sf::Color color)
+{
+    sf::CircleShape ring = makeEllipse(center, radiusX, radiusY);
+    ring.setFillColor(sf::Color::Transparent);
+    // The vertical squash also squashes the outline, so pre-compensate.
+    ring.setOutlineThickness(std::max(0.5f, thickness));
+    ring.setOutlineColor(color);
+    target.draw(ring);
+}
+
+void drawPieceBase(
+    sf::RenderTarget& target,
+    sf::Vector2f anchor,
+    float scale,
+    int owner,
+    bool exhausted,
+    float footprintWidth)
+{
+    const float spread = std::max(1.0f, footprintWidth);
+    const float radiusX = 25.0f * scale * spread;
+    const float radiusY = 9.0f * scale;
+    const float dim = exhausted ? 0.55f : 1.0f;
+
+    // Contact shadow, offset a touch down-right to agree with the lantern-lit
+    // backdrop, so the piece sits in the scene instead of floating over it.
+    drawSoftEllipse(
+        target,
+        {anchor.x + 2.0f * scale, anchor.y + 2.0f * scale},
+        radiusX * 0.92f,
+        radiusY * 0.9f,
+        sf::Color(0, 0, 0, 190),
+        6);
+
+    sf::CircleShape plinth = makeEllipse(anchor, radiusX, radiusY);
+    plinth.setFillColor(withAlpha(shadeColor(ownerColorDeep(owner), dim), 232));
+    target.draw(plinth);
+
+    // Lit upper lip and a brass rim: two hairlines are enough to read as a
+    // machined disc rather than a filled circle.
+    drawEllipseOutline(
+        target,
+        {anchor.x, anchor.y - 0.8f * scale},
+        radiusX * 0.93f,
+        radiusY * 0.86f,
+        1.0f,
+        withAlpha(shadeColor(ownerColor(owner), dim), 150));
+    drawEllipseOutline(
+        target, anchor, radiusX, radiusY, 1.4f, withAlpha(shadeColor(BoardBrass, dim), 208));
+}
+
+void drawPieceSelectionRing(
+    sf::RenderTarget& target, sf::Vector2f anchor, float scale, float pulse, sf::Color accent)
+{
+    const float radiusX = 29.0f * scale;
+    const float radiusY = 10.5f * scale;
+    const float swell = 1.0f + pulse * 0.09f;
+
+    drawSoftEllipse(
+        target,
+        anchor,
+        radiusX * swell,
+        radiusY * swell,
+        withAlpha(accent, static_cast<int>(96.0f + 52.0f * pulse)),
+        5);
+    drawEllipseOutline(
+        target, anchor, radiusX * swell, radiusY * swell, 2.0f, withAlpha(accent, 236));
+    drawEllipseOutline(
+        target,
+        anchor,
+        radiusX * swell * 1.16f,
+        radiusY * swell * 1.16f,
+        1.0f,
+        withAlpha(accent, static_cast<int>(70.0f + 60.0f * pulse)));
 }
 
 int screenRowForViewer(int row, int /*viewer*/)
