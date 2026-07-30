@@ -656,7 +656,20 @@
         overlay.setFillColor(sf::Color(0, 0, 0, 150));
         window.draw(overlay);
 
-        drawPanel(window, {PiecePopupX, PiecePopupY}, {PiecePopupWidth, PiecePopupHeight});
+        // The panel is sized to its detail list instead of using a fixed height,
+        // which used to leave a large empty well under short entries. Clamping to
+        // the constant keeps the scroll maths in the event handler in agreement.
+        const float popupContentHeight =
+            detailRowsHeight(actionDescriptions) + PiecePopupScrollTextYInset * 2.0f;
+        const float popupScrollHeight =
+            std::clamp(popupContentHeight, 74.0f, PiecePopupScrollHeight);
+        const float popupHeight =
+            (PiecePopupScrollY - PiecePopupY) + popupScrollHeight + 62.0f;
+        const float popupButtonY = PiecePopupY + popupHeight - 54.0f;
+        closePiecePopupButton.setPosition({PiecePopupX + 358.0f, popupButtonY});
+        discardCardButton.setPosition({PiecePopupX + 22.0f, popupButtonY});
+
+        drawPanel(window, {PiecePopupX, PiecePopupY}, {PiecePopupWidth, popupHeight});
 
         // ---- Header: portrait, name, owner, stat chips, trait tags ------------
         const int inspectedOwner = piece ? piece->owner : gameSnapshot.yourPlayer;
@@ -723,8 +736,10 @@
         sf::Text subtitle(
             font,
             inspectedType + std::string(piece
-                ? (piece->owner == gameSnapshot.yourPlayer ? "  ·  Yours" : "  ·  Enemy")
-                : "  ·  In hand"),
+                // ASCII only: sf::Text reads std::string as Latin-1, so a UTF-8
+                // separator would render as mojibake.
+                ? (piece->owner == gameSnapshot.yourPlayer ? " / Yours" : " / Enemy")
+                : " / In hand"),
             12);
         subtitle.setLetterSpacing(1.1f);
         subtitle.setFillColor(withAlpha(ownerColorBright(inspectedOwner), 230));
@@ -879,7 +894,7 @@
         drawBeveledPlate(
             window,
             {PiecePopupTextX, PiecePopupScrollY},
-            {PiecePopupTextWidth, PiecePopupScrollHeight},
+            {PiecePopupTextWidth, popupScrollHeight},
             sf::Color(8, 14, 15, 132),
             sf::Color(96, 66, 35, 150),
             false,
@@ -888,10 +903,10 @@
         const sf::View previousView = window.getView();
         sf::View actionView(sf::FloatRect(
             {PiecePopupTextX, PiecePopupScrollY + inspectedPieceScroll},
-            {PiecePopupTextWidth, PiecePopupScrollHeight}));
+            {PiecePopupTextWidth, popupScrollHeight}));
         actionView.setViewport(sf::FloatRect(
             {PiecePopupTextX / 800.0f, PiecePopupScrollY / 600.0f},
-            {PiecePopupTextWidth / 800.0f, PiecePopupScrollHeight / 600.0f}));
+            {PiecePopupTextWidth / 800.0f, popupScrollHeight / 600.0f}));
         window.setView(actionView);
 
         drawDetailRows(actionDescriptions, PiecePopupScrollY + PiecePopupScrollTextYInset);
@@ -902,12 +917,14 @@
         if (maxScroll > 0.0f)
         {
             const float trackX = PiecePopupX + PiecePopupWidth - 22.0f;
-            sf::RectangleShape track({4.0f, PiecePopupScrollHeight - 12.0f});
+            sf::RectangleShape track({4.0f, popupScrollHeight - 12.0f});
             track.setPosition({trackX, PiecePopupScrollY + 6.0f});
             track.setFillColor(sf::Color(73, 96, 98, 170));
             window.draw(track);
 
-            const float thumbHeight = std::max(28.0f, track.getSize().y * (PiecePopupScrollHeight / (PiecePopupScrollHeight + maxScroll)));
+            const float thumbHeight = std::max(
+                28.0f,
+                track.getSize().y * (popupScrollHeight / (popupScrollHeight + maxScroll)));
             const float thumbY = track.getPosition().y +
                 (track.getSize().y - thumbHeight) * (inspectedPieceScroll / maxScroll);
             sf::RectangleShape thumb({4.0f, thumbHeight});
@@ -2274,13 +2291,15 @@
             label.setFillColor(BoardParchment);
             label.setOutlineThickness(1.0f);
             label.setOutlineColor(sf::Color(0, 0, 0, 190));
+            const bool showTurnClock =
+                gameSnapshot.timersEnabled && phase != game_data::Phase::GameOver;
             centerText(
-                label,
-                {BoardCenterX,
-                 GameTurnPlaqueY + (gameSnapshot.timersEnabled ? 17.0f : 24.0f)});
+                label, {BoardCenterX, GameTurnPlaqueY + (showTurnClock ? 17.0f : 24.0f)});
             drawCrispText(window, label);
 
-            if (gameSnapshot.timersEnabled)
+            // The turn clock is meaningless once the match is decided, so the
+            // plaque drops the drain row rather than freezing a stale figure.
+            if (gameSnapshot.timersEnabled && phase != game_data::Phase::GameOver)
             {
                 const std::int64_t liveTurnRemainingMs = liveTimer(
                     gameSnapshot.turnRemainingMs, phase == game_data::Phase::Playing);
@@ -2723,12 +2742,12 @@
 
             // Dim the battlefield so the result reads as a modal.
             sf::RectangleShape overlay({800.0f, 600.0f});
-            overlay.setFillColor(sf::Color(5, 8, 9, 170));
+            overlay.setFillColor(sf::Color(5, 8, 9, 196));
             window.draw(overlay);
 
             // Halo in the result colour. Three discrete circles left visible
             // banding rings, so this stacks many faint layers instead.
-            drawSoftEllipse(window, {400.0f, 268.0f}, 132.0f, 118.0f, withAlpha(accent, 58), 14);
+            drawSoftEllipse(window, {400.0f, 262.0f}, 108.0f, 96.0f, withAlpha(accent, 34), 16);
 
             const sf::Vector2f panelPosition{252.0f, 186.0f};
             const sf::Vector2f panelSize{296.0f, 176.0f};
@@ -2803,11 +2822,20 @@
             }
             if (!gameRewardText.empty())
             {
+                // The reward string often already carries its own "Reward:"
+                // prefix, which would repeat the caption beside it.
+                std::string rewardValue = gameRewardText;
+                static constexpr std::string_view RewardPrefix = "Reward:";
+                if (rewardValue.compare(0, RewardPrefix.size(), RewardPrefix) == 0)
+                {
+                    rewardValue.erase(0, RewardPrefix.size());
+                    while (!rewardValue.empty() && rewardValue.front() == ' ')
+                    {
+                        rewardValue.erase(0, 1);
+                    }
+                }
                 drawResultRow(
-                    282.0f,
-                    "REWARD",
-                    elideToWidth(font, gameRewardText, 16, 150.0f),
-                    BoardBrassBright);
+                    282.0f, "REWARD", elideToWidth(font, rewardValue, 16, 150.0f), BoardBrassBright);
             }
 
             drawSeparatorRule(window, {310.0f, 312.0f}, 180.0f);

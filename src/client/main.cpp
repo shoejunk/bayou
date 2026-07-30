@@ -5543,7 +5543,7 @@ int main(int argc, char** argv)
             return;
         }
 
-        // Playing phase Ã¢â‚¬â€ only the active player may act.
+        // Playing phase: only the active player may act.
         if (const std::optional<std::size_t> handIndex = handCardAtPixel(clickPos))
         {
             if (sandboxMode || gameSnapshot.activePlayer == me)
@@ -5870,7 +5870,7 @@ int main(int argc, char** argv)
             gameResultReceived = true;
             gameResultSuccess = true;
             gameRatingChange = 24;
-            gameRewardText = "Reward: 45 coins";
+            gameRewardText = "45 coins";
         }
 
         gameSnapshot = std::move(snapshot);
