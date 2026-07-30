@@ -234,10 +234,18 @@ export struct SliderControl
         const float fillWidth = trackSize.x * value;
         if (fillWidth > 0.0f)
         {
-            sf::RectangleShape fill({fillWidth, trackSize.y - 6.0f});
-            fill.setPosition({trackPos.x + 3.0f, trackPos.y + 3.0f});
-            fill.setFillColor(sf::Color(74, 122, 139, dragging ? 235 : 205));
-            window.draw(fill);
+            // Graded brass, not the old flat teal: it was the only cool-blue fill
+            // anywhere in a warm interface.
+            bayou::client::drawVerticalGradient(
+                window,
+                {{trackPos.x + 3.0f, trackPos.y + 3.0f}, {fillWidth - 6.0f, trackSize.y - 6.0f}},
+                sf::Color(246, 199, 108, dragging ? 250 : 226),
+                sf::Color(168, 108, 46, dragging ? 250 : 226));
+
+            sf::RectangleShape sheen({std::max(0.0f, fillWidth - 8.0f), 1.0f});
+            sheen.setPosition({trackPos.x + 4.0f, trackPos.y + 4.0f});
+            sheen.setFillColor(sf::Color(255, 236, 182, 150));
+            window.draw(sheen);
         }
 
         for (int i = 0; i <= 4; ++i)
@@ -250,19 +258,24 @@ export struct SliderControl
         }
 
         const float knobX = trackPos.x + trackSize.x * value;
-        sf::CircleShape knob(13.0f, 16);
-        knob.setOrigin({13.0f, 13.0f});
-        knob.setPosition({knobX, trackPos.y + trackSize.y * 0.5f});
-        knob.setFillColor(dragging ? sf::Color(255, 222, 136) : sf::Color(224, 166, 82));
-        knob.setOutlineThickness(3.0f);
-        knob.setOutlineColor(sf::Color(67, 44, 28));
-        window.draw(knob);
+        const sf::Vector2f knobCenter{knobX, trackPos.y + trackSize.y * 0.5f};
 
-        sf::CircleShape cap(6.0f, 16);
-        cap.setOrigin({6.0f, 6.0f});
-        cap.setPosition({knobX - 1.5f, trackPos.y + trackSize.y * 0.5f - 1.5f});
-        cap.setFillColor(sf::Color(255, 239, 188, hovered || dragging ? 190 : 120));
-        window.draw(cap);
+        if (hovered || dragging)
+        {
+            bayou::client::drawRadialGlow(
+                window,
+                knobCenter,
+                24.0f,
+                sf::Color(240, 190, 100, dragging ? 76 : 48));
+        }
+
+        // A struck brass stud rather than a flat disc, so the handle looks like
+        // part of the same machined interface as the plates around it.
+        bayou::client::drawStud(
+            window,
+            knobCenter,
+            11.0f,
+            dragging ? sf::Color(252, 214, 132) : (hovered ? sf::Color(240, 190, 100) : sf::Color(216, 158, 76)));
     }
 
 private:

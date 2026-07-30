@@ -1830,6 +1830,24 @@ int main(int argc, char** argv)
         drawCoinIcon({coinPill.x + 2.5f, coinPill.y + 1.5f}, 8.0f);
     };
 
+    // A tracked-caps build mark on a hairline, the way a shipping client marks
+    // itself, rather than bare text in the corner.
+    auto drawBuildStamp = [&]() {
+        constexpr float StampRight = 786.0f;
+        constexpr float StampY = 578.0f;
+        sf::Text version(font, "BUILD 1.0.0", type::Micro);
+        version.setLetterSpacing(1.6f);
+        version.setFillColor(sf::Color(156, 140, 112, 215));
+        const float versionWidth = version.getLocalBounds().size.x;
+        version.setPosition({StampRight - versionWidth, StampY});
+        drawCrispText(window, version);
+
+        sf::RectangleShape stampRule({28.0f, 1.0f});
+        stampRule.setPosition({StampRight - versionWidth - 34.0f, StampY + 5.0f});
+        stampRule.setFillColor(sf::Color(146, 104, 52, 130));
+        window.draw(stampRule);
+    };
+
     auto drawAuthenticatedMenuChrome = [&]() {
         // Motes first: ambient life belongs behind the interface, never over it.
         drawAmbientMotes(window, animationTime, 40, sf::Color(178, 138, 224, 138));
@@ -1848,21 +1866,7 @@ int main(int argc, char** argv)
             {20.0f, 20.0f},
             authenticatedSettingsHovered ? sf::Color::White : sf::Color(235, 225, 202));
 
-        // Version stamp: a tracked-caps build mark on a hairline, the way a
-        // shipping client marks itself, rather than bare text in the corner.
-        constexpr float StampRight = 786.0f;
-        constexpr float StampY = 578.0f;
-        sf::Text version(font, "BUILD 1.0.0", type::Micro);
-        version.setLetterSpacing(1.6f);
-        version.setFillColor(sf::Color(156, 140, 112, 215));
-        const float versionWidth = version.getLocalBounds().size.x;
-        version.setPosition({StampRight - versionWidth, StampY});
-        drawCrispText(window, version);
-
-        sf::RectangleShape stampRule({28.0f, 1.0f});
-        stampRule.setPosition({StampRight - versionWidth - 34.0f, StampY + 5.0f});
-        stampRule.setFillColor(sf::Color(146, 104, 52, 130));
-        window.draw(stampRule);
+        drawBuildStamp();
     };
 
     auto authenticatedSettingsButtonClicked = [&](sf::Vector2f point) {
@@ -8533,6 +8537,14 @@ int main(int argc, char** argv)
             }
             else
             {
+                // Keep the hit boxes in step with the tiered layout the draw
+                // pass applies.
+                loginButton.setSize({236.0f, 58.0f});
+                loginButton.setPosition({282.0f, 232.0f});
+                createButton.setSize({204.0f, 46.0f});
+                createButton.setPosition({298.0f, 314.0f});
+                menuOptionsButton.setSize({150.0f, 38.0f});
+                menuOptionsButton.setPosition({325.0f, 378.0f});
                 loginButton.update(mousePos);
                 createButton.update(mousePos);
                 menuOptionsButton.update(mousePos);
@@ -8872,9 +8884,25 @@ int main(int argc, char** argv)
 
         if (currentState == GameState::Menu)
         {
-            loginButton.draw(window);
-            createButton.draw(window);
-            menuOptionsButton.draw(window);
+            // Sign in is the only reason to be on this screen, so it is the only
+            // plate at full weight; Options is quiet metal.
+            loginButton.setVariant(ButtonVariant::Primary);
+            loginButton.setSize({236.0f, 58.0f});
+            loginButton.setPosition({282.0f, 232.0f});
+            loginButton.setLabelSize(type::Hero);
+            createButton.setSize({204.0f, 46.0f});
+            createButton.setPosition({298.0f, 314.0f});
+            createButton.setLabelSize(type::Subheading);
+            menuOptionsButton.setVariant(ButtonVariant::Quiet);
+            menuOptionsButton.setSize({150.0f, 38.0f});
+            menuOptionsButton.setPosition({325.0f, 378.0f});
+            menuOptionsButton.setLabelSize(type::Body);
+
+            drawAmbientMotes(window, animationTime, 36, sf::Color(178, 138, 224, 132));
+            loginButton.draw(window, animationTime);
+            createButton.draw(window, animationTime);
+            menuOptionsButton.draw(window, animationTime);
+            drawBuildStamp();
             drawExitDesktopCloseButton();
             if (exitDesktopPopupVisible)
             {

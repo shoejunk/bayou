@@ -568,7 +568,9 @@ void drawMaterialPlate(
             sf::Color(48, 30, 17, 160));
     }
 
-    if (style.brackets)
+    // Corner brackets need room to read as brackets; on a checkbox-sized plate
+    // they fill the whole face and look like noise.
+    if (style.brackets && size.x >= 34.0f && size.y >= 26.0f)
     {
         drawCornerBrackets(
             window,
