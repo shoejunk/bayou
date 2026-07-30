@@ -330,6 +330,35 @@ public:
         loadActions();
     }
 
+    // Offline review support. Without a card server the editor opens with an
+    // empty library and a blank form, which shows none of the layout that
+    // matters. This loads a fabricated library and selects a card so the form,
+    // its field groups, and the preview are all populated.
+    void applyCaptureState(const std::string& key, const std::vector<card_data::Card>& library)
+    {
+        unsavedChangesPopupVisible = false;
+        instructionsVisible = false;
+        pendingTransition = PendingTransition::None;
+        pendingSelectionName.clear();
+        unsavedChangesError.clear();
+        editorMode = EditorMode::Cards;
+
+        cards = library;
+        std::sort(cards.begin(), cards.end(),
+                  [](const card_data::Card& a, const card_data::Card& b) { return a.title < b.title; });
+        listOffset = 0;
+
+        if (key == "card-editor-loaded" && !cards.empty())
+        {
+            // Prefer a unit: it carries the fullest set of stat and text fields.
+            const auto unit = std::find_if(cards.begin(), cards.end(),
+                [](const card_data::Card& card) { return card.type == "Unit"; });
+            selectCard(static_cast<std::size_t>(
+                (unit == cards.end() ? cards.begin() : unit) - cards.begin()));
+            setStatus("Loaded from card server", Muted);
+        }
+    }
+
     bool handleEvent(const sf::Event& event, sf::RenderWindow& window)
     {
         const sf::View previousView = window.getView();

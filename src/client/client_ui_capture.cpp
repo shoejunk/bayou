@@ -136,7 +136,16 @@ const std::vector<std::string>& knownScreens()
         "admin-tools",
         "card-editor",
         "conquest",
-        "game"};
+        "game",
+        // Admin / card-editor / Conquest review states. These screens are all
+        // but empty without a service behind them, so each key seeds the state
+        // that makes its layout worth looking at.
+        "admin-users-selected",
+        "admin-users-popup",
+        "card-editor-loaded",
+        "conquest-events",
+        "conquest-map",
+        "conquest-loadouts"};
     return screens;
 }
 

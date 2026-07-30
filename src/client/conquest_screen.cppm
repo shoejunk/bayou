@@ -359,6 +359,212 @@ public:
         statusSuccess = success;
     }
 
+    // Offline review support. The capture harness has no Conquest service to
+    // talk to, so the screen would otherwise only ever show its empty state.
+    // This fabricates a campaign mid-flight -- events at several phases, a
+    // contested map, and a saved army -- so the presentation can be judged.
+    // accessToken stays empty so no refresh ever reaches the network.
+    void applyCaptureState(const std::string& key, const std::vector<card_data::Card>& library)
+    {
+        const std::int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+        accessToken.clear();
+        username = "Thistlewisp";
+        accountIsAdmin = true;
+        catalog = library;
+        collection.clear();
+        for (const card_data::Card& card : library)
+        {
+            collection.push_back({card.title, 3});
+        }
+
+        events.clear();
+        const auto addEvent = [&](std::uint64_t id, const char* name,
+                                  conquest_data::EventPhase phase, int turn,
+                                  std::uint32_t players, bool joined,
+                                  std::int64_t registrationIn, std::int64_t turnIn,
+                                  const char* winner = "") {
+            conquest_data::EventSummary summary;
+            summary.id = id;
+            summary.name = name;
+            summary.mapId = std::string(conquest_map::DarkRealmsId);
+            summary.phase = phase;
+            summary.turn = turn;
+            summary.participantCount = players;
+            summary.joined = joined;
+            summary.registrationEndsAt = registrationIn > 0 ? now + registrationIn : 0;
+            summary.turnEndsAt = turnIn > 0 ? now + turnIn : 0;
+            summary.winner = winner;
+            events.push_back(summary);
+        };
+
+        addEvent(41, "Siege of the Bramble Throne", conquest_data::EventPhase::Planning,
+                 3, 6, true, 0, 5 * 60 * 60 + 42 * 60);
+        addEvent(42, "The Mirewatch Compact", conquest_data::EventPhase::Registration,
+                 0, 4, true, 19 * 60 * 60, 0);
+        addEvent(43, "Blackthorn Toll War", conquest_data::EventPhase::Resolving,
+                 7, 8, false, 0, 47 * 60);
+        addEvent(44, "Long Night Over Sunken Reef", conquest_data::EventPhase::Registration,
+                 0, 2, false, 2 * 24 * 60 * 60 + 3 * 60 * 60, 0);
+        addEvent(45, "Harrowing of Frostbourne", conquest_data::EventPhase::Planning,
+                 5, 5, false, 0, 22 * 60 * 60);
+        addEvent(46, "Winter Court Ascendant", conquest_data::EventPhase::Complete,
+                 12, 6, true, 0, 0, "gallowglass");
+
+        decks.clear();
+        static constexpr const char* DeckNames[] = {
+            "Seelie Court Tempo", "Mirewatch Attrition", "Blackthorn Toll Road",
+            "Gloomfen Swarm", "Heartwood Bulwark", "Erevan's Ambush"};
+        for (std::size_t i = 0; i < std::size(DeckNames); ++i)
+        {
+            conquest_data::ConquestDeck deck;
+            deck.id = static_cast<std::int64_t>(100 + i);
+            deck.revision = 3;
+            deck.deck.name = DeckNames[i];
+            for (const card_data::Card& card : library)
+            {
+                if (card.type == "Unit" && deck.deck.cardTitles.size() < 24)
+                {
+                    deck.deck.cardTitles.push_back(card.title);
+                    deck.deck.cardTitles.push_back(card.title);
+                }
+            }
+            decks.push_back(std::move(deck));
+        }
+        army.revision = 4;
+        army.deckIds = {100, 101, 102, 103, 104};
+
+        if (key == "conquest-loadouts")
+        {
+            view = View::Loadout;
+            selectedDeck = 1;
+            setStatus("Army saved. 5 decks committed to Conquest.", true);
+            return;
+        }
+
+        if (key == "conquest-events")
+        {
+            view = View::Events;
+            status.clear();
+            return;
+        }
+
+        // conquest-map: a contested campaign mid-planning.
+        view = View::Event;
+        eventState = {};
+        eventState.summary = events.front();
+
+        static constexpr const char* Rivals[] = {
+            "Thistlewisp", "gallowglass", "Mirefoot", "nettlejack", "Rushlight", "sootpetal"};
+        for (std::size_t i = 0; i < std::size(Rivals); ++i)
+        {
+            conquest_data::PlayerState player;
+            player.username = Rivals[i];
+            player.colorIndex = static_cast<std::uint8_t>(i);
+            player.controlledRegions = static_cast<int>(4 - (i % 3));
+            player.ordersSubmitted = i % 2 == 0;
+            player.eliminated = i == 5;
+            player.reinforcementsAvailable = i == 0 ? 2 : 1;
+            player.nextReinforcementAt = i == 0 ? 0 : now + 3600;
+            eventState.players.push_back(player);
+        }
+
+        // Spread the 20 regions across the six rivals, leaving a few unclaimed
+        // so the map reads as genuinely contested rather than fully painted.
+        static constexpr int RegionOwners[20] = {
+            0, 1, 1, 0, 0, 2, 1, 3, 0, 2,
+            -1, 3, 4, 3, 2, -1, 4, 1, 0, 4};
+        for (std::size_t i = 0; i < std::size(RegionOwners); ++i)
+        {
+            if (RegionOwners[i] < 0)
+            {
+                continue;
+            }
+            conquest_data::RegionState region;
+            region.regionId = static_cast<int>(i + 1);
+            region.controller = Rivals[RegionOwners[i]];
+            eventState.regions.push_back(region);
+        }
+
+        // Deployed armies, including three of ours so the route overlay and the
+        // army panel both have something to show.
+        struct SeedDeck
+        {
+            std::uint64_t id;
+            const char* owner;
+            const char* name;
+            int slot;
+            int region;
+            int destination;
+        };
+        static constexpr SeedDeck SeedDecks[] = {
+            {900, "Thistlewisp", "Seelie Court Tempo", 1, 5, 6},
+            {901, "Thistlewisp", "Mirewatch Attrition", 2, 1, 1},
+            {902, "Thistlewisp", "Blackthorn Toll Road", 3, 19, 16},
+            {903, "gallowglass", "Frostbourne Vanguard", 1, 2, 2},
+            {904, "gallowglass", "Ironwood Levy", 2, 7, 7},
+            {905, "Mirefoot", "Bogwater Reavers", 1, 10, 10},
+            {906, "Mirefoot", "Sable Column", 2, 15, 15},
+            {907, "nettlejack", "Grimhold Wardens", 1, 8, 8},
+            {908, "Rushlight", "Emberfall Choir", 1, 13, 13},
+        };
+        for (const SeedDeck& seed : SeedDecks)
+        {
+            conquest_data::EventDeckState deck;
+            deck.id = seed.id;
+            deck.sourceDeckId = seed.id - 800;
+            deck.owner = seed.owner;
+            deck.deckName = seed.name;
+            deck.armySlot = seed.slot;
+            deck.deployed = true;
+            deck.regionId = seed.region;
+            deck.destinationRegionId = seed.destination;
+            eventState.decks.push_back(deck);
+        }
+        // Two committed moves, so the map shows planned routes.
+        plannedOrders.clear();
+        plannedOrders[900] = 6;
+        plannedOrders[902] = 16;
+
+        static constexpr struct SeedBattle
+        {
+            std::uint64_t id;
+            int region;
+            const char* one;
+            const char* two;
+            const char* deckOne;
+            const char* deckTwo;
+            conquest_data::BattleStatus status;
+            bool canJoin;
+        } SeedBattles[] = {
+            {700, 6, "Thistlewisp", "gallowglass", "Seelie Court Tempo", "Ironwood Levy",
+             conquest_data::BattleStatus::Ready, true},
+            {701, 16, "Thistlewisp", "Mirefoot", "Blackthorn Toll Road", "Sable Column",
+             conquest_data::BattleStatus::Ready, true},
+            {702, 12, "nettlejack", "Rushlight", "Grimhold Wardens", "Emberfall Choir",
+             conquest_data::BattleStatus::Queued, false},
+        };
+        for (const SeedBattle& seed : SeedBattles)
+        {
+            conquest_data::BattleState battle;
+            battle.id = seed.id;
+            battle.kind = conquest_data::BattleKind::Region;
+            battle.status = seed.status;
+            battle.regionId = seed.region;
+            battle.playerOne = seed.one;
+            battle.playerTwo = seed.two;
+            battle.deckOneName = seed.deckOne;
+            battle.deckTwoName = seed.deckTwo;
+            battle.canJoin = seed.canJoin;
+            eventState.battles.push_back(battle);
+        }
+
+        selectedRegionId = 6;
+        selectedEventDeckId = 900;
+        status.clear();
+    }
+
     std::optional<ConquestScreenAction> takeAction()
     {
         std::optional<ConquestScreenAction> result = pendingAction;

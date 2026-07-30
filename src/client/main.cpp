@@ -5770,6 +5770,33 @@ int main(int argc, char** argv)
         {
             currentState = GameState::Conquest;
         }
+        // ---- admin / card-editor / Conquest review states ------------------
+        // These screens draw from services the harness cannot reach, so each
+        // key seeds the state that makes the layout reviewable.
+        else if (screen == "admin-users-selected")
+        {
+            currentState = GameState::AdminUsers;
+            selectedAdminUser = 3;
+            adminGoldInput.setContent("250");
+        }
+        else if (screen == "admin-users-popup")
+        {
+            currentState = GameState::AdminUsers;
+            selectedAdminUser = 3;
+            addCardPopupVisible = true;
+            adminCardInput.setContent("Thorn Griffin");
+        }
+        else if (screen == "card-editor-loaded")
+        {
+            currentState = GameState::CardEditor;
+            cardEditorScreen.applyCaptureState(screen, allCardLibrary);
+        }
+        else if (screen == "conquest-events" || screen == "conquest-map" ||
+                 screen == "conquest-loadouts")
+        {
+            currentState = GameState::Conquest;
+            conquestScreen.applyCaptureState(screen, allCardLibrary);
+        }
         else if (screen == "game")
         {
             beginStory();
