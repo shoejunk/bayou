@@ -487,6 +487,9 @@ constexpr float CoinPurchasePollTimeoutSeconds = 300.0f;
 constexpr float FidgetDelayMinimumSeconds = 3.0f;
 constexpr float FidgetDelayMaximumSeconds = 8.0f;
 constexpr float FidgetAnimationDurationSeconds = 0.75f;
+// Keep the fidget animation path available, but leave it disabled until we
+// want stationary pieces to animate again.
+constexpr bool EnableFidgetAnimations = false;
 constexpr float PieceMoveAnimationDurationSeconds = 0.95f;
 #ifdef NDEBUG
 constexpr const char* ClientConfigFileName = "client_release.cfg";
@@ -4126,7 +4129,7 @@ int main(int argc, char** argv)
     };
 
     auto schedulePieceFidget = [&](const game_data::Piece& piece, float delayAfterSeconds = 0.0f) {
-        if (piece.fidgetAnimPath.empty())
+        if (!EnableFidgetAnimations || piece.fidgetAnimPath.empty())
         {
             pieceFidgetAnimations.erase(piece.id);
             return;
@@ -4445,6 +4448,12 @@ int main(int argc, char** argv)
     };
 
     auto updatePieceFidgetAnimations = [&]() {
+        if (!EnableFidgetAnimations)
+        {
+            pieceFidgetAnimations.clear();
+            return;
+        }
+
         for (auto animation = pieceFidgetAnimations.begin(); animation != pieceFidgetAnimations.end();)
         {
             const game_data::Piece* piece = gamePieceById(animation->first);

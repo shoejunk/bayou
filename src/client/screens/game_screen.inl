@@ -1748,7 +1748,8 @@
             else if (!isMoving && !usesState1Token)
             {
                 const auto animation = pieceFidgetAnimations.find(piece.id);
-                if (animation != pieceFidgetAnimations.end() &&
+                if (EnableFidgetAnimations &&
+                    animation != pieceFidgetAnimations.end() &&
                     animation->second.playing && !piece.fidgetAnimPath.empty())
                 {
                     const float elapsed = std::max(0.0f, animationTime - animation->second.startTime);
@@ -1856,7 +1857,8 @@
                 const float chipWidth = std::clamp(31.0f * pieceScale, 25.0f, 44.0f);
                 const float span = std::clamp(13.0f * pieceScale, 11.0f, 17.0f);
                 const float crownX = anchor.x + chipWidth * 0.5f - span * 0.14f;
-                const float crownY = anchor.y - chipHeight * 0.34f - span * 0.34f;
+                const float crownY =
+                    anchor.y - chipHeight * 0.34f - span * 0.34f - 5.0f * pieceScale;
                 sf::ConvexShape crown(7);
                 crown.setPoint(0, {crownX - span * 0.5f, crownY + span * 0.32f});
                 crown.setPoint(1, {crownX - span * 0.5f, crownY - span * 0.18f});
