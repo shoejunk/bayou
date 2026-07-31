@@ -38,6 +38,9 @@ using DetailRows = std::vector<DetailRow>;
 std::string cardRarity(const card_data::Card& card);
 std::string cardRarityLabel(const card_data::Card& card);
 sf::Color cardRarityColor(const card_data::Card& card);
+std::string cardCostLabel(const card_data::Card& card);
+std::string cardStatLabel(const card_data::Card& card);
+std::string cardLibraryMeta(const card_data::Card& card);
 std::string joinStrings(const std::vector<std::string>& values, const std::string& separator);
 ActionDescription actionDescription(const game_data::ActionProfile& action, std::size_t index);
 DetailRow actionDetailRow(

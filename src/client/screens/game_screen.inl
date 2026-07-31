@@ -21,74 +21,41 @@
         window.draw(plate);
     };
 
-    // The health readout on a board piece. Previously a bare white glyph floating
-    // beside the art, which vanished over pale tiles and carried no hierarchy.
-    auto drawPieceStatChip = [&](sf::Vector2f anchor,
-                                 float scale,
-                                 int health,
-                                 int maxHealth,
-                                 int owner,
-                                 bool dimmed) {
-        const float width = std::clamp(31.0f * scale, 25.0f, 44.0f);
-        const float height = std::clamp(16.0f * scale, 13.0f, 22.0f);
-        const sf::Vector2f position{anchor.x - width * 0.5f, anchor.y - height * 0.34f};
-        const float dim = dimmed ? 0.6f : 1.0f;
-
-        drawCutPlate(
-            {position.x + 1.0f, position.y + 1.5f},
-            {width, height},
-            height * 0.34f,
-            sf::Color(0, 0, 0, 150),
-            sf::Color::Transparent,
-            0.0f);
-        drawCutPlate(
-            position,
-            {width, height},
-            height * 0.34f,
-            withAlpha(shadeColor(BoardPlate, dim), 244),
-            withAlpha(shadeColor(BoardBrass, dim), 232),
-            1.2f);
-
-        // Wounded pieces carry a fill bar, so damage is legible without doing the
-        // arithmetic against a remembered maximum.
-        if (maxHealth > 0 && health < maxHealth)
+    // Compact health pips sit inside the lower face of the plinth. They preserve
+    // at-a-glance health without putting a separate plate between the viewer and
+    // the piece art behind it.
+    auto drawPieceHealthPips = [&](sf::Vector2f anchor,
+                                   float scale,
+                                   int health,
+                                   int maxHealth,
+                                   int owner,
+                                   bool dimmed) {
+        const float dim = dimmed ? 0.58f : 1.0f;
+        const int pipCount = std::clamp(maxHealth, 1, 8);
+        const float fraction = maxHealth > 0
+            ? std::clamp(static_cast<float>(health) / static_cast<float>(maxHealth), 0.0f, 1.0f)
+            : 0.0f;
+        const int filledPips = health > 0
+            ? std::clamp(static_cast<int>(std::ceil(fraction * static_cast<float>(pipCount))), 1, pipCount)
+            : 0;
+        const float radius = std::clamp(2.1f * scale, 1.35f, 2.8f);
+        const float spacing = radius * 1.85f;
+        const float startX = anchor.x - spacing * static_cast<float>(pipCount - 1) * 0.5f;
+        const float pipY = anchor.y + (PieceBasePipOffset - PieceBaseLift) * scale;
+        for (int index = 0; index < pipCount; ++index)
         {
-            const float fraction = std::clamp(
-                static_cast<float>(health) / static_cast<float>(maxHealth), 0.0f, 1.0f);
-            const float barWidth = width - 6.0f;
-            const float barHeight = std::max(1.6f, height * 0.16f);
-            const sf::Vector2f barPosition{position.x + 3.0f, position.y + height - barHeight - 1.6f};
-            sf::RectangleShape track({barWidth, barHeight});
-            track.setPosition(barPosition);
-            track.setFillColor(sf::Color(0, 0, 0, 190));
-            window.draw(track);
-            const sf::Color vigor = fraction > 0.6f
-                ? sf::Color(132, 198, 122)
-                : (fraction > 0.3f ? sf::Color(226, 178, 84) : sf::Color(220, 96, 80));
-            sf::RectangleShape fill({std::max(1.0f, barWidth * fraction), barHeight});
-            fill.setPosition(barPosition);
-            fill.setFillColor(withAlpha(shadeColor(vigor, dim), 245));
-            window.draw(fill);
+            sf::CircleShape pip(radius, 12);
+            pip.setOrigin({radius, radius});
+            pip.setScale({1.0f, 0.68f});
+            pip.setPosition({startX + spacing * static_cast<float>(index), pipY});
+            const bool filled = index < filledPips;
+            pip.setFillColor(filled
+                ? withAlpha(shadeColor(ownerColorBright(owner), dim), 238)
+                : withAlpha(shadeColor(BoardPlate, dim), 220));
+            pip.setOutlineThickness(std::max(0.65f, 0.9f * scale));
+            pip.setOutlineColor(withAlpha(shadeColor(BoardBrass, dim), filled ? 220 : 130));
+            window.draw(pip);
         }
-
-        const unsigned int glyphSize =
-            static_cast<unsigned int>(std::clamp(13.0f * scale, 11.0f, 17.0f));
-        sf::Text value(font, std::to_string(health), glyphSize);
-        value.setFillColor(withAlpha(shadeColor(BoardParchment, dim), 255));
-        value.setOutlineThickness(1.0f);
-        value.setOutlineColor(sf::Color(0, 0, 0, 210));
-        centerText(value, {anchor.x, position.y + height * 0.42f});
-        drawCrispText(window, value);
-
-        // A small owner pip on the chip's leading edge, so friend and foe read at
-        // a glance even where the territory wash is ambiguous.
-        sf::CircleShape pip(std::max(1.8f, 2.6f * scale), 12);
-        pip.setOrigin({pip.getRadius(), pip.getRadius()});
-        pip.setPosition({position.x + 0.5f, position.y + height * 0.34f});
-        pip.setFillColor(withAlpha(shadeColor(ownerColorBright(owner), dim), 255));
-        pip.setOutlineThickness(1.0f);
-        pip.setOutlineColor(sf::Color(18, 12, 8, 220));
-        window.draw(pip);
     };
 
     // Stand-in for a piece whose token art is missing. A framed cameo standing on
@@ -101,7 +68,9 @@
                               sf::Color tint) {
         const float width = 46.0f * scale;
         const float height = 56.0f * scale;
-        const sf::Vector2f position{anchor.x - width * 0.5f, anchor.y - height - 4.0f * scale};
+        const sf::Vector2f position{
+            anchor.x - width * 0.5f,
+            anchor.y + PieceStandOffset * scale - height - 4.0f * scale};
 
         drawCutPlate(
             position,
@@ -280,7 +249,7 @@
             }
             else if (game_data::isResourcesEffect(card))
             {
-                effectLabel = "+" + std::to_string(card.power) + " essence";
+                effectLabel = "+" + std::to_string(card.power) + " Resources";
             }
             else if (card.effect == "resourceDrain")
             {
@@ -329,7 +298,7 @@
         if (!affordable)
         {
             // Unplayable cards take a cool scrim, so affordability reads without
-            // having to compare the gem against the essence figure.
+            // having to compare the gem against the resources figure.
             drawCutPlate(
                 position, {width, height}, 7.0f, sf::Color(8, 14, 20, 104),
                 sf::Color::Transparent, 0.0f);
@@ -555,8 +524,8 @@
             withAlpha(available ? BoardParchmentMuted : sf::Color(140, 110, 98), 206));
     };
 
-    // Essence available to spend, sitting beside the hand where it is needed.
-    auto drawEssenceGauge = [&](const std::string& value, int spendable) {
+    // Resources available to spend, sitting beside the hand where it is needed.
+    auto drawResourcesGauge = [&](const std::string& value, int spendable) {
         drawCutPlate(
             {GameResourcePlateX, GameResourcePlateY},
             {GameResourcePlateWidth, GameResourcePlateHeight},
@@ -565,7 +534,7 @@
             BoardBrass,
             1.5f);
 
-        // A faceted crystal rather than a plain disc, to distinguish essence from
+        // A faceted crystal rather than a plain disc, to distinguish resources from
         // the coin glyph the menus use for currency.
         const sf::Vector2f crystalCenter{
             GameResourcePlateX + 24.0f, GameResourcePlateY + GameResourcePlateHeight * 0.5f};
@@ -597,7 +566,7 @@
         drawSlotCaption(
             GameResourcePlateX + GameResourcePlateWidth - 34.0f,
             GameResourcePlateY + 13.0f,
-            "ESSENCE",
+            "RESOURCES",
             withAlpha(BoardParchmentMuted, 216));
         if (spendable >= 0)
         {
@@ -801,7 +770,7 @@
         else
         {
             stats.push_back({
-                card->type == "Hero" ? "HERO COST" : "ESSENCE",
+                card->type == "Hero" ? "HERO COST" : "RESOURCES",
                 std::to_string(card->type == "Hero" ? card->heroCost : card->cost),
                 BoardBrassBright});
             if (card->type == "Unit" || card->type == "Hero")
@@ -904,9 +873,21 @@
         sf::View actionView(sf::FloatRect(
             {PiecePopupTextX, PiecePopupScrollY + inspectedPieceScroll},
             {PiecePopupTextWidth, popupScrollHeight}));
+        // The logical UI is letterboxed on wide windows. The old viewport used
+        // raw 800x600 fractions, so the clipped detail view ignored the
+        // letterbox and shifted its text left at 16:9 sizes.
+        const sf::FloatRect baseViewport = previousView.getViewport();
+        const sf::Vector2f popupViewportPosition{
+            PiecePopupTextX / 800.0f,
+            PiecePopupScrollY / 600.0f};
+        const sf::Vector2f popupViewportSize{
+            PiecePopupTextWidth / 800.0f,
+            popupScrollHeight / 600.0f};
         actionView.setViewport(sf::FloatRect(
-            {PiecePopupTextX / 800.0f, PiecePopupScrollY / 600.0f},
-            {PiecePopupTextWidth / 800.0f, popupScrollHeight / 600.0f}));
+            {baseViewport.position.x + baseViewport.size.x * popupViewportPosition.x,
+             baseViewport.position.y + baseViewport.size.y * popupViewportPosition.y},
+            {baseViewport.size.x * popupViewportSize.x,
+             baseViewport.size.y * popupViewportSize.y}));
         window.setView(actionView);
 
         drawDetailRows(actionDescriptions, PiecePopupScrollY + PiecePopupScrollTextYInset);
@@ -1345,6 +1326,34 @@
             }
         }
 
+        // A restrained authored material pass keeps the board from reading as
+        // a flat shader grid. It is intentionally low-opacity: the tactical
+        // cell tones, territory washes, and state markers remain the source of
+        // truth for gameplay readability.
+        if (boardSurfaceTexture)
+        {
+            const sf::Vector2u textureSize = boardSurfaceTexture->getSize();
+            if (textureSize.x > 0 && textureSize.y > 0)
+            {
+                sf::VertexArray surface(sf::PrimitiveType::TriangleFan, 4);
+                const sf::Vector2f textureExtent{
+                    static_cast<float>(textureSize.x), static_cast<float>(textureSize.y)};
+                for (std::size_t i = 0; i < boardTop.size(); ++i)
+                {
+                    surface[i].position = boardTop[i];
+                    surface[i].color = sf::Color(255, 255, 255, 66);
+                }
+                surface[0].texCoords = {0.0f, 0.0f};
+                surface[1].texCoords = {textureExtent.x, 0.0f};
+                surface[2].texCoords = textureExtent;
+                surface[3].texCoords = {0.0f, textureExtent.y};
+
+                sf::RenderStates states;
+                states.texture = boardSurfaceTexture;
+                window.draw(surface, states);
+            }
+        }
+
         // ---- Grout ----------------------------------------------------------
         // Drawn in one pass over the whole grid rather than as per-cell outlines,
         // so every joint is one consistent dark seam with a lit upper lip instead
@@ -1585,6 +1594,7 @@
             return a->column < b->column;
         });
 
+        const auto drawPieceLayer = [&](bool foregroundOnly) {
         for (const game_data::Piece* piecePtr : pieceDrawOrder)
         {
             const game_data::Piece& piece = *piecePtr;
@@ -1753,26 +1763,29 @@
                     }
                 }
             }
-            // Plinth and contact shadow first, so the piece stands on the board
-            // instead of reading as a cut-out laid over it.
-            drawPieceBase(
-                window,
-                anchor,
-                pieceScale,
-                piece.owner,
-                pieceUnavailable,
-                static_cast<float>(piece.width));
+            if (!foregroundOnly)
+            {
+                // Plinth and contact shadow first, so the piece stands on the board
+                // instead of reading as a cut-out laid over it.
+                drawPieceBase(
+                    window,
+                    anchor,
+                    pieceScale,
+                    piece.owner,
+                    pieceUnavailable,
+                    static_cast<float>(piece.width));
 
-            const bool pieceIsSelected = selectedPieceId && *selectedPieceId == piece.id;
-            if (pieceIsSelected)
-            {
-                const float pulse = 0.5f + 0.5f * std::sin(animationTime * 3.4f);
-                drawPieceSelectionRing(window, anchor, pieceScale, pulse, BoardBrassBright);
-            }
-            else if (highlightedPiece && highlightedPiece->id == piece.id)
-            {
-                drawPieceSelectionRing(
-                    window, anchor, pieceScale, 0.35f, withAlpha(BoardBrassBright, 170));
+                const bool pieceIsSelected = selectedPieceId && *selectedPieceId == piece.id;
+                if (pieceIsSelected)
+                {
+                    const float pulse = 0.5f + 0.5f * std::sin(animationTime * 3.4f);
+                    drawPieceSelectionRing(window, anchor, pieceScale, pulse, BoardBrassBright);
+                }
+                else if (highlightedPiece && highlightedPiece->id == piece.id)
+                {
+                    drawPieceSelectionRing(
+                        window, anchor, pieceScale, 0.35f, withAlpha(BoardBrassBright, 170));
+                }
             }
 
             bool drewPiece = drawPieceVisual(
@@ -1799,7 +1812,8 @@
                 drawPieceCameo(anchor, pieceScale, piece.owner, piece.imagePath, cameoTint);
                 drewPiece = true;
             }
-            if (attackImpactAnchor && attackAnimationProgress >= 0.22f && attackAnimationProgress <= 0.78f)
+            if (!foregroundOnly && attackImpactAnchor &&
+                attackAnimationProgress >= 0.22f && attackAnimationProgress <= 0.78f)
             {
                 const float flashProgress = (attackAnimationProgress - 0.22f) / 0.56f;
                 const float flash = std::sin(flashProgress * Pi);
@@ -1829,14 +1843,15 @@
                 slashB.setFillColor(sf::Color(255, 202, 102, alpha));
                 window.draw(slashB);
             }
-            drawPieceStatChip(
-                anchor, pieceScale, piece.health, piece.maxHealth, piece.owner, pieceUnavailable);
-
-            if (piece.isHero)
+            if (!foregroundOnly)
             {
-                // A hero's loss ends the match, so mark it. Anchored to the stat
-                // chip rather than the art bounds: tall sprites pushed a bounds-
-                // relative badge far enough away that it read as loose debris.
+                drawPieceHealthPips(
+                    anchor, pieceScale, piece.health, piece.maxHealth, piece.owner, pieceUnavailable);
+            }
+
+            if (!foregroundOnly && piece.isHero)
+            {
+                // A hero's loss ends the match, so mark it with a small crown.
                 const float chipHeight = std::clamp(16.0f * pieceScale, 13.0f, 22.0f);
                 const float chipWidth = std::clamp(31.0f * pieceScale, 25.0f, 44.0f);
                 const float span = std::clamp(13.0f * pieceScale, 11.0f, 17.0f);
@@ -1856,10 +1871,9 @@
                 window.draw(crown);
             }
 
-            if (piece.controlTurnsRemaining > 0)
+            if (!foregroundOnly && piece.controlTurnsRemaining > 0)
             {
-                // Held piece: a violet badge on the chip's other shoulder, so the
-                // duration reads as a labelled count rather than a loose glyph.
+                // Held piece: a violet badge on the base's other shoulder.
                 const float chipHeight = std::clamp(16.0f * pieceScale, 13.0f, 22.0f);
                 const float chipWidth = std::clamp(31.0f * pieceScale, 25.0f, 44.0f);
                 const float radius = std::clamp(8.0f * pieceScale, 7.0f, 11.0f);
@@ -1882,6 +1896,8 @@
                 drawCrispText(window, turns);
             }
         }
+        };
+        drawPieceLayer(false);
 
         for (auto animation = pieceKilledAnimations.begin(); animation != pieceKilledAnimations.end();)
         {
@@ -2194,7 +2210,7 @@
                         enchantment.targetPlayer == playerNumber;
                 }));
 
-            // Essence is unbounded in sandbox. The tutorial has no economy at all,
+            // Resources are unbounded in sandbox. The tutorial has no economy at all,
             // so it drops the figures rather than printing a placeholder in them —
             // this readout used to render the literal string "story" in both.
             const std::string resources =
@@ -2219,7 +2235,7 @@
             };
             if (!storyMode)
             {
-                drawBannerFigure(nextFigureCenter(), "ESSENCE", resources, BoardBrassBright);
+                drawBannerFigure(nextFigureCenter(), "RESOURCES", resources, BoardBrassBright);
                 drawBannerFigure(
                     nextFigureCenter(), "LANDS", control,
                     withAlpha(ownerColorBright(playerNumber), 255));
@@ -2374,6 +2390,12 @@
             window.draw(clockWarningText);
         }
 
+        // The upper board row can rise into the top readout band. Draw its art
+        // again after the HUD so it remains visible; the foreground pass omits
+        // bases, pips, crowns, and control badges so those details retain normal
+        // board depth and cannot cover a piece in front of them.
+        drawPieceLayer(true);
+
         // ---- Command bar ------------------------------------------------------
         // A rail carrying resources, the piles, the hand and the turn actions. The
         // whole region used to be unstyled screen, with the buttons running off
@@ -2399,7 +2421,7 @@
         }
 
         // Whether a hand card can actually be played right now. Shared by the card
-        // faces and the essence gauge so the two never disagree.
+        // faces and the resources gauge so the two never disagree.
         const auto handCardPlayable = [&](const game_data::GameCard& card) {
             if (phase == game_data::Phase::HeroPlacement)
             {
@@ -2417,7 +2439,7 @@
         {
             const int playableCount = static_cast<int>(std::count_if(
                 gameSnapshot.hand.begin(), gameSnapshot.hand.end(), handCardPlayable));
-            drawEssenceGauge(
+            drawResourcesGauge(
                 sandboxMode ? std::string("Free") : std::to_string(mine.resources),
                 sandboxMode ? -1 : playableCount);
             drawDrawPile(mine.drawPileCount);
@@ -2717,7 +2739,7 @@
                         anchor, scale, draggedPiece->owner, draggedPiece->imagePath, tint);
                 }
 
-                drawPieceStatChip(
+                drawPieceHealthPips(
                     anchor,
                     scale,
                     draggedPiece->health,

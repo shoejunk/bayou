@@ -39,7 +39,7 @@ export struct Button
     bool focused = false;
 
     Button(const sf::Vector2f& position, const sf::Vector2f& size, const std::string& label, sf::Font& font)
-        : text(font, label, 24)
+        : text(bayou::client::displayFontOr(font), label, 24)
     {
         shape.setPosition(position);
         shape.setSize(size);
@@ -74,7 +74,10 @@ export struct Button
     // than whatever size happens to fit the plate.
     void setLabelSize(unsigned int size)
     {
-        pinnedLabelSize = size;
+        // Caption-sized quiet actions are used by the main-menu footer. The
+        // display face has a taller, finer silhouette than Roboto, so keep a
+        // small floor that survives the native 800x600 layout.
+        pinnedLabelSize = variant == ButtonVariant::Quiet && size <= 12 ? 14u : size;
         fitAndCenterLabel();
     }
 
@@ -95,12 +98,13 @@ export struct Button
         {
             hovered = false;
             pressed = false;
+            focused = false;
         }
     }
 
     bool isEnabled() const { return enabled; }
 
-    void setFocused(bool next) { focused = next; }
+    void setFocused(bool next) { focused = next && enabled; }
 
     void update(const sf::Vector2f& mousePos)
     {
@@ -157,12 +161,16 @@ export struct Button
                               : PlateState::Normal;
         style.focused = focused;
         style.focusPhase = focusPhase;
-        bayou::client::drawMaterialPlate(window, position, size, style);
+        // Quiet controls are still metal, but their smaller footprint needs
+        // fewer ornaments to remain legible at the 800x600 design size.
+        style.brackets = variant != ButtonVariant::Quiet;
+        style.rivets = variant != ButtonVariant::Quiet;
+        style.sheen = variant == ButtonVariant::Quiet ? 0.65f : 1.0f;
 
         if (variant == ButtonVariant::Primary && enabled)
         {
-            // A warm bloom behind the primary plate, brighter on hover. This is
-            // what makes one button obviously the way forward.
+            // Draw the warm bloom first: it should lift the plate from the
+            // background, not wash over its engraved face.
             bayou::client::drawRadialGlow(
                 window,
                 {position.x + size.x * 0.5f, position.y + size.y * 0.5f},
@@ -170,18 +178,21 @@ export struct Button
                 sf::Color(226, 164, 74, hovered ? 54 : 30));
         }
 
+        bayou::client::drawMaterialPlate(window, position, size, style);
+
         if (size.x >= 120.0f && size.y >= 34.0f)
         {
             const float pipeAlpha = enabled ? 160.0f : 80.0f;
+            const float pipeOffsetY = pressed ? 1.0f : 0.0f;
             sf::RectangleShape leftPipe({10.0f, size.y * 0.34f});
-            leftPipe.setPosition({position.x - 5.0f, position.y + size.y * 0.33f});
+            leftPipe.setPosition({position.x - 5.0f, position.y + size.y * 0.33f + pipeOffsetY});
             leftPipe.setFillColor(sf::Color(74, 44, 22, static_cast<std::uint8_t>(pipeAlpha)));
             leftPipe.setOutlineThickness(1.0f);
             leftPipe.setOutlineColor(sf::Color(124, 76, 36, static_cast<std::uint8_t>(pipeAlpha)));
             window.draw(leftPipe);
 
             sf::RectangleShape rightPipe(leftPipe);
-            rightPipe.setPosition({position.x + size.x - 5.0f, position.y + size.y * 0.33f});
+            rightPipe.setPosition({position.x + size.x - 5.0f, position.y + size.y * 0.33f + pipeOffsetY});
             window.draw(rightPipe);
         }
 
@@ -239,7 +250,7 @@ private:
         }
         if (variant == ButtonVariant::Quiet)
         {
-            return hovered ? bayou::client::palette::Ink : bayou::client::palette::InkMuted;
+            return hovered ? bayou::client::palette::InkBright : bayou::client::palette::Ink;
         }
         return hovered ? bayou::client::palette::InkBright : bayou::client::palette::Ink;
     }

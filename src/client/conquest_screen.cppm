@@ -76,7 +76,7 @@ void drawText(
     sf::Text text(font, value, size);
     text.setFillColor(color);
     text.setPosition(position);
-    window.draw(text);
+    drawCrispText(window, text);
 }
 
 std::string elide(sf::Font& font, std::string value, unsigned int size, float width)
@@ -142,17 +142,25 @@ void drawButton(
     sf::FloatRect bounds,
     const std::string& label,
     bool hovered,
-    bool enabled = true)
+    bool enabled = true,
+    bool primary = false,
+    bool destructive = false)
 {
     const sf::Color fill = !enabled
         ? sf::Color(45, 48, 47, 235)
-        : hovered ? sf::Color(88, 54, 27, 248) : sf::Color(39, 31, 24, 246);
-    const sf::Color outline = !enabled ? sf::Color(82, 82, 78) : hovered ? Accent : Line;
+        : destructive
+            ? (hovered ? sf::Color(112, 48, 34, 248) : sf::Color(70, 33, 28, 242))
+        : primary
+            ? (hovered ? sf::Color(111, 72, 30, 248) : sf::Color(76, 49, 25, 242))
+            : hovered ? sf::Color(88, 54, 27, 248) : sf::Color(39, 31, 24, 246);
+    const sf::Color outline = !enabled
+        ? sf::Color(82, 82, 78)
+        : destructive ? Bad : hovered || primary ? Accent : Line;
     drawBeveledPlate(window, bounds.position, bounds.size, fill, outline, hovered && enabled, 7.0f);
     sf::Text text(font, label, bounds.size.y <= 32.0f ? 15u : 18u);
     text.setFillColor(enabled ? Ink : sf::Color(126, 126, 120));
     centerButtonText(text, bounds.position + bounds.size * 0.5f);
-    window.draw(text);
+    drawCrispText(window, text);
 }
 
 // Each phase gets its own identity colour so the list can be scanned by state
@@ -896,14 +904,9 @@ public:
             drawForceEndConfirmation(window);
         }
 
-        if (!status.empty())
+        if (!status.empty() || busy())
         {
-            drawText(window, font, elide(font, status, 15, 750.0f), 15,
-                     {24.0f, 574.0f}, statusSuccess ? Good : Bad);
-        }
-        if (busy())
-        {
-            drawText(window, font, "Working...", 15, {692.0f, 574.0f}, Accent);
+            drawStatusBar(window);
         }
     }
 
@@ -929,6 +932,52 @@ private:
         sf::Color fill = Panel)
     {
         ::drawPanel(window, bounds, fill);
+    }
+
+    void drawLoadingState(
+        sf::RenderWindow& window,
+        sf::FloatRect bounds,
+        const std::string& heading,
+        const std::string& detail)
+    {
+        const float cardWidth = std::min(420.0f, bounds.size.x - 32.0f);
+        const sf::FloatRect card(
+            {bounds.position.x + (bounds.size.x - cardWidth) * 0.5f,
+             bounds.position.y + (bounds.size.y - 96.0f) * 0.5f},
+            {cardWidth, 96.0f});
+        drawCompactPlate(window, card, sf::Color(25, 30, 29, 248), Line, 8.0f);
+        drawRadialGlow(window, card.position + sf::Vector2f(34.0f, 48.0f), 24.0f,
+                       sf::Color(239, 190, 98, 38));
+        drawStud(window, card.position + sf::Vector2f(34.0f, 48.0f), 8.0f, Accent);
+        const float copyWidth = std::max(0.0f, card.size.x - 78.0f);
+        drawText(window, font, heading, 18, card.position + sf::Vector2f(58.0f, 21.0f), Ink, copyWidth);
+        drawText(window, font, detail, 13, card.position + sf::Vector2f(58.0f, 52.0f), Muted, copyWidth);
+    }
+
+    void drawStatusBar(sf::RenderWindow& window)
+    {
+        const sf::FloatRect bounds = rect(20.0f, 566.0f, 760.0f, 28.0f);
+        const bool working = busy();
+        const sf::Color accent = working ? Accent : statusSuccess ? Good : Bad;
+        const sf::Color fill = working
+            ? sf::Color(46, 36, 23, 246)
+            : statusSuccess ? sf::Color(18, 39, 29, 246) : sf::Color(48, 24, 23, 246);
+        drawCompactPlate(window, bounds, fill, accent, 6.0f);
+        drawBadge(window, font, {30.0f, 571.0f},
+                  working ? "WORKING" : statusSuccess ? "UPDATED" : "ERROR", accent, 10);
+
+        sf::Text badgeProbe(
+            font, working ? "WORKING" : statusSuccess ? "UPDATED" : "ERROR", 10);
+        const float messageX = 30.0f + badgeProbe.getLocalBounds().size.x + 34.0f;
+        if (!status.empty())
+        {
+            drawText(window, font, elide(font, status, 13, 590.0f), 13,
+                     {messageX, 572.0f}, Ink);
+        }
+        if (working)
+        {
+            drawTextRight(window, font, "Working...", 12, {768.0f, 573.0f}, Accent);
+        }
     }
 
     enum class View
@@ -2307,7 +2356,7 @@ private:
         if (accountIsAdmin)
         {
             drawButton(window, font, rect(498, 64, 156, 36), "New Conquest",
-                       hovered(rect(498, 64, 156, 36), mousePosition), !busy());
+                       hovered(rect(498, 64, 156, 36), mousePosition), !busy(), true);
         }
         drawPanel(window, rect(20, 104, 760, 444));
         if (events.empty() && !pendingEvents)
@@ -2317,7 +2366,8 @@ private:
         }
         if (events.empty() && pendingEvents)
         {
-            drawText(window, font, "Summoning campaigns...", 17, {48.0f, 150.0f}, Muted);
+            drawLoadingState(window, rect(20, 104, 760, 444),
+                             "Summoning campaigns...", "Reading the current war table.");
             return;
         }
 
@@ -2605,7 +2655,7 @@ private:
                  "so later card edits do not change battles already in this conquest.",
                  14, {48.0f, 440.0f}, Muted);
         drawButton(window, font, rect(566, 464, 186, 42), "Create Conquest",
-                   hovered(rect(566, 464, 186, 42), mousePosition), !pendingCommand);
+                    hovered(rect(566, 464, 186, 42), mousePosition), !pendingCommand, true);
     }
 
     std::string armyDeckName(std::int64_t id) const
@@ -2670,6 +2720,11 @@ private:
                             "pool of card copies.",
                             13, {36.0f, 176.0f}, sf::Color(150, 132, 104), 320.0f);
         }
+        else if (decks.empty() && pendingLoadout)
+        {
+            drawLoadingState(window, rect(20, 124, 360, 354),
+                             "Loading deck vault...", "Checking your saved Conquest decks.");
+        }
 
         for (std::size_t row = 0; row < VisibleLoadoutRows; ++row)
         {
@@ -2710,7 +2765,7 @@ private:
         drawButton(window, font, rect(132, 492, 100, 38), "Edit",
                    hovered(rect(132, 492, 100, 38), mousePosition), selectedDeck.has_value());
         drawButton(window, font, rect(240, 492, 124, 38), "Delete",
-                   hovered(rect(240, 492, 124, 38), mousePosition), selectedDeck.has_value() && !busy());
+                   hovered(rect(240, 492, 124, 38), mousePosition), selectedDeck.has_value() && !busy(), false, true);
         const bool selectedInArmy = selectedDeck &&
             std::find(army.deckIds.begin(), army.deckIds.end(), decks[*selectedDeck].id) != army.deckIds.end();
         // "Remove from Army" overran its plate at 166px wide.
@@ -2719,7 +2774,7 @@ private:
                    hovered(rect(410, 492, 182, 38), mousePosition), selectedDeck.has_value());
         drawButton(window, font, rect(600, 492, 170, 38), "Save Army",
                    hovered(rect(600, 492, 170, 38), mousePosition),
-                   !pendingArmySave && !army.deckIds.empty());
+                   !pendingArmySave && !army.deckIds.empty(), true);
         drawSeparatorRule(window, {24.0f, 538.0f}, 752.0f);
         drawText(window, font,
                  "Conquest decks draw on their own pool of copies. Your regular decks are untouched.",
@@ -2811,11 +2866,12 @@ private:
         drawButton(window, font, rect(666, 24, 114, 36), "Refresh",
                    hovered(rect(666, 24, 114, 36), mousePosition), !pendingState);
         const bool canForceEnd = accountIsAdmin && eventState.summary.id != 0 &&
+            !eventState.summary.name.empty() &&
             eventState.summary.phase != conquest_data::EventPhase::Complete;
         if (canForceEnd)
         {
             drawButton(window, font, rect(530, 24, 124, 36), "Force End",
-                       hovered(rect(530, 24, 124, 36), mousePosition), !pendingCommand);
+                       hovered(rect(530, 24, 124, 36), mousePosition), !pendingCommand, false, true);
         }
         drawText(window, font,
                   elide(font, eventState.summary.name.empty() ? "Loading campaign..." : eventState.summary.name,
@@ -2848,6 +2904,13 @@ private:
                 drawText(window, font, caption, 11, {detailX, 40.0f}, sf::Color(150, 132, 104));
                 drawText(window, font, duration, 15, {detailX, 53.0f}, urgent ? Bad : Ink);
             }
+        }
+        else
+        {
+            drawPanel(window, rect(20, 78, 760, 485));
+            drawLoadingState(window, rect(20, 78, 760, 485),
+                             "Loading campaign...", "Reading the latest map and battle state.");
+            return;
         }
 
         // The sprite used to cover the plate exactly, hiding its brass frame and
@@ -2883,7 +2946,7 @@ private:
         drawButton(window, font, rect(220, 370, 160, 42), "Cancel",
                    hovered(rect(220, 370, 160, 42), mousePosition), !pendingCommand);
         drawButton(window, font, rect(420, 370, 160, 42), "End Conquest",
-                   hovered(rect(420, 370, 160, 42), mousePosition), !pendingCommand);
+                   hovered(rect(420, 370, 160, 42), mousePosition), !pendingCommand, false, true);
     }
 
     void drawOwnership(sf::RenderWindow& window)
@@ -3198,7 +3261,7 @@ private:
             actionEnabled = false;
         }
         drawButton(window, font, rect(606, 414, 158, 36), actionLabel,
-                   hovered(rect(606, 414, 158, 36), mousePosition), actionEnabled);
+                   hovered(rect(606, 414, 158, 36), mousePosition), actionEnabled, true);
     }
 
     // Campaign roster: colour swatch, name, regions held, and whether that

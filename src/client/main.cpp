@@ -920,6 +920,7 @@ int main(int argc, char** argv)
 
     DisplaySettings displaySettings = loadDisplaySettings();
     normalizeDisplaySettings(displaySettings, desktopMode.size, displayResolutions);
+
     if (captureRequest)
     {
         // Windowed at exactly the requested size so captures are reproducible
@@ -953,6 +954,7 @@ int main(int argc, char** argv)
 
     TextureStore textures;
     sf::Texture* backdropTexture = textures.load("ui/gloomthorn-backdrop.png");
+    sf::Texture* boardSurfaceTexture = textures.load("ui/board-surface-v2.png");
     sf::Texture* gloomthornTitleTexture = textures.load("ui/gloomthorn-title.png");
     sf::Texture* showPasswordTexture = textures.load("ui/password-eye-open.png");
     sf::Texture* hidePasswordTexture = textures.load("ui/password-eye-off.png");
@@ -1153,6 +1155,7 @@ int main(int argc, char** argv)
     GameState lastFrameState = GameState::Menu;
     GameState currentState = GameState::Menu;
     GameState optionsReturnState = GameState::Menu;
+    int authenticatedMenuFocus = -1;
     OptionsTab activeOptionsTab = OptionsTab::Graphics;
     DisplaySettings pendingDisplaySettings = displaySettings;
     std::size_t selectedResolution = displayResolutionIndex(
@@ -1663,6 +1666,9 @@ int main(int argc, char** argv)
         const sf::Vector2f center{position.x + size.x * 0.5f, position.y + size.y * 0.5f};
         const bool primary = button.getVariant() == ButtonVariant::Primary;
         const bool footer = button.getVariant() == ButtonVariant::Quiet;
+        const bool focused = button.focused;
+        const bool active = button.hovered || focused;
+        const float pressOffset = button.pressed ? 1.0f : 0.0f;
 
         // The footer pair is deliberately plain metal: reusing the ornate
         // button_blank plaque at that size would put Log Out on the same visual
@@ -1681,7 +1687,7 @@ int main(int argc, char** argv)
                 window,
                 center,
                 size.x * 0.72f,
-                sf::Color(232, 168, 76, button.hovered ? 62 : 34));
+                sf::Color(232, 168, 76, active ? 62 : 34));
         }
 
         // Scale button_blank slightly past the hitbox so the plaque reads larger.
@@ -1692,17 +1698,31 @@ int main(int argc, char** argv)
             *mainMenuButtonTexture,
             sf::IntRect({48, 312}, {1435, 306}),
             {
-                {position.x - bgPadX, position.y - bgPadY},
+                {position.x - bgPadX, position.y - bgPadY + pressOffset},
                 {size.x + bgPadX * 2.0f, size.y + bgPadY * 2.0f}},
-            button.hovered ? sf::Color::White : sf::Color(primary ? 244 : 226, primary ? 244 : 226, primary ? 244 : 226));
+            button.pressed
+                ? sf::Color(214, 202, 184)
+                : active
+                    ? sf::Color::White
+                    : sf::Color(primary ? 244 : 226, primary ? 244 : 226, primary ? 244 : 226));
+
+        if (focused)
+        {
+            drawFocusRing(
+                window,
+                {position.x - bgPadX - 3.0f, position.y - bgPadY - 3.0f},
+                {size.x + bgPadX * 2.0f + 6.0f, size.y + bgPadY * 2.0f + 6.0f},
+                11.0f,
+                animationTime);
+        }
 
         const float iconSize = primary ? 30.0f : 23.0f;
         const float iconLeft = position.x + (primary ? 24.0f : 18.0f);
         drawMainMenuTextureContained(
             iconTexture,
-            {iconLeft, position.y + (size.y - iconSize) * 0.5f},
+            {iconLeft, position.y + (size.y - iconSize) * 0.5f + pressOffset},
             {iconSize, iconSize},
-            button.hovered ? sf::Color::White : sf::Color(235, 225, 202));
+            active ? sf::Color::White : sf::Color(235, 225, 202));
 
         // Menu labels take the display face: a main menu is exactly where
         // display type belongs, and it separates navigation from body copy.
@@ -1710,11 +1730,11 @@ int main(int argc, char** argv)
             displayFontOr(font),
             button.text.getString(),
             primary ? 27u : 19u);
-        label.setFillColor(button.hovered ? palette::InkBright : palette::Ink);
+        label.setFillColor(active ? palette::InkBright : palette::Ink);
         label.setOutlineThickness(primary ? 1.0f : 0.0f);
         label.setOutlineColor(sf::Color(58, 33, 14, 190));
         // Nudge off the icon so the label optically centres in the clear space.
-        centerButtonText(label, {center.x + (primary ? 12.0f : 8.0f), center.y});
+        centerButtonText(label, {center.x + (primary ? 12.0f : 8.0f), center.y + pressOffset});
         drawCrispText(window, label);
     };
 
@@ -2445,6 +2465,7 @@ int main(int argc, char** argv)
 
     auto showAuthenticatedScreen = [&]() {
         currentState = GameState::Authenticated;
+        authenticatedMenuFocus = -1;
         title.setString("");
         centerText(title, 400.0f);
         setMessageY(messageText, 560.0f);
@@ -6943,6 +6964,74 @@ int main(int argc, char** argv)
         pendingRequest = std::async(std::launch::async, sendRememberLogin, activeRememberToken);
     }
 
+    auto authenticatedMenuButtonCount = [&]() {
+        return loggedInIsAdmin ? 7 : 6;
+    };
+
+    auto syncAuthenticatedMenuFocus = [&]() {
+        playButton.setFocused(authenticatedMenuFocus == 0);
+        storyButton.setFocused(authenticatedMenuFocus == 1);
+        conquestButton.setFocused(authenticatedMenuFocus == 2);
+        deckEditorButton.setFocused(authenticatedMenuFocus == 3);
+        shopButton.setFocused(authenticatedMenuFocus == 4);
+        adminUsersButton.setFocused(loggedInIsAdmin && authenticatedMenuFocus == 5);
+        logoutButton.setFocused(authenticatedMenuFocus == (loggedInIsAdmin ? 6 : 5));
+    };
+
+    auto activateAuthenticatedMenuButton = [&](int index) {
+        if (currentState != GameState::Authenticated || exitDesktopPopupVisible)
+        {
+            return;
+        }
+
+        playButtonClickSound();
+        if (index == 0)
+        {
+            showDeckSelect();
+        }
+        else if (index == 1)
+        {
+            showStoryIntro();
+        }
+        else if (index == 2)
+        {
+            ++conquestScreenGeneration;
+            conquestScreen.open(activeAccessToken, loggedInUsername, loggedInIsAdmin);
+            currentState = GameState::Conquest;
+            title.setString("");
+            clearFocus();
+        }
+        else if (index == 3)
+        {
+            loadDeckEditor();
+        }
+        else if (index == 4)
+        {
+            loadShop();
+        }
+        else if (loggedInIsAdmin && index == 5)
+        {
+            adminUsersPage = 0;
+            loadAdminUsersScreen();
+        }
+        else if (index == (loggedInIsAdmin ? 6 : 5))
+        {
+            const std::string rememberTokenToRevoke = activeRememberToken;
+            const std::string accessTokenToRevoke = activeAccessToken;
+            activeRememberToken.clear();
+            clearRememberToken();
+            if (!rememberTokenToRevoke.empty() || !accessTokenToRevoke.empty())
+            {
+                pendingLogout = std::async(
+                    std::launch::async,
+                    revokeLoginTokens,
+                    rememberTokenToRevoke,
+                    accessTokenToRevoke);
+            }
+            returnToMenu();
+        }
+    };
+
     while (window.isOpen())
     {
         const float deltaTime = clock.restart().asSeconds();
@@ -7932,6 +8021,8 @@ int main(int argc, char** argv)
                 }
                 else if (currentState == GameState::Authenticated)
                 {
+                    authenticatedMenuFocus = -1;
+                    syncAuthenticatedMenuFocus();
                     if (authenticatedSettingsButtonClicked(clickPos))
                     {
                         playButtonClickSound();
@@ -8814,6 +8905,38 @@ int main(int argc, char** argv)
                     continue;
                 }
 
+                if (!pendingRequest && !pendingMatchmaking && !pendingSandboxLoad &&
+                    currentState == GameState::Authenticated && !exitDesktopPopupVisible)
+                {
+                    const bool moveUp = keyPressed->code == sf::Keyboard::Key::Up ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && keyPressed->shift);
+                    const bool moveDown = keyPressed->code == sf::Keyboard::Key::Down ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && !keyPressed->shift);
+                    if (moveUp || moveDown)
+                    {
+                        const int count = authenticatedMenuButtonCount();
+                        if (authenticatedMenuFocus < 0)
+                        {
+                            authenticatedMenuFocus = moveUp ? count - 1 : 0;
+                        }
+                        else
+                        {
+                            const int delta = moveUp ? -1 : 1;
+                            authenticatedMenuFocus =
+                                (authenticatedMenuFocus + delta + count) % count;
+                        }
+                        syncAuthenticatedMenuFocus();
+                        continue;
+                    }
+                    if (keyPressed->code == sf::Keyboard::Key::Enter && authenticatedMenuFocus >= 0)
+                    {
+                        const int index = authenticatedMenuFocus;
+                        activateAuthenticatedMenuButton(index);
+                        syncAuthenticatedMenuFocus();
+                        continue;
+                    }
+                }
+
                 if (keyPressed->code == sf::Keyboard::Key::Escape)
                 {
                     if (currentState == GameState::ChangePassword && passwordChangedPopupVisible)
@@ -9129,6 +9252,7 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Authenticated)
         {
             layoutAuthenticatedButtons();
+            syncAuthenticatedMenuFocus();
             exitDesktopCloseHovered = exitDesktopCloseButtonClicked(mousePos);
             authenticatedSettingsHovered =
                 !exitDesktopPopupVisible && authenticatedSettingsButtonClicked(mousePos);

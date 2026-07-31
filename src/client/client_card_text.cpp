@@ -117,6 +117,54 @@ sf::Color cardRarityColor(const card_data::Card& card)
     return sf::Color(190, 198, 214);
 }
 
+std::string cardCostLabel(const card_data::Card& card)
+{
+    if (game_data::isHeroCard(card))
+    {
+        return "Hero cost: " + std::to_string(game_data::cardInt(card, "heroCost", 0));
+    }
+    return "Cost: " + std::to_string(game_data::cardInt(card, "cost", 0)) + " Resources";
+}
+
+std::string cardStatLabel(const card_data::Card& card)
+{
+    const game_data::GameCard gameCard = game_data::toGameCard(card);
+    if (card.type == "Unit" || game_data::isHeroCard(card))
+    {
+        std::string result = "Health: " + std::to_string(gameCard.health);
+        if (gameCard.attack > 0)
+        {
+            result += "  Attack: " + std::to_string(gameCard.attack);
+            if (gameCard.attackRange > 0)
+            {
+                result += "  Range: " + std::to_string(gameCard.attackRange);
+            }
+        }
+        return result;
+    }
+
+    return "Power: " + std::to_string(gameCard.power) +
+        "  Effect: " + gameCard.effect;
+}
+
+std::string cardLibraryMeta(const card_data::Card& card)
+{
+    std::string result = card.type + " / " + cardRarityLabel(card);
+    if (game_data::isHeroCard(card))
+    {
+        result += " / Hero " + std::to_string(game_data::cardInt(card, "heroCost", 0));
+    }
+    else
+    {
+        result += " / " + std::to_string(game_data::cardInt(card, "cost", 0)) + " res";
+        if (card.type == "Unit")
+        {
+            result += " / HP " + std::to_string(game_data::cardInt(card, "health", 1));
+        }
+    }
+    return result;
+}
+
 std::string joinStrings(const std::vector<std::string>& values, const std::string& separator)
 {
     std::string result;

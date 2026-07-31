@@ -152,17 +152,19 @@ void drawPieceBase(
     const float radiusY = 9.0f * scale;
     const float dim = exhausted ? 0.55f : 1.0f;
 
+    const sf::Vector2f baseCenter{anchor.x, anchor.y - PieceBaseLift * scale};
+
     // Contact shadow, offset a touch down-right to agree with the lantern-lit
     // backdrop, so the piece sits in the scene instead of floating over it.
     drawSoftEllipse(
         target,
-        {anchor.x + 2.0f * scale, anchor.y + 2.0f * scale},
+        {baseCenter.x + 2.0f * scale, baseCenter.y + 2.0f * scale},
         radiusX * 0.92f,
         radiusY * 0.9f,
         sf::Color(0, 0, 0, 190),
         6);
 
-    sf::CircleShape plinth = makeEllipse(anchor, radiusX, radiusY);
+    sf::CircleShape plinth = makeEllipse(baseCenter, radiusX, radiusY);
     plinth.setFillColor(withAlpha(shadeColor(ownerColorDeep(owner), dim), 232));
     target.draw(plinth);
 
@@ -170,13 +172,13 @@ void drawPieceBase(
     // machined disc rather than a filled circle.
     drawEllipseOutline(
         target,
-        {anchor.x, anchor.y - 0.8f * scale},
+        {baseCenter.x, baseCenter.y - 0.8f * scale},
         radiusX * 0.93f,
         radiusY * 0.86f,
         1.0f,
         withAlpha(shadeColor(ownerColor(owner), dim), 150));
     drawEllipseOutline(
-        target, anchor, radiusX, radiusY, 1.4f, withAlpha(shadeColor(BoardBrass, dim), 208));
+        target, baseCenter, radiusX, radiusY, 1.4f, withAlpha(shadeColor(BoardBrass, dim), 208));
 }
 
 void drawPieceSelectionRing(
@@ -185,23 +187,24 @@ void drawPieceSelectionRing(
     const float radiusX = 29.0f * scale;
     const float radiusY = 10.5f * scale;
     const float swell = 1.0f + pulse * 0.09f;
+    const sf::Vector2f baseCenter{anchor.x, anchor.y - PieceBaseLift * scale};
 
     drawSoftEllipse(
         target,
-        anchor,
+        baseCenter,
         radiusX * swell,
         radiusY * swell,
-        withAlpha(accent, static_cast<int>(96.0f + 52.0f * pulse)),
+        withAlpha(accent, static_cast<int>(112.0f + 64.0f * pulse)),
         5);
     drawEllipseOutline(
-        target, anchor, radiusX * swell, radiusY * swell, 2.0f, withAlpha(accent, 236));
+        target, baseCenter, radiusX * swell, radiusY * swell, 2.4f, withAlpha(accent, 244));
     drawEllipseOutline(
         target,
-        anchor,
+        baseCenter,
         radiusX * swell * 1.16f,
         radiusY * swell * 1.16f,
-        1.0f,
-        withAlpha(accent, static_cast<int>(70.0f + 60.0f * pulse)));
+        1.2f,
+        withAlpha(accent, static_cast<int>(92.0f + 64.0f * pulse)));
 }
 
 int screenRowForViewer(int row, int /*viewer*/)
@@ -298,7 +301,7 @@ sf::FloatRect pieceTargetRect(
         static_cast<float>(std::max(1, footprintWidth) * std::max(1, footprintHeight)));
     const float width = PieceBaseWidth * scale * footprintScale;
     const float height = (walkSheet ? PieceWalkBaseHeight : PieceBaseHeight) * scale * footprintScale;
-    return {{anchor.x - width * 0.5f, anchor.y - height}, {width, height}};
+    return {{anchor.x - width * 0.5f, anchor.y + PieceStandOffset * scale - height}, {width, height}};
 }
 
 } // namespace bayou::client

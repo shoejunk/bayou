@@ -17,15 +17,27 @@ constexpr float BoardOriginX = 24.0f;
 constexpr float BoardOriginY = 66.0f;
 constexpr float CellSize = 94.0f;
 constexpr float BoardBottomWidth = CellSize * static_cast<float>(game_data::BoardSize);
-constexpr float BoardTopWidth = 544.0f;
+// Keep the far edge broad enough that the back rank does not collapse into a
+// thin strip at 800x600, while retaining enough taper for the board to read as
+// a physical play surface instead of a flat grid.
+constexpr float BoardTopWidth = 548.0f;
 constexpr float BoardHeight = 388.0f;
 constexpr float BoardCenterX = BoardOriginX + BoardBottomWidth * 0.5f;
-constexpr float BoardPerspectiveExponent = 1.18f;
-constexpr float BoardThickness = 14.0f;
-constexpr float PieceFarScale = 0.72f;
-constexpr float PieceNearScale = 1.22f;
+constexpr float BoardPerspectiveExponent = 1.16f;
+constexpr float BoardThickness = 20.0f;
+// Keep the far rank readable at the smallest supported capture while limiting
+// the near-rank swell that makes the board feel crowded around the HUD.
+constexpr float PieceFarScale = 0.84f;
+constexpr float PieceNearScale = 1.14f;
 constexpr float PieceBaseWidth = 96.0f;
 constexpr float PieceBaseHeight = 100.0f;
+// Small shared stand adjustment: close the artwork's transparent foot gap while
+// lifting the plinth enough that the piece reads as physically planted on it.
+constexpr float PieceStandOffset = 3.0f;
+// The plinth sits higher than the artwork anchor so its footprint stays inside
+// the occupied square instead of spilling into the row below.
+constexpr float PieceBaseLift = 12.0f;
+constexpr float PieceBasePipOffset = 7.2f;
 constexpr float PieceWalkBaseHeight = 108.0f;
 constexpr float WalkAnimationLoopSeconds = 1.0f;
 constexpr float AttackAnimationDurationSeconds = 0.42f;
@@ -40,15 +52,15 @@ constexpr float Pi = 3.14159265358979323846f;
 // avoid colliding with the identically named constants inside client_ui.cpp.
 inline constexpr sf::Color BoardBrass{174, 117, 54};
 inline constexpr sf::Color BoardBrassBright{239, 190, 98};
-inline constexpr sf::Color BoardBrassDim{83, 54, 29};
+inline constexpr sf::Color BoardBrassDim{96, 63, 33};
 inline constexpr sf::Color BoardParchment{246, 232, 200};
-inline constexpr sf::Color BoardParchmentMuted{181, 166, 137};
+inline constexpr sf::Color BoardParchmentMuted{208, 197, 174};
 inline constexpr sf::Color BoardPlate{12, 17, 18};
 inline constexpr sf::Color BoardArcane{123, 79, 168};
 
 // Stone tones for the playing surface, before depth shading and control tint.
-inline constexpr sf::Color BoardStoneLight{74, 85, 79};
-inline constexpr sf::Color BoardStoneDark{54, 63, 60};
+inline constexpr sf::Color BoardStoneLight{82, 94, 87};
+inline constexpr sf::Color BoardStoneDark{61, 71, 67};
 inline constexpr sf::Color BoardGrout{13, 18, 18};
 
 struct BoardCellMetrics

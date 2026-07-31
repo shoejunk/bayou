@@ -114,7 +114,11 @@ private:
         // An inactive tab is a lid, not a button: dropping the sheen and studs is
         // what lets the active one come forward.
         style.sheen = active ? 1.0f : 0.35f;
-        style.rivets = active;
+        // A hovered tab gets the same small brass studs as the selected tab.
+        // This makes the click target legible before activation, especially on
+        // the wide Settings strip where inactive plates otherwise read as
+        // decorative trim at a glance.
+        style.rivets = active || hovered;
         bayou::client::drawMaterialPlate(window, pos, tabSize, style);
 
         if (active)

@@ -288,7 +288,14 @@ void drawText(
     sf::Color color,
     float maxWidth)
 {
-    sf::Text text(font, maxWidth > 0.0f ? elideToWidth(font, value, size, maxWidth) : value, size);
+    // Large standalone labels are titles even when an older call site still
+    // passes the body font. Keeping that decision here prevents modal titles
+    // and other shared overlays from dropping back to generic Roboto while
+    // the rest of the surface uses the Gloomthorn face.
+    sf::Font& renderFont = size >= type::Hero ? displayFontOr(font) : font;
+    const std::string displayValue =
+        maxWidth > 0.0f ? elideToWidth(renderFont, value, size, maxWidth) : value;
+    sf::Text text(renderFont, displayValue, size);
     text.setFillColor(color);
     text.setPosition(position);
     drawCrispText(window, text);
@@ -483,7 +490,7 @@ void drawMaterialPlate(
     {
         const float dropX = pressed ? 1.5f : 4.0f;
         const float dropY = pressed ? 2.0f : 5.0f;
-        const auto nearAlpha = static_cast<std::uint8_t>(lit ? 150 : 112);
+        const auto nearAlpha = static_cast<std::uint8_t>(disabled ? 48 : (lit ? 150 : 112));
         sf::ConvexShape wide = makeCutRect(
             plateOrigin + sf::Vector2f(dropX * 0.6f, dropY * 0.8f) - sf::Vector2f(2.0f, 1.0f),
             size + sf::Vector2f(4.0f, 4.0f),
@@ -560,7 +567,8 @@ void drawMaterialPlate(
             {run, 1.0f},
             withAlpha(
                 palette::BrassPale,
-                static_cast<std::uint8_t>(std::lround((lit ? 132.0f : 62.0f) * style.sheen))));
+                static_cast<std::uint8_t>(std::lround(
+                    (lit ? 132.0f : 62.0f) * style.sheen * (disabled ? 0.35f : 1.0f)))));
         drawLine(
             window,
             {plateOrigin.x + cut + 8.0f, plateOrigin.y + size.y - 8.0f},
@@ -570,7 +578,7 @@ void drawMaterialPlate(
 
     // Corner brackets need room to read as brackets; on a checkbox-sized plate
     // they fill the whole face and look like noise.
-    if (style.brackets && size.x >= 34.0f && size.y >= 26.0f)
+    if (style.brackets && !disabled && size.x >= 34.0f && size.y >= 26.0f)
     {
         drawCornerBrackets(
             window,
@@ -581,7 +589,7 @@ void drawMaterialPlate(
                      : (lit ? sf::Color(250, 190, 91, 165) : sf::Color(109, 72, 35, 145)));
     }
 
-    if (style.rivets && size.x >= 54.0f && size.y >= 26.0f)
+    if (style.rivets && !disabled && size.x >= 54.0f && size.y >= 26.0f)
     {
         const float radius = std::clamp(size.y * 0.065f, 1.7f, 3.0f);
         const sf::Color studColor = disabled
@@ -595,7 +603,10 @@ void drawMaterialPlate(
             studColor);
     }
 
-    if (style.focused)
+    // A disabled control must never advertise keyboard focus: the bright ring
+    // would contradict the switched-off material and suggest an available
+    // action.
+    if (style.focused && !disabled)
     {
         drawFocusRing(window, plateOrigin, size, cut, style.focusPhase);
     }

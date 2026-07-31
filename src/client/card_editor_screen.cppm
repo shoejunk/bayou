@@ -6,7 +6,9 @@ module;
 #include <fmt/core.h>
 
 #include "card_editor_assets.hpp"
+#include "client_card_text.hpp"
 #include "client_string.hpp"
+#include "client_textures.hpp"
 #include "client_ui.hpp"
 
 #include "../shared/card_data.hpp"
@@ -36,6 +38,11 @@ import network;
 // these helpers. Internal-linkage entities are not visible there.
 using bayou::client::lowerKey;
 using bayou::client::trim;
+using bayou::client::cardCostLabel;
+using bayou::client::cardLibraryMeta;
+using bayou::client::cardRarityColor;
+using bayou::client::cardRarityLabel;
+using bayou::client::cardStatLabel;
 using bayou::client::card_editor_assets::assetRelativeImagePath;
 using bayou::client::card_editor_assets::normalizeCardImagePath;
 using bayou::client::card_editor_assets::resolveAssetImagePath;
@@ -181,6 +188,40 @@ void drawText(
 void drawRoundedPanel(sf::RenderWindow& window, const sf::Vector2f& position, const sf::Vector2f& size, sf::Color fill, sf::Color outline = Line)
 {
     bayou::client::drawBeveledPlate(window, position, size, fill, outline, false, 12.0f);
+}
+
+void drawCroppedPreviewArt(
+    sf::RenderWindow& window,
+    sf::Texture& texture,
+    sf::FloatRect target,
+    float verticalBias = 0.24f)
+{
+    const sf::Vector2u imageSize = texture.getSize();
+    if (imageSize.x == 0 || imageSize.y == 0 || target.size.x <= 0.0f || target.size.y <= 0.0f)
+    {
+        return;
+    }
+
+    const float targetAspect = target.size.x / target.size.y;
+    const float imageWidth = static_cast<float>(imageSize.x);
+    const float imageHeight = static_cast<float>(imageSize.y);
+    float cropWidth = imageWidth;
+    float cropHeight = cropWidth / targetAspect;
+    if (cropHeight > imageHeight)
+    {
+        cropHeight = imageHeight;
+        cropWidth = cropHeight * targetAspect;
+    }
+
+    const float left = (imageWidth - cropWidth) * 0.5f;
+    const float top = (imageHeight - cropHeight) * std::clamp(verticalBias, 0.0f, 1.0f);
+    bayou::client::drawTextureRectContain(
+        window,
+        texture,
+        sf::IntRect(
+            {static_cast<int>(left), static_cast<int>(top)},
+            {std::max(1, static_cast<int>(cropWidth)), std::max(1, static_cast<int>(cropHeight))}),
+        target);
 }
 
 class EditorButton
@@ -592,6 +633,18 @@ public:
         }
         newButton.update(mouse);
         refreshButton.update(mouse);
+        const bool hasSavedSelection = editorMode == EditorMode::Cards
+            ? selectedCard && *selectedCard < cards.size()
+            : selectedAction && *selectedAction < actions.size();
+        if (editorMode == EditorMode::Cards)
+        {
+            copyButton.setEnabled(hasSavedSelection);
+        }
+        else
+        {
+            copyActionButton.setEnabled(hasSavedSelection);
+        }
+        deleteButton.setEnabled(hasSavedSelection);
         copyButton.update(mouse);
         copyActionButton.update(mouse);
         saveButton.setEnabled(hasUnsavedCardChanges());
@@ -601,6 +654,8 @@ public:
         editorTabs.update(mouse);
         if (editorMode == EditorMode::Actions)
         {
+            hoveredCard.reset();
+            hoveredAction = actionIndexAt(mouse);
             hoveredActionDropdownItem.reset();
             hoveredActionLink.reset();
             layoutActionFields();
@@ -615,6 +670,8 @@ public:
             }
             return;
         }
+        hoveredAction.reset();
+        hoveredCard = cardIndexAt(mouse);
         hoveredActionDropdownItem = actionDropdownItemAt(mouse);
         hoveredActionLink.reset();
         for (std::size_t i = 0; i < actionRefFields.size(); ++i)
@@ -768,9 +825,11 @@ private:
     EditorMode editorMode = EditorMode::Cards;
     std::vector<card_data::Card> cards;
     std::optional<std::size_t> selectedCard;
+    std::optional<std::size_t> hoveredCard;
     std::size_t listOffset = 0;
     std::vector<card_data::Action> actions;
     std::optional<std::size_t> selectedAction;
+    std::optional<std::size_t> hoveredAction;
     std::size_t actionListOffset = 0;
     std::size_t actionTargetFilterOffset = 0;
     std::string status = "Ready";
@@ -782,6 +841,8 @@ private:
     std::vector<std::pair<std::string, sf::Vector2f>> arraySectionLabels;
     sf::Texture previewTexture;
     bool hasPreviewImage = false;
+    std::string previewMessage = "Enter an asset path";
+    sf::Color previewMessageColor = Muted;
     bool instructionsVisible = false;
     float instructionScroll = 0.0f;
     float instructionContentHeight = 1920.0f;
@@ -2189,6 +2250,8 @@ private:
         rebuildFocusOrder();
         activateField(&titleField);
         hasPreviewImage = false;
+        previewMessage = "Enter an asset path";
+        previewMessageColor = Muted;
         rememberCardForm();
         setStatus("Draft card", Muted);
     }
@@ -2751,14 +2814,37 @@ private:
 
     void loadPreviewImage()
     {
-        const std::optional<std::filesystem::path> path = resolveAssetImagePath(imageField.getValue());
-        if (!path || !previewTexture.loadFromFile(*path))
+        const std::string value = trim(imageField.getValue());
+        if (value.empty())
         {
             previewTexture = sf::Texture();
             hasPreviewImage = false;
+            previewMessage = "Enter an asset path";
+            previewMessageColor = Muted;
             return;
         }
+
+        const std::optional<std::filesystem::path> path = resolveAssetImagePath(value);
+        if (!path)
+        {
+            previewTexture = sf::Texture();
+            hasPreviewImage = false;
+            previewMessage = "Asset path rejected";
+            previewMessageColor = Warn;
+            return;
+        }
+        if (!previewTexture.loadFromFile(*path))
+        {
+            previewTexture = sf::Texture();
+            hasPreviewImage = false;
+            previewMessage = "Image not found in assets";
+            previewMessageColor = Warn;
+            return;
+        }
+
+        previewTexture.setSmooth(true);
         hasPreviewImage = true;
+        previewMessage.clear();
     }
 
     void addTrait()
@@ -3635,19 +3721,27 @@ private:
         if (editorMode == EditorMode::Actions)
         {
             drawText(window, font, fmt::format("{} actions", actions.size()), 14, {200.0f, 131.0f}, Muted);
+            if (actions.empty())
+            {
+                drawText(window, font, "No saved actions", 18, {66.0f, 254.0f}, Ink, 186.0f);
+                drawText(window, font, "Use New to make", 13, {66.0f, 286.0f}, Muted);
+                drawText(window, font, "a reusable action.", 13, {66.0f, 304.0f}, Muted);
+            }
             const std::size_t lastVisible = std::min(actions.size(), actionListOffset + VisibleActionRows);
             for (std::size_t i = actionListOffset; i < lastVisible; ++i)
             {
                 const float y = ListRowStartY + static_cast<float>(i - actionListOffset) * ListRowHeight;
                 const bool selected = selectedAction && *selectedAction == i;
+                const bool hovered = hoveredAction && *hoveredAction == i;
                 bayou::client::drawBeveledPlate(
                     window,
                     {42.0f, y},
                     {230.0f, 48.0f},
-                    selected ? sf::Color(76, 49, 25, 238) : PanelAlt,
-                    selected ? Accent : sf::Color(91, 64, 37),
-                    selected,
+                    selected ? sf::Color(76, 49, 25, 238) : hovered ? sf::Color(34, 42, 39, 246) : PanelAlt,
+                    selected ? Accent : hovered ? sf::Color(154, 112, 62) : sf::Color(91, 64, 37),
+                    selected || hovered,
                     6.0f);
+                bayou::client::drawStud(window, {54.0f, y + 24.0f}, 4.0f, selected ? Accent : sf::Color(112, 91, 58));
                 drawText(window, font, actions[i].name, 16, {66.0f, y + 7.0f}, Ink, 186.0f);
                 drawText(window, font, actions[i].kind + " / " + actions[i].pattern, 13, {66.0f, y + 29.0f}, Muted, 186.0f);
             }
@@ -3662,22 +3756,30 @@ private:
         }
 
         drawText(window, font, fmt::format("{} cards", cards.size()), 14, {218.0f, 131.0f}, Muted);
+        if (cards.empty())
+        {
+            drawText(window, font, "No cards loaded", 18, {66.0f, 254.0f}, Ink, 186.0f);
+            drawText(window, font, "Use New to make a draft,", 13, {66.0f, 286.0f}, Muted);
+            drawText(window, font, "or Refresh to retry.", 13, {66.0f, 304.0f}, Muted);
+        }
 
         const std::size_t lastVisible = std::min(cards.size(), listOffset + VisibleCardRows);
         for (std::size_t i = listOffset; i < lastVisible; ++i)
         {
             const float y = ListRowStartY + static_cast<float>(i - listOffset) * ListRowHeight;
             const bool selected = selectedCard && *selectedCard == i;
+            const bool hovered = hoveredCard && *hoveredCard == i;
             bayou::client::drawBeveledPlate(
                 window,
                 {42.0f, y},
                 {230.0f, 48.0f},
-                selected ? sf::Color(76, 49, 25, 238) : PanelAlt,
-                selected ? Accent : sf::Color(91, 64, 37),
-                selected,
+                selected ? sf::Color(76, 49, 25, 238) : hovered ? sf::Color(34, 42, 39, 246) : PanelAlt,
+                selected ? Accent : hovered ? sf::Color(154, 112, 62) : sf::Color(91, 64, 37),
+                selected || hovered,
                 6.0f);
-            drawText(window, font, cards[i].title, 17, {66.0f, y + 8.0f}, Ink, 186.0f);
-            drawText(window, font, cards[i].type, 13, {66.0f, y + 29.0f}, Muted, 186.0f);
+            bayou::client::drawStud(window, {54.0f, y + 24.0f}, 4.0f, cardRarityColor(cards[i]));
+            drawText(window, font, cards[i].title, 16, {66.0f, y + 6.0f}, Ink, 186.0f);
+            drawText(window, font, cardLibraryMeta(cards[i]), 12, {66.0f, y + 29.0f}, cardRarityColor(cards[i]), 186.0f);
         }
         if (cards.size() > VisibleCardRows)
         {
@@ -4109,55 +4211,131 @@ private:
     void drawPreviewPanel(sf::RenderWindow& window)
     {
         drawRoundedPanel(window, {PreviewPanelX, PreviewPanelY}, {PreviewPanelWidth, PanelHeight}, Panel);
-        drawRoundedPanel(window, {938.0f, 160.0f}, {230.0f, 322.0f}, sf::Color(27, 39, 38), AccentDark);
+        drawText(window, font, "Card Preview", 22, {878.0f, 124.0f}, Ink);
+        drawText(window, font, "Live preview.", 14, {1140.0f, 131.0f}, Muted, 84.0f);
+        const card_data::Card card = cardFromForm();
+        const sf::Color rarityColor = cardRarityColor(card);
+        const bool creature = card.type == "Unit" || game_data::isHeroCard(card);
+        const game_data::GameCard gameCard = game_data::toGameCard(card);
+
+        drawRoundedPanel(window, {938.0f, 160.0f}, {230.0f, 322.0f}, sf::Color(27, 39, 38), rarityColor);
+        drawRoundedPanel(window, {948.0f, 176.0f}, {210.0f, 154.0f}, sf::Color(7, 16, 18), Line);
         if (hasPreviewImage)
         {
-            sf::Sprite sprite(previewTexture);
-            const sf::Vector2u imageSize = previewTexture.getSize();
-            const float scale = std::min(210.0f / static_cast<float>(imageSize.x), 250.0f / static_cast<float>(imageSize.y));
-            sprite.setScale({scale, scale});
-            sprite.setPosition({948.0f, 176.0f});
-            window.draw(sprite);
+            drawCroppedPreviewArt(window, previewTexture, {{948.0f, 176.0f}, {210.0f, 154.0f}});
         }
         else
         {
-            sf::RectangleShape imageSlot({190.0f, 188.0f});
-            imageSlot.setPosition({958.0f, 184.0f});
-            imageSlot.setFillColor(sf::Color(7, 16, 18));
-            imageSlot.setOutlineThickness(1.0f);
-            imageSlot.setOutlineColor(Line);
-            window.draw(imageSlot);
-            drawText(window, font, "No Image", 20, {1016.0f, 264.0f}, Muted);
+            bayou::client::drawCenteredText(window, font, "NO IMAGE", 18, {1053.0f, 244.0f}, previewMessageColor);
+            bayou::client::drawCenteredText(window, font, previewMessage, 11, {1053.0f, 275.0f}, previewMessageColor);
         }
 
-        const card_data::Card card = cardFromForm();
-        sf::Text title(font, elideToWidth(font, card.title.empty() ? "Untitled Card" : card.title, 22, 210.0f), 22);
-        title.setFillColor(Ink);
-        bayou::client::centerText(title, {1053.0f, 414.0f});
-        window.draw(title);
-        sf::Text type(font, card.type, 16);
-        type.setFillColor(Accent);
-        bayou::client::centerText(type, {1053.0f, 445.0f});
-        window.draw(type);
+        bayou::client::drawBeveledPlate(
+            window,
+            {950.0f, 166.0f},
+            {92.0f, 26.0f},
+            sf::Color(18, 24, 24, 244),
+            rarityColor,
+            true,
+            5.0f);
+        drawText(window, font, cardRarityLabel(card), 12, {960.0f, 171.0f}, rarityColor, 72.0f);
+        bayou::client::drawBeveledPlate(
+            window,
+            {1060.0f, 166.0f},
+            {126.0f, 26.0f},
+            sf::Color(18, 24, 24, 244),
+            game_data::isHeroCard(card) ? sf::Color(248, 214, 112) : sf::Color(150, 210, 235),
+            false,
+            5.0f);
+        drawText(window, font, cardCostLabel(card), 11, {1068.0f, 171.0f}, Ink, 110.0f);
 
-        int cost = 0;
-        for (const card_data::KeyIntPair& pair : card.integerValues)
+        bayou::client::drawCenteredText(
+            window,
+            font,
+            elideToWidth(font, card.title.empty() ? "Untitled Card" : card.title, 22, 210.0f),
+            22,
+            {1053.0f, 352.0f},
+            Ink);
+        bayou::client::drawCenteredText(window, font, card.type, 15, {1053.0f, 381.0f}, rarityColor);
+        const std::vector<std::string> statLines = wrapText(font, cardStatLabel(card), 12, 210.0f);
+        const std::size_t visibleStatLines = std::min<std::size_t>(statLines.size(), 3);
+        const float firstStatY = 409.0f - static_cast<float>(visibleStatLines - 1) * 8.0f;
+        for (std::size_t i = 0; i < visibleStatLines; ++i)
         {
-            if (pair.key == "cost")
-            {
-                cost = pair.value;
-                break;
-            }
+            const std::string line = i + 1 == visibleStatLines && statLines.size() > visibleStatLines
+                ? elideToWidth(font, statLines[i], 12, 210.0f)
+                : statLines[i];
+            bayou::client::drawCenteredText(
+                window,
+                font,
+                line,
+                12,
+                {1053.0f, firstStatY + static_cast<float>(i) * 16.0f},
+                sf::Color(224, 210, 176));
         }
+        const float statRuleY = firstStatY + static_cast<float>(visibleStatLines - 1) * 16.0f + 22.0f;
+        bayou::client::drawSeparatorRule(window, {958.0f, statRuleY}, 190.0f, false);
+        bayou::client::drawCenteredText(
+            window,
+            font,
+            "Deck limit: " + std::to_string(game_data::cardDeckLimit(card)),
+            12,
+            {1053.0f, statRuleY + 20.0f},
+            sf::Color(248, 214, 112));
 
-        float y = 480.0f;
-        drawText(window, font, fmt::format("Cost: {}", cost), 16, {882.0f, y}, Ink);
-        y += 54.0f;
-        drawText(window, font, "Traits", 15, {882.0f, y}, Muted);
-        drawText(window, font, joinStrings(card.traits, ", "), 16, {882.0f, y + 22.0f}, Ink, 336.0f);
-        y += 54.0f;
-        drawText(window, font, "Keywords", 15, {882.0f, y}, Muted);
-        drawText(window, font, joinStrings(card.keywords, ", "), 16, {882.0f, y + 22.0f}, Ink, 336.0f);
+        drawText(window, font, "CARD DETAILS", 17, {882.0f, 498.0f}, Ink);
+        bayou::client::drawSeparatorRule(window, {882.0f, 520.0f}, 336.0f, false);
+
+        const auto drawStatBadge = [&](float x, const std::string& label, const std::string& value, sf::Color color) {
+            bayou::client::drawBeveledPlate(
+                window,
+                {x, 530.0f},
+                {78.0f, 42.0f},
+                sf::Color(10, 17, 18, 244),
+                sf::Color(color.r, color.g, color.b, 190),
+                false,
+                5.0f);
+            drawText(window, font, label, 9, {x + 8.0f, 536.0f}, Muted, 62.0f);
+            drawText(window, font, value, 14, {x + 8.0f, 550.0f}, color, 62.0f);
+        };
+
+        const int cost = game_data::isHeroCard(card)
+            ? game_data::cardInt(card, "heroCost", 0)
+            : game_data::cardInt(card, "cost", 0);
+        drawStatBadge(882.0f, game_data::isHeroCard(card) ? "HERO COST" : "COST", std::to_string(cost),
+                      game_data::isHeroCard(card) ? sf::Color(248, 214, 112) : sf::Color(150, 210, 235));
+        drawStatBadge(968.0f, creature ? "HEALTH" : "POWER",
+                      std::to_string(creature ? gameCard.health : gameCard.power),
+                      creature ? sf::Color(224, 210, 176) : sf::Color(205, 175, 235));
+        drawStatBadge(1054.0f, creature ? "ATTACK" : "EFFECT",
+                      creature ? std::to_string(gameCard.attack) : gameCard.effect,
+                      creature ? sf::Color(225, 170, 150) : sf::Color(205, 175, 235));
+        drawStatBadge(1140.0f, "DECK LIMIT", std::to_string(game_data::cardDeckLimit(card)),
+                      sf::Color(248, 214, 112));
+
+        auto drawTagSection = [&](const std::string& label, const std::vector<std::string>& values, float y) {
+            drawText(window, font, label, 12, {882.0f, y}, Muted);
+            const std::string text = values.empty() ? "None" : joinStrings(values, ", ");
+            const std::vector<std::string> lines = wrapText(font, text, 14, 336.0f);
+            for (std::size_t i = 0; i < lines.size(); ++i)
+            {
+                drawText(window, font, lines[i], 14, {882.0f, y + 18.0f + static_cast<float>(i) * 18.0f},
+                         values.empty() ? Muted : Ink, 336.0f);
+            }
+            return y + 18.0f + static_cast<float>(lines.size()) * 18.0f + 8.0f;
+        };
+
+        float y = drawTagSection("TRAITS", card.traits, 582.0f);
+        y = drawTagSection("KEYWORDS", card.keywords, y);
+        if (creature)
+        {
+            drawText(window, font, fmt::format("{} action{}", card.actions.size(), card.actions.size() == 1 ? "" : "s"),
+                     12, {882.0f, std::min(y, 712.0f)}, Muted, 336.0f);
+        }
+        else
+        {
+            drawTagSection("EFFECT", {gameCard.effect}, y);
+        }
     }
 
     void setStatus(const std::string& message, sf::Color color)
