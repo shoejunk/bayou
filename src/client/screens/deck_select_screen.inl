@@ -68,6 +68,10 @@
             }
         }
 
+        // The deck-select footer has its own layout: this screen's two actions
+        // need distinct plates and hitboxes beneath the panels.
+        layoutDeckSelectControls();
+
         // Matchmaking needs a deck, so the verb waits until there is one.
         if (hasSelection)
         {
@@ -85,4 +89,3 @@
         setMessageY(messageText, 562.0f);
         drawCrispText(window, messageText);
     };
-

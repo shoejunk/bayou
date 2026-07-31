@@ -167,7 +167,8 @@
         }
         if (deleteUserPopupVisible)
         {
-            sf::RectangleShape overlay({800.0f, 600.0f});
+            sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
+            overlay.setPosition({ui_canvas::Left, 0.0f});
             overlay.setFillColor(sf::Color(0, 0, 0, 170));
             window.draw(overlay);
             drawPanel(window, {220.0f, 176.0f}, {360.0f, 248.0f});
@@ -183,7 +184,8 @@
         {
             // Deeper than the old alpha 170: at that level the action buttons
             // behind stayed bright enough to compete with the dialog.
-            sf::RectangleShape overlay({800.0f, 600.0f});
+            sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
+            overlay.setPosition({ui_canvas::Left, 0.0f});
             overlay.setFillColor(sf::Color(0, 0, 0, 205));
             window.draw(overlay);
 
@@ -272,7 +274,8 @@
         }
         else if (giveStarterDeckPopupVisible && selectedAdminUser && *selectedAdminUser < adminUsers.size())
         {
-            sf::RectangleShape overlay({800.0f, 600.0f});
+            sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
+            overlay.setPosition({ui_canvas::Left, 0.0f});
             overlay.setFillColor(sf::Color(0, 0, 0, 170));
             window.draw(overlay);
             drawPanel(window, {190.0f, 138.0f}, {420.0f, 348.0f});
@@ -306,4 +309,3 @@
         }
         window.draw(messageText);
     };
-

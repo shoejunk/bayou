@@ -19,7 +19,8 @@
         const DetailRows details = deckEditorAbilityRows(*card);
         const bool hero = game_data::isHeroCard(*card);
 
-        sf::RectangleShape overlay({800.0f, 600.0f});
+        sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
+        overlay.setPosition({ui_canvas::Left, 0.0f});
         overlay.setFillColor(sf::Color(0, 0, 0, 186));
         window.draw(overlay);
 
@@ -171,4 +172,3 @@
 
         closeDeckCardPopupButton.draw(window);
     };
-

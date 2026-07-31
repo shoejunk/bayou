@@ -10,6 +10,20 @@
 namespace bayou::client
 {
 
+// ---- logical canvas ------------------------------------------------------
+// Existing screen compositions were authored around x = 0..800 and remain
+// centred inside the fixed 16:9 canvas. New edge chrome and full-screen
+// overlays should use Left/Right/Width so they include the widescreen gutters.
+namespace ui_canvas
+{
+inline constexpr float LegacyWidth = 800.0f;
+inline constexpr float Height = 600.0f;
+inline constexpr float Aspect = 16.0f / 9.0f;
+inline constexpr float Width = Height * Aspect;
+inline constexpr float Left = (LegacyWidth - Width) * 0.5f;
+inline constexpr float Right = Left + Width;
+} // namespace ui_canvas
+
 // ---- shared palette -------------------------------------------------------
 // Draw from these rather than raw sf::Color literals so a retune of the game's
 // look happens in one place. Anything outside this set reads as off-palette.

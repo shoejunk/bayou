@@ -50,6 +50,8 @@ using bayou::client::card_editor_assets::setAssetRoot;
 
 constexpr float EditorWidth = 1280.0f;
 constexpr float EditorHeight = 760.0f;
+constexpr float EditorViewWidth = EditorHeight * (16.0f / 9.0f);
+constexpr float EditorViewLeft = (EditorWidth - EditorViewWidth) * 0.5f;
 constexpr float ListPanelX = 24.0f;
 constexpr float ListPanelY = 100.0f;
 constexpr float ListPanelWidth = 276.0f;
@@ -929,7 +931,7 @@ private:
         if (windowSize.x > 0 && windowSize.y > 0)
         {
             const float windowAspect = static_cast<float>(windowSize.x) / static_cast<float>(windowSize.y);
-            const float editorAspect = EditorWidth / EditorHeight;
+            const float editorAspect = EditorViewWidth / EditorHeight;
             if (windowAspect > editorAspect)
             {
                 viewport.size.x = editorAspect / windowAspect;
@@ -942,7 +944,7 @@ private:
             }
         }
 
-        sf::View view(sf::FloatRect({0.0f, 0.0f}, {EditorWidth, EditorHeight}));
+        sf::View view(sf::FloatRect({EditorViewLeft, 0.0f}, {EditorViewWidth, EditorHeight}));
         view.setViewport(viewport);
         return view;
     }

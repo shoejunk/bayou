@@ -54,11 +54,14 @@ constexpr float EventRowY = 116.0f;
 constexpr float EventRowHeight = 70.0f;
 constexpr std::size_t VisibleEventRows = 6;
 constexpr float LoadoutRowY = 134.0f;
-constexpr float LoadoutRowHeight = 40.0f;
-constexpr std::size_t VisibleLoadoutRows = 8;
-constexpr float CardRowY = 147.0f;
-constexpr float CardRowHeight = 30.0f;
-constexpr std::size_t VisibleCardRows = 11;
+// The shared collection rows need enough vertical room for their portrait and
+// metadata. Six readable deck identities are more useful than eight anonymous
+// text strips, and the same rhythm now carries through the marching army.
+constexpr float LoadoutRowHeight = 54.0f;
+constexpr std::size_t VisibleLoadoutRows = 6;
+constexpr float CardRowY = 180.0f;
+constexpr float CardRowHeight = 36.0f;
+constexpr std::size_t VisibleCardRows = 8;
 
 sf::FloatRect rect(float x, float y, float width, float height)
 {
@@ -614,12 +617,38 @@ public:
             deck.id = static_cast<std::int64_t>(100 + i);
             deck.revision = 3;
             deck.deck.name = DeckNames[i];
-            for (const card_data::Card& card : library)
+
+            // Seed a genuinely legal capture deck. The old units-only sample
+            // produced "24/20" warning rows beside a successful-save message,
+            // making the review state contradict itself even though live saves
+            // correctly enforce deckRulesError.
+            if (!library.empty())
             {
-                if (card.type == "Unit" && deck.deck.cardTitles.size() < 24)
+                for (std::size_t pass = 0; pass < library.size(); ++pass)
                 {
+                    const card_data::Card& card =
+                        library[(pass + i * 7) % library.size()];
+                    if (game_data::isHeroCard(card) && game_data::cardDeckLimit(card) > 0)
+                    {
+                        deck.deck.cardTitles.push_back(card.title);
+                        break;
+                    }
+                }
+
+                int nonHeroes = 0;
+                for (std::size_t pass = 0;
+                     pass < library.size() && nonHeroes < game_data::DeckCardCount;
+                     ++pass)
+                {
+                    const card_data::Card& card =
+                        library[(pass + i * 7) % library.size()];
+                    if (game_data::isHeroCard(card) || game_data::isTokenCard(card) ||
+                        game_data::cardDeckLimit(card) <= 0)
+                    {
+                        continue;
+                    }
                     deck.deck.cardTitles.push_back(card.title);
-                    deck.deck.cardTitles.push_back(card.title);
+                    ++nonHeroes;
                 }
             }
             decks.push_back(std::move(deck));
@@ -1543,6 +1572,15 @@ private:
             reinforcementHoursInput.setActive(false);
             view = View::EventCreate;
             status.clear();
+            return;
+        }
+        // The empty-state call to action uses this same transition. Keep its
+        // destination in the existing navigation flow rather than adding a
+        // one-off route for presentation.
+        if (events.empty() && !pendingEvents && rect(310, 504, 180, 38).contains(mouse))
+        {
+            view = View::Loadout;
+            refreshLoadout();
             return;
         }
         for (std::size_t row = 0; row < VisibleEventRows; ++row)
@@ -2593,32 +2631,27 @@ private:
     // next rather than a bare apology.
     void drawEventsEmptyState(sf::RenderWindow& window)
     {
-        const sf::FloatRect art(rect(250.0f, 152.0f, 300.0f, 200.0f));
+        UiContext ui{window, font, font, textures};
+        const sf::FloatRect art(rect(190.0f, 120.0f, 420.0f, 280.0f));
+        drawBeveledPlate(window, art.position - sf::Vector2f(6.0f, 6.0f),
+                         art.size + sf::Vector2f(12.0f, 12.0f),
+                         sf::Color(10, 15, 16, 232), Line, false, 8.0f);
         if (mapTexture)
         {
-            drawContainSprite(window, *mapTexture, art, sf::Color(118, 122, 120));
+            drawContainSprite(window, *mapTexture, art, sf::Color(172, 178, 174));
         }
-        sf::RectangleShape frame(art.size);
-        frame.setPosition(art.position);
-        frame.setFillColor(sf::Color::Transparent);
-        frame.setOutlineThickness(1.0f);
-        frame.setOutlineColor(sf::Color(84, 60, 34));
-        window.draw(frame);
+        drawVerticalScrim(ui, art, sf::Color(5, 9, 10, 0), sf::Color(5, 9, 10, 128));
 
-        sf::Text heading(font, "The Dark Realms lie quiet", 24);
-        heading.setFillColor(Accent);
-        centerText(heading, {400.0f, 384.0f});
-        drawCrispText(window, heading);
+        drawSectionHeading(ui, {248.0f, 416.0f}, "The Dark Realms lie quiet", 304.0f);
 
         drawWrappedText(
             window, font,
             "No campaign is mustering right now. Build the army you will march "
             "with, and you will be ready the moment the next war is called.",
-            15, {230.0f, 412.0f}, Muted, 340.0f);
+            14, {220.0f, 446.0f}, Muted, 360.0f);
 
-        drawText(window, font,
-                 accountIsAdmin ? "Use New Conquest above to open a campaign." : "Check back soon.",
-                 13, {230.0f, 478.0f}, sf::Color(150, 132, 104), 340.0f);
+        drawButton(window, font, rect(310, 504, 180, 38), "Prepare Loadouts",
+                   hovered(rect(310, 504, 180, 38), mousePosition), true, true);
     }
 
     void clickEventCreate(sf::Vector2f mouse)
@@ -2688,29 +2721,20 @@ private:
             {
                 break;
             }
-            const bool isSelected = selectedDeck == index;
             const sf::FloatRect bounds = rect(30, LoadoutRowY + row * LoadoutRowHeight, 340, LoadoutRowHeight - 4);
-            drawBeveledPlate(
-                window, bounds.position, bounds.size,
-                isSelected ? sf::Color(76, 49, 25, 240) : sf::Color(17, 24, 25, 228),
-                isSelected ? Accent : sf::Color(96, 68, 38), isSelected, 5.0f);
+            UiContext ui{window, font, font, textures};
+            drawDeckRosterRow(ui, bounds, summarizeDeck(decks[index].deck, catalog),
+                               selectedDeck == index, hovered(bounds, mousePosition));
             // Decks already marching are marked so the two lists can be
             // reconciled without counting back and forth between them.
             const bool marching = std::find(army.deckIds.begin(), army.deckIds.end(),
                                             decks[index].id) != army.deckIds.end();
             if (marching)
             {
-                sf::CircleShape pip(3.0f);
-                pip.setOrigin({3.0f, 3.0f});
-                pip.setPosition(bounds.position + sf::Vector2f(14.0f, bounds.size.y * 0.5f));
-                pip.setFillColor(Good);
-                window.draw(pip);
+                // Keep the marching state as a small green seal in the outer
+                // margin; a word badge would compete with the roster's curve.
+                drawStud(window, bounds.position + sf::Vector2f(7.0f, bounds.size.y * 0.5f), 2.8f, Good);
             }
-            drawText(window, font, elide(font, decks[index].deck.name, 16, 216.0f), 16,
-                     bounds.position + sf::Vector2f(26.0f, 8.0f));
-            // Inset clear of the plate's corner rivet, which the count ran into.
-            drawTextRight(window, font, std::to_string(decks[index].deck.cardTitles.size()) + " cards", 12,
-                          {bounds.position.x + bounds.size.x - 22.0f, bounds.position.y + 11.0f}, Muted);
         }
         if (decks.empty() && !pendingLoadout)
         {
@@ -2735,21 +2759,25 @@ private:
             }
             const bool isSelected = selectedArmySlot == slot;
             const sf::FloatRect bounds = rect(410, LoadoutRowY + row * LoadoutRowHeight, 360, LoadoutRowHeight - 4);
-            drawBeveledPlate(
-                window, bounds.position, bounds.size,
-                isSelected ? sf::Color(76, 49, 25, 240) : sf::Color(17, 24, 25, 228),
-                isSelected ? Accent : sf::Color(96, 68, 38), isSelected, 5.0f);
-            // The slot number is the march order, so it is set apart from the
-            // deck name rather than run together with it.
-            // Clear of the plate's left corner rivet, which clipped the digit.
-            drawText(window, font, std::to_string(slot + 1), 13,
-                     bounds.position + sf::Vector2f(19.0f, 11.0f), Accent);
-            sf::RectangleShape divider({1.0f, bounds.size.y - 16.0f});
-            divider.setPosition(bounds.position + sf::Vector2f(36.0f, 8.0f));
-            divider.setFillColor(sf::Color(96, 68, 38, 170));
-            window.draw(divider);
-            drawText(window, font, elide(font, armyDeckName(army.deckIds[slot]), 16, 292.0f), 16,
-                     bounds.position + sf::Vector2f(47.0f, 8.0f));
+            const auto found = std::find_if(decks.begin(), decks.end(), [&](const auto& deck) {
+                return deck.id == army.deckIds[slot];
+            });
+            if (found != decks.end())
+            {
+                UiContext ui{window, font, font, textures};
+                drawDeckRosterRow(ui, bounds, summarizeDeck(found->deck, catalog),
+                                   isSelected, hovered(bounds, mousePosition));
+                // The order is semantic, not merely the list's visual order,
+                // so stamp it onto the roster card without sacrificing its art.
+                drawBadge(window, font, bounds.position + sf::Vector2f(8.0f, 7.0f),
+                          "#" + std::to_string(slot + 1), Accent, 9);
+            }
+            else
+            {
+                drawCompactPlate(window, bounds, PanelAlt, Line, 5.0f);
+                drawText(window, font, armyDeckName(army.deckIds[slot]), 16,
+                         bounds.position + sf::Vector2f(16.0f, 16.0f));
+            }
         }
         if (army.deckIds.empty())
         {
@@ -2788,10 +2816,11 @@ private:
         drawText(window, font, editingDeck.id == 0 ? "New Conquest Deck" : "Edit Conquest Deck",
                  23, {154.0f, 29.0f}, Accent);
         deckNameInput.draw(window);
+        UiContext ui{window, font, font, textures};
         drawPanel(window, rect(20, 138, 350, 346));
         drawPanel(window, rect(388, 138, 392, 346));
-        drawText(window, font, "Deck", 18, {30.0f, 138.0f}, Accent);
-        drawText(window, font, "Available collection", 18, {398.0f, 138.0f}, Accent);
+        drawSectionHeading(ui, {32.0f, 146.0f}, "Deck", 310.0f);
+        drawSectionHeading(ui, {400.0f, 146.0f}, "Available Collection", 348.0f);
 
         const std::vector<std::string> titles = editingUniqueTitles();
         for (std::size_t row = 0; row < VisibleCardRows; ++row)
@@ -2808,14 +2837,23 @@ private:
             });
             const int copyLimit = card == catalog.end() ? 0 : game_data::cardDeckLimit(*card);
             const sf::FloatRect bounds = rect(24, CardRowY + row * CardRowHeight, 340, CardRowHeight - 3);
-            sf::RectangleShape background(bounds.size);
-            background.setPosition(bounds.position);
-            background.setFillColor(selectedEditingTitle == index ? sf::Color(91, 60, 29, 245) : PanelAlt);
-            window.draw(background);
-            drawText(window, font, elide(font, titles[index], 15, 270.0f), 15,
-                     bounds.position + sf::Vector2f(7.0f, 4.0f));
-            drawText(window, font, "x" + std::to_string(copies) + "/" + std::to_string(copyLimit), 14,
-                     bounds.position + sf::Vector2f(302.0f, 5.0f), Accent);
+            if (card != catalog.end())
+            {
+                CardRow rowView;
+                rowView.card = &*card;
+                rowView.rect = bounds;
+                rowView.selected = selectedEditingTitle == index;
+                rowView.hovered = hovered(bounds, mousePosition);
+                rowView.copies = copies;
+                rowView.copyLimit = copyLimit;
+                drawCardRow(ui, rowView);
+            }
+            else
+            {
+                drawCompactPlate(window, bounds, PanelAlt, Line, 4.0f);
+                drawText(window, font, elide(font, titles[index], 15, 270.0f), 15,
+                         bounds.position + sf::Vector2f(10.0f, 8.0f));
+            }
         }
 
         const std::vector<const card_data::Card*> library = availableLibrary();
@@ -2832,14 +2870,16 @@ private:
                                             editingDeck.deck.cardTitles.end(), card.title));
             const int owned = collectionCopiesFor(collection, card.title);
             const sf::FloatRect bounds = rect(392, CardRowY + row * CardRowHeight, 384, CardRowHeight - 3);
-            sf::RectangleShape background(bounds.size);
-            background.setPosition(bounds.position);
-            background.setFillColor(selectedLibraryCard == index ? sf::Color(91, 60, 29, 245) : PanelAlt);
-            window.draw(background);
-            drawText(window, font, elide(font, card.title, 15, 260.0f), 15,
-                     bounds.position + sf::Vector2f(7.0f, 4.0f));
-            drawText(window, font, std::to_string(committed) + "/" + std::to_string(owned), 13,
-                     bounds.position + sf::Vector2f(321.0f, 6.0f), Muted);
+            CardRow rowView;
+            rowView.card = &card;
+            rowView.rect = bounds;
+            rowView.selected = selectedLibraryCard == index;
+            rowView.hovered = hovered(bounds, mousePosition);
+            // The shared count becomes the committed-versus-owned capacity in
+            // Conquest. availableLibrary has already excluded exhausted cards.
+            rowView.copies = committed;
+            rowView.copyLimit = owned;
+            drawCardRow(ui, rowView);
         }
 
         drawButton(window, font, rect(24, 500, 150, 38), "Remove Copy",
@@ -2929,7 +2969,8 @@ private:
 
     void drawForceEndConfirmation(sf::RenderWindow& window)
     {
-        sf::RectangleShape shade({800.0f, 600.0f});
+        sf::RectangleShape shade({ui_canvas::Width, ui_canvas::Height});
+        shade.setPosition({ui_canvas::Left, 0.0f});
         shade.setFillColor(sf::Color(0, 0, 0, 185));
         window.draw(shade);
         drawPanel(window, rect(170, 190, 460, 250), sf::Color(22, 18, 16, 252));

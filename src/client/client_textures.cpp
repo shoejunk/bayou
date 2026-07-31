@@ -119,11 +119,14 @@ void runFullWindowView(sf::RenderWindow& window, const std::function<void(sf::Ve
 {
     const sf::View logicalView = window.getView();
     const sf::Vector2u windowSize = window.getSize();
-    const sf::Vector2f fullSize{
-        static_cast<float>(std::max(windowSize.x, 1u)),
-        static_cast<float>(std::max(windowSize.y, 1u))};
-    window.setView(sf::View(sf::FloatRect({0.0f, 0.0f}, fullSize)));
-    body(fullSize);
+    const sf::FloatRect viewport = logicalView.getViewport();
+    const sf::Vector2f contentSize{
+        static_cast<float>(std::max(windowSize.x, 1u)) * viewport.size.x,
+        static_cast<float>(std::max(windowSize.y, 1u)) * viewport.size.y};
+    sf::View contentView(sf::FloatRect({0.0f, 0.0f}, contentSize));
+    contentView.setViewport(viewport);
+    window.setView(contentView);
+    body(contentSize);
     window.setView(logicalView);
 }
 
@@ -222,33 +225,36 @@ void drawAmbientMotes(
 
 void drawBackdrop(sf::RenderWindow& window, sf::Texture* backdropTexture)
 {
-    // The interface is laid out in a 4:3 logical space that gets letterboxed on
-    // a wider display. Painting the backdrop through a full-window view instead
-    // fills those margins, so the art bleeds to the screen edges rather than
-    // leaving black bars beside the UI.
+    // The interface owns a fixed 16:9 canvas. Render the art only through that
+    // canvas' viewport so non-16:9 windows retain clean pillarbox/letterbox bars
+    // instead of leaking the backdrop and ambient effects into them.
     const sf::View logicalView = window.getView();
     const sf::Vector2u windowSize = window.getSize();
-    const sf::Vector2f fullSize{
-        static_cast<float>(std::max(windowSize.x, 1u)),
-        static_cast<float>(std::max(windowSize.y, 1u))};
-
-    window.setView(sf::View(sf::FloatRect({0.0f, 0.0f}, fullSize)));
+    const sf::FloatRect viewport = logicalView.getViewport();
+    const sf::Vector2f contentSize{
+        static_cast<float>(std::max(windowSize.x, 1u)) * viewport.size.x,
+        static_cast<float>(std::max(windowSize.y, 1u)) * viewport.size.y};
+    sf::View contentView(sf::FloatRect({0.0f, 0.0f}, contentSize));
+    contentView.setViewport(viewport);
+    window.setView(contentView);
 
     if (backdropTexture)
     {
-        drawCoverSprite(window, *backdropTexture, {{0.0f, 0.0f}, fullSize});
+        drawCoverSprite(window, *backdropTexture, {{0.0f, 0.0f}, contentSize});
     }
     else
     {
-        window.clear(sf::Color(9, 17, 19));
+        sf::RectangleShape fallback(contentSize);
+        fallback.setFillColor(sf::Color(9, 17, 19));
+        window.draw(fallback);
     }
 
-    sf::RectangleShape wash(fullSize);
+    sf::RectangleShape wash(contentSize);
     wash.setFillColor(sf::Color(3, 8, 10, 145));
     window.draw(wash);
 
-    sf::RectangleShape bottomShade({fullSize.x, fullSize.y * 0.16f});
-    bottomShade.setPosition({0.0f, fullSize.y * 0.84f});
+    sf::RectangleShape bottomShade({contentSize.x, contentSize.y * 0.16f});
+    bottomShade.setPosition({0.0f, contentSize.y * 0.84f});
     bottomShade.setFillColor(sf::Color(2, 5, 6, 92));
     window.draw(bottomShade);
 

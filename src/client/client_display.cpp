@@ -1,4 +1,5 @@
 #include "client_display.hpp"
+#include "client_ui.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -7,8 +8,10 @@ namespace bayou::client
 {
 namespace
 {
-constexpr float LogicalWidth = 800.0f;
-constexpr float LogicalHeight = 600.0f;
+// 1366x768 is the ubiquitous rounded 16:9 mode (its exact ratio differs by
+// less than one tenth of one percent). Treat it as native widescreen so it
+// never receives a distracting one-pixel pillarbox.
+constexpr float NativeAspectTolerance = 0.002f;
 
 void addResolution(
     std::vector<sf::Vector2u>& resolutions,
@@ -91,20 +94,20 @@ void applyLogicalView(sf::RenderWindow& window)
     }
 
     const float windowAspect = static_cast<float>(windowSize.x) / static_cast<float>(windowSize.y);
-    const float logicalAspect = LogicalWidth / LogicalHeight;
     sf::FloatRect viewport({0.0f, 0.0f}, {1.0f, 1.0f});
-    if (windowAspect > logicalAspect)
+    if (windowAspect > ui_canvas::Aspect + NativeAspectTolerance)
     {
-        viewport.size.x = logicalAspect / windowAspect;
+        viewport.size.x = ui_canvas::Aspect / windowAspect;
         viewport.position.x = (1.0f - viewport.size.x) * 0.5f;
     }
-    else if (windowAspect < logicalAspect)
+    else if (windowAspect < ui_canvas::Aspect - NativeAspectTolerance)
     {
-        viewport.size.y = windowAspect / logicalAspect;
+        viewport.size.y = windowAspect / ui_canvas::Aspect;
         viewport.position.y = (1.0f - viewport.size.y) * 0.5f;
     }
 
-    sf::View view(sf::FloatRect({0.0f, 0.0f}, {LogicalWidth, LogicalHeight}));
+    sf::View view(
+        sf::FloatRect({ui_canvas::Left, 0.0f}, {ui_canvas::Width, ui_canvas::Height}));
     view.setViewport(viewport);
     window.setView(view);
 }

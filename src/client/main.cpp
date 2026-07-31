@@ -375,7 +375,8 @@ private:
             effectBuffers[static_cast<std::size_t>(AudioCue::Dematerialize)];
         const std::optional<std::filesystem::path> dematerializePath =
             resolveAssetPath("audio/dematerialize.wav");
-        if (!dematerializePath || !dematerializeBuffer.loadFromFile(*dematerializePath))
+        if (!dematerializePath || !std::filesystem::exists(*dematerializePath) ||
+            !dematerializeBuffer.loadFromFile(*dematerializePath))
         {
             // Airy descending shimmer for a piece fading out of sight.
             dematerializeBuffer = bufferFromSamples(makeTone(0.55f, 940.0f, 180.0f, 0.42f, 0.45f));
@@ -1100,7 +1101,7 @@ int main(int argc, char** argv)
         font);
     Button dismissRevealedCardButton({300.0f, 492.0f}, {200.0f, 46.0f}, "Dismiss", font);
     Button starterDeckBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
-    Button claimStarterDeckButton({280.0f, 502.0f}, {240.0f, 46.0f}, "Claim Deck", font);
+    Button claimStarterDeckButton({220.0f, 502.0f}, {360.0f, 46.0f}, "Claim Deck", font);
     // The Tools tab collects the admin-only screens that used to sit on the main
     // menu. Tabs are a little narrower than three at the old width would be so
     // the signed-in text still fits between the strip and the Back button.
@@ -1401,6 +1402,20 @@ int main(int argc, char** argv)
     std::vector<DematerializeGhost> dematerializeGhosts;
 
     Button findMatchButton({300.0f, 496.0f}, {200.0f, 48.0f}, "Find Match", font);
+    auto layoutDeckSelectControls = [&]() {
+        // These actions share one footer row, below the two deck panels. They
+        // intentionally do not reuse the generic Back position: that position
+        // overlaps Find Match on this screen and produces competing hitboxes.
+        findMatchButton.setVariant(ButtonVariant::Primary);
+        findMatchButton.setSize({208.0f, 42.0f});
+        findMatchButton.setPosition({286.0f, 500.0f});
+        findMatchButton.setLabelSize(type::Subheading);
+
+        backButton.setVariant(ButtonVariant::Quiet);
+        backButton.setSize({112.0f, 42.0f});
+        backButton.setPosition({510.0f, 500.0f});
+        backButton.setLabelSize(type::Body);
+    };
     Button abilityButton(
         {GameActionButtonX, GameAbilityButtonY},
         {GameAbilityButtonWidth, GameActionButtonHeight},
@@ -1806,7 +1821,8 @@ int main(int argc, char** argv)
     auto drawPlayerBadge = [&]() {
         // Width is bounded by the title frame, which starts at x = 190 and cannot
         // move: the wordmark is centred on the screen.
-        constexpr sf::Vector2f BadgePosition{10.0f, 14.0f};
+        constexpr float BadgeLeft = -122.0f;
+        constexpr sf::Vector2f BadgePosition{BadgeLeft, 14.0f};
         // The role tag lives inside the plate, so the badge grows a row to hold
         // it. Hanging it underneath read as an element that had escaped its
         // container.
@@ -1820,7 +1836,7 @@ int main(int argc, char** argv)
         drawMaterialPlate(window, BadgePosition, BadgeSize, badge);
 
         // ---- portrait -----------------------------------------------------
-        constexpr sf::Vector2f PortraitCenter{46.0f, 55.0f};
+        constexpr sf::Vector2f PortraitCenter{BadgeLeft + 36.0f, 55.0f};
         constexpr float PortraitRadius = 25.0f;
         // account_profile_circle_frame is a filled disc rather than a ring, so it
         // has to go down first as the bezel; drawing it last is what left the
@@ -1872,7 +1888,7 @@ int main(int argc, char** argv)
         window.draw(portraitRing);
 
         // ---- identity -----------------------------------------------------
-        constexpr float TextLeft = 80.0f;
+        constexpr float TextLeft = BadgeLeft + 70.0f;
         const float textRight = BadgePosition.x + BadgeSize.x - 10.0f;
         const float column = textRight - TextLeft;
 
@@ -1966,7 +1982,7 @@ int main(int argc, char** argv)
     // A tracked-caps build mark on a hairline, the way a shipping client marks
     // itself, rather than bare text in the corner.
     auto drawBuildStamp = [&]() {
-        constexpr float StampRight = 786.0f;
+        constexpr float StampRight = 922.0f;
         constexpr float StampY = 578.0f;
         sf::Text version(font, "BUILD 1.0.0", type::Micro);
         version.setLetterSpacing(1.6f);
@@ -1990,12 +2006,12 @@ int main(int argc, char** argv)
 
         drawMainMenuTextureContained(
             mainMenuSmallHexTexture,
-            {683.0f, 14.0f},
+            {817.0f, 14.0f},
             {36.0f, 38.0f},
             authenticatedSettingsHovered ? sf::Color::White : sf::Color(225, 218, 202));
         drawMainMenuTextureContained(
             mainMenuSettingsTexture,
-            {691.0f, 22.0f},
+            {825.0f, 22.0f},
             {20.0f, 20.0f},
             authenticatedSettingsHovered ? sf::Color::White : sf::Color(235, 225, 202));
 
@@ -2003,7 +2019,7 @@ int main(int argc, char** argv)
     };
 
     auto authenticatedSettingsButtonClicked = [&](sf::Vector2f point) {
-        return isInsideRect(point, 682.0f, 13.0f, 38.0f, 40.0f);
+        return isInsideRect(point, 816.0f, 13.0f, 38.0f, 40.0f);
     };
 
     auto drawExitDesktopCloseButton = [&]() {
@@ -2011,7 +2027,7 @@ int main(int argc, char** argv)
         {
             drawMainMenuTextureStretched(
                 mainMenuExitTexture,
-                {730.0f, -2.0f},
+                {864.0f, -2.0f},
                 {58.0f, 90.0f},
                 exitDesktopCloseHovered ? sf::Color::White : sf::Color(224, 214, 202));
             return;
@@ -2047,13 +2063,14 @@ int main(int argc, char** argv)
     auto exitDesktopCloseButtonClicked = [&](sf::Vector2f point) {
         if (currentState == GameState::Authenticated)
         {
-            return isInsideRect(point, 730.0f, 0.0f, 58.0f, 72.0f);
+            return isInsideRect(point, 864.0f, 0.0f, 58.0f, 72.0f);
         }
         return isInsideRect(point, 724.0f, 18.0f, 52.0f, 52.0f);
     };
 
     auto drawExitDesktopPopup = [&]() {
-        sf::RectangleShape overlay({800.0f, 600.0f});
+        sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
+        overlay.setPosition({ui_canvas::Left, 0.0f});
         overlay.setFillColor(sf::Color(0, 0, 0, 170));
         window.draw(overlay);
         drawPanel(window, {220.0f, 188.0f}, {360.0f, 220.0f});
@@ -3516,6 +3533,19 @@ int main(int argc, char** argv)
         drawOpponentSlot({centerX - 112.0f, slotY}, false, loggedInUsername);
         drawOpponentSlot({centerX + 112.0f, slotY}, true, "Unknown");
 
+        // Carry the rank context into the queue: the player can see what the
+        // search is trying to match without leaving the screen to inspect the
+        // profile badge.
+        const sf::Color playerAccent = leagueAccent(playerLeague);
+        drawLeagueSigil({centerX - 112.0f, slotY + 84.0f}, 6.0f, playerAccent);
+        drawCenteredText(
+            window,
+            font,
+            std::string(ranking::leagueName(playerLeague)) + " " + std::to_string(playerRating),
+            type::Caption,
+            {centerX - 72.0f, slotY + 84.0f},
+            playerAccent);
+
         // The crossed-swords glyph already carries "versus" elsewhere in the
         // menu, so reuse it rather than inventing a second symbol.
         if (mainMenuPlayIconTexture)
@@ -3542,7 +3572,7 @@ int main(int argc, char** argv)
         drawCenteredText(
             window,
             font,
-            "Matching you against a similar rating.",
+            "Searching near your " + std::to_string(playerRating) + " rating.",
             type::Caption,
             {centerX, panelPosition.y + panelSize.y - 24.0f},
             palette::InkMuted);
@@ -9350,6 +9380,7 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::DeckSelect)
         {
+            layoutDeckSelectControls();
             findMatchButton.update(mousePos);
             backButton.update(mousePos);
         }
@@ -9652,7 +9683,8 @@ int main(int argc, char** argv)
             window.draw(messageText);
             if (passwordChangedPopupVisible)
             {
-                sf::RectangleShape overlay({800.0f, 600.0f});
+                sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
+                overlay.setPosition({ui_canvas::Left, 0.0f});
                 overlay.setFillColor(sf::Color(0, 0, 0, 170));
                 window.draw(overlay);
                 drawPanel(window, {220.0f, 190.0f}, {360.0f, 220.0f});

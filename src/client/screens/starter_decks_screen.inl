@@ -40,13 +40,16 @@
         {
             return std::string("Claim Deck");
         }
+        const std::string price = offer->price == 0
+            ? "Free"
+            : std::to_string(offer->price) + " Coins";
+        const std::string& court = offer->name;
         if (offer->owned)
         {
-            return std::string("Already Owned");
+            return court + " Owned";
         }
-        return offer->price == 0
-            ? std::string("Claim for Free")
-            : "Buy for " + std::to_string(offer->price);
+        const std::string verb = offer->price == 0 ? "Claim " : "Buy ";
+        return verb + court + " - " + price;
     };
 
     auto starterDeckActionEnabled = [&]() {

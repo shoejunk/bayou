@@ -21,9 +21,9 @@
         window.draw(plate);
     };
 
-    // Compact health pips sit inside the lower face of the plinth. They preserve
-    // at-a-glance health without putting a separate plate between the viewer and
-    // the piece art behind it.
+    // Compact health pips sit inside the lower face of the plinth. A restrained
+    // dark backing keeps the pips legible over both bright fey tokens and dark
+    // enemy silhouettes without placing a separate status bar across their art.
     auto drawPieceHealthPips = [&](sf::Vector2f anchor,
                                    float scale,
                                    int health,
@@ -42,6 +42,21 @@
         const float spacing = radius * 1.85f;
         const float startX = anchor.x - spacing * static_cast<float>(pipCount - 1) * 0.5f;
         const float pipY = anchor.y + (PieceBasePipOffset - PieceBaseLift) * scale;
+        const float backingWidth = spacing * static_cast<float>(pipCount - 1) + radius * 2.8f;
+        drawSoftEllipse(
+            window,
+            {anchor.x, pipY + radius * 0.12f},
+            backingWidth * 0.5f,
+            radius * 1.45f,
+            sf::Color(3, 7, 8, dimmed ? 154 : 204),
+            4);
+        drawEllipseOutline(
+            window,
+            {anchor.x, pipY + radius * 0.12f},
+            backingWidth * 0.5f,
+            radius * 1.45f,
+            std::max(0.6f, 0.8f * scale),
+            withAlpha(shadeColor(ownerColorBright(owner), dim), dimmed ? 118 : 184));
         for (int index = 0; index < pipCount; ++index)
         {
             sf::CircleShape pip(radius, 12);
@@ -50,7 +65,7 @@
             pip.setPosition({startX + spacing * static_cast<float>(index), pipY});
             const bool filled = index < filledPips;
             pip.setFillColor(filled
-                ? withAlpha(shadeColor(ownerColorBright(owner), dim), 238)
+                ? withAlpha(shadeColor(ownerColorBright(owner), dim), dimmed ? 192 : 250)
                 : withAlpha(shadeColor(BoardPlate, dim), 220));
             pip.setOutlineThickness(std::max(0.65f, 0.9f * scale));
             pip.setOutlineColor(withAlpha(shadeColor(BoardBrass, dim), filled ? 220 : 130));
@@ -621,7 +636,8 @@
             return;
         }
 
-        sf::RectangleShape overlay({800.0f, 600.0f});
+        sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
+        overlay.setPosition({ui_canvas::Left, 0.0f});
         overlay.setFillColor(sf::Color(0, 0, 0, 150));
         window.draw(overlay);
 
@@ -873,16 +889,19 @@
         sf::View actionView(sf::FloatRect(
             {PiecePopupTextX, PiecePopupScrollY + inspectedPieceScroll},
             {PiecePopupTextWidth, popupScrollHeight}));
-        // The logical UI is letterboxed on wide windows. The old viewport used
-        // raw 800x600 fractions, so the clipped detail view ignored the
-        // letterbox and shifted its text left at 16:9 sizes.
+        // Map the popup's logical rectangle through the active fixed canvas.
+        // Hard-coded 800x600 fractions shift the child viewport left now that
+        // the 16:9 view includes logical side gutters.
         const sf::FloatRect baseViewport = previousView.getViewport();
+        const sf::Vector2f baseViewSize = previousView.getSize();
+        const sf::Vector2f baseViewTopLeft =
+            previousView.getCenter() - baseViewSize * 0.5f;
         const sf::Vector2f popupViewportPosition{
-            PiecePopupTextX / 800.0f,
-            PiecePopupScrollY / 600.0f};
+            (PiecePopupTextX - baseViewTopLeft.x) / baseViewSize.x,
+            (PiecePopupScrollY - baseViewTopLeft.y) / baseViewSize.y};
         const sf::Vector2f popupViewportSize{
-            PiecePopupTextWidth / 800.0f,
-            popupScrollHeight / 600.0f};
+            PiecePopupTextWidth / baseViewSize.x,
+            popupScrollHeight / baseViewSize.y};
         actionView.setViewport(sf::FloatRect(
             {baseViewport.position.x + baseViewport.size.x * popupViewportPosition.x,
              baseViewport.position.y + baseViewport.size.y * popupViewportPosition.y},
@@ -1098,15 +1117,21 @@
                             visiblePieces, gameSnapshot.holes, *highlightedPiece, r, c);
                         if (action.legal)
                         {
+                            // Healing, control, and non-damaging status actions
+                            // still use the authoritative attack-target path, but
+                            // need their own visual language from damage attacks.
+                            const int highlightValue = action.attacks
+                                ? ((action.heal > 0 || action.control > 0 || action.damage == 0) ? 4 : 2)
+                                : 1;
                             if (action.moves)
                             {
                                 highlightFootprint(
                                     r, c, highlightedPiece->width, highlightedPiece->height,
-                                    action.attacks ? 2 : 1);
+                                    highlightValue);
                             }
                             else
                             {
-                                highlight[idx] = action.attacks ? 2 : 1;
+                                highlight[idx] = highlightValue;
                             }
                         }
                     }
@@ -1407,14 +1432,14 @@
                     struct RangeStyle
                     {
                         sf::Color accent;
-                        bool reticle;
+                        enum class Marker { Move, Attack, Deploy, Effect } marker;
                     };
                     const RangeStyle styles[5] = {
-                        {sf::Color::Transparent, false},
-                        {sf::Color(126, 214, 178), false},  // move
-                        {sf::Color(226, 108, 88), true},    // attack
-                        {BoardBrassBright, false},          // deploy
-                        {sf::Color(186, 138, 234), false},  // spell target
+                        {sf::Color::Transparent, RangeStyle::Marker::Move},
+                        {sf::Color(126, 214, 178), RangeStyle::Marker::Move},
+                        {sf::Color(226, 108, 88), RangeStyle::Marker::Attack},
+                        {BoardBrassBright, RangeStyle::Marker::Deploy},
+                        {sf::Color(186, 138, 234), RangeStyle::Marker::Effect},
                     };
                     const RangeStyle& style = styles[highlight[idx]];
                     const sf::Vector2f anchor = boardCellAnchor(metrics);
@@ -1439,10 +1464,38 @@
                         withAlpha(style.accent, 132),
                         4);
 
-                    if (style.reticle)
+                    if (style.marker == RangeStyle::Marker::Move)
                     {
-                        // Attack squares get corner brackets, so an attack is
-                        // distinguishable from a move without relying on colour.
+                        // A chevron reads as a destination even for players who
+                        // cannot distinguish the teal from the other target hues.
+                        const float reach = 6.5f * metrics.depthScale;
+                        drawEdgeLine(
+                            window, {anchor.x - reach, anchor.y - 4.0f * metrics.depthScale},
+                            {anchor.x + 1.5f * metrics.depthScale, anchor.y - 4.0f * metrics.depthScale},
+                            2.0f, withAlpha(style.accent, 242));
+                        drawEdgeLine(
+                            window, {anchor.x + 1.5f * metrics.depthScale, anchor.y - 4.0f * metrics.depthScale},
+                            {anchor.x - 1.8f * metrics.depthScale, anchor.y - 7.4f * metrics.depthScale},
+                            2.0f, withAlpha(style.accent, 242));
+                        drawEdgeLine(
+                            window, {anchor.x + 1.5f * metrics.depthScale, anchor.y - 4.0f * metrics.depthScale},
+                            {anchor.x - 1.8f * metrics.depthScale, anchor.y - 0.6f * metrics.depthScale},
+                            2.0f, withAlpha(style.accent, 242));
+                    }
+                    else if (style.marker == RangeStyle::Marker::Attack)
+                    {
+                        // Attack squares get a crosshair and corner brackets, so
+                        // an attack is distinguishable from movement without
+                        // relying on colour alone.
+                        const sf::Vector2f center{anchor.x, anchor.y - 4.0f * metrics.depthScale};
+                        const float cross = 6.2f * metrics.depthScale;
+                        drawEllipseOutline(window, center, cross, cross * 0.48f, 1.4f,
+                                           withAlpha(style.accent, 238));
+                        drawEdgeLine(window, {center.x - cross, center.y}, {center.x + cross, center.y},
+                                     1.8f, withAlpha(style.accent, 242));
+                        drawEdgeLine(window, {center.x, center.y - cross * 0.7f},
+                                     {center.x, center.y + cross * 0.7f}, 1.8f,
+                                     withAlpha(style.accent, 242));
                         const std::array<sf::Vector2f, 4> outer =
                             insetQuad(metrics.corners, 0.94f);
                         for (std::size_t i = 0; i < outer.size(); ++i)
@@ -1457,6 +1510,24 @@
                                 window, corner, corner + (previous - corner) * 0.28f, 2.0f,
                                 withAlpha(style.accent, 236));
                         }
+                    }
+                    else if (style.marker == RangeStyle::Marker::Effect)
+                    {
+                        // Effects use a four-point arcane diamond, separate from
+                        // both the directional move chevron and attack crosshair.
+                        const sf::Vector2f center{anchor.x, anchor.y - 4.0f * metrics.depthScale};
+                        const float radius = 7.0f * metrics.depthScale;
+                        sf::ConvexShape diamond(4);
+                        diamond.setPoint(0, {center.x, center.y - radius});
+                        diamond.setPoint(1, {center.x + radius, center.y});
+                        diamond.setPoint(2, {center.x, center.y + radius});
+                        diamond.setPoint(3, {center.x - radius, center.y});
+                        diamond.setFillColor(withAlpha(style.accent, 54));
+                        diamond.setOutlineThickness(1.5f);
+                        diamond.setOutlineColor(withAlpha(style.accent, 242));
+                        window.draw(diamond);
+                        drawEllipseOutline(window, center, radius * 0.28f, radius * 0.28f, 1.1f,
+                                           withAlpha(BoardParchment, 210));
                     }
                 }
 
@@ -1776,6 +1847,22 @@
                     pieceUnavailable,
                     static_cast<float>(piece.width));
 
+                // A clean owner-coloured outer rim survives the busy token art
+                // and the perspective-shrunk far rank. It is deliberately kept
+                // to the plinth, so allegiance is clearer without tinting art.
+                const float footprint = std::max(1.0f, static_cast<float>(piece.width));
+                const sf::Vector2f baseCenter{
+                    anchor.x, anchor.y - PieceBaseLift * pieceScale};
+                const float rimDim = pieceUnavailable ? 0.56f : 1.0f;
+                drawEllipseOutline(
+                    window,
+                    baseCenter,
+                    26.8f * pieceScale * footprint,
+                    9.8f * pieceScale,
+                    std::max(1.0f, 1.45f * pieceScale),
+                    withAlpha(shadeColor(ownerColorBright(piece.owner), rimDim),
+                              pieceUnavailable ? 138 : 226));
+
                 const bool pieceIsSelected = selectedPieceId && *selectedPieceId == piece.id;
                 if (pieceIsSelected)
                 {
@@ -1896,6 +1983,87 @@
                 turns.setFillColor(BoardParchment);
                 centerText(turns, center);
                 drawCrispText(window, turns);
+            }
+
+            if (!foregroundOnly)
+            {
+                bool highlightedAttackTarget = false;
+                for (int row = piece.row;
+                     row < piece.row + piece.height && !highlightedAttackTarget;
+                     ++row)
+                {
+                    for (int column = piece.column;
+                         column < piece.column + piece.width;
+                         ++column)
+                    {
+                        if (row < 0 || column < 0 ||
+                            row >= game_data::BoardSize ||
+                            column >= game_data::BoardSize)
+                        {
+                            continue;
+                        }
+                        const std::size_t targetIndex =
+                            static_cast<std::size_t>(game_data::squareIndex(row, column));
+                        highlightedAttackTarget =
+                            targetIndex < highlight.size() && highlight[targetIndex] == 2;
+                        if (highlightedAttackTarget)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                if (highlightedAttackTarget)
+                {
+                    // Occupied targets cover the tile-level reticle, so repeat a
+                    // larger crosshair over the plinth after the token is drawn.
+                    // This keeps the board faithful to the command ribbon.
+                    const float footprint = std::max(1.0f, static_cast<float>(piece.width));
+                    const sf::Vector2f center{
+                        anchor.x, anchor.y - PieceBaseLift * pieceScale};
+                    const float radiusX = 31.0f * pieceScale * footprint;
+                    const float radiusY = 12.5f * pieceScale;
+                    const sf::Color targetRed(238, 116, 94, 248);
+                    drawRadialGlow(
+                        window,
+                        center,
+                        radiusX * 1.35f,
+                        sf::Color(targetRed.r, targetRed.g, targetRed.b, 38));
+                    drawEllipseOutline(
+                        window,
+                        center,
+                        radiusX,
+                        radiusY,
+                        std::max(1.8f, 2.4f * pieceScale),
+                        targetRed);
+
+                    const float tick = std::max(5.0f, 7.0f * pieceScale);
+                    const float horizontalGap = radiusX * 0.56f;
+                    drawEdgeLine(
+                        window,
+                        {center.x - radiusX - tick, center.y},
+                        {center.x - horizontalGap, center.y},
+                        2.2f,
+                        targetRed);
+                    drawEdgeLine(
+                        window,
+                        {center.x + horizontalGap, center.y},
+                        {center.x + radiusX + tick, center.y},
+                        2.2f,
+                        targetRed);
+                    drawEdgeLine(
+                        window,
+                        {center.x, center.y - radiusY - tick},
+                        {center.x, center.y - radiusY * 0.35f},
+                        2.2f,
+                        targetRed);
+                    drawEdgeLine(
+                        window,
+                        {center.x, center.y + radiusY * 0.35f},
+                        {center.x, center.y + radiusY + tick},
+                        2.2f,
+                        targetRed);
+                }
             }
         }
         };
@@ -2422,6 +2590,104 @@
                 sf::Color(0, 0, 0, 130));
         }
 
+        // The command ribbon explains the exact visual grammar currently on the
+        // board. It is presentation-only: selection, legal-square calculation,
+        // and all action submission remain the existing game-state paths above.
+        const auto drawCommandIntent = [&]() {
+            std::string title;
+            std::string instruction;
+            sf::Color accent = BoardBrassBright;
+
+            const bool hasMove = std::find(highlight.begin(), highlight.end(), 1) != highlight.end();
+            const bool hasAttack = std::find(highlight.begin(), highlight.end(), 2) != highlight.end();
+            const bool hasEffect = std::find(highlight.begin(), highlight.end(), 4) != highlight.end();
+            const bool hasDeploy = std::find(highlight.begin(), highlight.end(), 3) != highlight.end();
+
+            if (highlightedPiece && (hasMove || hasAttack || hasEffect))
+            {
+                const auto action = std::find_if(
+                    highlightedPiece->actions.begin(),
+                    highlightedPiece->actions.end(),
+                    [&](const game_data::ActionProfile& candidate) {
+                        return candidate.state == highlightedPiece->actionState;
+                    });
+                title = action != highlightedPiece->actions.end() && !action->name.empty()
+                    ? action->name
+                    : highlightedPiece->name;
+                if (hasAttack && hasMove)
+                {
+                    instruction = "TEAL ARROWS MOVE  |  RED CROSSHAIRS ATTACK";
+                    accent = sf::Color(226, 132, 108);
+                }
+                else if (hasAttack)
+                {
+                    instruction = "RED CROSSHAIRS MARK DAMAGE TARGETS";
+                    accent = sf::Color(226, 132, 108);
+                }
+                else if (hasEffect)
+                {
+                    instruction = "VIOLET DIAMONDS MARK EFFECT TARGETS";
+                    accent = sf::Color(186, 138, 234);
+                }
+                else
+                {
+                    instruction = "TEAL ARROWS MARK LEGAL DESTINATIONS";
+                    accent = sf::Color(126, 214, 178);
+                }
+            }
+            else if (actingHandIndex && *actingHandIndex < gameSnapshot.hand.size() &&
+                     (hasAttack || hasEffect || hasDeploy))
+            {
+                const game_data::GameCard& card = gameSnapshot.hand[*actingHandIndex];
+                title = card.title;
+                if (hasAttack)
+                {
+                    instruction = "RED CROSSHAIRS MARK DAMAGE TARGETS";
+                    accent = sf::Color(226, 132, 108);
+                }
+                else if (hasEffect)
+                {
+                    instruction = "VIOLET DIAMONDS MARK EFFECT TARGETS";
+                    accent = sf::Color(186, 138, 234);
+                }
+                else
+                {
+                    instruction = "BRASS MARKERS SHOW LEGAL DEPLOYMENT";
+                }
+            }
+
+            if (title.empty())
+            {
+                return;
+            }
+
+            constexpr sf::Vector2f ribbonSize{420.0f, 17.0f};
+            const sf::Vector2f ribbonPosition{BoardCenterX - ribbonSize.x * 0.5f, 449.0f};
+            drawCutPlate(
+                ribbonPosition,
+                ribbonSize,
+                6.0f,
+                sf::Color(7, 13, 14, 238),
+                withAlpha(accent, 210),
+                1.2f);
+            sf::Text titleText(font, elideToWidth(font, title, 9, 116.0f), 9);
+            titleText.setFillColor(BoardParchment);
+            titleText.setPosition({ribbonPosition.x + 11.0f, ribbonPosition.y + 4.0f});
+            drawCrispText(window, titleText);
+            drawEdgeLine(
+                window,
+                {ribbonPosition.x + 136.0f, ribbonPosition.y + 4.0f},
+                {ribbonPosition.x + 136.0f, ribbonPosition.y + ribbonSize.y - 4.0f},
+                1.0f,
+                withAlpha(accent, 180));
+            sf::Text instructionText(font, instruction, 8);
+            instructionText.setLetterSpacing(1.08f);
+            instructionText.setFillColor(withAlpha(accent, 246));
+            instructionText.setPosition({ribbonPosition.x + 147.0f, ribbonPosition.y + 5.0f});
+            drawCrispText(window, instructionText);
+        };
+        drawCommandIntent();
+
         // Whether a hand card can actually be played right now. Shared by the card
         // faces and the resources gauge so the two never disagree.
         const auto handCardPlayable = [&](const game_data::GameCard& card) {
@@ -2765,7 +3031,8 @@
             const sf::Color accentDeep = victory ? sf::Color(28, 74, 44) : sf::Color(84, 32, 24);
 
             // Dim the battlefield so the result reads as a modal.
-            sf::RectangleShape overlay({800.0f, 600.0f});
+            sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
+            overlay.setPosition({ui_canvas::Left, 0.0f});
             overlay.setFillColor(sf::Color(5, 8, 9, 196));
             window.draw(overlay);
 
