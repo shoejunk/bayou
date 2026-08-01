@@ -2208,7 +2208,49 @@ int main(int argc, char** argv)
         return static_cast<int>(std::count(editingDeck.cardTitles.begin(), editingDeck.cardTitles.end(), title));
     };
 
-    // Deck rows show one entry per card title; copies are conveyed by the X/Y count.
+    auto deckCardByTitle = [&](const std::string& title) -> const card_data::Card* {
+        const auto findCard = [&](const std::vector<card_data::Card>& library) -> const card_data::Card* {
+            const auto found = std::find_if(library.begin(), library.end(), [&](const card_data::Card& card) {
+                return card.title == title;
+            });
+            return found == library.end() ? nullptr : &*found;
+        };
+
+        if (const card_data::Card* card = findCard(cardLibrary))
+        {
+            return card;
+        }
+        return findCard(allCardLibrary);
+    };
+
+    auto deckCardSortCategory = [&](const std::string& title) {
+        const card_data::Card* card = deckCardByTitle(title);
+        if (!card)
+        {
+            return 4;
+        }
+        if (game_data::isHeroCard(*card))
+        {
+            return 0;
+        }
+        if (game_data::isUnitCard(*card))
+        {
+            return 1;
+        }
+        if (card->type == "Spell")
+        {
+            return 2;
+        }
+        if (card->type == "Enchantment")
+        {
+            return 3;
+        }
+        return 4;
+    };
+
+    // Deck rows show one entry per card title; copies are conveyed by the X/Y
+    // count. Keep their order independent of insertion/database order so both
+    // regular and starter-deck editors present the same card grouping.
     auto deckUniqueTitles = [&]() {
         std::vector<std::string> unique;
         for (const std::string& title : editingDeck.cardTitles)
@@ -2218,6 +2260,19 @@ int main(int argc, char** argv)
                 unique.push_back(title);
             }
         }
+
+        std::sort(unique.begin(), unique.end(), [&](const std::string& left, const std::string& right) {
+            const int leftCategory = deckCardSortCategory(left);
+            const int rightCategory = deckCardSortCategory(right);
+            if (leftCategory != rightCategory)
+            {
+                return leftCategory < rightCategory;
+            }
+
+            const std::string leftKey = lowerKey(left);
+            const std::string rightKey = lowerKey(right);
+            return leftKey == rightKey ? left < right : leftKey < rightKey;
+        });
         return unique;
     };
 
