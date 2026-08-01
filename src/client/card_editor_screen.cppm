@@ -92,6 +92,26 @@ int defaultDeckLimit(const std::string& type)
     return type == "Hero" ? game_data::MaxHeroCopies : game_data::MaxCardCopies;
 }
 
+void sortCardLibrary(std::vector<card_data::Card>& cards)
+{
+    std::sort(cards.begin(), cards.end(), [](const card_data::Card& left, const card_data::Card& right) {
+        const bool leftHero = game_data::isHeroCard(left);
+        const bool rightHero = game_data::isHeroCard(right);
+        if (leftHero != rightHero)
+        {
+            return leftHero;
+        }
+
+        const std::string leftTitle = lowerKey(left.title);
+        const std::string rightTitle = lowerKey(right.title);
+        if (leftTitle != rightTitle)
+        {
+            return leftTitle < rightTitle;
+        }
+        return left.title < right.title;
+    });
+}
+
 void drawText(sf::RenderWindow& window, sf::Font& font, const std::string& value, unsigned int size, sf::Vector2f position, sf::Color color)
 {
     sf::Text text(font, value, size);
@@ -390,8 +410,7 @@ public:
         editorMode = EditorMode::Cards;
 
         cards = library;
-        std::sort(cards.begin(), cards.end(),
-                  [](const card_data::Card& a, const card_data::Card& b) { return a.title < b.title; });
+        sortCardLibrary(cards);
         listOffset = 0;
 
         if (key == "card-editor-loaded" && !cards.empty())
@@ -1949,6 +1968,7 @@ private:
         }
 
         cards = result.cards;
+        sortCardLibrary(cards);
         listOffset = 0;
         if (!cards.empty())
         {
@@ -2393,6 +2413,7 @@ private:
         if (listResult.success)
         {
             cards = listResult.cards;
+            sortCardLibrary(cards);
             const auto found = std::find_if(cards.begin(), cards.end(), [&](const card_data::Card& item) {
                 return item.title == card.title;
             });
@@ -2450,6 +2471,7 @@ private:
         }
 
         cards = listResult.cards;
+        sortCardLibrary(cards);
         const auto found = std::find_if(cards.begin(), cards.end(), [&](const card_data::Card& item) {
             return item.title == card.title;
         });
@@ -2488,6 +2510,7 @@ private:
         }
 
         cards = listResult.cards;
+        sortCardLibrary(cards);
         if (cards.empty())
         {
             listOffset = 0;
@@ -4298,7 +4321,7 @@ private:
                 false,
                 5.0f);
             drawText(window, font, label, 9, {x + 8.0f, 536.0f}, Muted, 62.0f);
-            drawText(window, font, value, 14, {x + 8.0f, 550.0f}, color, 62.0f);
+            bayou::client::drawCenteredText(window, font, value, 14, {x + 39.0f, 551.0f}, color);
         };
 
         const int cost = game_data::isHeroCard(card)
@@ -4309,10 +4332,11 @@ private:
         drawStatBadge(968.0f, creature ? "HEALTH" : "POWER",
                       std::to_string(creature ? gameCard.health : gameCard.power),
                       creature ? sf::Color(224, 210, 176) : sf::Color(205, 175, 235));
-        drawStatBadge(1054.0f, creature ? "ATTACK" : "EFFECT",
-                      creature ? std::to_string(gameCard.attack) : gameCard.effect,
-                      creature ? sf::Color(225, 170, 150) : sf::Color(205, 175, 235));
-        drawStatBadge(1140.0f, "DECK LIMIT", std::to_string(game_data::cardDeckLimit(card)),
+        if (!creature)
+        {
+            drawStatBadge(1054.0f, "EFFECT", gameCard.effect, sf::Color(205, 175, 235));
+        }
+        drawStatBadge(creature ? 1054.0f : 1140.0f, "DECK LIMIT", std::to_string(game_data::cardDeckLimit(card)),
                       sf::Color(248, 214, 112));
 
         auto drawTagSection = [&](const std::string& label, const std::vector<std::string>& values, float y) {
@@ -4331,7 +4355,7 @@ private:
         y = drawTagSection("KEYWORDS", card.keywords, y);
         if (creature)
         {
-            drawText(window, font, fmt::format("{} action{}", card.actions.size(), card.actions.size() == 1 ? "" : "s"),
+            drawText(window, font, fmt::format("{} action{}", card.actionNames.size(), card.actionNames.size() == 1 ? "" : "s"),
                      12, {882.0f, std::min(y, 712.0f)}, Muted, 336.0f);
         }
         else

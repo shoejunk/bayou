@@ -131,16 +131,7 @@ std::string cardStatLabel(const card_data::Card& card)
     const game_data::GameCard gameCard = game_data::toGameCard(card);
     if (card.type == "Unit" || game_data::isHeroCard(card))
     {
-        std::string result = "Health: " + std::to_string(gameCard.health);
-        if (gameCard.attack > 0)
-        {
-            result += "  Attack: " + std::to_string(gameCard.attack);
-            if (gameCard.attackRange > 0)
-            {
-                result += "  Range: " + std::to_string(gameCard.attackRange);
-            }
-        }
-        return result;
+        return "Health: " + std::to_string(gameCard.health);
     }
 
     return "Power: " + std::to_string(gameCard.power) +

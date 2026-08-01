@@ -249,6 +249,7 @@ card_data::Card makeCard(const SampleCard& source)
         advance.canMove = true;
         advance.canAttack = false;
         card.actions.push_back(advance);
+        card.actionNames.emplace_back(advance.name);
         card.actionDisplayNames.emplace_back("Advance");
 
         if (source.attack > 0)
@@ -264,6 +265,7 @@ card_data::Card makeCard(const SampleCard& source)
             strike.canAttack = true;
             strike.lineOfSight = true;
             card.actions.push_back(strike);
+            card.actionNames.emplace_back(strike.name);
             card.actionDisplayNames.emplace_back(strike.name);
         }
     }
