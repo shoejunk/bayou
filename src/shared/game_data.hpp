@@ -85,7 +85,7 @@ inline std::string cardRarity(const card_data::Card& card)
     {
         if (item.key == "rarity")
         {
-            if (item.value == "rare" || item.value == "legendary" ||
+            if (item.value == "uncommon" || item.value == "rare" || item.value == "legendary" ||
                 item.value == "token" || item.value == "starter")
             {
                 return item.value;

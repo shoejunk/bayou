@@ -15,6 +15,7 @@ module;
 #include "../shared/game_data.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
@@ -70,8 +71,13 @@ constexpr std::size_t VisibleActionRows = 8;
 constexpr std::size_t VisibleActionDropdownRows = 5;
 constexpr std::size_t VisibleTargetFilterRows = 12;
 constexpr float ActionDropdownRowHeight = 32.0f;
+constexpr std::size_t VisibleRarityDropdownRows = 6;
+constexpr float RarityDropdownRowHeight = 32.0f;
 constexpr float TargetFilterTop = 224.0f;
 constexpr float TargetFilterRowHeight = 36.0f;
+
+constexpr std::array<const char*, 6> CardRarityOptions = {
+    "common", "uncommon", "rare", "legendary", "token", "starter"};
 
 const sf::Color Ink(244, 234, 208);
 const sf::Color Muted(181, 166, 137);
@@ -512,6 +518,7 @@ public:
         }
 
         std::optional<std::size_t> activeActionReference;
+        std::optional<std::size_t> activeRarityValueIndex;
         std::string previousActionReferenceValue;
         if (!focusOrder.empty())
         {
@@ -523,8 +530,12 @@ public:
                 {
                     previousActionReferenceValue = actionRefFields[*activeActionReference].getValue();
                 }
+                activeRarityValueIndex = rarityValueIndex(focusOrder[focusIndex]);
             }
-            focusOrder[focusIndex]->handleEvent(event, window);
+            if (!activeRarityValueIndex)
+            {
+                focusOrder[focusIndex]->handleEvent(event, window);
+            }
             if (imageField.isActive() && imageField.getValue() != previousImagePath)
             {
                 loadPreviewImage();
@@ -539,7 +550,37 @@ public:
         if (const auto* keyEvent = event.getIf<sf::Event::KeyPressed>())
         {
             bool handledDropdownKey = false;
-            if (editorMode == EditorMode::Cards && activeActionReference)
+            if (editorMode == EditorMode::Cards && activeRarityValueIndex)
+            {
+                if (keyEvent->code == sf::Keyboard::Key::Escape && openRarityDropdownIndex)
+                {
+                    closeRarityDropdown();
+                    handledDropdownKey = true;
+                }
+                else if (keyEvent->code == sf::Keyboard::Key::Up ||
+                         keyEvent->code == sf::Keyboard::Key::Down)
+                {
+                    if (!openRarityDropdownIndex)
+                    {
+                        openRarityDropdown(*activeRarityValueIndex);
+                    }
+                    moveRarityDropdownSelection(keyEvent->code == sf::Keyboard::Key::Down ? 1 : -1);
+                    handledDropdownKey = true;
+                }
+                else if (keyEvent->code == sf::Keyboard::Key::Enter)
+                {
+                    if (!openRarityDropdownIndex)
+                    {
+                        openRarityDropdown(*activeRarityValueIndex);
+                    }
+                    else
+                    {
+                        chooseRarityDropdownItem(rarityDropdownSelection);
+                    }
+                    handledDropdownKey = true;
+                }
+            }
+            else if (editorMode == EditorMode::Cards && activeActionReference)
             {
                 if (keyEvent->code == sf::Keyboard::Key::Escape && openActionDropdownIndex)
                 {
@@ -600,8 +641,13 @@ public:
         if (const auto* wheel = event.getIf<sf::Event::MouseWheelScrolled>())
         {
             const sf::Vector2f mouse = window.mapPixelToCoords(wheel->position);
+            const std::optional<RarityDropdownLayout> rarityLayout = rarityDropdownLayout();
             const std::optional<ActionDropdownLayout> dropdownLayout = actionDropdownLayout();
-            if (editorMode == EditorMode::Cards && dropdownLayout && dropdownLayout->bounds.contains(mouse))
+            if (editorMode == EditorMode::Cards && rarityLayout && rarityLayout->bounds.contains(mouse))
+            {
+                moveRarityDropdownSelection(wheel->delta < 0.0f ? 1 : -1);
+            }
+            else if (editorMode == EditorMode::Cards && dropdownLayout && dropdownLayout->bounds.contains(mouse))
             {
                 moveActionDropdownSelection(wheel->delta < 0.0f ? 1 : -1);
             }
@@ -677,6 +723,7 @@ public:
         {
             hoveredCard.reset();
             hoveredAction = actionIndexAt(mouse);
+            hoveredRarityDropdownItem.reset();
             hoveredActionDropdownItem.reset();
             hoveredActionLink.reset();
             layoutActionFields();
@@ -693,6 +740,7 @@ public:
         }
         hoveredAction.reset();
         hoveredCard = cardIndexAt(mouse);
+        hoveredRarityDropdownItem = rarityDropdownItemAt(mouse);
         hoveredActionDropdownItem = actionDropdownItemAt(mouse);
         hoveredActionLink.reset();
         for (std::size_t i = 0; i < actionRefFields.size(); ++i)
@@ -837,6 +885,13 @@ private:
         std::size_t visibleRows = 0;
     };
 
+    struct RarityDropdownLayout
+    {
+        sf::FloatRect bounds;
+        std::size_t firstRow = 0;
+        std::size_t visibleRows = 0;
+    };
+
     static constexpr float ArrayViewportTop = 372.0f;
     static constexpr float ArrayViewportBottom = 676.0f;
     static constexpr float ArrayViewportHeight = ArrayViewportBottom - ArrayViewportTop;
@@ -886,6 +941,10 @@ private:
     std::vector<StringListEditor> listEditors;
     std::vector<InputBox> actionDisplayNameFields;
     std::vector<InputBox> actionRefFields;
+    std::optional<std::size_t> openRarityDropdownIndex;
+    std::size_t rarityDropdownOffset = 0;
+    std::size_t rarityDropdownSelection = 0;
+    std::optional<std::size_t> hoveredRarityDropdownItem;
     std::optional<std::size_t> openActionDropdownIndex;
     std::size_t actionDropdownOffset = 0;
     std::size_t actionDropdownSelection = 0;
@@ -1483,6 +1542,24 @@ private:
         }
     }
 
+    bool isRarityField(std::size_t index) const
+    {
+        return index < stringKeyFields.size() && index < stringValueFields.size() &&
+            trim(stringKeyFields[index].getValue()) == "rarity";
+    }
+
+    std::optional<std::size_t> rarityValueIndex(const InputBox* field) const
+    {
+        for (std::size_t i = 0; i < stringValueFields.size(); ++i)
+        {
+            if (&stringValueFields[i] == field && isRarityField(i))
+            {
+                return i;
+            }
+        }
+        return std::nullopt;
+    }
+
     std::optional<std::size_t> actionReferenceIndex(const InputBox* field) const
     {
         for (std::size_t i = 0; i < actionRefFields.size(); ++i)
@@ -1578,6 +1655,7 @@ private:
 
     void closeActionDropdown()
     {
+        closeRarityDropdown();
         openActionDropdownIndex.reset();
         actionDropdownOffset = 0;
         actionDropdownSelection = 0;
@@ -1612,6 +1690,7 @@ private:
 
     void openActionDropdown(std::size_t referenceIndex, bool filterByCurrentValue)
     {
+        closeRarityDropdown();
         if (referenceIndex >= actionRefFields.size())
         {
             closeActionDropdown();
@@ -1690,6 +1769,143 @@ private:
             return std::nullopt;
         }
         return filteredIndex;
+    }
+
+    std::optional<RarityDropdownLayout> rarityDropdownLayout() const
+    {
+        if (!openRarityDropdownIndex || !isRarityField(*openRarityDropdownIndex))
+        {
+            return std::nullopt;
+        }
+        const sf::FloatRect fieldBounds = stringValueFields[*openRarityDropdownIndex].bounds();
+        if (!isVisibleInArrayViewport(fieldBounds))
+        {
+            return std::nullopt;
+        }
+
+        const std::size_t desiredRows = std::min<std::size_t>(
+            VisibleRarityDropdownRows, CardRarityOptions.size());
+        const float belowSpace = std::max(
+            0.0f,
+            ArrayViewportBottom - (fieldBounds.position.y + fieldBounds.size.y + 2.0f));
+        const float aboveSpace = std::max(
+            0.0f,
+            fieldBounds.position.y - ArrayViewportTop - 2.0f);
+        const std::size_t belowRows = static_cast<std::size_t>(belowSpace / RarityDropdownRowHeight);
+        const std::size_t aboveRows = static_cast<std::size_t>(aboveSpace / RarityDropdownRowHeight);
+        const bool placeBelow = belowRows >= desiredRows || belowRows >= aboveRows;
+        const std::size_t availableRows = placeBelow ? belowRows : aboveRows;
+        if (availableRows == 0)
+        {
+            return std::nullopt;
+        }
+
+        RarityDropdownLayout layout;
+        layout.visibleRows = std::min(desiredRows, availableRows);
+        const std::size_t maximumOffset = CardRarityOptions.size() > layout.visibleRows
+            ? CardRarityOptions.size() - layout.visibleRows
+            : 0;
+        layout.firstRow = std::min(rarityDropdownOffset, maximumOffset);
+        const float height = static_cast<float>(layout.visibleRows) * RarityDropdownRowHeight;
+        const float y = placeBelow
+            ? fieldBounds.position.y + fieldBounds.size.y + 2.0f
+            : fieldBounds.position.y - height - 2.0f;
+        layout.bounds = sf::FloatRect({fieldBounds.position.x, y}, {fieldBounds.size.x, height});
+        return layout;
+    }
+
+    void closeRarityDropdown()
+    {
+        openRarityDropdownIndex.reset();
+        rarityDropdownOffset = 0;
+        rarityDropdownSelection = 0;
+        hoveredRarityDropdownItem.reset();
+    }
+
+    void ensureRarityDropdownSelectionVisible()
+    {
+        if (!openRarityDropdownIndex || !isRarityField(*openRarityDropdownIndex))
+        {
+            return;
+        }
+        const std::optional<RarityDropdownLayout> layout = rarityDropdownLayout();
+        if (!layout)
+        {
+            return;
+        }
+        rarityDropdownSelection = std::min(
+            rarityDropdownSelection, CardRarityOptions.size() - 1);
+        if (rarityDropdownSelection < rarityDropdownOffset)
+        {
+            rarityDropdownOffset = rarityDropdownSelection;
+        }
+        else if (rarityDropdownSelection >= rarityDropdownOffset + layout->visibleRows)
+        {
+            rarityDropdownOffset = rarityDropdownSelection - layout->visibleRows + 1;
+        }
+    }
+
+    void openRarityDropdown(std::size_t valueIndex)
+    {
+        closeActionDropdown();
+        if (!isRarityField(valueIndex))
+        {
+            closeRarityDropdown();
+            return;
+        }
+        closeRarityDropdown();
+        openRarityDropdownIndex = valueIndex;
+        const std::string currentValue = lowerKey(trim(stringValueFields[valueIndex].getValue()));
+        for (std::size_t i = 0; i < CardRarityOptions.size(); ++i)
+        {
+            if (currentValue == CardRarityOptions[i])
+            {
+                rarityDropdownSelection = i;
+                break;
+            }
+        }
+        ensureRarityDropdownSelectionVisible();
+    }
+
+    void moveRarityDropdownSelection(int delta)
+    {
+        if (!openRarityDropdownIndex || !isRarityField(*openRarityDropdownIndex))
+        {
+            return;
+        }
+        rarityDropdownSelection = static_cast<std::size_t>(std::clamp(
+            static_cast<int>(rarityDropdownSelection) + delta,
+            0,
+            static_cast<int>(CardRarityOptions.size()) - 1));
+        ensureRarityDropdownSelectionVisible();
+    }
+
+    void chooseRarityDropdownItem(std::size_t optionIndex)
+    {
+        if (!openRarityDropdownIndex || !isRarityField(*openRarityDropdownIndex) ||
+            optionIndex >= CardRarityOptions.size())
+        {
+            return;
+        }
+        stringValueFields[*openRarityDropdownIndex].setValue(CardRarityOptions[optionIndex]);
+        closeRarityDropdown();
+    }
+
+    std::optional<std::size_t> rarityDropdownItemAt(sf::Vector2f mouse) const
+    {
+        const std::optional<RarityDropdownLayout> layout = rarityDropdownLayout();
+        if (!layout || !layout->bounds.contains(mouse))
+        {
+            return std::nullopt;
+        }
+        const std::size_t row = static_cast<std::size_t>(
+            (mouse.y - layout->bounds.position.y) / RarityDropdownRowHeight);
+        const std::size_t optionIndex = layout->firstRow + row;
+        if (row >= layout->visibleRows || optionIndex >= CardRarityOptions.size())
+        {
+            return std::nullopt;
+        }
+        return optionIndex;
     }
 
     sf::FloatRect actionLinkButtonBounds(std::size_t referenceIndex) const
@@ -2982,6 +3198,7 @@ private:
     {
         if (index < stringKeyFields.size() && index < stringValueFields.size())
         {
+            closeRarityDropdown();
             stringKeyFields.erase(stringKeyFields.begin() + static_cast<std::ptrdiff_t>(index));
             stringValueFields.erase(stringValueFields.begin() + static_cast<std::ptrdiff_t>(index));
             rebuildFocusOrder();
@@ -3166,6 +3383,16 @@ private:
         if (editorMode == EditorMode::Cards)
         {
             layoutArrayControls();
+            if (const std::optional<std::size_t> dropdownItem = rarityDropdownItemAt(mouse))
+            {
+                chooseRarityDropdownItem(*dropdownItem);
+                return false;
+            }
+            if (const std::optional<RarityDropdownLayout> layout = rarityDropdownLayout();
+                layout && layout->bounds.contains(mouse))
+            {
+                return false;
+            }
             if (const std::optional<std::size_t> dropdownItem = actionDropdownItemAt(mouse))
             {
                 chooseActionDropdownItem(*dropdownItem);
@@ -3410,6 +3637,11 @@ private:
             if (InputBox* field = dynamicFieldAt(mouse))
             {
                 activateField(field);
+                if (const std::optional<std::size_t> rarityIndex = rarityValueIndex(field))
+                {
+                    openRarityDropdown(*rarityIndex);
+                    return false;
+                }
                 field->beginMouseSelection(mouse, sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
                                                    sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift));
                 if (const std::optional<std::size_t> referenceIndex = actionReferenceIndex(field))
@@ -3683,7 +3915,7 @@ private:
         y += 17.0f;
 
         y = drawInstructionSection(window, "6. Rarity, Traits, Keywords, and String Lists", y);
-        y = drawInstructionBullet(window, "Rarity: add a String Field named rarity with value common, rare, legendary, starter, or token. Missing or unknown values count as common. Token cards cannot appear in collections or decks. Starter cards never appear as random shop cards; players get them from the four starter decks. Shop selection odds are 70% common, 25% rare, and 5% legendary; cards within a rarity are equally likely.", y);
+        y = drawInstructionBullet(window, "Rarity: add a String Field named rarity and choose common, uncommon, rare, legendary, token, or starter from the dropdown. Missing or unknown values count as common. Token cards cannot appear in collections or decks. Starter cards never appear as random shop cards; players get them from the four starter decks. Shop selection odds are 70% common, 25% rare, and 5% legendary; cards within a rarity are equally likely.", y);
         y = drawInstructionBullet(window, "Traits: unit cards require living friendly heroes with matching traits when played. Heroes and spells do not require matching traits. The deck editor can filter by the nine supported traits.", y);
         y = drawInstructionBullet(window, "Keywords are stored separately from traits. Relentless lets a piece act again immediately whenever it destroys another piece. Bodyguard passively redirects damage from adjacent friendly non-Bodyguard pieces to itself; multiple Bodyguards split that damage as evenly as possible. Trail passively creates the Unit named by the summon string field where this piece started whenever it moves.", y);
         y = drawInstructionBullet(window, "ability: transform, dematerialize, dig, summon, or command. Transform-style abilities switch action states; dig creates a tunnel hole; summon creates the unit named by the summon string field in the space in front; command lets one ready adjacent friendly piece take any normal action without ending the turn.", y);
@@ -3850,6 +4082,32 @@ private:
         window.draw(arrow);
     }
 
+    void drawRarityValueField(sf::RenderWindow& window, std::size_t valueIndex)
+    {
+        InputBox& field = stringValueFields[valueIndex];
+        if (!isVisibleInArrayViewport(field.bounds()))
+        {
+            return;
+        }
+        field.draw(window);
+        if (!isRarityField(valueIndex))
+        {
+            return;
+        }
+
+        const sf::FloatRect bounds = field.bounds();
+        const float centerX = bounds.position.x + bounds.size.x - 15.0f;
+        const float centerY = bounds.position.y + bounds.size.y * 0.5f + 1.0f;
+        sf::ConvexShape arrow(3);
+        arrow.setPoint(0, {centerX - 5.0f, centerY - 3.0f});
+        arrow.setPoint(1, {centerX + 5.0f, centerY - 3.0f});
+        arrow.setPoint(2, {centerX, centerY + 3.0f});
+        arrow.setFillColor(openRarityDropdownIndex && *openRarityDropdownIndex == valueIndex
+            ? Accent
+            : Muted);
+        window.draw(arrow);
+    }
+
     void drawActionLinkButton(sf::RenderWindow& window, std::size_t referenceIndex)
     {
         if (!isVisibleInArrayViewport(actionRefFields[referenceIndex].bounds()))
@@ -3983,6 +4241,74 @@ private:
         }
     }
 
+    void drawRarityDropdown(sf::RenderWindow& window)
+    {
+        const std::optional<RarityDropdownLayout> layout = rarityDropdownLayout();
+        if (!layout)
+        {
+            return;
+        }
+
+        sf::RectangleShape panel(layout->bounds.size);
+        panel.setPosition(layout->bounds.position);
+        panel.setFillColor(sf::Color(7, 13, 14, 252));
+        panel.setOutlineThickness(2.0f);
+        panel.setOutlineColor(Accent);
+        window.draw(panel);
+
+        for (std::size_t row = 0; row < layout->visibleRows; ++row)
+        {
+            const std::size_t optionIndex = layout->firstRow + row;
+            if (optionIndex >= CardRarityOptions.size())
+            {
+                break;
+            }
+            const float y = layout->bounds.position.y + static_cast<float>(row) * RarityDropdownRowHeight;
+            const bool highlighted = optionIndex == rarityDropdownSelection ||
+                (hoveredRarityDropdownItem && *hoveredRarityDropdownItem == optionIndex);
+            if (highlighted)
+            {
+                sf::RectangleShape highlight(
+                    {layout->bounds.size.x - 4.0f, RarityDropdownRowHeight - 2.0f});
+                highlight.setPosition({layout->bounds.position.x + 2.0f, y + 1.0f});
+                highlight.setFillColor(sf::Color(76, 49, 25, 248));
+                window.draw(highlight);
+            }
+            drawText(
+                window,
+                font,
+                CardRarityOptions[optionIndex],
+                14,
+                {layout->bounds.position.x + 10.0f, y + 7.0f},
+                Ink,
+                layout->bounds.size.x - 20.0f);
+            if (row + 1 < layout->visibleRows)
+            {
+                sf::RectangleShape separator({layout->bounds.size.x - 8.0f, 1.0f});
+                separator.setPosition({layout->bounds.position.x + 4.0f, y + RarityDropdownRowHeight - 1.0f});
+                separator.setFillColor(sf::Color(91, 64, 37));
+                window.draw(separator);
+            }
+        }
+
+        if (CardRarityOptions.size() > layout->visibleRows)
+        {
+            const float trackHeight = layout->bounds.size.y - 8.0f;
+            const float thumbHeight = std::max(
+                12.0f,
+                trackHeight * static_cast<float>(layout->visibleRows) /
+                    static_cast<float>(CardRarityOptions.size()));
+            const std::size_t maximumOffset = CardRarityOptions.size() - layout->visibleRows;
+            const float thumbY = layout->bounds.position.y + 4.0f +
+                (trackHeight - thumbHeight) * static_cast<float>(layout->firstRow) /
+                    static_cast<float>(maximumOffset);
+            sf::RectangleShape thumb({3.0f, thumbHeight});
+            thumb.setPosition({layout->bounds.position.x + layout->bounds.size.x - 6.0f, thumbY});
+            thumb.setFillColor(Accent);
+            window.draw(thumb);
+        }
+    }
+
     void drawArrayEditor(sf::RenderWindow& window)
     {
         layoutArrayControls();
@@ -4023,7 +4349,7 @@ private:
         for (std::size_t i = 0; i < stringKeyFields.size() && i < stringValueFields.size(); ++i)
         {
             drawVisibleField(window, stringKeyFields[i]);
-            drawVisibleField(window, stringValueFields[i]);
+            drawRarityValueField(window, i);
         }
         for (StringListEditor& editor : listEditors)
         {
@@ -4081,6 +4407,7 @@ private:
             drawActionLinkButton(window, i);
         }
         drawActionDropdown(window);
+        drawRarityDropdown(window);
     }
 
     void layoutActionFields()

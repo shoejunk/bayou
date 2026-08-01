@@ -88,6 +88,10 @@ std::string cardRarityLabel(const card_data::Card& card)
     {
         return "Legendary";
     }
+    if (rarity == "uncommon")
+    {
+        return "Uncommon";
+    }
     if (rarity == "rare")
     {
         return "Rare";
@@ -109,6 +113,10 @@ sf::Color cardRarityColor(const card_data::Card& card)
     if (rarity == "legendary")
     {
         return sf::Color(248, 214, 112);
+    }
+    if (rarity == "uncommon")
+    {
+        return sf::Color(113, 211, 145);
     }
     if (rarity == "rare")
     {
