@@ -69,6 +69,13 @@ struct AccountStateResult
     bool isAdmin = false;
     std::vector<account_data::CollectionCard> collection;
     bool hasStarterDeck = false;
+    account_data::AudioSettings audioSettings;
+};
+
+struct AudioSettingsSaveResult
+{
+    bool success = false;
+    std::string message;
 };
 
 struct DeckEditorLoadResult
@@ -511,7 +518,50 @@ AccountStateResult fetchAccountState(const std::string& accessToken)
         accountState.league,
         accountState.isAdmin,
         std::move(accountState.collection),
-        accountState.hasStarterDeck};
+        accountState.hasStarterDeck,
+        accountState.audioSettings};
+}
+
+AudioSettingsSaveResult saveAudioSettings(
+    const std::string& accessToken,
+    const account_data::AudioSettings& settings)
+{
+    bayou::tls::Socket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {false, "Failed to connect to account server " + endpointText(clientConfig().account)};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::AudioSettingsUpdateRequest)
+            << accessToken;
+    account_data::writeAudioSettings(request, settings);
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send audio settings update"};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No audio settings response from account server"};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    response >> responseType >> success >> message;
+    if (!response ||
+        static_cast<network::MessageType>(responseType) != network::MessageType::AudioSettingsUpdateResponse)
+    {
+        socket.disconnect();
+        return {false, "Unexpected audio settings response"};
+    }
+
+    sendDisconnect(socket);
+    return {success, std::move(message)};
 }
 
 DeckCommandResult readDeckCommandResponse(

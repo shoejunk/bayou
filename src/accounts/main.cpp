@@ -167,6 +167,30 @@ private:
         {
             database->exec("ALTER TABLE accounts ADD COLUMN league INTEGER NOT NULL DEFAULT 0");
         }
+        if (!columnExists("accounts", "all_volume_percent"))
+        {
+            database->exec("ALTER TABLE accounts ADD COLUMN all_volume_percent INTEGER NOT NULL DEFAULT 100");
+        }
+        if (!columnExists("accounts", "music_volume_percent"))
+        {
+            database->exec("ALTER TABLE accounts ADD COLUMN music_volume_percent INTEGER NOT NULL DEFAULT 100");
+        }
+        if (!columnExists("accounts", "sound_effects_volume_percent"))
+        {
+            database->exec("ALTER TABLE accounts ADD COLUMN sound_effects_volume_percent INTEGER NOT NULL DEFAULT 100");
+        }
+        if (!columnExists("accounts", "all_muted"))
+        {
+            database->exec("ALTER TABLE accounts ADD COLUMN all_muted INTEGER NOT NULL DEFAULT 0");
+        }
+        if (!columnExists("accounts", "music_muted"))
+        {
+            database->exec("ALTER TABLE accounts ADD COLUMN music_muted INTEGER NOT NULL DEFAULT 0");
+        }
+        if (!columnExists("accounts", "sound_effects_muted"))
+        {
+            database->exec("ALTER TABLE accounts ADD COLUMN sound_effects_muted INTEGER NOT NULL DEFAULT 0");
+        }
         database->exec(
             "CREATE TABLE IF NOT EXISTS decks ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -398,6 +422,23 @@ private:
                     std::string accessToken;
                     packet >> accessToken;
                     handleAccountState(*client, accessToken);
+                    break;
+                }
+                case MessageType::AudioSettingsUpdateRequest:
+                {
+                    std::string accessToken;
+                    account_data::AudioSettings settings;
+                    packet >> accessToken;
+                    if (!packet || !account_data::readAudioSettings(packet, settings))
+                    {
+                        sendDeckCommandResponse(
+                            *client,
+                            MessageType::AudioSettingsUpdateResponse,
+                            false,
+                            "Invalid audio settings payload");
+                        break;
+                    }
+                    handleAudioSettingsUpdate(*client, accessToken, settings);
                     break;
                 }
                 case MessageType::WinRewardRequest:
@@ -1642,7 +1683,8 @@ private:
                     ranking::League::Wood,
                     false,
                     {},
-                    false);
+                    false,
+                    {});
                 return;
             }
 
@@ -1655,7 +1697,8 @@ private:
                 loadLeague(*username),
                 isAdmin(*username),
                 account_decks::loadCollection(*database, *username),
-                !account_decks::loadOwnedStarterDecks(*database, *username).empty());
+                !account_decks::loadOwnedStarterDecks(*database, *username).empty(),
+                loadAudioSettings(*username));
         }
         catch (const std::exception& error)
         {
@@ -1669,8 +1712,61 @@ private:
                 ranking::League::Wood,
                 false,
                 {},
-                false);
+                false,
+                {});
         }
+    }
+
+    void handleAudioSettingsUpdate(
+        bayou::tls::Socket& client,
+        const std::string& accessToken,
+        const account_data::AudioSettings& settings)
+    {
+        sf::Packet response;
+        response << static_cast<std::uint8_t>(MessageType::AudioSettingsUpdateResponse);
+        try
+        {
+            std::lock_guard<std::mutex> lock(databaseMutex);
+            const std::optional<std::string> username =
+                account_tokens::authenticateAccessToken(*database, accessToken);
+            if (!username)
+            {
+                response << false << std::string("Authentication required");
+            }
+            else if (settings.allVolumePercent > 100 ||
+                     settings.musicVolumePercent > 100 ||
+                     settings.soundEffectsVolumePercent > 100)
+            {
+                response << false << std::string("Invalid audio settings values");
+            }
+            else
+            {
+                SQLite::Statement update(
+                    *database,
+                    "UPDATE accounts SET "
+                    "all_volume_percent = ?, music_volume_percent = ?, "
+                    "sound_effects_volume_percent = ?, all_muted = ?, "
+                    "music_muted = ?, sound_effects_muted = ? "
+                    "WHERE username = ?");
+                update.bind(1, static_cast<int>(settings.allVolumePercent));
+                update.bind(2, static_cast<int>(settings.musicVolumePercent));
+                update.bind(3, static_cast<int>(settings.soundEffectsVolumePercent));
+                update.bind(4, settings.allMuted);
+                update.bind(5, settings.musicMuted);
+                update.bind(6, settings.soundEffectsMuted);
+                update.bind(7, *username);
+                update.exec();
+                response << true << std::string("Audio settings saved");
+            }
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println("Database error while saving audio settings: {}", error.what());
+            response.clear();
+            response << static_cast<std::uint8_t>(MessageType::AudioSettingsUpdateResponse)
+                     << false << std::string("Database error while saving audio settings");
+        }
+        [[maybe_unused]] auto result = client.send(response);
     }
 
     void handleRankedPlayerRequest(bayou::tls::Socket& client, const std::string& accessToken)
@@ -2809,6 +2905,29 @@ private:
         return query.getColumn(0).getInt() != 0;
     }
 
+    account_data::AudioSettings loadAudioSettings(const std::string& username)
+    {
+        SQLite::Statement query(
+            *database,
+            "SELECT all_volume_percent, music_volume_percent, "
+            "sound_effects_volume_percent, all_muted, music_muted, "
+            "sound_effects_muted FROM accounts WHERE username = ? LIMIT 1");
+        query.bind(1, username);
+        if (!query.executeStep())
+        {
+            return {};
+        }
+
+        account_data::AudioSettings settings;
+        settings.allVolumePercent = static_cast<std::uint8_t>(std::clamp(query.getColumn(0).getInt(), 0, 100));
+        settings.musicVolumePercent = static_cast<std::uint8_t>(std::clamp(query.getColumn(1).getInt(), 0, 100));
+        settings.soundEffectsVolumePercent = static_cast<std::uint8_t>(std::clamp(query.getColumn(2).getInt(), 0, 100));
+        settings.allMuted = query.getColumn(3).getInt() != 0;
+        settings.musicMuted = query.getColumn(4).getInt() != 0;
+        settings.soundEffectsMuted = query.getColumn(5).getInt() != 0;
+        return settings;
+    }
+
     void sendDeckCommandResponse(
         bayou::tls::Socket& client,
         MessageType responseType,
@@ -2988,14 +3107,21 @@ private:
         ranking::League league,
         bool isAdmin,
         const std::vector<account_data::CollectionCard>& collection,
-        bool hasStarterDeck)
+        bool hasStarterDeck,
+        const account_data::AudioSettings& audioSettings)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::AccountStateResponse);
         response << success << message;
-        account_data::writeAccountState(
-            response,
-            account_data::AccountState{coins, rating, league, isAdmin, collection, hasStarterDeck});
+        account_data::AccountState state;
+        state.coins = coins;
+        state.rating = rating;
+        state.league = league;
+        state.isAdmin = isAdmin;
+        state.collection = collection;
+        state.hasStarterDeck = hasStarterDeck;
+        state.audioSettings = audioSettings;
+        account_data::writeAccountState(response, state);
         [[maybe_unused]] auto result = client.send(response);
     }
 

@@ -2206,6 +2206,7 @@ int main(int argc, char** argv)
     leagueState.rating = 42;
     leagueState.league = ranking::League::Grandmaster;
     leagueState.collection = {{"Test Card", 2}};
+    leagueState.audioSettings = {37, 63, 89, true, false, true};
     sf::Packet leaguePacket;
     account_data::writeAccountState(leaguePacket, leagueState);
     account_data::AccountState decodedLeagueState;
@@ -2213,8 +2214,14 @@ int main(int argc, char** argv)
         account_data::readAccountState(leaguePacket, decodedLeagueState) &&
             decodedLeagueState.coins == 3 && decodedLeagueState.rating == 42 &&
             decodedLeagueState.league == ranking::League::Grandmaster &&
-            decodedLeagueState.collection.size() == 1,
-        "account state preserves league over the network");
+            decodedLeagueState.collection.size() == 1 &&
+            decodedLeagueState.audioSettings.allVolumePercent == 37 &&
+            decodedLeagueState.audioSettings.musicVolumePercent == 63 &&
+            decodedLeagueState.audioSettings.soundEffectsVolumePercent == 89 &&
+            decodedLeagueState.audioSettings.allMuted &&
+            !decodedLeagueState.audioSettings.musicMuted &&
+            decodedLeagueState.audioSettings.soundEffectsMuted,
+        "account state preserves league and audio settings over the network");
     check(ranking::matchmakingRange(std::chrono::seconds(0)) == 10,
           "matchmaking starts at +/- 10");
     check(ranking::matchmakingRange(std::chrono::seconds(30)) == 640,

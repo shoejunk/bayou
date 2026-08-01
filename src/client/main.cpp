@@ -175,6 +175,27 @@ public:
         return soundEffectsVolume;
     }
 
+    account_data::AudioSettings getSettings() const
+    {
+        return {
+            toPercent(allVolume),
+            toPercent(musicVolume),
+            toPercent(soundEffectsVolume),
+            allMuted,
+            musicMuted,
+            soundEffectsMuted};
+    }
+
+    void applySettings(const account_data::AudioSettings& settings)
+    {
+        setAllVolume(static_cast<float>(settings.allVolumePercent) / 100.0f);
+        setMusicVolume(static_cast<float>(settings.musicVolumePercent) / 100.0f);
+        setSoundEffectsVolume(static_cast<float>(settings.soundEffectsVolumePercent) / 100.0f);
+        setAllMuted(settings.allMuted);
+        setMusicMuted(settings.musicMuted);
+        setSoundEffectsMuted(settings.soundEffectsMuted);
+    }
+
     void setAllMuted(bool muted)
     {
         allMuted = muted;
@@ -227,6 +248,11 @@ private:
     bool allMuted = false;
     bool musicMuted = false;
     bool soundEffectsMuted = false;
+
+    static std::uint8_t toPercent(float volume)
+    {
+        return static_cast<std::uint8_t>(std::lround(std::clamp(volume, 0.0f, 1.0f) * 100.0f));
+    }
 
     static float envelope(float t, float duration, float attack, float release)
     {
@@ -1176,6 +1202,11 @@ int main(int argc, char** argv)
     std::optional<std::future<DeckCommandResult>> pendingDeckSave;
     std::optional<std::future<DeckCommandResult>> pendingDeckDelete;
     std::optional<std::future<AccountStateResult>> pendingAccountState;
+    std::optional<std::future<AudioSettingsSaveResult>> pendingAudioSettingsSave;
+    std::optional<account_data::AudioSettings> queuedAudioSettingsSave;
+    std::string pendingAudioSettingsSaveToken;
+    bool audioSettingsLoaded = false;
+    bool audioSettingsDirty = false;
     std::optional<std::future<ShopLoadResult>> pendingShopLoad;
     std::optional<std::future<AccountCommandResult>> pendingShopPurchase;
     std::optional<std::future<AdminUsersLoadResult>> pendingAdminUsersLoad;
@@ -2168,12 +2199,49 @@ int main(int argc, char** argv)
         clampListOffset(deckListOffset, playerDecks.size(), VisibleDeckRows);
     };
 
+    auto startQueuedAudioSettingsSave = [&]() {
+        if (pendingAudioSettingsSave || !queuedAudioSettingsSave || activeAccessToken.empty())
+        {
+            return;
+        }
+
+        const account_data::AudioSettings settings = *queuedAudioSettingsSave;
+        queuedAudioSettingsSave.reset();
+        pendingAudioSettingsSaveToken = activeAccessToken;
+        pendingAudioSettingsSave = std::async(
+            std::launch::async,
+            saveAudioSettings,
+            pendingAudioSettingsSaveToken,
+            settings);
+    };
+
+    auto queueAudioSettingsSave = [&]() {
+        audioSettingsDirty = true;
+        if (!audioSettingsLoaded || activeAccessToken.empty())
+        {
+            return;
+        }
+
+        queuedAudioSettingsSave = audioSystem.getSettings();
+        startQueuedAudioSettingsSave();
+    };
+
     auto applyAccountState = [&](const AccountStateResult& result) {
         playerCoins = result.coins;
         playerRating = result.rating;
         playerLeague = result.league;
         loggedInIsAdmin = result.isAdmin;
         playerCollection = result.collection;
+        if (!audioSettingsDirty)
+        {
+            audioSystem.applySettings(result.audioSettings);
+        }
+        audioSettingsLoaded = true;
+        if (audioSettingsDirty)
+        {
+            queuedAudioSettingsSave = audioSystem.getSettings();
+            startQueuedAudioSettingsSave();
+        }
     };
 
     auto incrementCollection = [&](const std::string& title) {
@@ -2450,6 +2518,10 @@ int main(int argc, char** argv)
         }
         loggedInUsername.clear();
         activeAccessToken.clear();
+        audioSystem.applySettings(account_data::AudioSettings{});
+        queuedAudioSettingsSave.reset();
+        audioSettingsLoaded = false;
+        audioSettingsDirty = false;
         cardLibrary.clear();
         filteredCardLibrary.clear();
         allCardLibrary.clear();
@@ -7212,6 +7284,36 @@ int main(int argc, char** argv)
             }
         }
 
+        if (pendingAudioSettingsSave &&
+            pendingAudioSettingsSave->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            AudioSettingsSaveResult result = pendingAudioSettingsSave->get();
+            const bool currentAudioSession =
+                !activeAccessToken.empty() && activeAccessToken == pendingAudioSettingsSaveToken;
+            pendingAudioSettingsSave.reset();
+            pendingAudioSettingsSaveToken.clear();
+
+            if (currentAudioSession)
+            {
+                if (!result.success)
+                {
+                    setMessage(messageText, result.message, sf::Color::Red);
+                }
+                if (queuedAudioSettingsSave)
+                {
+                    startQueuedAudioSettingsSave();
+                }
+                else if (result.success)
+                {
+                    audioSettingsDirty = false;
+                }
+            }
+            else if (!activeAccessToken.empty() && queuedAudioSettingsSave)
+            {
+                startQueuedAudioSettingsSave();
+            }
+        }
+
         if (pendingShopLoad &&
             pendingShopLoad->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
@@ -7974,28 +8076,34 @@ int main(int argc, char** argv)
                     {
                         audioSystem.setAllVolume(allAudioSlider.getValue());
                         updateOptionsLabels();
+                        queueAudioSettingsSave();
                     }
                     else if (activeOptionsTab == OptionsTab::Audio && musicAudioSlider.beginDrag(clickPos))
                     {
                         audioSystem.setMusicVolume(musicAudioSlider.getValue());
                         updateOptionsLabels();
+                        queueAudioSettingsSave();
                     }
                     else if (activeOptionsTab == OptionsTab::Audio && soundFxAudioSlider.beginDrag(clickPos))
                     {
                         audioSystem.setSoundEffectsVolume(soundFxAudioSlider.getValue());
                         updateOptionsLabels();
+                        queueAudioSettingsSave();
                     }
                     else if (activeOptionsTab == OptionsTab::Audio && muteAllAudioCheckbox.isClicked(clickPos))
                     {
                         audioSystem.setAllMuted(!audioSystem.isAllMuted());
+                        queueAudioSettingsSave();
                     }
                     else if (activeOptionsTab == OptionsTab::Audio && muteMusicCheckbox.isClicked(clickPos))
                     {
                         audioSystem.setMusicMuted(!audioSystem.isMusicMuted());
+                        queueAudioSettingsSave();
                     }
                     else if (activeOptionsTab == OptionsTab::Audio && muteSoundFxCheckbox.isClicked(clickPos))
                     {
                         audioSystem.setSoundEffectsMuted(!audioSystem.isSoundEffectsMuted());
+                        queueAudioSettingsSave();
                     }
                     else if (activeOptionsTab == OptionsTab::Account &&
                              optionsReturnState == GameState::Authenticated &&
@@ -8761,16 +8869,19 @@ int main(int argc, char** argv)
                 {
                     audioSystem.setAllVolume(allAudioSlider.getValue());
                     updateOptionsLabels();
+                    queueAudioSettingsSave();
                 }
                 else if (musicAudioSlider.dragTo(dragPos))
                 {
                     audioSystem.setMusicVolume(musicAudioSlider.getValue());
                     updateOptionsLabels();
+                    queueAudioSettingsSave();
                 }
                 else if (soundFxAudioSlider.dragTo(dragPos))
                 {
                     audioSystem.setSoundEffectsVolume(soundFxAudioSlider.getValue());
                     updateOptionsLabels();
+                    queueAudioSettingsSave();
                 }
             }
 
