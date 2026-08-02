@@ -3872,7 +3872,7 @@ private:
         y += 12.0f;
 
         y = drawInstructionSection(window, "2. Card types", y);
-        y = drawInstructionBullet(window, "Hero: selected during deck building and placed on one of the player's four starting squares before play. Use heroCost instead of cost. A deck has 1-4 Heroes and a total Hero cost limit of 100. Losing every Hero loses the game.", y, sf::Color(248, 214, 112));
+        y = drawInstructionBullet(window, "Hero: selected during deck building and placed on one of the player's eight starting squares before play. Use heroCost instead of cost. A deck has 1-4 Heroes and a total Hero cost limit of 100. Losing every Hero loses the game.", y, sf::Color(248, 214, 112));
         y = drawInstructionBullet(window, "Unit: goes into the 20-card main deck. It costs Resources to play and deploys to an empty square the player controls. A newly deployed Unit cannot move or attack until its owner's next turn.", y, sf::Color(150, 210, 235));
         y = drawInstructionBullet(window, "Spell: goes into the main deck, costs Resources, resolves immediately, and leaves the hand. Spells do not use health, actions, or WalkAnim.", y, sf::Color(205, 175, 235));
         y = drawInstructionBullet(window, "Enchantment: goes into the main deck and attaches permanently to a player, square, or piece. Use target=player with effect=resourceDrain, target=square with effect=resources, or target=piece with effect=damage; power is the modifier amount.", y, sf::Color(194, 150, 235));

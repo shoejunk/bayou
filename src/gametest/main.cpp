@@ -307,6 +307,23 @@ int main(int argc, char** argv)
 
     fmt::println("=== Resources Tactics integration test ===");
 
+    GameEngine startingControlEngine(1, {});
+    const auto playerOneHome = homeSquares(1);
+    const auto playerTwoHome = homeSquares(2);
+    const auto countControlled = [](const std::array<std::uint8_t, BoardSquares>& board, int playerNumber) {
+        return static_cast<int>(std::count(board.begin(), board.end(), static_cast<std::uint8_t>(playerNumber)));
+    };
+    check(playerOneHome.size() == 8 && playerTwoHome.size() == 8 &&
+              countControlled(startingControlEngine.boardControl(), 1) == 8 &&
+              countControlled(startingControlEngine.boardControl(), 2) == 8 &&
+              playerOneHome[0].second == 0 && playerOneHome[3].second == 0 &&
+              playerOneHome[4].second == 1 && playerOneHome[7].second == 1 &&
+              playerTwoHome[0].second == BoardSize - 1 &&
+              playerTwoHome[3].second == BoardSize - 1 &&
+              playerTwoHome[4].second == BoardSize - 2 &&
+              playerTwoHome[7].second == BoardSize - 2,
+          "each player starts with a 2x4 rectangle of controlled squares");
+
     card_data::Card largeDefinition;
     largeDefinition.title = "Large Unit";
     largeDefinition.type = "Unit";
@@ -2515,7 +2532,7 @@ int main(int argc, char** argv)
           "heroes cannot be played or discarded during placement");
 
     // --- hero placement ----------------------------------------------------
-    // Player 1 home column 0 middle rows; player 2 home column 7 middle rows.
+    // Player 1's edge column is 0; player 2's edge column is 7.
     const auto p1Home = homeSquares(1);
     const auto p2Home = homeSquares(2);
     const int firstPlacementIndex = heroCount1 > 1 ? 1 : 0;

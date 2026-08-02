@@ -30,15 +30,21 @@ inline int chebyshev(int r1, int c1, int r2, int c2)
     return dr > dc ? dr : dc;
 }
 
-// The four home squares a player starts controlling.
-inline std::array<std::pair<int, int>, 4> homeSquares(int playerNumber)
+// The 2x4 rectangle of squares a player starts controlling: four on the
+// player's edge column and four on the adjacent inward column.
+inline std::array<std::pair<int, int>, 8> homeSquares(int playerNumber)
 {
     const int column = playerNumber == 1 ? 0 : BoardSize - 1;
+    const int adjacentColumn = playerNumber == 1 ? column + 1 : column - 1;
     constexpr int FirstMiddleRow = (BoardSize - 4) / 2;
     return {{{FirstMiddleRow, column},
              {FirstMiddleRow + 1, column},
              {FirstMiddleRow + 2, column},
-             {FirstMiddleRow + 3, column}}};
+             {FirstMiddleRow + 3, column},
+             {FirstMiddleRow, adjacentColumn},
+             {FirstMiddleRow + 1, adjacentColumn},
+             {FirstMiddleRow + 2, adjacentColumn},
+             {FirstMiddleRow + 3, adjacentColumn}}};
 }
 
 inline int absInt(int value)
