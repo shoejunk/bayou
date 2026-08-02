@@ -387,6 +387,7 @@ const std::vector<std::string>& knownScreens()
         "game-midgame",
         "game-selected",
         "game-popup",
+        "game-resign-confirmation",
         "game-victory",
         // Admin / card-editor / Conquest review states. These screens are all
         // but empty without a service behind them, so each key seeds the state

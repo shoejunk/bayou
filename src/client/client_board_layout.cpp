@@ -51,8 +51,8 @@ sf::Color ownerColorBright(int owner)
 // the board reads as two flat blocks of colour.
 sf::Color ownerTint(int owner)
 {
-    if (owner == 1) return sf::Color(30, 88, 80, 104);
-    if (owner == 2) return sf::Color(104, 44, 36, 104);
+    if (owner == 1) return sf::Color(26, 126, 101, 146);
+    if (owner == 2) return sf::Color(142, 54, 42, 146);
     return sf::Color(0, 0, 0, 0);
 }
 

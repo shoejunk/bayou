@@ -775,34 +775,34 @@ enum class DeckEditorMode
     EditDeck
 };
 
-// Top readout band: an owner banner at each end with a turn plaque between them.
-constexpr float GameTopBarY = 6.0f;
-constexpr float GamePlayerBannerWidth = 236.0f;
-constexpr float GamePlayerBannerHeight = 48.0f;
-constexpr float GamePlayerBannerLeftX = BoardOriginX;
-constexpr float GamePlayerBannerRightX =
-    BoardOriginX + BoardBottomWidth - GamePlayerBannerWidth;
-constexpr float GameTurnPlaqueWidth = 244.0f;
+// The 16:9 canvas has a narrow gutter on either side of the legacy board. Keep
+// owner readouts in those gutters so the upper board row can never cover them.
+constexpr float GameTopBarY = 5.0f;
+constexpr float GamePlayerBannerWidth = 180.0f;
+constexpr float GamePlayerBannerHeight = 90.0f;
+constexpr float GamePlayerBannerLeftX = ui_canvas::Left + 4.0f;
+constexpr float GamePlayerBannerRightX = ui_canvas::Right - GamePlayerBannerWidth - 4.0f;
+constexpr float GameTurnPlaqueWidth = GamePlayerBannerWidth;
 constexpr float GameTurnPlaqueHeight = 48.0f;
-constexpr float GameTurnPlaqueX = BoardCenterX - GameTurnPlaqueWidth * 0.5f;
-constexpr float GameTurnPlaqueY = GameTopBarY + 3.0f;
+constexpr float GameTurnPlaqueY = GameTopBarY + GamePlayerBannerHeight + 8.0f;
+constexpr float ResignDialogX = 220.0f;
+constexpr float ResignDialogY = 188.0f;
+constexpr float ResignDialogWidth = 360.0f;
+constexpr float ResignDialogHeight = 220.0f;
 // The player-enchantment drop test targets the owner banners.
 constexpr float GameLabelY = GameTopBarY;
 constexpr float GamePlayerReadoutWidth = GamePlayerBannerWidth;
 constexpr float GamePlayerReadoutHeight = GamePlayerBannerHeight;
 
-// Bottom command bar: resources and piles at the left, the hand across the
-// middle, turn actions at the right.
+// Bottom command bar: piles at the left, the hand across the middle, turn
+// actions at the right.
 constexpr float GameBottomBarY = 468.0f;
 constexpr float GameBottomBarHeight = 126.0f;
-constexpr float GameResourcePlateX = 22.0f;
-constexpr float GameResourcePlateY = GameBottomBarY + 10.0f;
-constexpr float GameResourcePlateWidth = 152.0f;
-constexpr float GameResourcePlateHeight = 42.0f;
-constexpr float GamePileY = GameResourcePlateY + 48.0f;
+constexpr float GameBottomLeftX = 22.0f;
+constexpr float GamePileY = GameBottomBarY + 10.0f;
 constexpr float GamePileWidth = 70.0f;
-constexpr float GamePileHeight = 56.0f;
-constexpr float GameDeckPileX = GameResourcePlateX;
+constexpr float GamePileHeight = 104.0f;
+constexpr float GameDeckPileX = GameBottomLeftX;
 constexpr float HandY = 478.0f;
 constexpr float HandCardWidth = 72.0f;
 constexpr float HandCardHeight = 104.0f;
@@ -813,7 +813,7 @@ constexpr std::size_t VisibleGameHandCards = 5;
 constexpr float TrashCanWidth = GamePileWidth;
 constexpr float TrashCanHeight = GamePileHeight;
 constexpr float TrashCanSize = GamePileWidth;
-constexpr float TrashCanX = GameResourcePlateX + 82.0f;
+constexpr float TrashCanX = GameBottomLeftX + 82.0f;
 constexpr float TrashCanY = GamePileY;
 constexpr float TrashCanDropPadding = 12.0f;
 constexpr float GameActionButtonGap = 6.0f;
@@ -1240,6 +1240,7 @@ int main(int argc, char** argv)
     bool passwordChangedPopupVisible = false;
     bool exitDesktopPopupVisible = false;
     bool deckUnsavedChangesPopupVisible = false;
+    bool resignConfirmPopupVisible = false;
     bool exitDesktopCloseHovered = false;
     bool authenticatedSettingsHovered = false;
     bool pendingAutoLogin = false;
@@ -1467,8 +1468,10 @@ int main(int argc, char** argv)
     Button leaveGameButton(
         {GameActionButtonX, GameLeaveButtonY},
         {GameLeaveButtonWidth, GameActionButtonHeight},
-        "Leave",
+        "Resign",
         font);
+    Button cancelResignButton({250.0f, 356.0f}, {130.0f, 42.0f}, "Cancel", font);
+    Button confirmResignButton({420.0f, 356.0f}, {130.0f, 42.0f}, "Resign", font);
     Button closePiecePopupButton({PiecePopupX + 358.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
     Button discardCardButton({PiecePopupX + 22.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {220.0f, 38.0f},
                              "Discard to deck bottom", font);
@@ -2112,6 +2115,19 @@ int main(int argc, char** argv)
         confirmExitDesktopButton.draw(window);
     };
 
+    auto drawResignConfirmationPopup = [&]() {
+        sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
+        overlay.setPosition({ui_canvas::Left, 0.0f});
+        overlay.setFillColor(sf::Color(0, 0, 0, 182));
+        window.draw(overlay);
+        drawPanel(window, {ResignDialogX, ResignDialogY}, {ResignDialogWidth, ResignDialogHeight});
+        drawText(window, font, "Resign Match?", 28, {266.0f, 218.0f}, sf::Color(248, 224, 172), 270.0f);
+        drawText(window, font, "Are you sure you want to resign", 16, {260.0f, 276.0f}, sf::Color(220, 224, 230), 280.0f);
+        drawText(window, font, "this game?", 16, {350.0f, 302.0f}, sf::Color(220, 224, 230), 120.0f);
+        cancelResignButton.draw(window);
+        confirmResignButton.draw(window);
+    };
+
     auto makeNewDeckName = [&]() {
         std::string name = "New Deck";
         int suffix = 2;
@@ -2555,6 +2571,7 @@ int main(int argc, char** argv)
         deleteUserPopupVisible = false;
         exitDesktopPopupVisible = false;
         deckUnsavedChangesPopupVisible = false;
+        resignConfirmPopupVisible = false;
         adminUserDeleteTarget.clear();
         adminSearchInput.clear();
         adminGoldInput.clear();
@@ -3069,7 +3086,8 @@ int main(int argc, char** argv)
         conquestBattleMode = isConquestBattle;
         currentState = GameState::Game;
         abilityButton.setPosition({GameActionButtonX, GameAbilityButtonY});
-        leaveGameButton.setLabel(isConquestBattle ? "Map" : "Leave");
+        leaveGameButton.setLabel(isConquestBattle ? "Map" : "Resign");
+        resignConfirmPopupVisible = false;
         title.setString("");
         centerText(title, 400.0f);
         setMessage(messageText, "", sf::Color::Red);
@@ -4262,10 +4280,10 @@ int main(int argc, char** argv)
         }
         const std::string effectText = (value > 0 ? "+" : "") + std::to_string(value);
         const sf::Text floatingValue(font, effectText, 20);
-        // Float the delta off the resource pip inside that player's banner.
+        // Float the delta off the resources figure inside that player's banner.
         const float pipCenterX = playerNumber == 1
-            ? GamePlayerBannerLeftX + 96.0f
-            : GamePlayerBannerRightX + GamePlayerBannerWidth - 96.0f;
+            ? GamePlayerBannerLeftX + 61.0f
+            : GamePlayerBannerRightX + 61.0f;
         const float x = pipCenterX - floatingValue.getLocalBounds().size.x * 0.5f;
         floatingNumberEffects.push_back({
             0,
@@ -4679,6 +4697,8 @@ int main(int argc, char** argv)
     auto beginStory = [&]() {
         sandboxMode = true;
         storyMode = true;
+        resignConfirmPopupVisible = false;
+        leaveGameButton.setLabel("Leave");
         abilityButton.setPosition({GameActionButtonX, GameAbilityButtonY});
         storyStage = StoryStage::MoveTutorial;
         storyTargetRow = 4;
@@ -4749,6 +4769,8 @@ int main(int argc, char** argv)
     auto beginSandbox = [&](std::vector<card_data::Card> cards) {
         sandboxMode = true;
         storyMode = false;
+        resignConfirmPopupVisible = false;
+        leaveGameButton.setLabel("Leave");
         abilityButton.setPosition({GameActionButtonX, GameAbilityButtonY});
         storyStage = StoryStage::None;
         storyTargetRow = -1;
@@ -6418,6 +6440,7 @@ int main(int argc, char** argv)
         }
         conquestBattleMode = false;
         leaveGameButton.setLabel("Leave");
+        resignConfirmPopupVisible = false;
         haveSnapshot = false;
         gameSnapshot = {};
         clockWarningTracker.reset();
@@ -6686,6 +6709,8 @@ int main(int argc, char** argv)
         sandboxMode = false;
         storyMode = false;
         conquestBattleMode = false;
+        resignConfirmPopupVisible = false;
+        leaveGameButton.setLabel("Resign");
         storyStage = StoryStage::None;
         storyTargetRow = -1;
         storyTargetColumn = -1;
@@ -6880,6 +6905,7 @@ int main(int argc, char** argv)
         confirmInput.setError(false);
         exitDesktopPopupVisible = false;
         deckUnsavedChangesPopupVisible = false;
+        resignConfirmPopupVisible = false;
         passwordChangedPopupVisible = false;
         addCardPopupVisible = false;
         giveStarterDeckPopupVisible = false;
@@ -7106,6 +7132,11 @@ int main(int argc, char** argv)
         else if (screen == "game-popup")
         {
             seedCaptureMatch("popup");
+        }
+        else if (screen == "game-resign-confirmation")
+        {
+            seedCaptureMatch("midgame");
+            resignConfirmPopupVisible = true;
         }
         else if (screen == "game-victory")
         {
@@ -7950,6 +7981,22 @@ int main(int argc, char** argv)
                     continue;
                 }
 
+                if (resignConfirmPopupVisible)
+                {
+                    if (confirmResignButton.isClicked(clickPos))
+                    {
+                        resignConfirmPopupVisible = false;
+                        leaveGame();
+                    }
+                    else if (cancelResignButton.isClicked(clickPos) ||
+                             !isInsideRect(clickPos, ResignDialogX, ResignDialogY,
+                                          ResignDialogWidth, ResignDialogHeight))
+                    {
+                        resignConfirmPopupVisible = false;
+                    }
+                    continue;
+                }
+
                 if ((currentState == GameState::Menu || currentState == GameState::Authenticated) &&
                     exitDesktopCloseButtonClicked(clickPos))
                 {
@@ -8523,7 +8570,17 @@ int main(int argc, char** argv)
                     else if (leaveGameButton.isClicked(clickPos))
                     {
                         pendingHandClickIndex.reset();
-                        leaveGame();
+                        resetGameDrag();
+                        const bool matchIsOver = haveSnapshot &&
+                            static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::GameOver;
+                        if (!sandboxMode && !storyMode && !conquestBattleMode && !matchIsOver)
+                        {
+                            resignConfirmPopupVisible = true;
+                        }
+                        else
+                        {
+                            leaveGame();
+                        }
                     }
                     else if (haveSnapshot && selectedPieceId &&
                              static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::Playing &&
@@ -9110,6 +9167,20 @@ int main(int argc, char** argv)
                     continue;
                 }
 
+                if (resignConfirmPopupVisible)
+                {
+                    if (keyPressed->code == sf::Keyboard::Key::Escape)
+                    {
+                        resignConfirmPopupVisible = false;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter)
+                    {
+                        resignConfirmPopupVisible = false;
+                        leaveGame();
+                    }
+                    continue;
+                }
+
                 if (!pendingRequest && !pendingMatchmaking && !pendingSandboxLoad &&
                     currentState == GameState::Authenticated && !exitDesktopPopupVisible)
                 {
@@ -9646,7 +9717,12 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Game)
         {
-            if (inspectedPieceId || inspectedHandIndex)
+            if (resignConfirmPopupVisible)
+            {
+                cancelResignButton.update(mousePos);
+                confirmResignButton.update(mousePos);
+            }
+            else if (inspectedPieceId || inspectedHandIndex)
             {
                 if (canDiscardInspectedHandCard())
                 {
@@ -9976,6 +10052,10 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Game)
         {
             drawGame();
+            if (resignConfirmPopupVisible)
+            {
+                drawResignConfirmationPopup();
+            }
         }
 
         // Lets a screen tell that this is its first frame (matchmaking arms its

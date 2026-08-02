@@ -469,24 +469,13 @@
                 remaining > 0 ? (top ? BoardBrass : BoardBrassDim) : sf::Color(72, 62, 50),
                 top ? 1.5f : 1.0f);
         }
-        // An arcane sigil on the back of the top card.
-        const sf::Vector2f face{centerX, GamePileY + (GamePileHeight - 14.0f) * 0.5f};
-        const sf::Color sigilColor = remaining > 0
-            ? withAlpha(BoardArcane, 236)
-            : withAlpha(BoardArcane, 96);
-        drawEllipseOutline(window, face, 11.0f, 11.0f, 1.4f, sigilColor);
-        drawEllipseOutline(window, face, 6.0f, 6.0f, 1.2f, withAlpha(BoardBrassBright, remaining > 0 ? 200 : 80));
-        sf::CircleShape core(2.4f, 12);
-        core.setOrigin({2.4f, 2.4f});
-        core.setPosition(face);
-        core.setFillColor(sigilColor);
-        window.draw(core);
-
-        sf::Text count(font, std::to_string(std::max(0, remaining)), 13);
+        // Keep the remaining-card count as the only content on the face, centered
+        // in the tall slot now that the decorative sigil has been removed.
+        sf::Text count(font, std::to_string(std::max(0, remaining)), 16);
         count.setFillColor(remaining > 0 ? BoardParchment : withAlpha(BoardParchmentMuted, 170));
         count.setOutlineThickness(1.0f);
         count.setOutlineColor(sf::Color(0, 0, 0, 200));
-        centerText(count, {centerX, GamePileY + GamePileHeight - 20.0f});
+        centerText(count, {centerX, GamePileY + (GamePileHeight - 14.0f) * 0.5f});
         drawCrispText(window, count);
 
         drawSlotCaption(
@@ -535,68 +524,8 @@
         drawSlotCaption(
             centerX,
             TrashCanY + TrashCanHeight - 5.0f,
-            available ? "DISCARD" : "USED",
+            "DISCARD",
             withAlpha(available ? BoardParchmentMuted : sf::Color(140, 110, 98), 206));
-    };
-
-    // Resources available to spend, sitting beside the hand where it is needed.
-    auto drawResourcesGauge = [&](const std::string& value, int spendable) {
-        drawCutPlate(
-            {GameResourcePlateX, GameResourcePlateY},
-            {GameResourcePlateWidth, GameResourcePlateHeight},
-            9.0f,
-            sf::Color(13, 19, 21, 240),
-            BoardBrass,
-            1.5f);
-
-        // A faceted crystal rather than a plain disc, to distinguish resources from
-        // the coin glyph the menus use for currency.
-        const sf::Vector2f crystalCenter{
-            GameResourcePlateX + 24.0f, GameResourcePlateY + GameResourcePlateHeight * 0.5f};
-        sf::ConvexShape crystal(6);
-        crystal.setPoint(0, {crystalCenter.x, crystalCenter.y - 13.0f});
-        crystal.setPoint(1, {crystalCenter.x + 9.0f, crystalCenter.y - 5.0f});
-        crystal.setPoint(2, {crystalCenter.x + 9.0f, crystalCenter.y + 6.0f});
-        crystal.setPoint(3, {crystalCenter.x, crystalCenter.y + 13.0f});
-        crystal.setPoint(4, {crystalCenter.x - 9.0f, crystalCenter.y + 6.0f});
-        crystal.setPoint(5, {crystalCenter.x - 9.0f, crystalCenter.y - 5.0f});
-        crystal.setFillColor(sf::Color(46, 92, 106, 244));
-        crystal.setOutlineThickness(1.4f);
-        crystal.setOutlineColor(withAlpha(BoardBrassBright, 226));
-        window.draw(crystal);
-        drawEdgeLine(
-            window,
-            {crystalCenter.x - 4.0f, crystalCenter.y - 6.0f},
-            {crystalCenter.x + 1.0f, crystalCenter.y + 7.0f},
-            1.6f,
-            sf::Color(158, 214, 226, 190));
-
-        sf::Text valueText(font, value, 24);
-        valueText.setFillColor(BoardParchment);
-        valueText.setOutlineThickness(1.2f);
-        valueText.setOutlineColor(sf::Color(0, 0, 0, 190));
-        valueText.setPosition({GameResourcePlateX + 42.0f, GameResourcePlateY + 6.0f});
-        drawCrispText(window, valueText);
-
-        drawSlotCaption(
-            GameResourcePlateX + GameResourcePlateWidth - 34.0f,
-            GameResourcePlateY + 13.0f,
-            "RESOURCES",
-            withAlpha(BoardParchmentMuted, 216));
-        if (spendable >= 0)
-        {
-            sf::Text playable(
-                font,
-                std::to_string(spendable) + (spendable == 1 ? " card" : " cards"),
-                10);
-            playable.setFillColor(spendable > 0
-                ? withAlpha(ownerColorBright(1), 236)
-                : withAlpha(BoardParchmentMuted, 170));
-            centerText(
-                playable,
-                {GameResourcePlateX + GameResourcePlateWidth - 34.0f, GameResourcePlateY + 28.0f});
-            drawCrispText(window, playable);
-        }
     };
 
     auto drawPiecePopup = [&]() {
@@ -957,6 +886,11 @@
         const int me = gameSnapshot.yourPlayer;
         const int sandboxPlayer = sandboxMode ? sandboxPlacementPlayer : me;
         const game_data::Phase phase = static_cast<game_data::Phase>(gameSnapshot.phase);
+        if (!sandboxMode && !storyMode && !conquestBattleMode)
+        {
+            leaveGameButton.setLabel(
+                phase == game_data::Phase::GameOver ? "Leave" : "Resign");
+        }
         const game_data::Piece* selectedPiece = selectedPieceId ? gamePieceById(*selectedPieceId) : nullptr;
         const game_data::Piece* draggedPiece =
             gameDragKind == GameDragKind::Piece && draggingPieceId ? gamePieceById(*draggingPieceId) : nullptr;
@@ -1317,14 +1251,17 @@
                         withAlpha(tint, static_cast<int>(tint.a * 0.72f)),
                         tint);
                     const std::array<sf::Vector2f, 4> rim = insetQuad(metrics.corners, 0.9f);
+                    const bool playerTerritory = controller == 1 || controller == 2;
+                    const float rimThickness = playerTerritory ? 1.25f : 1.0f;
+                    const int rimAlpha = playerTerritory ? 156 : 74;
                     for (std::size_t i = 0; i < rim.size(); ++i)
                     {
                         drawEdgeLine(
                             window,
                             rim[i],
                             rim[(i + 1) % rim.size()],
-                            1.0f,
-                            withAlpha(ownerColor(controller), 74));
+                            rimThickness,
+                            withAlpha(ownerColor(controller), rimAlpha));
                     }
                 }
 
@@ -1456,13 +1393,16 @@
                             1.3f,
                             withAlpha(style.accent, 168));
                     }
-                    drawSoftEllipse(
-                        window,
-                        {anchor.x, anchor.y - 4.0f * metrics.depthScale},
-                        13.0f * metrics.depthScale,
-                        5.5f * metrics.depthScale,
-                        withAlpha(style.accent, 132),
-                        4);
+                    if (style.marker != RangeStyle::Marker::Deploy)
+                    {
+                        drawSoftEllipse(
+                            window,
+                            {anchor.x, anchor.y - 4.0f * metrics.depthScale},
+                            13.0f * metrics.depthScale,
+                            5.5f * metrics.depthScale,
+                            withAlpha(style.accent, 132),
+                            4);
+                    }
 
                     if (style.marker == RangeStyle::Marker::Move)
                     {
@@ -2279,10 +2219,10 @@
                 remainingMs - (ticking ? snapshotAgeMs : 0));
         };
         // ---- Owner banners ---------------------------------------------------
-        // Each side gets a plate carrying its name, resources, held territory and
-        // clock as separate labelled figures. The single run-on line this replaces
-        // leaked internal placeholders ("Resources: story") and abbreviations
-        // ("R: 7") straight to the player.
+        // The side gutters are deliberately compact. Put the identity and player
+        // clock on the first row, then give Resources, Lands, and enchantments
+        // separate columns below it so the long Resources caption cannot run into
+        // another readout.
         const auto playerDisplayName = [&](int playerNumber) {
             if (storyMode)
             {
@@ -2300,12 +2240,12 @@
                                           const std::string& caption,
                                           const std::string& value,
                                           sf::Color valueColor) {
-            sf::Text captionText(font, caption, 9);
+            sf::Text captionText(font, caption, 8);
             captionText.setFillColor(withAlpha(BoardParchmentMuted, 208));
             centerText(captionText, {center.x, center.y - 8.0f});
             drawCrispText(window, captionText);
 
-            sf::Text valueText(font, value, 17);
+            sf::Text valueText(font, value, 16);
             valueText.setFillColor(valueColor);
             valueText.setOutlineThickness(1.0f);
             valueText.setOutlineColor(sf::Color(0, 0, 0, 170));
@@ -2358,19 +2298,6 @@
                     hoveredForEnchantment ? 1.8f : 1.0f);
             }
 
-            // Owner sigil at the outer edge, name inboard of it.
-            const float sigilX = leftSide ? x + 19.0f : x + GamePlayerBannerWidth - 19.0f;
-            const float sigilY = GameTopBarY + GamePlayerBannerHeight * 0.5f;
-            drawEllipseOutline(window, {sigilX, sigilY}, 12.0f, 12.0f, 1.4f, withAlpha(accent, 210));
-            sf::CircleShape sigil(7.5f, 6);
-            sigil.setOrigin({7.5f, 7.5f});
-            sigil.setPosition({sigilX, sigilY});
-            sigil.setRotation(sf::degrees(leftSide ? 0.0f : 30.0f));
-            sigil.setFillColor(withAlpha(accent, isActive ? 235 : 170));
-            sigil.setOutlineThickness(1.0f);
-            sigil.setOutlineColor(sf::Color(20, 14, 9, 210));
-            window.draw(sigil);
-
             const int enchantmentCount = static_cast<int>(std::count_if(
                 gameSnapshot.enchantments.begin(),
                 gameSnapshot.enchantments.end(),
@@ -2387,15 +2314,13 @@
                 sandboxMode && !storyMode ? std::string("Free") : std::to_string(player.resources);
             const std::string control = std::to_string(player.controlledSquares);
 
-            // Figures occupy the half of the plate away from the sigil, laid out
-            // in the same reading order on both sides.
-            const float figureStep = 40.0f;
+            // Figures occupy their own lower row. All three columns use the same
+            // positions on both sides so the labels remain evenly separated.
+            const float figureStep = 58.0f;
             const int figureCount = storyMode ? 0 : (enchantmentCount > 0 ? 3 : 2);
-            const float figureBlockWidth = figureStep * static_cast<float>(figureCount);
-            const float figureBlockX = leftSide
-                ? x + GamePlayerBannerWidth - 8.0f - figureBlockWidth
-                : x + 8.0f;
-            const float figureY = GameTopBarY + GamePlayerBannerHeight * 0.5f;
+            const float figureBlockX = x +
+                (GamePlayerBannerWidth - figureStep * static_cast<float>(figureCount)) * 0.5f;
+            const float figureY = GameTopBarY + GamePlayerBannerHeight - 21.0f;
 
             float slot = 0.0f;
             const auto nextFigureCenter = [&]() {
@@ -2417,9 +2342,9 @@
                 }
             }
 
-            // Name and clock fill the gap between the sigil and the figures.
-            const float textLeft = leftSide ? x + 37.0f : x + 8.0f + figureBlockWidth + 6.0f;
-            const float textRight = leftSide ? figureBlockX - 6.0f : x + GamePlayerBannerWidth - 37.0f;
+            // Name and player clock share the upper row, away from the sigil.
+            const float textLeft = x + 22.0f;
+            const float textRight = x + GamePlayerBannerWidth - 22.0f;
             const float textWidth = std::max(30.0f, textRight - textLeft);
             sf::Text nameText(
                 font,
@@ -2428,7 +2353,7 @@
             nameText.setFillColor(isActive ? BoardParchment : withAlpha(BoardParchmentMuted, 226));
             nameText.setPosition({
                 textLeft,
-                GameTopBarY + (gameSnapshot.timersEnabled ? 7.0f : 15.0f)});
+                GameTopBarY + 10.0f});
             drawCrispText(window, nameText);
 
             if (gameSnapshot.timersEnabled)
@@ -2441,7 +2366,7 @@
                 clockText.setFillColor(clockMs <= 30'000
                     ? sf::Color(233, 128, 106)
                     : withAlpha(BoardParchmentMuted, 232));
-                clockText.setPosition({textLeft, GameTopBarY + 26.0f});
+                clockText.setPosition({textLeft, GameTopBarY + 36.0f});
                 drawCrispText(window, clockText);
             }
         };
@@ -2449,7 +2374,7 @@
         drawPlayerBanner(1, playerOne);
         drawPlayerBanner(2, playerTwo);
 
-        // ---- Turn plaque -----------------------------------------------------
+        // ---- Active turn readout ---------------------------------------------
         {
             const bool myTurn = sandboxMode || activePlayer == me;
             const std::string turnLabel = phase == game_data::Phase::GameOver
@@ -2459,28 +2384,33 @@
                     : (storyMode ? std::string("TUTORIAL")
                                  : (myTurn ? std::string("YOUR TURN")
                                            : std::string("OPPONENT'S TURN"))));
+            const int turnPlayer = activePlayer == 2 ? 2 : 1;
+            const float turnX = turnPlayer == 1
+                ? GamePlayerBannerLeftX
+                : GamePlayerBannerRightX;
             const sf::Color accent = phase == game_data::Phase::GameOver
                 ? BoardBrass
-                : ownerColor(activePlayer);
+                : ownerColor(turnPlayer);
 
             drawBeveledPlate(
                 window,
-                {GameTurnPlaqueX, GameTurnPlaqueY},
+                {turnX, GameTurnPlaqueY},
                 {GameTurnPlaqueWidth, GameTurnPlaqueHeight},
                 withAlpha(BoardPlate, 238),
                 accent,
                 true,
                 12.0f);
 
-            sf::Text label(font, turnLabel, 15);
-            label.setLetterSpacing(1.28f);
+            sf::Text label(font, elideToWidth(font, turnLabel, 8, GameTurnPlaqueWidth - 16.0f), 8);
+            label.setLetterSpacing(1.05f);
             label.setFillColor(BoardParchment);
             label.setOutlineThickness(1.0f);
             label.setOutlineColor(sf::Color(0, 0, 0, 190));
             const bool showTurnClock =
                 gameSnapshot.timersEnabled && phase != game_data::Phase::GameOver;
             centerText(
-                label, {BoardCenterX, GameTurnPlaqueY + (showTurnClock ? 17.0f : 24.0f)});
+                label, {turnX + GameTurnPlaqueWidth * 0.5f,
+                        GameTurnPlaqueY + (showTurnClock ? 14.0f : 24.0f)});
             drawCrispText(window, label);
 
             // The turn clock is meaningless once the match is decided, so the
@@ -2497,12 +2427,11 @@
                 turnClock.setFillColor(urgent
                     ? sf::Color(240, 152, 132)
                     : withAlpha(BoardParchmentMuted, 240));
-                const float clockWidth = turnClock.getLocalBounds().size.x;
-                const float trackWidth = GameTurnPlaqueWidth - 74.0f - clockWidth;
-                const float trackX = BoardCenterX - (trackWidth + clockWidth + 8.0f) * 0.5f;
-                const float rowY = GameTurnPlaqueY + 34.0f;
+                const float trackX = turnX + 10.0f;
+                const float trackWidth = GameTurnPlaqueWidth - 20.0f;
+                const float rowY = GameTurnPlaqueY + 41.0f;
 
-                turnClock.setPosition({trackX + trackWidth + 8.0f, rowY - 8.0f});
+                centerText(turnClock, {turnX + GameTurnPlaqueWidth * 0.5f, GameTurnPlaqueY + 29.0f});
                 drawCrispText(window, turnClock);
 
                 sf::RectangleShape track({trackWidth, 4.0f});
@@ -2688,28 +2617,9 @@
         };
         drawCommandIntent();
 
-        // Whether a hand card can actually be played right now. Shared by the card
-        // faces and the resources gauge so the two never disagree.
-        const auto handCardPlayable = [&](const game_data::GameCard& card) {
-            if (phase == game_data::Phase::HeroPlacement)
-            {
-                return true;
-            }
-            return gameSnapshot.relentlessPieceId == 0 &&
-                (sandboxMode || card.cost <= mine.resources) &&
-                (sandboxMode || gameSnapshot.activePlayer == me) &&
-                phase == game_data::Phase::Playing &&
-                (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, card));
-        };
-
         const bool commandBarActive = phase == game_data::Phase::Playing && !storyMode;
         if (commandBarActive)
         {
-            const int playableCount = static_cast<int>(std::count_if(
-                gameSnapshot.hand.begin(), gameSnapshot.hand.end(), handCardPlayable));
-            drawResourcesGauge(
-                sandboxMode ? std::string("Free") : std::to_string(mine.resources),
-                sandboxMode ? -1 : playableCount);
             drawDrawPile(mine.drawPileCount);
 
             const bool draggingHandCard =
@@ -2809,7 +2719,7 @@
                 stepAccent = BoardBrassBright;
             }
 
-            const sf::Vector2f plaquePosition{GameResourcePlateX, GameBottomBarY + 14.0f};
+            const sf::Vector2f plaquePosition{GameBottomLeftX, GameBottomBarY + 14.0f};
             const sf::Vector2f plaqueSize{560.0f, GameBottomBarHeight - 28.0f};
             drawBeveledPlate(
                 window,
@@ -3131,15 +3041,17 @@
 
             drawSeparatorRule(window, {310.0f, 312.0f}, 180.0f);
 
-            sf::Text hintLine(
-                font,
-                conquestBattleMode ? "Press Map to return to the campaign." : "Press Leave to return.",
-                12);
+            const std::string returnAction = conquestBattleMode
+                ? "Press Map to return to the campaign."
+                : ((sandboxMode || phase == game_data::Phase::GameOver)
+                    ? "Press Leave to return."
+                    : "Press Resign to return.");
+            sf::Text hintLine(font, returnAction, 12);
             hintLine.setFillColor(withAlpha(BoardParchmentMuted, 200));
             centerText(hintLine, {400.0f, 336.0f});
             drawCrispText(window, hintLine);
 
-            // Keep the Leave button bright above the dimmed battlefield.
+            // Keep the exit action bright above the dimmed battlefield.
             leaveGameButton.draw(window);
         }
 
