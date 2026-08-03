@@ -1986,10 +1986,9 @@ void drawCardFace(
     drawText(ui.window, ui.font, typeLine, 12, {textX, y}, rarityColor, textWidth);
     y += 20.0f;
 
-    // Stat block: attack and health as struck badges for anything that fights.
+    // Stat block: health as a struck badge for anything that fights.
     if (hero || card.type == "Unit")
     {
-        const int attack = game_data::cardInt(card, "attack", 0);
         const int health = game_data::cardInt(card, "health", 0);
         const auto badge = [&](sf::Vector2f position, const std::string& label, int value, sf::Color color) {
             drawBeveledPlate(
@@ -2003,8 +2002,7 @@ void drawCardFace(
             drawText(ui.window, ui.font, label, 9, {position.x + 8.0f, position.y + 3.0f}, palette::MutedDim);
             drawText(ui.window, ui.font, std::to_string(value), 14, {position.x + 8.0f, position.y + 11.0f}, color);
         };
-        badge({textX, y}, "ATTACK", attack, sf::Color(224, 158, 118));
-        badge({textX + 64.0f, y}, "HEALTH", health, sf::Color(150, 206, 156));
+        badge({textX + (textWidth - 56.0f) * 0.5f, y}, "HEALTH", health, sf::Color(150, 206, 156));
         y += 34.0f;
     }
 

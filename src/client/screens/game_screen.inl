@@ -215,7 +215,7 @@
         drawSeparatorRule(
             window, {position.x + 7.0f, artPosition.y + artSize.y + 4.0f}, width - 14.0f);
 
-        // Stat pips: a labelled figure pair for bodies, an effect line for spells.
+        // Stat pip: card health for bodies, an effect line for spells.
         const float statY = artPosition.y + artSize.y + 11.0f;
         const auto drawStatPip = [&](sf::Vector2f pipPosition,
                                      float pipWidth,
@@ -243,13 +243,9 @@
 
         if (card.type == "Unit" || card.type == "Hero")
         {
-            const float pipWidth = (width - 16.0f) * 0.5f;
             drawStatPip(
-                {position.x + 7.0f, statY}, pipWidth, "HP", std::to_string(card.health),
+                {position.x + 7.0f, statY}, width - 14.0f, "HP", std::to_string(card.health),
                 sf::Color(132, 198, 122));
-            drawStatPip(
-                {position.x + 9.0f + pipWidth, statY}, pipWidth, "AT",
-                std::to_string(card.attack), sf::Color(226, 132, 108));
         }
         else
         {
@@ -722,11 +718,6 @@
             {
                 stats.push_back({
                     "HEALTH", std::to_string(card->health), sf::Color(146, 210, 136)});
-                if (card->attack > 0)
-                {
-                    stats.push_back({
-                        "ATTACK", std::to_string(card->attack), sf::Color(226, 132, 108)});
-                }
                 if (card->tax > 0)
                 {
                     stats.push_back({"TAX", std::to_string(card->tax), BoardBrassBright});
