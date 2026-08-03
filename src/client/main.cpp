@@ -1860,7 +1860,10 @@ int main(int argc, char** argv)
         // The role tag lives inside the plate, so the badge grows a row to hold
         // it. Hanging it underneath read as an element that had escaped its
         // container.
-        const sf::Vector2f BadgeSize{174.0f, loggedInIsAdmin ? 136.0f : 112.0f};
+        // Leave enough room for the Wood leaf and future longer league names
+        // without letting the rank row touch the plate's right border.
+        constexpr float BadgeWidth = 210.0f;
+        const sf::Vector2f BadgeSize{BadgeWidth, loggedInIsAdmin ? 136.0f : 112.0f};
 
         PlateStyle badge;
         badge.fill = sf::Color(11, 16, 17, 226);
