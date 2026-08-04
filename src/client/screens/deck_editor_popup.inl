@@ -126,8 +126,8 @@
             // window, but the logical view is letterboxed inside that window, so
             // every row landed outside the box it was meant to be clipped to.
             // Composing with the base viewport puts it back, and keeping the view
-            // rect anchored at PiecePopupTextX lets the shared ability renderer
-            // draw into this box at 1:1 with no horizontal squeeze.
+            // rect anchored at the abilities box lets the shared ability renderer
+            // draw into this larger viewport at 1:1 with no horizontal squeeze.
             const sf::View previousView = window.getView();
             const sf::FloatRect baseViewport = previousView.getViewport();
             const sf::Vector2f baseSize = previousView.getSize();
@@ -145,7 +145,11 @@
                  CardPopupAbilitiesHeight / baseSize.y * baseViewport.size.y}));
             window.setView(abilityView);
 
-            drawDetailRows(details, CardPopupAbilitiesY + PiecePopupScrollTextYInset);
+            drawDetailRows(
+                details,
+                CardPopupAbilitiesY + PiecePopupScrollTextYInset,
+                CardPopupAbilitiesX,
+                CardPopupAbilitiesWidth);
 
             window.setView(previousView);
         }

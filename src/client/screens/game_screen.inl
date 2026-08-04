@@ -432,7 +432,7 @@
     };
 
     auto popupActionContentHeight = [&](const DetailRows& descriptions) {
-        return detailRowsHeight(descriptions);
+        return detailRowsHeight(descriptions, PiecePopupTextWidth);
     };
 
     auto popupMaxScroll = [&](const DetailRows& descriptions) {
@@ -570,7 +570,7 @@
         // which used to leave a large empty well under short entries. Clamping to
         // the constant keeps the scroll maths in the event handler in agreement.
         const float popupContentHeight =
-            detailRowsHeight(actionDescriptions) + PiecePopupScrollTextYInset * 2.0f;
+            detailRowsHeight(actionDescriptions, PiecePopupTextWidth) + PiecePopupScrollTextYInset * 2.0f;
         const float popupScrollHeight =
             std::clamp(popupContentHeight, 74.0f, PiecePopupScrollHeight);
         const float popupHeight =
@@ -829,7 +829,11 @@
              baseViewport.size.y * popupViewportSize.y}));
         window.setView(actionView);
 
-        drawDetailRows(actionDescriptions, PiecePopupScrollY + PiecePopupScrollTextYInset);
+        drawDetailRows(
+            actionDescriptions,
+            PiecePopupScrollY + PiecePopupScrollTextYInset,
+            PiecePopupTextX,
+            PiecePopupTextWidth);
 
         window.setView(previousView);
 

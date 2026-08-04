@@ -844,24 +844,24 @@ constexpr float PiecePopupScrollHeight = PiecePopupHeight - (PiecePopupScrollY -
 constexpr float PiecePopupScrollTextXInset = 24.0f;
 constexpr float PiecePopupScrollTextYInset = 14.0f;
 
-// The deck editor's card inspector. It used to borrow the in-game piece popup's
-// geometry, which left its two text columns overlapping and gave it no room for a
-// card face. Its own box keeps the abilities strip at exactly PiecePopupTextWidth
-// so the shared ability renderer draws into it unscaled.
-constexpr float CardPopupX = 150.0f;
-constexpr float CardPopupY = 84.0f;
-constexpr float CardPopupWidth = 500.0f;
-constexpr float CardPopupHeight = 436.0f;
+// The deck editor's card inspector needs enough width for the face and its
+// descriptive column, plus a genuinely useful abilities viewport below them.
+// Keep the panel inside the 800x600 logical canvas with a deliberate bottom
+// margin for the close control and the panel border.
+constexpr float CardPopupX = 100.0f;
+constexpr float CardPopupY = 40.0f;
+constexpr float CardPopupWidth = 600.0f;
+constexpr float CardPopupHeight = 520.0f;
 constexpr float CardPopupFaceX = CardPopupX + 24.0f;
 constexpr float CardPopupFaceY = CardPopupY + 22.0f;
-constexpr float CardPopupFaceWidth = 168.0f;
-constexpr float CardPopupFaceHeight = 214.0f;
-constexpr float CardPopupStatsX = CardPopupX + 206.0f;
-constexpr float CardPopupStatsWidth = CardPopupWidth - 230.0f;
-constexpr float CardPopupAbilitiesX = PiecePopupTextX;
-constexpr float CardPopupAbilitiesY = CardPopupY + 282.0f;
-constexpr float CardPopupAbilitiesWidth = PiecePopupTextWidth;
-constexpr float CardPopupAbilitiesHeight = 88.0f;
+constexpr float CardPopupFaceWidth = 200.0f;
+constexpr float CardPopupFaceHeight = 256.0f;
+constexpr float CardPopupStatsX = CardPopupX + 250.0f;
+constexpr float CardPopupStatsWidth = CardPopupWidth - 274.0f;
+constexpr float CardPopupAbilitiesX = CardPopupX + 24.0f;
+constexpr float CardPopupAbilitiesY = CardPopupY + 298.0f;
+constexpr float CardPopupAbilitiesWidth = CardPopupWidth - 48.0f;
+constexpr float CardPopupAbilitiesHeight = 150.0f;
 constexpr float PieceDoubleClickSeconds = 0.38f;
 constexpr float DeckCardDoubleClickSeconds = 0.38f;
 constexpr float GameDragStartDistanceSquared = 36.0f;
@@ -1163,7 +1163,11 @@ int main(int argc, char** argv)
     // Centred as a pair inside the unsaved-changes dialog.
     Button keepEditingDeckButton({250.0f, 352.0f}, {140.0f, 40.0f}, "Keep Editing", font);
     Button discardDeckChangesButton({410.0f, 352.0f}, {140.0f, 40.0f}, "Discard", font);
-    Button closeDeckCardPopupButton({CardPopupX + 190.0f, CardPopupY + CardPopupHeight - 48.0f}, {120.0f, 38.0f}, "Close", font);
+    Button closeDeckCardPopupButton(
+        {CardPopupX + (CardPopupWidth - 120.0f) * 0.5f, CardPopupY + CardPopupHeight - 48.0f},
+        {120.0f, 38.0f},
+        "Close",
+        font);
 
     sf::Text messageText(font, "", 20);
     messageText.setFillColor(sf::Color::Red);
@@ -5104,7 +5108,7 @@ int main(int argc, char** argv)
         return rows;
     };
 
-    auto detailRowsHeight = [&](const DetailRows& details) {
+    auto detailRowsHeight = [&](const DetailRows& details, float contentWidth) {
         float height = 0.0f;
         for (const DetailRow& row : details)
         {
@@ -5114,25 +5118,25 @@ int main(int argc, char** argv)
                 continue;
             }
             height += static_cast<float>(
-                wrapText(font, row.text, 14, PiecePopupTextWidth - PiecePopupScrollTextXInset * 2.0f).size()) * 18.0f;
+                wrapText(font, row.text, 14, contentWidth - PiecePopupScrollTextXInset * 2.0f).size()) * 18.0f;
             height += 8.0f;
         }
         return height + PiecePopupScrollTextYInset;
     };
 
     auto detailRowsMaxScroll = [&](const DetailRows& details) {
-        return std::max(0.0f, detailRowsHeight(details) - PiecePopupScrollHeight);
+        return std::max(0.0f, detailRowsHeight(details, PiecePopupTextWidth) - PiecePopupScrollHeight);
     };
 
-    // The inspector's abilities strip is shorter than the in-game piece popup's,
-    // so it needs its own travel.
+    // The inspector has a wider and taller abilities viewport than the in-game
+    // popup, so calculate wrapping and travel from its own content width.
     auto deckEditorAbilityMaxScroll = [&](const DetailRows& details) {
-        return std::max(0.0f, detailRowsHeight(details) - CardPopupAbilitiesHeight);
+        return std::max(0.0f, detailRowsHeight(details, CardPopupAbilitiesWidth) - CardPopupAbilitiesHeight);
     };
 
-    auto drawDetailRows = [&](const DetailRows& details, float y) {
-        const float left = PiecePopupTextX + PiecePopupScrollTextXInset;
-        const float width = PiecePopupTextWidth - PiecePopupScrollTextXInset * 2.0f;
+    auto drawDetailRows = [&](const DetailRows& details, float y, float contentX, float contentWidth) {
+        const float left = contentX + PiecePopupScrollTextXInset;
+        const float width = contentWidth - PiecePopupScrollTextXInset * 2.0f;
         auto measuredTextWidth = [&](const std::string& value, unsigned int size) {
             sf::Text measuring(font, value, size);
             return measuring.getLocalBounds().size.x;
