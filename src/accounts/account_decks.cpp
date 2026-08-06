@@ -322,16 +322,6 @@ std::vector<std::string> loadOwnedStarterDecks(SQLite::Database& database, const
     return owned;
 }
 
-bool ownsStarterDeck(SQLite::Database& database, const std::string& username, const std::string& deckName)
-{
-    SQLite::Statement query(
-        database,
-        "SELECT 1 FROM account_starter_decks WHERE username = ? AND deck_name = ? LIMIT 1");
-    query.bind(1, username);
-    query.bind(2, deckName);
-    return query.executeStep();
-}
-
 void grantStarterDeck(
     SQLite::Database& accountsDatabase,
     SQLite::Database& starterDeckDatabase,

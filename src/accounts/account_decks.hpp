@@ -36,7 +36,6 @@ void saveStarterDeckOverride(
     SQLite::Database& starterDeckDatabase,
     const deck_data::Deck& deck);
 std::vector<std::string> loadOwnedStarterDecks(SQLite::Database& database, const std::string& username);
-bool ownsStarterDeck(SQLite::Database& database, const std::string& username, const std::string& deckName);
 // Records ownership, adds every card of the deck to the collection, and saves
 // the deck itself when the player has no deck by that name yet. Opens no
 // transaction of its own so callers can bundle it with a coin deduction.

@@ -2449,10 +2449,8 @@ private:
             {
                 response << false << std::string("Unknown starter deck: " + deckName);
             }
-            else if (account_decks::ownsStarterDeck(*database, targetUsername, deckName))
-            {
-                response << false << (targetUsername + " already has " + deckName);
-            }
+            // Admin grants intentionally bypass the one-time player purchase rule.
+            // This also repairs a starter deck after its saved deck row was deleted.
             else
             {
                 SQLite::Transaction transaction(*database);
