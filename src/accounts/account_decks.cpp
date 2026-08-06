@@ -247,7 +247,9 @@ bool deleteDeck(SQLite::Database& database, const std::string& username, const s
     return true;
 }
 
-std::optional<deck_data::Deck> loadStarterDeckOverride(SQLite::Database& database, const std::string& deckName)
+std::optional<deck_data::Deck> loadStarterDeckOverride(
+    SQLite::Database& starterDeckDatabase,
+    const std::string& deckName)
 {
     if (!starter_decks::isStarterDeckName(deckName))
     {
@@ -257,7 +259,7 @@ std::optional<deck_data::Deck> loadStarterDeckOverride(SQLite::Database& databas
     deck_data::Deck deck;
     deck.name = deckName;
     SQLite::Statement query(
-        database,
+        starterDeckDatabase,
         "SELECT card_title FROM starter_deck_cards WHERE deck_name = ? ORDER BY card_index");
     query.bind(1, deckName);
     while (query.executeStep())
@@ -273,21 +275,27 @@ std::optional<deck_data::Deck> loadStarterDeckOverride(SQLite::Database& databas
     return deck;
 }
 
-deck_data::Deck effectiveStarterDeck(SQLite::Database& database, const std::string& deckName)
+deck_data::Deck effectiveStarterDeck(
+    SQLite::Database& starterDeckDatabase,
+    const std::string& deckName)
 {
-    return loadStarterDeckOverride(database, deckName)
+    return loadStarterDeckOverride(starterDeckDatabase, deckName)
         .value_or(account_catalog::makeStarterDeck(deckName));
 }
 
-void saveStarterDeckOverride(SQLite::Database& database, const deck_data::Deck& deck)
+void saveStarterDeckOverride(
+    SQLite::Database& starterDeckDatabase,
+    const deck_data::Deck& deck)
 {
-    SQLite::Transaction transaction(database);
-    SQLite::Statement clear(database, "DELETE FROM starter_deck_cards WHERE deck_name = ?");
+    SQLite::Transaction transaction(starterDeckDatabase);
+    SQLite::Statement clear(
+        starterDeckDatabase,
+        "DELETE FROM starter_deck_cards WHERE deck_name = ?");
     clear.bind(1, deck.name);
     clear.exec();
 
     SQLite::Statement insert(
-        database,
+        starterDeckDatabase,
         "INSERT INTO starter_deck_cards (deck_name, card_index, card_title) VALUES (?, ?, ?)");
     for (std::size_t i = 0; i < deck.cardTitles.size(); ++i)
     {
@@ -324,12 +332,16 @@ bool ownsStarterDeck(SQLite::Database& database, const std::string& username, co
     return query.executeStep();
 }
 
-void grantStarterDeck(SQLite::Database& database, const std::string& username, const std::string& deckName)
+void grantStarterDeck(
+    SQLite::Database& accountsDatabase,
+    SQLite::Database& starterDeckDatabase,
+    const std::string& username,
+    const std::string& deckName)
 {
-    const deck_data::Deck starterDeck = effectiveStarterDeck(database, deckName);
+    const deck_data::Deck starterDeck = effectiveStarterDeck(starterDeckDatabase, deckName);
 
     SQLite::Statement own(
-        database,
+        accountsDatabase,
         "INSERT OR IGNORE INTO account_starter_decks (username, deck_name) VALUES (?, ?)");
     own.bind(1, username);
     own.bind(2, deckName);
@@ -337,16 +349,18 @@ void grantStarterDeck(SQLite::Database& database, const std::string& username, c
 
     for (const std::string& title : starterDeck.cardTitles)
     {
-        addCollectionCopies(database, username, title, 1);
+        addCollectionCopies(accountsDatabase, username, title, 1);
     }
 
-    if (!findDeckId(database, username, deckName))
+    if (!findDeckId(accountsDatabase, username, deckName))
     {
-        saveDeckRows(database, username, "", starterDeck);
+        saveDeckRows(accountsDatabase, username, "", starterDeck);
     }
 }
 
-void purgeTokenCards(SQLite::Database& database)
+void purgeTokenCards(
+    SQLite::Database& accountsDatabase,
+    SQLite::Database& starterDeckDatabase)
 {
     std::unordered_set<std::string> tokenTitles;
     try
@@ -362,10 +376,13 @@ void purgeTokenCards(SQLite::Database& database)
         return;
     }
 
-    SQLite::Transaction transaction(database);
-    SQLite::Statement deleteCollection(database, "DELETE FROM card_collections WHERE card_title = ?");
-    SQLite::Statement deleteDeckCards(database, "DELETE FROM deck_cards WHERE card_title = ?");
-    SQLite::Statement deleteStarterCards(database, "DELETE FROM starter_deck_cards WHERE card_title = ?");
+    SQLite::Transaction accountsTransaction(accountsDatabase);
+    SQLite::Statement deleteCollection(
+        accountsDatabase,
+        "DELETE FROM card_collections WHERE card_title = ?");
+    SQLite::Statement deleteDeckCards(
+        accountsDatabase,
+        "DELETE FROM deck_cards WHERE card_title = ?");
     for (const std::string& title : tokenTitles)
     {
         deleteCollection.reset();
@@ -375,12 +392,20 @@ void purgeTokenCards(SQLite::Database& database)
         deleteDeckCards.reset();
         deleteDeckCards.bind(1, title);
         deleteDeckCards.exec();
+    }
+    accountsTransaction.commit();
 
+    SQLite::Transaction starterDeckTransaction(starterDeckDatabase);
+    SQLite::Statement deleteStarterCards(
+        starterDeckDatabase,
+        "DELETE FROM starter_deck_cards WHERE card_title = ?");
+    for (const std::string& title : tokenTitles)
+    {
         deleteStarterCards.reset();
         deleteStarterCards.bind(1, title);
         deleteStarterCards.exec();
     }
-    transaction.commit();
+    starterDeckTransaction.commit();
 }
 
 } // namespace account_decks

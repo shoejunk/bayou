@@ -16,6 +16,14 @@ directory. The accounts and game services read their card source from
 configured card server, which is backed by `/var/lib/bayou/shared/cards.db`.
 The installer never copies a workspace-local card database into the deployment.
 
+Account state remains in `/var/lib/bayou/shared/accounts.db`. Reusable starter-
+deck definitions are stored separately in
+`/var/lib/bayou/shared/starter_decks.db`; per-account starter-deck ownership
+remains in `accounts.db`. On the first start after upgrading, the accounts
+service copies existing definitions into `starter_decks.db` and removes the
+legacy `starter_deck_cards` table only after the copy commits. The installer
+also preserves or installs a pre-provisioned `starter_decks.db` when present.
+
 ## Build on Linux
 
 ```sh

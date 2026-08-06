@@ -130,11 +130,6 @@ void initializeBaseSchema(SQLite::Database& database)
         "FOREIGN KEY(deck_id) REFERENCES decks(id) ON DELETE CASCADE"
         ")");
     database.exec(
-        "CREATE TABLE starter_deck_cards ("
-        "card_index INTEGER PRIMARY KEY NOT NULL,"
-        "card_title TEXT NOT NULL"
-        ")");
-    database.exec(
         "CREATE TABLE card_collections ("
         "username TEXT NOT NULL,"
         "card_title TEXT NOT NULL,"

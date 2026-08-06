@@ -11,6 +11,7 @@
 #include "account_rate_limiter.hpp"
 #include "account_security.hpp"
 #include "account_tokens.hpp"
+#include "starter_deck_database.hpp"
 
 #include "../shared/account_data.hpp"
 #include "../shared/card_server_client.hpp"
@@ -76,12 +77,17 @@ public:
         {
             database = std::make_unique<SQLite::Database>("accounts.db", SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
             database->setBusyTimeout(5000);
+            starterDeckDatabase = std::make_unique<SQLite::Database>(
+                starter_deck_database::Path,
+                SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
+            starterDeckDatabase->setBusyTimeout(5000);
             initializeDatabase();
             fmt::println("Using accounts database: accounts.db");
+            fmt::println("Using starter-decks database: {}", starter_deck_database::Path);
         }
         catch (const std::exception& error)
         {
-            fmt::println("Failed to initialize accounts database: {}", error.what());
+            fmt::println("Failed to initialize account databases: {}", error.what());
             return;
         }
 
@@ -133,6 +139,7 @@ public:
 private:
     std::unique_ptr<bayou::tls::Listener> listener;
     std::unique_ptr<SQLite::Database> database;
+    std::unique_ptr<SQLite::Database> starterDeckDatabase;
     std::mutex databaseMutex;
     std::mutex conquestChangeMutex;
     std::condition_variable conquestChanged;
@@ -209,14 +216,13 @@ private:
             "PRIMARY KEY(deck_id, card_index),"
             "FOREIGN KEY(deck_id) REFERENCES decks(id) ON DELETE CASCADE"
             ")");
-        migrateLegacyStarterDeck();
-        database->exec(
-            "CREATE TABLE IF NOT EXISTS starter_deck_cards ("
-            "deck_name TEXT NOT NULL,"
-            "card_index INTEGER NOT NULL,"
-            "card_title TEXT NOT NULL,"
-            "PRIMARY KEY(deck_name, card_index)"
-            ")");
+        starter_deck_database::initialize(*starterDeckDatabase);
+        if (starter_deck_database::migrateFromAccounts(*database, *starterDeckDatabase))
+        {
+            fmt::println(
+                "Moved starter-deck definitions from accounts.db to {}",
+                starter_deck_database::Path);
+        }
         database->exec(
             "CREATE TABLE IF NOT EXISTS account_starter_decks ("
             "username TEXT NOT NULL,"
@@ -317,7 +323,7 @@ private:
             "WHERE player_one = OLD.username OR player_two = OLD.username; "
             "END");
         account_conquest_events::initializeSchema(*database);
-        account_decks::purgeTokenCards(*database);
+        account_decks::purgeTokenCards(*database, *starterDeckDatabase);
         account_conquest::purgeTokenCards(*database);
     }
 
@@ -2450,7 +2456,11 @@ private:
             else
             {
                 SQLite::Transaction transaction(*database);
-                account_decks::grantStarterDeck(*database, targetUsername, deckName);
+                account_decks::grantStarterDeck(
+                    *database,
+                    *starterDeckDatabase,
+                    targetUsername,
+                    deckName);
                 transaction.commit();
                 response << true << ("Gave " + deckName + " to " + targetUsername);
                 fmt::println("{} gave starter deck '{}' to {}", *username, deckName, targetUsername);
@@ -2488,7 +2498,8 @@ private:
         for (const char* deckName : starter_decks::Names)
         {
             const bool isOwned = std::find(owned.begin(), owned.end(), deckName) != owned.end();
-            const deck_data::Deck deck = account_decks::effectiveStarterDeck(*database, deckName);
+            const deck_data::Deck deck =
+                account_decks::effectiveStarterDeck(*starterDeckDatabase, deckName);
             // The first deck a player takes is free; every later one costs coins.
             const int price = (isOwned || owned.empty()) ? 0 : starter_decks::StarterDeckPrice;
             response << std::string(deckName)
@@ -2576,7 +2587,11 @@ private:
                 spend.bind(2, *username);
                 spend.exec();
             }
-            account_decks::grantStarterDeck(*database, *username, deckName);
+            account_decks::grantStarterDeck(
+                *database,
+                *starterDeckDatabase,
+                *username,
+                deckName);
             transaction.commit();
 
             const int remainingCoins = free ? coins : coins - starter_decks::StarterDeckPrice;
@@ -2669,7 +2684,8 @@ private:
                 for (const char* deckName : starter_decks::Names)
                 {
                     deck_data::writeDeck(
-                        response, account_decks::effectiveStarterDeck(*database, deckName));
+                        response,
+                        account_decks::effectiveStarterDeck(*starterDeckDatabase, deckName));
                 }
             }
         }
@@ -2716,7 +2732,7 @@ private:
                 return;
             }
 
-            account_decks::saveStarterDeckOverride(*database, starterDeck);
+            account_decks::saveStarterDeckOverride(*starterDeckDatabase, starterDeck);
             sendDeckCommandResponse(client, MessageType::AdminStarterDeckSaveResponse, true, "Starter deck saved");
             fmt::println(
                 "{} updated starter deck '{}' ({} cards)",
@@ -3163,44 +3179,6 @@ private:
         response << static_cast<uint8_t>(MessageType::ShopPurchaseResponse);
         response << success << message << coins << cardTitle;
         [[maybe_unused]] auto result = client.send(response);
-    }
-
-    bool tableExists(const std::string& tableName)
-    {
-        SQLite::Statement query(
-            *database,
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1");
-        query.bind(1, tableName);
-        return query.executeStep();
-    }
-
-    // starter_deck_cards used to hold a single unnamed starter deck. Keep an
-    // admin's existing contents by adopting them as the first faction deck.
-    void migrateLegacyStarterDeck()
-    {
-        if (!tableExists("starter_deck_cards") || columnExists("starter_deck_cards", "deck_name"))
-        {
-            return;
-        }
-
-        SQLite::Transaction transaction(*database);
-        database->exec("ALTER TABLE starter_deck_cards RENAME TO starter_deck_cards_legacy");
-        database->exec(
-            "CREATE TABLE starter_deck_cards ("
-            "deck_name TEXT NOT NULL,"
-            "card_index INTEGER NOT NULL,"
-            "card_title TEXT NOT NULL,"
-            "PRIMARY KEY(deck_name, card_index)"
-            ")");
-        SQLite::Statement copy(
-            *database,
-            "INSERT INTO starter_deck_cards (deck_name, card_index, card_title) "
-            "SELECT ?, card_index, card_title FROM starter_deck_cards_legacy");
-        copy.bind(1, std::string(starter_decks::Names.front()));
-        copy.exec();
-        database->exec("DROP TABLE starter_deck_cards_legacy");
-        transaction.commit();
-        fmt::println("Migrated the legacy starter deck to '{}'", starter_decks::Names.front());
     }
 
     bool columnExists(const std::string& tableName, const std::string& columnName)

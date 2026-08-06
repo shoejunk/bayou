@@ -2,6 +2,7 @@
 
 #include "../accounts/account_catalog.hpp"
 #include "../accounts/account_decks.hpp"
+#include "../accounts/starter_deck_database.hpp"
 #include "../shared/deck_data.hpp"
 #include "../shared/game_data.hpp"
 #include "../shared/starter_decks.hpp"
@@ -17,7 +18,6 @@
 namespace
 {
 constexpr const char* PreferredStarterHero = "Steam Baron";
-constexpr const char* AccountDatabasePath = "accounts.db";
 
 const std::vector<std::string>& fallbackStarterNonHeroes()
 {
@@ -54,12 +54,15 @@ std::optional<deck_data::Deck> loadStarterDeckOverride()
 {
     try
     {
-        SQLite::Database database(AccountDatabasePath, SQLite::OPEN_READONLY);
+        SQLite::Database database(starter_deck_database::Path, SQLite::OPEN_READONLY);
         return account_decks::loadStarterDeckOverride(database, AiStarterDeckName);
     }
     catch (const std::exception& error)
     {
-        fmt::println("Could not load AI starter deck override from {}: {}", AccountDatabasePath, error.what());
+        fmt::println(
+            "Could not load AI starter deck override from {}: {}",
+            starter_deck_database::Path,
+            error.what());
     }
     return std::nullopt;
 }

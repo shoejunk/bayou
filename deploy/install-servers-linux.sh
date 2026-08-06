@@ -88,7 +88,7 @@ if [[ ! -f "${CARDS_DATABASE_PATH}" ]]; then
     exit 1
 fi
 
-for database in accounts.db; do
+for database in accounts.db starter_decks.db; do
     if [[ ! -f "${DATA_DIR}/${database}" && -f "${REPO_ROOT}/${database}" ]]; then
         install -m 0600 -o "${APP_USER}" -g "${APP_USER}" \
             "${REPO_ROOT}/${database}" "${DATA_DIR}/${database}"

@@ -159,6 +159,7 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
             src/accounts/account_rate_limiter.cpp
             src/accounts/account_security.cpp
             src/accounts/account_tokens.cpp
+            src/accounts/starter_deck_database.cpp
             src/shared/card_database.cpp
             src/shared/card_source_config.cpp
             src/shared/card_server_client.cpp
@@ -178,6 +179,12 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
     target_link_libraries(
         conquesttest
         PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network sodium)
+
+    add_executable(starterdecktest
+        src/starterdecktest/main.cpp
+        src/accounts/starter_deck_database.cpp
+    )
+    target_link_libraries(starterdecktest PRIVATE SQLiteCpp)
 endif()
 
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_MATCHMAKING)
