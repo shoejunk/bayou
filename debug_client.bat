@@ -1,4 +1,3 @@
 @echo off
-call "%~dp0ensure_dev_tls.bat" || exit /b 1
-set "BAYOU_TLS_CA_FILE=%~dp0tls\dev-client-ca-bundle.pem"
+set "BAYOU_TLS_CA_FILE=%~dp0deploy\ca\isrg-root-x1.pem"
 "%~dp0build\Debug\SteamTactics.exe"
