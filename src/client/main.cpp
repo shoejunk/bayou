@@ -425,7 +425,7 @@ private:
 
     void startMusic()
     {
-        const std::optional<std::filesystem::path> musicPath = resolveAssetPath("audio/Gloomthorn Swamp 2.mp3");
+        const std::optional<std::filesystem::path> musicPath = resolveAssetPath("audio/GT soundtrack 006.mp3");
         if (!musicPath)
         {
             return;
