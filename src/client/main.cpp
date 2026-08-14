@@ -1789,8 +1789,12 @@ int main(int argc, char** argv)
         label.setFillColor(active ? palette::InkBright : palette::Ink);
         label.setOutlineThickness(primary ? 1.0f : 0.0f);
         label.setOutlineColor(sf::Color(58, 33, 14, 190));
-        // Nudge off the icon so the label optically centres in the clear space.
-        centerButtonText(label, {center.x + (primary ? 12.0f : 8.0f), center.y + pressOffset});
+        // The ornate texture has a tall crest above its inset face, so its text
+        // needs a lower anchor than the geometrically centred metal buttons.
+        const float faceCenterOffsetY = primary ? 4.0f : 3.0f;
+        centerButtonText(
+            label,
+            {center.x + (primary ? 12.0f : 8.0f), center.y + faceCenterOffsetY + pressOffset});
         drawCrispText(window, label);
     };
 

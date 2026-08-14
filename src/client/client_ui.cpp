@@ -176,8 +176,9 @@ void centerText(sf::Text& text, sf::Vector2f center)
 
 void centerButtonText(sf::Text& text, sf::Vector2f center)
 {
-    const float opticalOffset = std::clamp(static_cast<float>(text.getCharacterSize()) * 0.15f, 3.0f, 8.0f);
-    centerText(text, {center.x, center.y + opticalOffset});
+    // Symmetrical plates use the visible glyph bounds directly. Callers with
+    // asymmetric artwork can pass the centre of that style's inset face.
+    centerText(text, center);
 }
 
 void setMessage(sf::Text& text, const std::string& message, const sf::Color& color)
