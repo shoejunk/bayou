@@ -4647,8 +4647,8 @@ private:
                 sf::Color(color.r, color.g, color.b, 190),
                 false,
                 5.0f);
-            drawText(window, font, label, 9, {x + 8.0f, 536.0f}, Muted, 62.0f);
-            bayou::client::drawCenteredText(window, font, value, 14, {x + 39.0f, 551.0f}, color);
+            bayou::client::drawCenteredText(window, font, label, 9, {x + 39.0f, 540.0f}, Muted);
+            bayou::client::drawCenteredText(window, font, value, 14, {x + 39.0f, 554.0f}, color);
         };
 
         const int cost = game_data::isHeroCard(card)
