@@ -15,7 +15,7 @@ ALPHA_CUT = 10
 ROOT = Path(r"C:\Users\jarox\OneDrive\Desktop\Tandem Tales\Bayou Bonanza")
 SOURCE = Path(r"C:\Users\jarox\OneDrive\Desktop\TT Temp")
 OUTPUT = ROOT / "assets" / "animations"
-REVIEW = ROOT / "tools" / "ladyMirrorglace-review"
+REVIEW = ROOT / "tools" / "sylvanChampion-review"
 
 FRAME_SELECTIONS = {
     "walk": [
@@ -24,9 +24,8 @@ FRAME_SELECTIONS = {
     ],
     "attack": [2, 9, 16, 23, 30, 37, 45, 52, 59, 66, 73, 80],
     "damaged": [2, 9, 16, 23, 30, 37, 45, 52, 59, 66, 73, 80],
-    # Keep the small frame-43 head lift as a final twitch, then reverse through
-    # two earlier prone poses so her head settles back onto the ground.
-    "killed": [2, 5, 8, 11, 14, 17, 20, 24, 28, 33, 38, 43, 40, 37],
+    # The torso starts lifting by frame 50. Stop in the stable prone phase.
+    "killed": [2, 6, 10, 14, 18, 22, 26, 30, 34, 38, 42, 46],
 }
 
 SOURCE_NAMES = {
@@ -36,9 +35,13 @@ SOURCE_NAMES = {
     "killed": "killed",
 }
 
-# Attack needs extra room for the lateral magic arcs. Other motions retain the
-# same apparent character scale while staying inside a 256x256 cell.
-SCALES = {"walk": 0.94, "attack": 0.90, "damaged": 0.96, "killed": 0.96}
+# The source grids use different native character scales.
+SCALES = {
+    "walk": 0.75,
+    "attack": 0.82,
+    "damaged": 0.83,
+    "killed": 0.75,
+}
 
 
 def zero_transparent_rgb(array: np.ndarray) -> np.ndarray:
@@ -68,10 +71,7 @@ def premultiplied_resize(image: Image.Image, size: tuple[int, int]) -> Image.Ima
     array = np.asarray(image.convert("RGBA"), dtype=np.float32)
     alpha = array[..., 3:4] / 255.0
     premultiplied = array[..., :3] * alpha
-
-    rgb_image = Image.fromarray(
-        np.clip(premultiplied, 0, 255).astype(np.uint8), "RGB"
-    )
+    rgb_image = Image.fromarray(np.clip(premultiplied, 0, 255).astype(np.uint8), "RGB")
     alpha_image = Image.fromarray(array[..., 3].astype(np.uint8), "L")
     resized_rgb = np.asarray(
         rgb_image.resize(size, Image.Resampling.LANCZOS), dtype=np.float32
@@ -79,7 +79,6 @@ def premultiplied_resize(image: Image.Image, size: tuple[int, int]) -> Image.Ima
     resized_alpha = np.asarray(
         alpha_image.resize(size, Image.Resampling.LANCZOS), dtype=np.float32
     )
-
     alpha_fraction = resized_alpha[..., None] / 255.0
     rgb = np.zeros_like(resized_rgb)
     nonzero = alpha_fraction[..., 0] > 0.001
@@ -90,12 +89,11 @@ def premultiplied_resize(image: Image.Image, size: tuple[int, int]) -> Image.Ima
     )
 
 
-def remove_tiny_components(image: Image.Image, minimum_pixels: int) -> Image.Image:
+def remove_tiny_components(image: Image.Image, minimum_pixels: int = 12) -> Image.Image:
     array = zero_transparent_rgb(np.asarray(image.convert("RGBA")))
     visible = array[..., 3] > ALPHA_CUT
     height, width = visible.shape
     seen = np.zeros_like(visible, dtype=bool)
-
     for start_y in range(height):
         for start_x in range(width):
             if seen[start_y, start_x] or not visible[start_y, start_x]:
@@ -155,112 +153,41 @@ def body_core(image: Image.Image) -> tuple[float, float]:
         if box is None:
             return image.width / 2.0, image.height / 2.0
         return (box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0
-
-    low, high = np.percentile(ys, [20, 72])
+    low, high = np.percentile(ys, [18, 72])
     use = (ys >= low) & (ys <= high)
     return float(np.median(xs[use])), float(np.median(ys[use]))
 
 
-def support_contact(image: Image.Image, maximum_x_ratio: float = 0.55) -> tuple[float, float]:
-    alpha = np.asarray(image.convert("RGBA"))[..., 3]
-    y_grid, x_grid = np.indices(alpha.shape)
-    support = (alpha > ALPHA_CUT) & (x_grid <= round(image.width * maximum_x_ratio))
-    ys, _xs = np.nonzero(support)
-    if len(ys) == 0:
-        raise RuntimeError("Could not locate Lady Mirrorglace's support foot")
-    bottom = int(ys.max())
-    band = support[max(0, bottom - 18) : bottom + 1]
-    _band_y, band_x = np.nonzero(band)
-    return float(np.median(band_x)), float(bottom)
-
-
 def prepare_frames(animation: str) -> list[Image.Image]:
-    source_path = SOURCE / f"SS_ladyMirrorglace_{SOURCE_NAMES[animation]}.png"
+    source_path = SOURCE / f"SS_sylvanChampion_{SOURCE_NAMES[animation]}.png"
     with Image.open(source_path) as opened:
         sheet = opened.convert("RGBA")
     if sheet.width % GRID or sheet.height % GRID:
         raise ValueError(f"{source_path.name} is not an exact {GRID}x{GRID} sheet")
-
     scale = SCALES[animation]
     size = (
         round((sheet.width // GRID) * scale),
         round((sheet.height // GRID) * scale),
     )
-    minimum_component = 8 if animation == "attack" else 16
     return [
         harden_interior_alpha(
             remove_tiny_components(
-                premultiplied_resize(crop_frame(sheet, number), size),
-                minimum_component,
+                premultiplied_resize(crop_frame(sheet, number), size)
             )
         )
         for number in FRAME_SELECTIONS[animation]
     ]
 
 
-def walk_placements(images: list[Image.Image]) -> list[tuple[int, int]]:
-    placements = []
-    for image in images:
-        core_x, core_y = body_core(image)
-        # Lock the torso in both axes. The alternating legs retain their stride,
-        # while source-level drift and exaggerated vertical bob are removed.
-        placements.append((round(128 - core_x), round(108 - core_y)))
-    return placements
-
-
-def attack_placements(images: list[Image.Image]) -> list[tuple[int, int]]:
-    placements = []
-    for image in images:
-        box = bounds(image)
-        if box is None:
-            placements.append((0, 0))
-            continue
-        anchor_x, _anchor_y = support_contact(image, 0.52)
-        # A left-side support anchor reserves the right side for the widest arc.
-        # Ground the true lowest point so petals cannot dip below the baseline.
-        placements.append((round(70 - anchor_x), 244 - box[3]))
-    return placements
-
-
-def damaged_placements(images: list[Image.Image]) -> list[tuple[int, int]]:
-    placements = []
-    for image in images:
-        box = bounds(image)
-        if box is None:
-            placements.append((0, 0))
-            continue
-        anchor_x, _anchor_y = support_contact(image, 0.55)
-        # Keep the same support foot horizontally, while grounding whichever
-        # visible point is actually lowest so the opposite boot cannot clip.
-        placements.append((round(88 - anchor_x), 244 - box[3]))
-    return placements
-
-
-def killed_placements(images: list[Image.Image]) -> list[tuple[int, int]]:
-    downed_start = 3
-    start_core_x, _start_core_y = body_core(images[0])
-    start_x = round(128 - start_core_x)
-
-    downed_boxes = [bounds(image) for image in images[downed_start:]]
-    downed_boxes = [box for box in downed_boxes if box is not None]
-    final_center = float(np.median([(box[0] + box[2]) / 2.0 for box in downed_boxes]))
-    final_x = round(128 - final_center)
-
+def grounded_placements(images: list[Image.Image]) -> list[tuple[int, int]]:
     placements: list[tuple[int, int]] = []
-    for index, image in enumerate(images):
+    for image in images:
         box = bounds(image)
         if box is None:
             placements.append((0, 0))
             continue
-        grounded_y = 244 - box[3]
-        if index >= downed_start:
-            placements.append((final_x, grounded_y))
-            continue
-
-        progress = index / float(downed_start)
-        smooth = progress * progress * (3.0 - 2.0 * progress)
-        x = round(start_x + (final_x - start_x) * smooth)
-        placements.append((x, grounded_y))
+        core_x, _core_y = body_core(image)
+        placements.append((round(128 - core_x), 244 - box[3]))
     return placements
 
 
@@ -298,58 +225,52 @@ def assemble(
         array[:, left + CELL - 1] = 0
         array[0, left : left + CELL] = 0
         array[CELL - 1, left : left + CELL] = 0
-
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    output_path = OUTPUT / f"ladyMirrorglace-{animation}.png"
-    Image.fromarray(array, "RGBA").save(output_path, format="PNG", optimize=False)
-    print(
-        output_path.name,
-        (CELL * len(images), CELL),
-        "frames=" + ",".join(map(str, frame_numbers)),
-    )
-    return output_path
+    path = OUTPUT / f"sylvanChampion-{animation}.png"
+    Image.fromarray(array, "RGBA").save(path, format="PNG", optimize=False)
+    print(path.name, (CELL * len(images), CELL), "frames=" + ",".join(map(str, frame_numbers)))
+    return path
 
 
-def build_all(only_animation: str | None = None) -> None:
-    placement_builders = {
-        "walk": walk_placements,
-        "attack": attack_placements,
-        "damaged": damaged_placements,
-        "killed": killed_placements,
-    }
-    animations = (only_animation,) if only_animation else ("walk", "attack", "damaged", "killed")
-    for animation in animations:
-        images = prepare_frames(animation)
-        assemble(animation, images, placement_builders[animation](images))
+def build(animation: str) -> None:
+    images = prepare_frames(animation)
+    assemble(animation, images, grounded_placements(images))
+
+
+def build_all() -> None:
+    for animation in ("walk", "attack", "damaged", "killed"):
+        build(animation)
 
 
 def checkerboard() -> Image.Image:
-    checker = Image.new("RGBA", (CELL, CELL), (42, 42, 42, 255))
-    draw = ImageDraw.Draw(checker)
+    image = Image.new("RGBA", (CELL, CELL), (42, 42, 42, 255))
+    draw = ImageDraw.Draw(image)
     for y in range(0, CELL, 16):
         for x in range(0, CELL, 16):
             if (x // 16 + y // 16) % 2:
                 draw.rectangle((x, y, x + 15, y + 15), fill=(72, 64, 78, 255))
     draw.line((0, 244, CELL - 1, 244), fill=(82, 190, 140, 255), width=1)
-    return checker
+    return image
 
 
 def write_reviews() -> None:
     REVIEW.mkdir(parents=True, exist_ok=True)
     checker = checkerboard()
-    for animation, frame_numbers in FRAME_SELECTIONS.items():
-        path = OUTPUT / f"ladyMirrorglace-{animation}.png"
+    for animation, numbers in FRAME_SELECTIONS.items():
+        path = OUTPUT / f"sylvanChampion-{animation}.png"
+        if not path.exists():
+            continue
         with Image.open(path) as opened:
             sheet = opened.convert("RGBA")
         frames = [
             sheet.crop((index * CELL, 0, (index + 1) * CELL, CELL))
-            for index in range(len(frame_numbers))
+            for index in range(len(numbers))
         ]
         columns = 6
         rows = math.ceil(len(frames) / columns)
         contact = Image.new("RGBA", (columns * CELL, rows * CELL), (28, 28, 28, 255))
         gif_frames = []
-        for index, (frame, source_number) in enumerate(zip(frames, frame_numbers)):
+        for index, (frame, source_number) in enumerate(zip(frames, numbers)):
             tile = checker.copy()
             tile.alpha_composite(frame)
             ImageDraw.Draw(tile).text(
@@ -359,9 +280,9 @@ def write_reviews() -> None:
                 tile, ((index % columns) * CELL, (index // columns) * CELL)
             )
             gif_frames.append(tile.convert("P", palette=Image.Palette.ADAPTIVE))
-        contact.convert("RGB").save(REVIEW / f"ladyMirrorglace-{animation}-contact.png")
+        contact.convert("RGB").save(REVIEW / f"sylvanChampion-{animation}-contact.png")
         gif_frames[0].save(
-            REVIEW / f"ladyMirrorglace-{animation}.gif",
+            REVIEW / f"sylvanChampion-{animation}.gif",
             save_all=True,
             append_images=gif_frames[1:],
             duration=85,
@@ -376,7 +297,10 @@ def main() -> None:
     parser.add_argument("--animation", choices=tuple(FRAME_SELECTIONS))
     args = parser.parse_args()
     if not args.review_only:
-        build_all(args.animation)
+        if args.animation:
+            build(args.animation)
+        else:
+            build_all()
     write_reviews()
 
 

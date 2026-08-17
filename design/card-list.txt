@@ -3,21 +3,13 @@ Card List:
 Traits:
 
 Civilized
-
 Wild
-
 Corrupt
-
 Honorable
-
 Fey
-
 Arcane
-
 Mechanical
-
 Undead
-
 Ancient
 
 
@@ -26,143 +18,109 @@ Blackthorn Starter Deck
 Heroes:
 
 Thaeron Baelstone (civilized, corrupt, arcane)
-Victor Greyshard (civilized, corrupt)
 Ashenfang (wild, corrupt)
 
 
 Companion:
 
-Blackthorn Debt Collector (civilized, corrupt)
-Blackthorn Alchemist (civilized, arcane)
-Blackthorn Foreman (civilized, corrupt)
-Blackthorn Lumberjack (civilized)
-Grove Sister (wild, corrupt)
-Mog (wild, corrupt)
-Grask (wild, corrupt)
-Goblin Ambusher (wild)
-Braun Stonefist (civilized, corrupt)
-Goblin Sharpshooter (corrupt)
+(2) Blackthorn Debt Collector (civilized, corrupt)
+(2) Blackthorn Alchemist (civilized, arcane)
+(2) Blackthorn Foreman (civilized, corrupt)
+(4) Blackthorn Lumberjack (civilized)
+(3) Grove Sister (wild, corrupt)
+(1) Mog (wild, corrupt)
+(1) Grask (wild, corrupt)
+(2) Goblin Ambusher (wild)
+(1) Braun Stonefist (civilized, corrupt)
+(2) Goblin Sharpshooter (corrupt)
 
 
 Blackthorn Non-Starter Cards:
 
-***(HERO) Fizzlewick Gearwright (corrupt, mechanical)
-Lumber Automaton (mechanical)
-Clockwork Guardian (robot dog) (mechanical)
-Blackthorn Houndmaster (civilized, corrupt)
-Gearjaw (mechanical)
-Automatick (mechanical)
-Camp Physician (civilized, arcane)
-Blackthorn Engineer (civilized, corrupt)
-Black Powder Keg (mechanical)
-Gilded Cage (arcane)
-
-
-
-
-
-
-
-
-
-
+(1) ***HERO*** Victor Greyshard (civilized, corrupt)
+(1) ***HERO*** Fizzlewick Gearwright (mounted, corrupt, mechanical)
+(2) Lumber Automaton (corrupt, mechanical)
+(4) Clockwork Guardian (mechanical)
+(1) Gearjaw (mechanical)
+(1) Remy Croche (corrupt)
+(2) Camp Physician (civilized, arcane)
+(2) Blackthorn Engineer (civilized, mechanical)
+(4) Black Powder Keg (mechanical)
+(2) Gilded Cage (arcane)
 
 
 Mirewatch Resistance Starter Deck
 
 Heroes:
 
-Joni Pumpernickle (civilized, arcane)
+Joni Pumpernickel (civilized, arcane)
 Vanya Bluewater (civilized, honorable)
-Maggie Mudroot (wild, honorable, undead)
+Birdie the Wise (wild, honorable)
 
 
 Companion:
 
-Donella of the Marsh (wild, arcane)
-Birdie the Wise (civilized, honorable)
-Scooter (otter) (wild)
-Erevan the Shadow (arcane, civilized)
-Reed Baelstone (civilized, honorable)
-Rowan Leafbound (honorable)
-Elliot Greentide (honorable, undead) 
-Resistance Smuggler (goblin) (honorable)
-Mirewatch Informant (civilized)
-Swamp Tracker (mounted) (wild)
+(1) Donella of the Marsh (wild, arcane)
+(1) Juniper Flash (honorable, arcane)
+(1) Scooter (wild)
+(1) Erevan the Shadow (civilized, arcane)
+(1) Reed Baelstone (civilized, honorable)
+(4) Bog Spearman (wild)
+(4) Marshland Veteran (honorable)
+(3) Resistance Smuggler (civilized)
+(2) Mirewatch Informant (civilized)
+(2) Swamp Tracker (mounted, wild, honorable)
 
 
 Mirewatch Resistance Non-Starter Cards:
 
-***(HERO) Juniper Glass (wild, arcane)
-Telos the Merchant (civilized, arcane)
-Marshland Veteran (honorable)
-Old Pell (civilized, undead)
-Nibs Mudroot (wild, undead)
-Bog Spearman (honorable, wild)
-River Guide (civilized, honorable)
-Auntie Mirelle (civilized, undead)
-Hidden Camp (wild)
-Resistance Cache (honorable)
-
-
-
-
-
-
-
-
-
-
-
+(1) ***HERO*** Maggie Mudroot (mounted, giant, wild, arcane, undead)
+(1) Rowan Leafbound (civilized, honorable)
+(1) Telos the Merchant (civilized, arcane)
+(4) Maggie's Recruit (skeleton, civilized, undead)
+(1) Nibsy (undead, arcane)
+(1) Elliot Greentide (honorable, undead)
+(3) Bull Gator (wild)
+(1) Delphine Nettle (wild, arcane)
+(2) Hidden Camp (wild)
+(4) Resistance Cache (honorable)
 
 
 Seelie Court Starter Deck
 
 Heroes:
 
-Prince Vesper (arcane, honorable) 30
-Caltheriel (fey, honorable) 15
-Sylvara (ancient, wild, fey) 55
+Prince Vesper (arcane, honorable)
+Caltheriel (fey, honorable)
+Sylvara (ancient, wild, fey)
 
 
 Companion:
 
-Pavo Quickstep (arcane, fey)
-Nettle Starbright (mounted) (wild, honorable)
-Archivist Mosswake (ancient, wild)
-Fey Messenger (fey)
-Starbloom Knight (fey, honorable)
-Crystal Unicorn (wild, honorable)
-Heartwood Sister (ancient, fey)
-Thorn Griffin (wild)
-Duchess Dewbell (ancient)
-Quinberry Lark (arcane)
+(1) Pavo Quickstep (arcane, fey)
+(1) Nettle Starbright (mounted on Dash, wild, honorable)
+(1) Archivist Mosswake (ancient, wild)
+(1) Duchess Dewbell (ancient)
+(3) Fey Messenger (fey)
+(4) Starbloom Knight (fey, honorable)
+(2) Crystal Unicorn (wild, honorable)
+(3) Heartwood Sister (ancient, fey)
+(2) Thorn Griffin (wild)
+(2) Quinberry Lark (arcane)
 
 
 Seelie Non-Starter Cards:
 
-***(HERO) Lady Mirrorglass (ancient, arcane)
-Sylvan Enchantress (arcane, honorable)
-Sylvan Champion (fey, honorable)
-Marrowind (ancient, honorable)
-Lady Quill (fey, honorable)
-Glimmer Stag (fey)
-Sun Sprite (arcane, fey)
-Mossy Giant (wild, ancient)
-Fairy Ring (fey)
-Heartwood (ancient)
-
-
-
-
-
-
-
-
-
-
-
-
+(1) ***HERO*** Lady Mirrorglace (ancient, arcane)
+(2) Sylvan Enchantress (arcane, honorable)
+(2) Sylvan Champion (fey, honorable)
+(1) Marrowind (ancient, honorable)
+(1) Vaelthorn (fey, wild)
+(2) Glimmer Stag (fey)
+(4) Sun Sprite (arcane, fey)
+(2) Mossy Giant (giant, wild, ancient)
+(2) Fairy Ring (fey)
+(4) Heartwood (ancient)
 
 
 Unseelie Court Starter Deck
@@ -171,38 +129,35 @@ Heroes:
 
 Queen Nyxara (ancient, fey, corrupt)
 Archduchess Vespara (undead, fey, corrupt)
-The Tockman (mechanical, arcane)
 
 
 Companion:
 
-Briar Whisperthorn (fey, corrupt)
-Gloom Fairy (arcane, fey)
-Pipistrel Vane (ancient, corrupt)
-Dusk Harvester (undead, fey, corrupt)
-Lady Silkmaw (corrupt)
-Duke Lanternwing (arcane, corrupt)
-Bristlejack (corrupt)
-Sir Chitin the Undying (undead, fey)
-Hushkeeper (mechanical, arcane)
-Thorn Serpent (ancient, fey)
+(1) Briar Whisperthorn (fey)
+(4) Gloom Fairy (undead, fey)
+(1) Pipistrel Vane (ancient, corrupt)
+(2) Dusk Harvester (undead, fey, corrupt)
+(1) Lady Silkmaw (corrupt)
+(1) Duke Lanternwing (ancient, corrupt)
+(2) Bristlejack (corrupt)
+(4) Mourning Light (undead, fey)
+(2) Moonshade Stalker (fey)
+(2) Widowroot (ancient)
 
 
 Unseelie Non-Starter Cards:
 
-***(HERO) Sister Honeygrave (ancient, arcane)
-Father Grub (undead, ancient)
-The Weaver (fey, mechanical)
-The Choir (corrupt, fey)
-Moonshade Stalker (fey)
-The Warden (mechanical)
-Lord Pallid (arcane, corrupt)
-Gloom Wisp (undead, arcane)
-Echo Lantern (mechanical)
-Eyeblight (corrupt)
-
-
-
+(1) ***HERO*** The Tockman (mechanical, fey, arcane)
+(1) Sister Honeygrave (ancient, arcane)
+(1) Father Grub (giant, undead, arcane)
+(1) The Weaver (fey, mechanical)
+(1) The Choir (fey, corrupt)
+(2) Hushkeeper (mechanical, arcane)
+(4) Warden (mechanical)
+(1) Lord Pallid (arcane, corrupt)
+(1) Sir Chitinous Vale (undead, fey)
+(2) Echo Lantern (mechanical)
+(4) Eyeblight (corrupt)
 
 
 Non-Starter Effect Cards:
