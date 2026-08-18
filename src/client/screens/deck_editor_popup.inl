@@ -114,6 +114,7 @@
             false,
             6.0f);
 
+        std::optional<DetailTooltip> detailTooltip;
         if (details.empty())
         {
             drawText(window, font, "This card has no activated abilities.", 12,
@@ -145,11 +146,23 @@
                  CardPopupAbilitiesHeight / baseSize.y * baseViewport.size.y}));
             window.setView(abilityView);
 
-            drawDetailRows(
+            std::optional<sf::Vector2f> detailPointer;
+            const sf::Vector2f pointer = collectionPointer();
+            if (isInsideRect(
+                    pointer,
+                    CardPopupAbilitiesX,
+                    CardPopupAbilitiesY,
+                    CardPopupAbilitiesWidth,
+                    CardPopupAbilitiesHeight))
+            {
+                detailPointer = pointer + sf::Vector2f(0.0f, inspectedDeckEditorCardScroll);
+            }
+            detailTooltip = drawDetailRows(
                 details,
                 CardPopupAbilitiesY + PiecePopupScrollTextYInset,
                 CardPopupAbilitiesX,
-                CardPopupAbilitiesWidth);
+                CardPopupAbilitiesWidth,
+                detailPointer);
 
             window.setView(previousView);
         }
@@ -175,4 +188,5 @@
         }
 
         closeDeckCardPopupButton.draw(window);
+        drawDetailTooltip(detailTooltip);
     };

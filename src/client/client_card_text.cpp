@@ -45,6 +45,49 @@ std::string actionMoveIconPath(const game_data::ActionProfile& action)
     }
 }
 
+std::string actionMoveTooltipTitle(const game_data::ActionProfile& action)
+{
+    switch (static_cast<game_data::ActionKind>(action.kind))
+    {
+        case game_data::ActionKind::Hop: return "Hop";
+        case game_data::ActionKind::Teleport: return "Teleport";
+        case game_data::ActionKind::Tunnel: return "Tunnel";
+        default: return game_data::movePatternName(action.pattern);
+    }
+}
+
+std::string actionMoveTooltipText(const game_data::ActionProfile& action)
+{
+    switch (static_cast<game_data::ActionKind>(action.kind))
+    {
+        case game_data::ActionKind::Hop:
+            return "Jumps over an adjacent piece and lands two squares away.";
+        case game_data::ActionKind::Teleport:
+            return "Moves directly to any empty square.";
+        case game_data::ActionKind::Tunnel:
+            return "Moves directly from one hole to another.";
+        default: break;
+    }
+
+    switch (static_cast<game_data::MovePattern>(action.pattern))
+    {
+        case game_data::MovePattern::Ortho:
+            return "This action reaches in straight horizontal or vertical lines.";
+        case game_data::MovePattern::Diag:
+            return "This action reaches along diagonal lines.";
+        case game_data::MovePattern::Omni:
+            return "This action reaches in straight or diagonal lines.";
+        case game_data::MovePattern::Jump:
+            return "This action reaches in an L shape and can jump over pieces.";
+        case game_data::MovePattern::Horizontal:
+            return "This action reaches horizontally to the left or right.";
+        case game_data::MovePattern::Vertical:
+            return "This action reaches vertically up or down.";
+        default:
+            return "This action can reach any square within its listed range.";
+    }
+}
+
 std::string actionRangeText(const game_data::ActionProfile& action)
 {
     return action.minRange > 1
@@ -186,6 +229,8 @@ ActionDescription actionDescription(const game_data::ActionProfile& action, std:
         : action.name;
     description.type = actionTypeName(action);
     description.moveIconPath = actionMoveIconPath(action);
+    description.moveTooltipTitle = actionMoveTooltipTitle(action);
+    description.moveTooltipText = actionMoveTooltipText(action);
     description.range = actionRangeText(action);
     description.damage = std::max(0, action.damage);
     description.heal = std::max(0, action.heal);

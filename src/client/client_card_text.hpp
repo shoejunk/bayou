@@ -18,6 +18,8 @@ struct ActionDescription
     std::string name;
     std::string type;
     std::string moveIconPath;
+    std::string moveTooltipTitle;
+    std::string moveTooltipText;
     std::string range;
     int damage = 0;
     int heal = 0;

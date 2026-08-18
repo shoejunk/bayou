@@ -4119,9 +4119,11 @@ int main(int argc, char** argv)
         textures};
 
     // The draw lambdas are defined before the frame loop's mouse position exists,
-    // so hover states sample the pointer at draw time instead of capturing it.
+    // so keep the current logical pointer here for draw-time hover states. This
+    // also lets UI captures supply their pinned hover point.
+    sf::Vector2f currentPointer;
     auto collectionPointer = [&]() {
-        return window.mapPixelToCoords(sf::Mouse::getPosition(window));
+        return currentPointer;
     };
 
     // Index of the list row under the pointer, for hover treatment.
@@ -5138,17 +5140,36 @@ int main(int argc, char** argv)
         return std::max(0.0f, detailRowsHeight(details, CardPopupAbilitiesWidth) - CardPopupAbilitiesHeight);
     };
 
-    auto drawDetailRows = [&](const DetailRows& details, float y, float contentX, float contentWidth) {
+    struct DetailTooltip
+    {
+        std::string title;
+        std::string text;
+    };
+
+    auto drawDetailRows = [&](const DetailRows& details,
+                              float y,
+                              float contentX,
+                              float contentWidth,
+                              const std::optional<sf::Vector2f>& pointer) {
+        std::optional<DetailTooltip> hoveredTooltip;
         const float left = contentX + PiecePopupScrollTextXInset;
         const float width = contentWidth - PiecePopupScrollTextXInset * 2.0f;
         auto measuredTextWidth = [&](const std::string& value, unsigned int size) {
             sf::Text measuring(font, value, size);
             return measuring.getLocalBounds().size.x;
         };
-        auto drawInlineIcon = [&](const std::string& path, float x, float iconY) {
+        auto drawInlineIcon = [&](const std::string& path,
+                                  float x,
+                                  float iconY,
+                                  const std::string& tooltipTitle,
+                                  const std::string& tooltipText) {
             if (sf::Texture* icon = textures.load(path))
             {
                 drawContainSprite(window, *icon, {{x, iconY}, {18.0f, 18.0f}});
+                if (pointer && isInsideRect(*pointer, x, iconY, 18.0f, 18.0f))
+                {
+                    hoveredTooltip = DetailTooltip{tooltipTitle, tooltipText};
+                }
             }
         };
 
@@ -5169,31 +5190,114 @@ int main(int argc, char** argv)
             drawText(window, font, action.type, 13, {x, y + 1.0f}, row.color, width);
             x += measuredTextWidth(action.type, 13) + 8.0f;
 
-            drawInlineIcon(action.moveIconPath, x, y);
+            drawInlineIcon(
+                action.moveIconPath,
+                x,
+                y,
+                action.moveTooltipTitle,
+                action.moveTooltipText);
             x += 21.0f;
             drawText(window, font, action.range, 13, {x, y + 1.0f}, row.color);
             x += measuredTextWidth(action.range, 13) + 5.0f;
 
-            auto drawAmount = [&](const std::string& iconPath, int amount) {
+            auto drawAmount = [&](const std::string& iconPath,
+                                  int amount,
+                                  const std::string& tooltipTitle,
+                                  const std::string& tooltipText) {
                 if (amount <= 0)
                 {
                     return;
                 }
                 x += 5.0f;
-                drawInlineIcon(iconPath, x, y);
+                drawInlineIcon(iconPath, x, y, tooltipTitle, tooltipText);
                 x += 21.0f;
                 const std::string value = std::to_string(amount);
                 drawText(window, font, value, 13, {x, y + 1.0f}, row.color);
                 x += measuredTextWidth(value, 13);
             };
-            drawAmount("ui/damage.png", action.damage);
-            drawAmount("ui/heal.png", action.heal);
-            drawAmount("ui/stun.png", action.stun);
-            drawAmount("ui/cooldown.png", action.cooldown);
-            drawAmount("ui/under-control.png", action.control);
+            drawAmount(
+                "ui/damage.png",
+                action.damage,
+                "Damage",
+                "Removes this much health from each target.");
+            drawAmount(
+                "ui/heal.png",
+                action.heal,
+                "Healing",
+                "Restores this much health, up to the target's maximum health.");
+            drawAmount(
+                "ui/stun.png",
+                action.stun,
+                "Stun",
+                "Prevents each target from acting for this many turns.");
+            drawAmount(
+                "ui/cooldown.png",
+                action.cooldown,
+                "Cooldown",
+                "After using this action, its user cannot act for this many turns.");
+            drawAmount(
+                "ui/under-control.png",
+                action.control,
+                "Control",
+                "Takes control of an enemy non-Hero for this many of your later turns.");
             y += 33.0f;
         }
-        return y;
+        return hoveredTooltip;
+    };
+
+    auto drawDetailTooltip = [&](const std::optional<DetailTooltip>& tooltip) {
+        if (!tooltip)
+        {
+            return;
+        }
+
+        constexpr float TooltipWidth = 238.0f;
+        constexpr float TooltipPadding = 12.0f;
+        const std::vector<std::string> lines =
+            wrapText(font, tooltip->text, 12, TooltipWidth - TooltipPadding * 2.0f);
+        const float tooltipHeight = 38.0f + static_cast<float>(lines.size()) * 16.0f;
+
+        sf::Vector2f position = collectionPointer() + sf::Vector2f(14.0f, 14.0f);
+        if (position.x + TooltipWidth > ui_canvas::Right - 8.0f)
+        {
+            position.x = collectionPointer().x - TooltipWidth - 14.0f;
+        }
+        if (position.y + tooltipHeight > ui_canvas::Height - 8.0f)
+        {
+            position.y = collectionPointer().y - tooltipHeight - 14.0f;
+        }
+        position.x = std::clamp(position.x, ui_canvas::Left + 8.0f, ui_canvas::Right - TooltipWidth - 8.0f);
+        position.y = std::clamp(position.y, 8.0f, ui_canvas::Height - tooltipHeight - 8.0f);
+
+        drawBeveledPlate(
+            window,
+            position,
+            {TooltipWidth, tooltipHeight},
+            sf::Color(8, 14, 15, 250),
+            sf::Color(198, 146, 70, 235),
+            false,
+            6.0f);
+        drawText(
+            window,
+            font,
+            tooltip->title,
+            13,
+            position + sf::Vector2f(TooltipPadding, 9.0f),
+            sf::Color(248, 239, 216),
+            TooltipWidth - TooltipPadding * 2.0f);
+        float lineY = position.y + 29.0f;
+        for (const std::string& line : lines)
+        {
+            drawText(
+                window,
+                font,
+                line,
+                12,
+                {position.x + TooltipPadding, lineY},
+                sf::Color(143, 220, 205),
+                TooltipWidth - TooltipPadding * 2.0f);
+            lineY += 16.0f;
+        }
     };
 
     #include "screens/deck_editor_popup.inl"
@@ -7140,9 +7244,14 @@ int main(int argc, char** argv)
         {
             seedCaptureMatch("selected");
         }
-        else if (screen == "game-popup")
+        else if (screen == "game-popup" || screen == "game-popup-tooltip")
         {
             seedCaptureMatch("popup");
+            if (screen == "game-popup-tooltip")
+            {
+                // Advance's movement-pattern symbol in the first action row.
+                captureHoverPoint = sf::Vector2f{244.0f, 312.0f};
+            }
         }
         else if (screen == "game-resign-confirmation")
         {
@@ -7252,6 +7361,7 @@ int main(int argc, char** argv)
             // hover treatment pins one here.
             mousePos = *captureHoverPoint;
         }
+        currentPointer = mousePos;
 
         if (currentState == GameState::Game)
         {

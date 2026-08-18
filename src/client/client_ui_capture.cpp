@@ -387,6 +387,7 @@ const std::vector<std::string>& knownScreens()
         "game-midgame",
         "game-selected",
         "game-popup",
+        "game-popup-tooltip",
         "game-resign-confirmation",
         "game-victory",
         // Admin / card-editor / Conquest review states. These screens are all

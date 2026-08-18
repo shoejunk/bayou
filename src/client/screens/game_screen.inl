@@ -805,6 +805,7 @@
             false,
             7.0f);
 
+        std::optional<DetailTooltip> detailTooltip;
         const sf::View previousView = window.getView();
         sf::View actionView(sf::FloatRect(
             {PiecePopupTextX, PiecePopupScrollY + inspectedPieceScroll},
@@ -829,11 +830,23 @@
              baseViewport.size.y * popupViewportSize.y}));
         window.setView(actionView);
 
-        drawDetailRows(
+        std::optional<sf::Vector2f> detailPointer;
+        const sf::Vector2f pointer = collectionPointer();
+        if (isInsideRect(
+                pointer,
+                PiecePopupTextX,
+                PiecePopupScrollY,
+                PiecePopupTextWidth,
+                popupScrollHeight))
+        {
+            detailPointer = pointer + sf::Vector2f(0.0f, inspectedPieceScroll);
+        }
+        detailTooltip = drawDetailRows(
             actionDescriptions,
             PiecePopupScrollY + PiecePopupScrollTextYInset,
             PiecePopupTextX,
-            PiecePopupTextWidth);
+            PiecePopupTextWidth,
+            detailPointer);
 
         window.setView(previousView);
 
@@ -862,6 +875,7 @@
             discardCardButton.draw(window);
         }
         closePiecePopupButton.draw(window);
+        drawDetailTooltip(detailTooltip);
     };
 
     auto drawGame = [&]() {
