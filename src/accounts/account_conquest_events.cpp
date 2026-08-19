@@ -281,12 +281,14 @@ std::optional<card_data::Card> deserializeCard(const void* data, int size)
     bool legacyFormat = false;
     bool actionIncludesNextState = false;
     bool actionIncludesControl = false;
+    bool actionIncludesRepeat = false;
     if (!card_data::readCardListHeader(
             packet,
             count,
             legacyFormat,
             &actionIncludesNextState,
-            &actionIncludesControl) || count != 1)
+            &actionIncludesControl,
+            &actionIncludesRepeat) || count != 1)
     {
         return std::nullopt;
     }
@@ -296,7 +298,8 @@ std::optional<card_data::Card> deserializeCard(const void* data, int size)
             card,
             legacyFormat,
             actionIncludesNextState,
-            actionIncludesControl))
+            actionIncludesControl,
+            actionIncludesRepeat))
     {
         return std::nullopt;
     }
@@ -1144,10 +1147,17 @@ void initializeSchema(SQLite::Database& database, std::int64_t now)
         "argument_one INTEGER NOT NULL,"
         "argument_two INTEGER NOT NULL,"
         "argument_three INTEGER NOT NULL,"
+        "argument_four INTEGER NOT NULL DEFAULT 0,"
         "created_at INTEGER NOT NULL,"
         "PRIMARY KEY(battle_id, sequence),"
         "FOREIGN KEY(battle_id) REFERENCES conquest_battles(id) ON DELETE CASCADE"
         ")");
+    if (!tableHasColumn(database, "conquest_battle_actions", "argument_four"))
+    {
+        database.exec(
+            "ALTER TABLE conquest_battle_actions "
+            "ADD COLUMN argument_four INTEGER NOT NULL DEFAULT 0");
+    }
     database.exec(
         "CREATE TABLE IF NOT EXISTS conquest_battle_capabilities ("
         "battle_id INTEGER PRIMARY KEY,"
@@ -2264,7 +2274,7 @@ std::optional<conquest_data::BattleData> loadBattleData(
 
     SQLite::Statement actions(
         database,
-        "SELECT sequence, player_number, action_type, argument_one, argument_two, argument_three, created_at "
+        "SELECT sequence, player_number, action_type, argument_one, argument_two, argument_three, argument_four, created_at "
         "FROM conquest_battle_actions WHERE battle_id = ? ORDER BY sequence");
     actions.bind(1, databaseId(battleId));
     while (actions.executeStep())
@@ -2282,7 +2292,8 @@ std::optional<conquest_data::BattleData> loadBattleData(
             actions.getColumn(3).getInt(),
             actions.getColumn(4).getInt(),
             actions.getColumn(5).getInt(),
-            actions.getColumn(6).getInt64()});
+            actions.getColumn(6).getInt(),
+            actions.getColumn(7).getInt64()});
     }
     transaction.commit();
     return data;
@@ -2384,7 +2395,7 @@ CommandResult appendBattleAction(
     {
         SQLite::Statement existing(
             database,
-            "SELECT player_number, action_type, argument_one, argument_two, argument_three "
+            "SELECT player_number, action_type, argument_one, argument_two, argument_three, argument_four "
             "FROM conquest_battle_actions WHERE battle_id = ? AND sequence = ?");
         existing.bind(1, databaseId(battleId));
         existing.bind(2, static_cast<std::int64_t>(action.sequence));
@@ -2393,7 +2404,8 @@ CommandResult appendBattleAction(
             existing.getColumn(1).getInt() == static_cast<int>(action.actionType) &&
             existing.getColumn(2).getInt() == action.argumentOne &&
             existing.getColumn(3).getInt() == action.argumentTwo &&
-            existing.getColumn(4).getInt() == action.argumentThree)
+            existing.getColumn(4).getInt() == action.argumentThree &&
+            existing.getColumn(5).getInt() == action.argumentFour)
         {
             transaction.commit();
             return {true, "Battle action already recorded"};
@@ -2408,8 +2420,8 @@ CommandResult appendBattleAction(
     SQLite::Statement insert(
         database,
         "INSERT INTO conquest_battle_actions "
-        "(battle_id, sequence, player_number, action_type, argument_one, argument_two, argument_three, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        "(battle_id, sequence, player_number, action_type, argument_one, argument_two, argument_three, argument_four, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     insert.bind(1, databaseId(battleId));
     insert.bind(2, static_cast<std::int64_t>(action.sequence));
     insert.bind(3, action.playerNumber);
@@ -2417,7 +2429,8 @@ CommandResult appendBattleAction(
     insert.bind(5, action.argumentOne);
     insert.bind(6, action.argumentTwo);
     insert.bind(7, action.argumentThree);
-    insert.bind(8, effectiveNow(0));
+    insert.bind(8, action.argumentFour);
+    insert.bind(9, effectiveNow(0));
     insert.exec();
     transaction.commit();
     return {true, "Battle action recorded"};

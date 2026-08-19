@@ -145,6 +145,7 @@ struct BattleAction
     int argumentOne = 0;
     int argumentTwo = 0;
     int argumentThree = 0;
+    int argumentFour = 0;
     std::int64_t createdAt = 0;
 };
 
@@ -407,14 +408,14 @@ inline bool readMoveOrder(sf::Packet& packet, MoveOrder& value)
 inline void writeBattleAction(sf::Packet& packet, const BattleAction& value)
 {
     packet << value.sequence << value.playerNumber << value.actionType
-           << value.argumentOne << value.argumentTwo << value.argumentThree
+           << value.argumentOne << value.argumentTwo << value.argumentThree << value.argumentFour
            << value.createdAt;
 }
 
 inline bool readBattleAction(sf::Packet& packet, BattleAction& value)
 {
     packet >> value.sequence >> value.playerNumber >> value.actionType
-           >> value.argumentOne >> value.argumentTwo >> value.argumentThree
+           >> value.argumentOne >> value.argumentTwo >> value.argumentThree >> value.argumentFour
            >> value.createdAt;
     return packet && (value.playerNumber == 1 || value.playerNumber == 2);
 }

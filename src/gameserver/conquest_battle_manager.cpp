@@ -358,7 +358,8 @@ bool sameAction(
         one.actionType == two.actionType &&
         one.argumentOne == two.argumentOne &&
         one.argumentTwo == two.argumentTwo &&
-        one.argumentThree == two.argumentThree;
+        one.argumentThree == two.argumentThree &&
+        one.argumentFour == two.argumentFour;
 }
 
 } // namespace

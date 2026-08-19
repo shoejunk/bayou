@@ -245,6 +245,7 @@ struct ActionProfile
     int statusTurns = 0;
     int cooldownTurns = 0;
     int control = 0;
+    int repeat = 0;
     bool canMove = true;
     bool canAttack = false;
     bool passThrough = false;
@@ -487,6 +488,7 @@ inline GameCard toGameCard(const card_data::Card& card)
         action.statusTurns = definition.statusTurns;
         action.cooldownTurns = definition.cooldownTurns;
         action.control = std::max(0, definition.control);
+        action.repeat = std::max(0, definition.repeat);
         action.push = std::max(0, definition.push);
         action.targetFilter = definition.targetFilter;
         g.actions.push_back(action);
@@ -944,7 +946,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
     {
         packet << action.name << action.kind << action.pattern << action.state << actionNextState(action) << action.minRange << action.maxRange
                << action.damage << action.heal << action.statusTurns << action.cooldownTurns << action.control
-               << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
+               << action.repeat << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
         card_data::writeStringVector(packet, action.targetFilter);
     }
     packet << card.ability << card.summonTitle << card.rebirthTitle;
@@ -980,7 +982,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
         ActionProfile action;
         packet >> action.name >> action.kind >> action.pattern >> action.state >> action.nextState >> action.minRange >> action.maxRange
                >> action.damage >> action.heal >> action.statusTurns >> action.cooldownTurns >> action.control
-               >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight >> action.push;
+               >> action.repeat >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight >> action.push;
         if (!packet || !card_data::readStringVector(packet, action.targetFilter))
         {
             return false;
@@ -1018,7 +1020,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
     {
         packet << action.name << action.kind << action.pattern << action.state << actionNextState(action) << action.minRange << action.maxRange
                << action.damage << action.heal << action.statusTurns << action.cooldownTurns << action.control
-               << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
+               << action.repeat << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
         card_data::writeStringVector(packet, action.targetFilter);
     }
     card_data::writeStringVector(packet, piece.abilityLabels);
@@ -1053,7 +1055,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
         ActionProfile action;
         packet >> action.name >> action.kind >> action.pattern >> action.state >> action.nextState >> action.minRange >> action.maxRange
                >> action.damage >> action.heal >> action.statusTurns >> action.cooldownTurns >> action.control
-               >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight >> action.push;
+               >> action.repeat >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight >> action.push;
         if (!packet || !card_data::readStringVector(packet, action.targetFilter))
         {
             return false;

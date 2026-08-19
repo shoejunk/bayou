@@ -789,6 +789,12 @@ constexpr float ResignDialogX = 220.0f;
 constexpr float ResignDialogY = 188.0f;
 constexpr float ResignDialogWidth = 360.0f;
 constexpr float ResignDialogHeight = 220.0f;
+constexpr float RepeatDialogX = 96.0f;
+constexpr float RepeatDialogY = 108.0f;
+constexpr float RepeatDialogWidth = 608.0f;
+constexpr float RepeatDialogButtonWidth = 132.0f;
+constexpr float RepeatDialogButtonHeight = 38.0f;
+constexpr float RepeatDialogButtonGap = 8.0f;
 // The player-enchantment drop test targets the owner banners.
 constexpr float GameLabelY = GameTopBarY;
 constexpr float GamePlayerReadoutWidth = GamePlayerBannerWidth;
@@ -1245,6 +1251,15 @@ int main(int argc, char** argv)
     bool exitDesktopPopupVisible = false;
     bool deckUnsavedChangesPopupVisible = false;
     bool resignConfirmPopupVisible = false;
+    struct PendingRepeatAction
+    {
+        int pieceId = 0;
+        int row = 0;
+        int column = 0;
+        int maxRepeats = 0;
+    };
+    std::optional<PendingRepeatAction> pendingRepeatAction;
+    std::vector<Button> repeatActionButtons;
     bool exitDesktopCloseHovered = false;
     bool authenticatedSettingsHovered = false;
     bool pendingAutoLogin = false;
@@ -1476,6 +1491,7 @@ int main(int argc, char** argv)
         font);
     Button cancelResignButton({250.0f, 356.0f}, {130.0f, 42.0f}, "Cancel", font);
     Button confirmResignButton({420.0f, 356.0f}, {130.0f, 42.0f}, "Resign", font);
+    Button cancelRepeatActionButton({0.0f, 0.0f}, {130.0f, 38.0f}, "Cancel", font);
     Button closePiecePopupButton({PiecePopupX + 358.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
     Button discardCardButton({PiecePopupX + 22.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {220.0f, 38.0f},
                              "Discard to deck bottom", font);
@@ -2139,6 +2155,27 @@ int main(int argc, char** argv)
         confirmResignButton.draw(window);
     };
 
+    auto drawRepeatActionPopup = [&]() {
+        const int optionCount = static_cast<int>(repeatActionButtons.size());
+        const int rowCount = std::max(1, (optionCount + 3) / 4);
+        const float dialogHeight = 166.0f +
+            static_cast<float>(rowCount) * (RepeatDialogButtonHeight + RepeatDialogButtonGap);
+        sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
+        overlay.setPosition({ui_canvas::Left, 0.0f});
+        overlay.setFillColor(sf::Color(0, 0, 0, 182));
+        window.draw(overlay);
+        drawPanel(window, {RepeatDialogX, RepeatDialogY}, {RepeatDialogWidth, dialogHeight});
+        drawText(window, font, "Repeat Action", 28, {264.0f, RepeatDialogY + 28.0f},
+                 sf::Color(248, 224, 172), 270.0f);
+        drawText(window, font, "How many times should this action be performed?", 16,
+                 {RepeatDialogX + 42.0f, RepeatDialogY + 72.0f}, sf::Color(220, 224, 230), 520.0f);
+        for (Button& button : repeatActionButtons)
+        {
+            button.draw(window);
+        }
+        cancelRepeatActionButton.draw(window);
+    };
+
     auto makeNewDeckName = [&]() {
         std::string name = "New Deck";
         int suffix = 2;
@@ -2583,6 +2620,8 @@ int main(int argc, char** argv)
         exitDesktopPopupVisible = false;
         deckUnsavedChangesPopupVisible = false;
         resignConfirmPopupVisible = false;
+        pendingRepeatAction.reset();
+        repeatActionButtons.clear();
         adminUserDeleteTarget.clear();
         adminSearchInput.clear();
         adminGoldInput.clear();
@@ -3099,6 +3138,8 @@ int main(int argc, char** argv)
         abilityButton.setPosition({GameActionButtonX, GameAbilityButtonY});
         leaveGameButton.setLabel(isConquestBattle ? "Map" : "Resign");
         resignConfirmPopupVisible = false;
+        pendingRepeatAction.reset();
+        repeatActionButtons.clear();
         title.setString("");
         centerText(title, 400.0f);
         setMessage(messageText, "", sf::Color::Red);
@@ -4612,6 +4653,17 @@ int main(int argc, char** argv)
         return nullptr;
     };
 
+    auto mutableGamePieceById = [&](int id) -> game_data::Piece* {
+        for (game_data::Piece& piece : gameSnapshot.pieces)
+        {
+            if (piece.id == id)
+            {
+                return &piece;
+            }
+        }
+        return nullptr;
+    };
+
     auto pieceCanTakeTurnAction = [&](const game_data::Piece& piece, int playerNumber) {
         if (!haveSnapshot)
         {
@@ -4711,6 +4763,8 @@ int main(int argc, char** argv)
         sandboxMode = true;
         storyMode = true;
         resignConfirmPopupVisible = false;
+        pendingRepeatAction.reset();
+        repeatActionButtons.clear();
         leaveGameButton.setLabel("Leave");
         abilityButton.setPosition({GameActionButtonX, GameAbilityButtonY});
         storyStage = StoryStage::MoveTutorial;
@@ -4783,6 +4837,8 @@ int main(int argc, char** argv)
         sandboxMode = true;
         storyMode = false;
         resignConfirmPopupVisible = false;
+        pendingRepeatAction.reset();
+        repeatActionButtons.clear();
         leaveGameButton.setLabel("Leave");
         abilityButton.setPosition({GameActionButtonX, GameAbilityButtonY});
         storyStage = StoryStage::None;
@@ -5240,6 +5296,12 @@ int main(int argc, char** argv)
                 action.control,
                 "Control",
                 "Takes control of an enemy non-Hero for this many of your later turns.");
+            if (action.repeat > 0)
+            {
+                x += 8.0f;
+                const std::string repeatLabel = "Repeat +" + std::to_string(action.repeat);
+                drawText(window, font, repeatLabel, 13, {x, y + 1.0f}, row.color);
+            }
             y += 33.0f;
         }
         return hoveredTooltip;
@@ -6091,26 +6153,110 @@ int main(int argc, char** argv)
         sendGamePacket(packet);
     };
 
-    auto sendMovePiece = [&](int pieceId, int row, int column) {
+    auto sendMovePiece = [&](int pieceId, int row, int column, int repeatCount = 0) {
         if (sandboxMode)
         {
-            sandboxActWithPiece(pieceId, row, column);
+            const game_data::Piece* initialPiece = gamePieceById(pieceId);
+            const int initialActionState = initialPiece == nullptr ? 0 : initialPiece->actionState;
+            for (int repetition = 0; repetition <= repeatCount; ++repetition)
+            {
+                if (repetition > 0)
+                {
+                    game_data::Piece* repeatedPiece = mutableGamePieceById(pieceId);
+                    if (repeatedPiece == nullptr || repeatedPiece->health <= 0)
+                    {
+                        break;
+                    }
+                    repeatedPiece->hasActed = false;
+                    repeatedPiece->actionState = initialActionState;
+                }
+                sandboxActWithPiece(pieceId, row, column);
+            }
             return;
         }
         sf::Packet packet;
-        packet << static_cast<std::uint8_t>(network::MessageType::MovePiece) << pieceId << row << column;
+        packet << static_cast<std::uint8_t>(network::MessageType::MovePiece)
+               << pieceId << row << column << repeatCount;
         sendGamePacket(packet);
     };
 
-    auto sendAttackPiece = [&](int attackerId, int row, int column) {
+    auto sendAttackPiece = [&](int attackerId, int row, int column, int repeatCount = 0) {
         if (sandboxMode)
         {
-            sandboxActWithPiece(attackerId, row, column);
+            const game_data::Piece* initialPiece = gamePieceById(attackerId);
+            const int initialActionState = initialPiece == nullptr ? 0 : initialPiece->actionState;
+            for (int repetition = 0; repetition <= repeatCount; ++repetition)
+            {
+                if (repetition > 0)
+                {
+                    game_data::Piece* repeatedPiece = mutableGamePieceById(attackerId);
+                    if (repeatedPiece == nullptr || repeatedPiece->health <= 0)
+                    {
+                        break;
+                    }
+                    repeatedPiece->hasActed = false;
+                    repeatedPiece->actionState = initialActionState;
+                }
+                sandboxActWithPiece(attackerId, row, column);
+            }
             return;
         }
         sf::Packet packet;
-        packet << static_cast<std::uint8_t>(network::MessageType::AttackPiece) << attackerId << row << column;
+        packet << static_cast<std::uint8_t>(network::MessageType::AttackPiece)
+               << attackerId << row << column << repeatCount;
         sendGamePacket(packet);
+    };
+
+    auto clearRepeatActionPrompt = [&]() {
+        pendingRepeatAction.reset();
+        repeatActionButtons.clear();
+    };
+
+    auto openRepeatActionPrompt = [&](int pieceId, int row, int column, int maxRepeats) {
+        pendingRepeatAction = PendingRepeatAction{pieceId, row, column, maxRepeats};
+        repeatActionButtons.clear();
+        const int optionCount = maxRepeats + 1;
+        const int rowCount = std::max(1, (optionCount + 3) / 4);
+        for (int extraRepeats = 0; extraRepeats < optionCount; ++extraRepeats)
+        {
+            const int buttonColumn = extraRepeats % 4;
+            const int buttonRow = extraRepeats / 4;
+            repeatActionButtons.emplace_back(
+                sf::Vector2f(
+                    RepeatDialogX + 24.0f + buttonColumn * (RepeatDialogButtonWidth + RepeatDialogButtonGap),
+                    RepeatDialogY + 112.0f + buttonRow * (RepeatDialogButtonHeight + RepeatDialogButtonGap)),
+                sf::Vector2f(RepeatDialogButtonWidth, RepeatDialogButtonHeight),
+                extraRepeats == 0 ? "Once" : std::to_string(extraRepeats + 1) + " times",
+                font);
+            repeatActionButtons.back().setVariant(extraRepeats == 0
+                ? ButtonVariant::Primary
+                : ButtonVariant::Secondary);
+        }
+        cancelRepeatActionButton.setPosition({
+            RepeatDialogX + (RepeatDialogWidth - 130.0f) * 0.5f,
+            RepeatDialogY + 126.0f + rowCount * (RepeatDialogButtonHeight + RepeatDialogButtonGap)});
+    };
+
+    auto requestPieceAction = [&](int pieceId, int row, int column) {
+        const game_data::Piece* piece = gamePieceById(pieceId);
+        if (piece == nullptr)
+        {
+            return;
+        }
+        const game_data::PieceActionOutcome outcome = game_data::resolvePieceActionThroughHidden(
+            gameSnapshot.pieces, gameSnapshot.holes, *piece, row, column);
+        if (!outcome.action.legal)
+        {
+            return;
+        }
+        if (outcome.action.repeat > 0)
+        {
+            openRepeatActionPrompt(pieceId, row, column, outcome.action.repeat);
+        }
+        else
+        {
+            sendMovePiece(pieceId, row, column);
+        }
     };
 
     auto sendUseAbility = [&](int pieceId) {
@@ -6384,7 +6530,7 @@ int main(int argc, char** argv)
                     gameSnapshot.pieces, gameSnapshot.holes, *piece, row, column);
                 if (outcome.action.legal)
                 {
-                    sendMovePiece(piece->id, row, column);
+                    requestPieceAction(piece->id, row, column);
                 }
             }
             selectedPieceId.reset();
@@ -6556,6 +6702,8 @@ int main(int argc, char** argv)
         conquestBattleMode = false;
         leaveGameButton.setLabel("Leave");
         resignConfirmPopupVisible = false;
+        pendingRepeatAction.reset();
+        repeatActionButtons.clear();
         haveSnapshot = false;
         gameSnapshot = {};
         clockWarningTracker.reset();
@@ -6708,7 +6856,7 @@ int main(int argc, char** argv)
                         gameSnapshot.pieces, gameSnapshot.holes, *selected, row, column);
                     if (outcome.action.legal)
                     {
-                        sendMovePiece(selected->id, row, column);
+                        requestPieceAction(selected->id, row, column);
                     }
                     selectedPieceId.reset();
                     return;
@@ -6724,7 +6872,7 @@ int main(int argc, char** argv)
                     gameSnapshot.pieces, gameSnapshot.holes, *selected, row, column);
                 if (outcome.action.legal)
                 {
-                    sendMovePiece(selected->id, row, column);
+                    requestPieceAction(selected->id, row, column);
                 }
                 selectedPieceId.reset();
                 return;
@@ -6825,6 +6973,8 @@ int main(int argc, char** argv)
         storyMode = false;
         conquestBattleMode = false;
         resignConfirmPopupVisible = false;
+        pendingRepeatAction.reset();
+        repeatActionButtons.clear();
         leaveGameButton.setLabel("Resign");
         storyStage = StoryStage::None;
         storyTargetRow = -1;
@@ -7021,6 +7171,8 @@ int main(int argc, char** argv)
         exitDesktopPopupVisible = false;
         deckUnsavedChangesPopupVisible = false;
         resignConfirmPopupVisible = false;
+        pendingRepeatAction.reset();
+        repeatActionButtons.clear();
         passwordChangedPopupVisible = false;
         addCardPopupVisible = false;
         giveStarterDeckPopupVisible = false;
@@ -8098,6 +8250,36 @@ int main(int argc, char** argv)
                     {
                         deckUnsavedChangesPopupVisible = false;
                         starterDeckExitTab = 0;
+                    }
+                    continue;
+                }
+
+                if (pendingRepeatAction)
+                {
+                    bool handled = false;
+                    for (std::size_t option = 0; option < repeatActionButtons.size(); ++option)
+                    {
+                        if (repeatActionButtons[option].isClicked(clickPos))
+                        {
+                            const PendingRepeatAction action = *pendingRepeatAction;
+                            clearRepeatActionPrompt();
+                            sendMovePiece(action.pieceId, action.row, action.column,
+                                          static_cast<int>(option));
+                            selectedPieceId.reset();
+                            selectedHandIndex.reset();
+                            handled = true;
+                            break;
+                        }
+                    }
+                    if (!handled && (cancelRepeatActionButton.isClicked(clickPos) ||
+                                     !isInsideRect(clickPos, RepeatDialogX, RepeatDialogY,
+                                                  RepeatDialogWidth,
+                                                  166.0f + static_cast<float>(std::max(
+                                                      1,
+                                                      (static_cast<int>(repeatActionButtons.size()) + 3) / 4)) *
+                                                      (RepeatDialogButtonHeight + RepeatDialogButtonGap))))
+                    {
+                        clearRepeatActionPrompt();
                     }
                     continue;
                 }
@@ -9288,6 +9470,23 @@ int main(int argc, char** argv)
                     continue;
                 }
 
+                if (pendingRepeatAction)
+                {
+                    if (keyPressed->code == sf::Keyboard::Key::Escape)
+                    {
+                        clearRepeatActionPrompt();
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter)
+                    {
+                        const PendingRepeatAction action = *pendingRepeatAction;
+                        clearRepeatActionPrompt();
+                        sendMovePiece(action.pieceId, action.row, action.column);
+                        selectedPieceId.reset();
+                        selectedHandIndex.reset();
+                    }
+                    continue;
+                }
+
                 if (resignConfirmPopupVisible)
                 {
                     if (keyPressed->code == sf::Keyboard::Key::Escape)
@@ -9838,7 +10037,15 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Game)
         {
-            if (resignConfirmPopupVisible)
+            if (pendingRepeatAction)
+            {
+                for (Button& button : repeatActionButtons)
+                {
+                    button.update(mousePos);
+                }
+                cancelRepeatActionButton.update(mousePos);
+            }
+            else if (resignConfirmPopupVisible)
             {
                 cancelResignButton.update(mousePos);
                 confirmResignButton.update(mousePos);
@@ -10173,7 +10380,11 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Game)
         {
             drawGame();
-            if (resignConfirmPopupVisible)
+            if (pendingRepeatAction)
+            {
+                drawRepeatActionPopup();
+            }
+            else if (resignConfirmPopupVisible)
             {
                 drawResignConfirmationPopup();
             }

@@ -391,8 +391,14 @@ CardListResult fetchCards()
     bool legacyFormat = false;
     bool actionIncludesNextState = false;
     bool actionIncludesControl = false;
+    bool actionIncludesRepeat = false;
     if (!card_data::readCardListHeader(
-            response, count, legacyFormat, &actionIncludesNextState, &actionIncludesControl))
+            response,
+            count,
+            legacyFormat,
+            &actionIncludesNextState,
+            &actionIncludesControl,
+            &actionIncludesRepeat))
     {
         socket.disconnect();
         return {false, "Unsupported card list payload"};
@@ -404,7 +410,12 @@ CardListResult fetchCards()
     {
         card_data::Card card;
         if (!card_data::readListedCard(
-                response, card, legacyFormat, actionIncludesNextState, actionIncludesControl))
+                response,
+                card,
+                legacyFormat,
+                actionIncludesNextState,
+                actionIncludesControl,
+                actionIncludesRepeat))
         {
             socket.disconnect();
             return {false, "Invalid card list payload"};

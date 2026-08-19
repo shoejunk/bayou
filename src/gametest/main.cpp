@@ -959,6 +959,7 @@ int main(int argc, char** argv)
         3,
     });
     encodedCard.actions[0].targetFilter = {"corrupt", "armored"};
+    encodedCard.actions[0].repeat = 2;
     const GameCard decodedCard = toGameCard(encodedCard);
     check(decodedCard.actions.size() == 1 &&
               decodedCard.traits == encodedCard.traits &&
@@ -968,6 +969,7 @@ int main(int argc, char** argv)
               decodedCard.actions[0].damage == 2 &&
               decodedCard.actions[0].heal == 0 &&
               decodedCard.actions[0].push == 3 &&
+              decodedCard.actions[0].repeat == 2 &&
               decodedCard.actions[0].targetFilter == encodedCard.actions[0].targetFilter &&
               decodedCard.actions[0].canMove &&
               decodedCard.actions[0].canAttack &&
@@ -995,6 +997,7 @@ int main(int argc, char** argv)
     check(card_data::readCard(cardDefinitionPacket, roundTrippedDefinition) &&
               roundTrippedDefinition.actionNames == encodedCard.actionNames &&
               roundTrippedDefinition.actionDisplayNames == encodedCard.actionDisplayNames &&
+              roundTrippedDefinition.actions[0].repeat == 2 &&
               game_data::cardDeckLimit(roundTrippedDefinition) == 3,
           "card serialization preserves Deck Limit and per-card action display names");
 
@@ -1011,8 +1014,9 @@ int main(int argc, char** argv)
               roundTrippedAction.nextState == 2 &&
               roundTrippedAction.push == 3 &&
               roundTrippedAction.control == 3 &&
+              roundTrippedAction.repeat == 2 &&
               roundTrippedAction.targetFilter == encodedHealingAction.targetFilter,
-          "card-server action serialization keeps healing, push, and target-filter data");
+          "card-server action serialization keeps healing, push, repeat, and target-filter data");
 
     sf::Packet legacyCardListPacket;
     legacyCardListPacket << static_cast<std::uint32_t>(1);
@@ -1041,14 +1045,16 @@ int main(int argc, char** argv)
     bool currentCardFormatIsLegacy = true;
     bool currentActionsIncludeNextState = false;
     bool currentActionsIncludeControl = false;
+    bool currentActionsIncludeRepeat = false;
     check(card_data::readCardListHeader(
               currentCardListHeader,
               currentCardCount,
               currentCardFormatIsLegacy,
               &currentActionsIncludeNextState,
-              &currentActionsIncludeControl) &&
+              &currentActionsIncludeControl,
+              &currentActionsIncludeRepeat) &&
               currentCardCount == 3 && !currentCardFormatIsLegacy &&
-              currentActionsIncludeNextState && currentActionsIncludeControl,
+              currentActionsIncludeNextState && currentActionsIncludeControl && currentActionsIncludeRepeat,
           "versioned card-list headers select the traits-and-keywords format");
 
     sf::Packet previousCardListHeader;
@@ -1058,14 +1064,16 @@ int main(int argc, char** argv)
     bool previousCardFormatIsLegacy = true;
     bool previousActionsIncludeNextState = true;
     bool previousActionsIncludeControl = true;
+    bool previousActionsIncludeRepeat = true;
     check(card_data::readCardListHeader(
               previousCardListHeader,
               previousCardCount,
               previousCardFormatIsLegacy,
               &previousActionsIncludeNextState,
-              &previousActionsIncludeControl) &&
+              &previousActionsIncludeControl,
+              &previousActionsIncludeRepeat) &&
               previousCardCount == 0 && !previousCardFormatIsLegacy &&
-              !previousActionsIncludeNextState && !previousActionsIncludeControl,
+              !previousActionsIncludeNextState && !previousActionsIncludeControl && !previousActionsIncludeRepeat,
           "schema-six card lists remain readable with next state defaulting to state");
 
     card_data::Card limitedUnit;
@@ -1569,6 +1577,50 @@ int main(int argc, char** argv)
     plainHeroCard.title = "Plain Hero";
     plainHeroCard.type = "Hero";
     plainHeroCard.integerValues = {{"health", 4}};
+
+    card_data::Card repeatHeroCard;
+    repeatHeroCard.title = "Repeat Hero";
+    repeatHeroCard.type = "Hero";
+    repeatHeroCard.integerValues = {{"health", 8}};
+    card_data::Action repeatAttack;
+    repeatAttack.name = "Repeat Strike";
+    repeatAttack.kind = "slide";
+    repeatAttack.pattern = "omni";
+    repeatAttack.minRange = 1;
+    repeatAttack.maxRange = 20;
+    repeatAttack.damage = 1;
+    repeatAttack.canMove = false;
+    repeatAttack.canAttack = true;
+    repeatAttack.repeat = 2;
+    repeatHeroCard.actions = {repeatAttack};
+
+    GameEngine repeatEngine(15, {repeatHeroCard});
+    repeatEngine.submitDeck(1, {repeatHeroCard});
+    repeatEngine.submitDeck(2, {repeatHeroCard});
+    repeatEngine.placeHero(1, 0, homeSquares(1)[0].first, homeSquares(1)[0].second);
+    repeatEngine.placeHero(2, 0, homeSquares(2)[0].first, homeSquares(2)[0].second);
+    const Piece* repeatAttacker = &repeatEngine.boardPieces()[0];
+    const Piece* repeatTarget = &repeatEngine.boardPieces()[1];
+    check(repeatAttacker->actions[0].repeat == 2 &&
+              !repeatEngine.attackPiece(
+                  1,
+                  repeatAttacker->id,
+                  repeatTarget->row,
+                  repeatTarget->column,
+                  3) &&
+              repeatEngine.boardPieces()[1].health == repeatTarget->health,
+          "repeat actions reject a repeat count above their declared maximum");
+    const int repeatTargetHealth = repeatEngine.boardPieces()[1].health;
+    const bool repeatAccepted = repeatEngine.attackPiece(
+        1,
+        repeatAttacker->id,
+        repeatTarget->row,
+        repeatTarget->column,
+        2);
+    check(repeatAccepted &&
+              repeatEngine.boardPieces()[1].health == repeatTargetHealth - 3 &&
+              repeatEngine.currentPlayer() == 2,
+          "repeat actions execute the selected number of extra times and then end the turn");
 
     GameEngine timerEngine(13, {plainHeroCard});
     timerEngine.enableTimers();

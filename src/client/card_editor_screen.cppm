@@ -970,6 +970,7 @@ private:
     InputBox actionCooldownTurnsField;
     InputBox actionPushField;
     InputBox actionControlField;
+    InputBox actionRepeatField;
     std::vector<InputBox> actionTargetFilterFields;
     EditorButton backButton;
     EditorButton instructionsButton;
@@ -1086,8 +1087,14 @@ private:
         bool legacyFormat = false;
         bool actionIncludesNextState = false;
         bool actionIncludesControl = false;
+        bool actionIncludesRepeat = false;
         if (!card_data::readCardListHeader(
-                response, count, legacyFormat, &actionIncludesNextState, &actionIncludesControl))
+                response,
+                count,
+                legacyFormat,
+                &actionIncludesNextState,
+                &actionIncludesControl,
+                &actionIncludesRepeat))
         {
             socket.disconnect();
             return {false, "Unsupported card list payload"};
@@ -1099,7 +1106,12 @@ private:
         {
             card_data::Card card;
             if (!card_data::readListedCard(
-                    response, card, legacyFormat, actionIncludesNextState, actionIncludesControl))
+                    response,
+                    card,
+                    legacyFormat,
+                    actionIncludesNextState,
+                    actionIncludesControl,
+                    actionIncludesRepeat))
             {
                 socket.disconnect();
                 return {false, "Invalid card list payload"};
@@ -1355,8 +1367,9 @@ private:
         actionLineOfSightField = makeCompactField("0", {210.0f, 32.0f});
         actionStatusTurnsField = makeCompactField("0", {210.0f, 32.0f});
         actionCooldownTurnsField = makeCompactField("0", {210.0f, 32.0f});
-        actionPushField = makeCompactField("0", {210.0f, 32.0f});
-        actionControlField = makeCompactField("0", {210.0f, 32.0f});
+        actionPushField = makeCompactField("0", {140.0f, 32.0f});
+        actionControlField = makeCompactField("0", {140.0f, 32.0f});
+        actionRepeatField = makeCompactField("0", {140.0f, 32.0f});
         if (const std::optional<std::filesystem::path> path = resolveAssetImagePath("ui/action-link.png"))
         {
             hasActionLinkTexture = actionLinkTexture.loadFromFile(*path);
@@ -1476,6 +1489,7 @@ private:
                 &actionCooldownTurnsField,
                 &actionPushField,
                 &actionControlField,
+                &actionRepeatField,
             };
             for (InputBox& field : actionTargetFilterFields)
             {
@@ -1976,6 +1990,7 @@ private:
             &actionCooldownTurnsField,
             &actionPushField,
             &actionControlField,
+            &actionRepeatField,
         };
         for (const InputBox* field : fields)
         {
@@ -2262,6 +2277,7 @@ private:
         action.cooldownTurns = formInt(actionCooldownTurnsField, 0);
         action.push = std::max(0, formInt(actionPushField, 0));
         action.control = std::max(0, formInt(actionControlField, 0));
+        action.repeat = std::max(0, formInt(actionRepeatField, 0));
         for (const InputBox& field : actionTargetFilterFields)
         {
             const std::string value = trim(field.getValue());
@@ -2294,6 +2310,7 @@ private:
         actionCooldownTurnsField.setValue("0");
         actionPushField.setValue("0");
         actionControlField.setValue("0");
+        actionRepeatField.setValue("0");
         actionTargetFilterFields.clear();
         actionTargetFilterOffset = 0;
         removeActionTargetFilterButtons.clear();
@@ -2330,6 +2347,7 @@ private:
         actionCooldownTurnsField.setValue(std::to_string(action.cooldownTurns));
         actionPushField.setValue(std::to_string(action.push));
         actionControlField.setValue(std::to_string(action.control));
+        actionRepeatField.setValue(std::to_string(action.repeat));
         actionTargetFilterFields.clear();
         for (const std::string& value : action.targetFilter)
         {
@@ -4427,7 +4445,8 @@ private:
         actionStatusTurnsField.setPosition({340.0f, 580.0f});
         actionCooldownTurnsField.setPosition({600.0f, 580.0f});
         actionPushField.setPosition({340.0f, 638.0f});
-        actionControlField.setPosition({600.0f, 638.0f});
+        actionControlField.setPosition({500.0f, 638.0f});
+        actionRepeatField.setPosition({660.0f, 638.0f});
         layoutActionTargetFilterControls();
     }
 
@@ -4454,7 +4473,8 @@ private:
             {"Status turns", {340.0f, 556.0f}},
             {"Cooldown turns", {600.0f, 556.0f}},
             {"Push", {340.0f, 614.0f}},
-            {"Control", {600.0f, 614.0f}},
+            {"Control", {500.0f, 614.0f}},
+            {"Repeat", {660.0f, 614.0f}},
         };
         for (const auto& [label, position] : labels)
         {

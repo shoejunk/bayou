@@ -342,9 +342,10 @@ public:
         return true;
     }
 
-    bool movePiece(int playerNumber, int pieceId, int toRow, int toColumn)
+    bool movePiece(int playerNumber, int pieceId, int toRow, int toColumn, int repeatCount = 0)
     {
-        const bool accepted = performPieceAction(playerNumber, pieceId, toRow, toColumn);
+        const bool accepted = performRepeatedPieceAction(
+            playerNumber, pieceId, toRow, toColumn, repeatCount);
         if (accepted)
         {
             recordPlayerMove(playerNumber);
@@ -352,9 +353,15 @@ public:
         return accepted;
     }
 
-    bool attackPiece(int playerNumber, int attackerId, int targetRow, int targetColumn)
+    bool attackPiece(
+        int playerNumber,
+        int attackerId,
+        int targetRow,
+        int targetColumn,
+        int repeatCount = 0)
     {
-        const bool accepted = performPieceAction(playerNumber, attackerId, targetRow, targetColumn);
+        const bool accepted = performRepeatedPieceAction(
+            playerNumber, attackerId, targetRow, targetColumn, repeatCount);
         if (accepted)
         {
             recordPlayerMove(playerNumber);
@@ -804,7 +811,75 @@ private:
         return found == summonCatalog.end() ? nullptr : &*found;
     }
 
-    bool performPieceAction(int playerNumber, int pieceId, int toRow, int toColumn)
+    bool performRepeatedPieceAction(
+        int playerNumber,
+        int pieceId,
+        int toRow,
+        int toColumn,
+        int repeatCount)
+    {
+        if (repeatCount < 0 || phaseValue != Phase::Playing || playerNumber != activePlayer)
+        {
+            return false;
+        }
+
+        Piece* piece = pieceById(pieceId);
+        if (piece == nullptr)
+        {
+            return false;
+        }
+
+        const PieceActionOutcome firstOutcome =
+            resolvePieceActionThroughHidden(pieces, holes, *piece, toRow, toColumn);
+        if (!firstOutcome.action.legal)
+        {
+            return false;
+        }
+        if (repeatCount > firstOutcome.action.repeat)
+        {
+            setStatusFor(playerNumber, "That action cannot be repeated that many times.");
+            return false;
+        }
+
+        const int initialActionState = piece->actionState;
+        bool accepted = false;
+        for (int repetition = 0; repetition <= repeatCount; ++repetition)
+        {
+            if (repetition > 0)
+            {
+                piece = pieceById(pieceId);
+                if (piece == nullptr || piece->health <= 0)
+                {
+                    break;
+                }
+                piece->hasActed = false;
+                piece->actionState = initialActionState;
+            }
+
+            if (!performPieceAction(
+                    playerNumber,
+                    pieceId,
+                    toRow,
+                    toColumn,
+                    repetition < repeatCount))
+            {
+                break;
+            }
+            accepted = true;
+            if (phaseValue == Phase::GameOver || activePlayer != playerNumber)
+            {
+                break;
+            }
+        }
+        return accepted;
+    }
+
+    bool performPieceAction(
+        int playerNumber,
+        int pieceId,
+        int toRow,
+        int toColumn,
+        bool keepTurnAfterAction = false)
     {
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
         {
@@ -1098,6 +1173,13 @@ private:
             status = fmt::format("{} commanded {}", commanderName, result);
         }
         else if (actionKeepsTurn)
+        {
+            relentlessPieceId = 0;
+            relentlessActionKeepsTurn = false;
+            recomputeControl();
+            status = result;
+        }
+        else if (keepTurnAfterAction)
         {
             relentlessPieceId = 0;
             relentlessActionKeepsTurn = false;

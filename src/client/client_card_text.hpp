@@ -26,6 +26,7 @@ struct ActionDescription
     int stun = 0;
     int cooldown = 0;
     int control = 0;
+    int repeat = 0;
 };
 
 struct DetailRow

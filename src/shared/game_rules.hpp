@@ -234,6 +234,7 @@ struct ActionResolution
     int cooldownTurns = 0;
     int control = 0;
     int push = 0;
+    int repeat = 0;
     int stagingRow = 0;
     int stagingColumn = 0;
 };
@@ -475,6 +476,7 @@ inline ActionResolution resolvePieceAction(
         candidate.cooldownTurns = action.cooldownTurns;
         candidate.control = action.control;
         candidate.push = action.push;
+        candidate.repeat = action.repeat;
         candidate.stagingRow = piece.row;
         candidate.stagingColumn = piece.column;
 
