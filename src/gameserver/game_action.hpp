@@ -67,7 +67,7 @@ inline bool decodePayload(
             break;
         case network::MessageType::MovePiece:
         case network::MessageType::AttackPiece:
-            packet >> action.argumentOne >> action.argumentTwo >> action.argumentThree >> action.argumentFour;
+            packet >> action.argumentOne >> action.argumentTwo >> action.argumentThree;
             break;
         case network::MessageType::UseAbility:
         case network::MessageType::DiscardCard:
@@ -151,16 +151,14 @@ inline bool apply(
                 action.playerNumber,
                 action.argumentOne,
                 action.argumentTwo,
-                action.argumentThree,
-                action.argumentFour);
+                action.argumentThree);
             break;
         case network::MessageType::AttackPiece:
             accepted = engine.attackPiece(
                 action.playerNumber,
                 action.argumentOne,
                 action.argumentTwo,
-                action.argumentThree,
-                action.argumentFour);
+                action.argumentThree);
             break;
         case network::MessageType::UseAbility:
             accepted = engine.useAbility(action.playerNumber, action.argumentOne);

@@ -342,10 +342,9 @@ public:
         return true;
     }
 
-    bool movePiece(int playerNumber, int pieceId, int toRow, int toColumn, int repeatCount = 0)
+    bool movePiece(int playerNumber, int pieceId, int toRow, int toColumn)
     {
-        const bool accepted = performRepeatedPieceAction(
-            playerNumber, pieceId, toRow, toColumn, repeatCount);
+        const bool accepted = performPieceAction(playerNumber, pieceId, toRow, toColumn);
         if (accepted)
         {
             recordPlayerMove(playerNumber);
@@ -357,11 +356,10 @@ public:
         int playerNumber,
         int attackerId,
         int targetRow,
-        int targetColumn,
-        int repeatCount = 0)
+        int targetColumn)
     {
-        const bool accepted = performRepeatedPieceAction(
-            playerNumber, attackerId, targetRow, targetColumn, repeatCount);
+        const bool accepted = performPieceAction(
+            playerNumber, attackerId, targetRow, targetColumn);
         if (accepted)
         {
             recordPlayerMove(playerNumber);
@@ -811,75 +809,11 @@ private:
         return found == summonCatalog.end() ? nullptr : &*found;
     }
 
-    bool performRepeatedPieceAction(
-        int playerNumber,
-        int pieceId,
-        int toRow,
-        int toColumn,
-        int repeatCount)
-    {
-        if (repeatCount < 0 || phaseValue != Phase::Playing || playerNumber != activePlayer)
-        {
-            return false;
-        }
-
-        Piece* piece = pieceById(pieceId);
-        if (piece == nullptr)
-        {
-            return false;
-        }
-
-        const PieceActionOutcome firstOutcome =
-            resolvePieceActionThroughHidden(pieces, holes, *piece, toRow, toColumn);
-        if (!firstOutcome.action.legal)
-        {
-            return false;
-        }
-        if (repeatCount > firstOutcome.action.repeat)
-        {
-            setStatusFor(playerNumber, "That action cannot be repeated that many times.");
-            return false;
-        }
-
-        const int initialActionState = piece->actionState;
-        bool accepted = false;
-        for (int repetition = 0; repetition <= repeatCount; ++repetition)
-        {
-            if (repetition > 0)
-            {
-                piece = pieceById(pieceId);
-                if (piece == nullptr || piece->health <= 0)
-                {
-                    break;
-                }
-                piece->hasActed = false;
-                piece->actionState = initialActionState;
-            }
-
-            if (!performPieceAction(
-                    playerNumber,
-                    pieceId,
-                    toRow,
-                    toColumn,
-                    repetition < repeatCount))
-            {
-                break;
-            }
-            accepted = true;
-            if (phaseValue == Phase::GameOver || activePlayer != playerNumber)
-            {
-                break;
-            }
-        }
-        return accepted;
-    }
-
     bool performPieceAction(
         int playerNumber,
         int pieceId,
         int toRow,
-        int toColumn,
-        bool keepTurnAfterAction = false)
+        int toColumn)
     {
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
         {
@@ -887,9 +821,30 @@ private:
         }
 
         Piece* piece = pieceById(pieceId);
-        if (piece == nullptr || piece->owner != playerNumber || piece->hasActed)
+        if (piece == nullptr || piece->owner != playerNumber)
         {
             return false;
+        }
+        const bool continuingRepeat = piece->repeatActionIndex >= 0;
+        const int requiredActionIndex = continuingRepeat ? piece->repeatActionIndex : -1;
+        if (piece->hasActed && !continuingRepeat)
+        {
+            return false;
+        }
+        if (continuingRepeat)
+        {
+            if (requiredActionIndex >= static_cast<int>(piece->actions.size()) ||
+                piece->repeatActionUses < 0)
+            {
+                piece->repeatActionIndex = -1;
+                piece->repeatActionState = 0;
+                piece->repeatActionUses = 0;
+                piece->hasActed = true;
+                return false;
+            }
+            // A repeat continues the original action even when that action's
+            // normal next state would otherwise have changed the unit.
+            piece->actionState = piece->repeatActionState;
         }
         if (relentlessPieceId != 0 && piece->id != relentlessPieceId)
         {
@@ -913,7 +868,8 @@ private:
         // enemy pieces do not block or betray their squares; a collision with
         // one is adjusted into a strike or a harmless bump below.
         const PieceActionOutcome outcome =
-            resolvePieceActionThroughHidden(pieces, holes, *piece, toRow, toColumn);
+            resolvePieceActionThroughHidden(
+                pieces, holes, *piece, toRow, toColumn, requiredActionIndex);
         const ActionResolution& action = outcome.action;
         if (!action.legal)
         {
@@ -1049,10 +1005,33 @@ private:
         }
         survivingAttacker->disabledTurns =
             std::max(survivingAttacker->disabledTurns, action.cooldownTurns);
-        setPieceActionState(*survivingAttacker, action.nextState);
         const bool gainsRelentlessAction = anyTargetDestroyed &&
             hasKeyword(survivingAttacker->keywords, "relentless");
-        survivingAttacker->hasActed = !gainsRelentlessAction;
+        bool repeatRemaining = false;
+        if (continuingRepeat)
+        {
+            ++survivingAttacker->repeatActionUses;
+            repeatRemaining = survivingAttacker->repeatActionUses < action.repeat;
+        }
+        else if (action.repeat > 0)
+        {
+            survivingAttacker->repeatActionIndex = action.actionIndex;
+            survivingAttacker->repeatActionState = piece->actionState;
+            survivingAttacker->repeatActionUses = 0;
+            repeatRemaining = true;
+        }
+        if (repeatRemaining)
+        {
+            survivingAttacker->actionState = survivingAttacker->repeatActionState;
+        }
+        else
+        {
+            survivingAttacker->repeatActionIndex = -1;
+            survivingAttacker->repeatActionState = 0;
+            survivingAttacker->repeatActionUses = 0;
+            setPieceActionState(*survivingAttacker, action.nextState);
+        }
+        survivingAttacker->hasActed = !gainsRelentlessAction && !repeatRemaining;
         const bool moved = survivingAttacker->row != originRow ||
             survivingAttacker->column != originColumn;
         const bool leavesTrail = moved && pieceHasTrailAbility(*survivingAttacker);
@@ -1154,6 +1133,13 @@ private:
             result = fmt::format("{} moved.", attackerName);
         }
 
+        if (repeatRemaining)
+        {
+            result += fmt::format(
+                " {} repeat(s) remaining for this action.",
+                action.repeat - survivingAttacker->repeatActionUses);
+        }
+
         if (commandedAction)
         {
             commandingPieceId = 0;
@@ -1179,7 +1165,7 @@ private:
             recomputeControl();
             status = result;
         }
-        else if (keepTurnAfterAction)
+        else if (repeatRemaining)
         {
             relentlessPieceId = 0;
             relentlessActionKeepsTurn = false;
@@ -1320,6 +1306,12 @@ private:
 
     void advanceTurn(const std::string& actionStatus)
     {
+        for (Piece& piece : pieces)
+        {
+            piece.repeatActionIndex = -1;
+            piece.repeatActionState = 0;
+            piece.repeatActionUses = 0;
+        }
         commandingPieceId = 0;
         relentlessPieceId = 0;
         relentlessActionKeepsTurn = false;

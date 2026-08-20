@@ -690,6 +690,9 @@ struct Piece
     int controlTurnsRemaining = 0;
     std::vector<ActionProfile> actions;
     int actionState = 0;
+    int repeatActionIndex = -1;
+    int repeatActionState = 0;
+    int repeatActionUses = 0;
     std::string ability;
     std::string summonTitle;
     std::string rebirthTitle;
@@ -1013,7 +1016,8 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
            << piece.width << piece.height << piece.attack << piece.attackRange
            << piece.movePattern << piece.moveRange << piece.attackingMove
            << piece.canControl << piece.growTurnsRemaining << piece.disabledTurns << piece.sleepTurnsRemaining
-            << piece.actionState << piece.ability << piece.summonTitle << piece.rebirthTitle << piece.abilityUses << piece.hidden
+            << piece.actionState << piece.repeatActionIndex << piece.repeatActionState << piece.repeatActionUses
+            << piece.ability << piece.summonTitle << piece.rebirthTitle << piece.abilityUses << piece.hidden
             << piece.isHero << piece.hasActed << piece.controlTurnsRemaining;
     packet << static_cast<std::uint32_t>(piece.actions.size());
     for (const ActionProfile& action : piece.actions)
@@ -1044,7 +1048,8 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
            >> piece.width >> piece.height >> piece.attack >> piece.attackRange
            >> piece.movePattern >> piece.moveRange >> piece.attackingMove
            >> piece.canControl >> piece.growTurnsRemaining >> piece.disabledTurns >> piece.sleepTurnsRemaining
-           >> piece.actionState >> piece.ability >> piece.summonTitle >> piece.rebirthTitle >> piece.abilityUses >> piece.hidden
+           >> piece.actionState >> piece.repeatActionIndex >> piece.repeatActionState >> piece.repeatActionUses
+           >> piece.ability >> piece.summonTitle >> piece.rebirthTitle >> piece.abilityUses >> piece.hidden
            >> piece.isHero >> piece.hasActed >> piece.controlTurnsRemaining;
     std::uint32_t actionCount = 0;
     packet >> actionCount;

@@ -447,7 +447,8 @@ inline ActionResolution resolvePieceAction(
     const Piece& piece,
     int toRow,
     int toColumn,
-    bool attackingMovesOnly = false)
+    bool attackingMovesOnly = false,
+    int requiredActionIndex = -1)
 {
     ActionResolution best;
     if (!inBounds(toRow, toColumn) || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
@@ -461,6 +462,10 @@ inline ActionResolution resolvePieceAction(
 
     for (std::size_t index = 0; index < piece.actions.size(); ++index)
     {
+        if (requiredActionIndex >= 0 && static_cast<int>(index) != requiredActionIndex)
+        {
+            continue;
+        }
         const ActionProfile& action = piece.actions[index];
         if (action.state != piece.actionState)
         {
@@ -749,14 +754,16 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
     const std::array<std::uint8_t, BoardSquares>& holes,
     const Piece& piece,
     int toRow,
-    int toColumn)
+    int toColumn,
+    int requiredActionIndex = -1)
 {
     PieceActionOutcome outcome;
     outcome.destinationRow = toRow;
     outcome.destinationColumn = toColumn;
 
     const std::vector<Piece> visible = piecesVisibleTo(pieces, piece.owner);
-    outcome.action = resolvePieceAction(visible, holes, piece, toRow, toColumn);
+    outcome.action = resolvePieceAction(
+        visible, holes, piece, toRow, toColumn, false, requiredActionIndex);
     if (!outcome.action.legal || !outcome.action.moves)
     {
         return outcome;

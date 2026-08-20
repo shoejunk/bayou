@@ -1196,6 +1196,9 @@ int main(int argc, char** argv)
     serializedPiece.sleepTurnsRemaining = 1;
     serializedPiece.originalOwner = 2;
     serializedPiece.controlTurnsRemaining = 2;
+    serializedPiece.repeatActionIndex = 0;
+    serializedPiece.repeatActionState = 3;
+    serializedPiece.repeatActionUses = 1;
     if (!serializedPiece.actions.empty())
     {
         serializedPiece.actions[0].name = "Serialized Action";
@@ -1242,7 +1245,10 @@ int main(int argc, char** argv)
               roundTrippedPiece.disabledTurns == 1 &&
               roundTrippedPiece.sleepTurnsRemaining == 1 &&
               roundTrippedPiece.originalOwner == 2 &&
-              roundTrippedPiece.controlTurnsRemaining == 2,
+              roundTrippedPiece.controlTurnsRemaining == 2 &&
+              roundTrippedPiece.repeatActionIndex == 0 &&
+              roundTrippedPiece.repeatActionState == 3 &&
+              roundTrippedPiece.repeatActionUses == 1,
           "extended piece fields survive network serialization");
 
     Snapshot serializedSnapshot;
@@ -1601,26 +1607,41 @@ int main(int argc, char** argv)
     repeatEngine.placeHero(2, 0, homeSquares(2)[0].first, homeSquares(2)[0].second);
     const Piece* repeatAttacker = &repeatEngine.boardPieces()[0];
     const Piece* repeatTarget = &repeatEngine.boardPieces()[1];
-    check(repeatAttacker->actions[0].repeat == 2 &&
-              !repeatEngine.attackPiece(
-                  1,
-                  repeatAttacker->id,
-                  repeatTarget->row,
-                  repeatTarget->column,
-                  3) &&
-              repeatEngine.boardPieces()[1].health == repeatTarget->health,
-          "repeat actions reject a repeat count above their declared maximum");
-    const int repeatTargetHealth = repeatEngine.boardPieces()[1].health;
-    const bool repeatAccepted = repeatEngine.attackPiece(
+    const int repeatTargetHealth = repeatTarget->health;
+    const bool firstRepeatAccepted = repeatEngine.attackPiece(
         1,
         repeatAttacker->id,
         repeatTarget->row,
-        repeatTarget->column,
-        2);
-    check(repeatAccepted &&
-              repeatEngine.boardPieces()[1].health == repeatTargetHealth - 3 &&
-              repeatEngine.currentPlayer() == 2,
-          "repeat actions execute the selected number of extra times and then end the turn");
+        repeatTarget->column);
+    check(firstRepeatAccepted &&
+              repeatEngine.boardPieces()[1].health == repeatTargetHealth - 1 &&
+              repeatEngine.currentPlayer() == 1 &&
+              repeatEngine.boardPieces()[0].repeatActionUses == 0,
+          "a repeatable action keeps the turn active after its first use");
+    check(repeatEngine.endTurn(1) && repeatEngine.currentPlayer() == 2,
+          "the player can pass early before using all repeats");
+
+    GameEngine exhaustedRepeatEngine(16, {repeatHeroCard});
+    exhaustedRepeatEngine.submitDeck(1, {repeatHeroCard});
+    exhaustedRepeatEngine.submitDeck(2, {repeatHeroCard});
+    exhaustedRepeatEngine.placeHero(1, 0, homeSquares(1)[0].first, homeSquares(1)[0].second);
+    exhaustedRepeatEngine.placeHero(2, 0, homeSquares(2)[0].first, homeSquares(2)[0].second);
+    const int exhaustedAttackerId = exhaustedRepeatEngine.boardPieces()[0].id;
+    const int exhaustedTargetId = exhaustedRepeatEngine.boardPieces()[1].id;
+    const int exhaustedTargetRow = exhaustedRepeatEngine.boardPieces()[1].row;
+    const int exhaustedTargetColumn = exhaustedRepeatEngine.boardPieces()[1].column;
+    const int exhaustedTargetHealth = exhaustedRepeatEngine.boardPieces()[1].health;
+    const bool exhaustedFirst = exhaustedRepeatEngine.attackPiece(
+        1, exhaustedAttackerId, exhaustedTargetRow, exhaustedTargetColumn);
+    const bool exhaustedSecond = exhaustedRepeatEngine.attackPiece(
+        1, exhaustedAttackerId, exhaustedTargetRow, exhaustedTargetColumn);
+    const bool exhaustedThird = exhaustedRepeatEngine.attackPiece(
+        1, exhaustedAttackerId, exhaustedTargetRow, exhaustedTargetColumn);
+    check(exhaustedFirst && exhaustedSecond && exhaustedThird &&
+              exhaustedRepeatEngine.boardPieces()[1].id == exhaustedTargetId &&
+              exhaustedRepeatEngine.boardPieces()[1].health == exhaustedTargetHealth - 3 &&
+              exhaustedRepeatEngine.currentPlayer() == 2,
+          "repeat actions stay in the turn and end it after all repeats are used");
 
     GameEngine timerEngine(13, {plainHeroCard});
     timerEngine.enableTimers();
