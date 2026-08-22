@@ -5498,6 +5498,16 @@ int main(int argc, char** argv)
         }
 
         game_data::Snapshot next = gameSnapshot;
+        const auto pendingRepeat = std::find_if(
+            next.pieces.begin(),
+            next.pieces.end(),
+            [](const game_data::Piece& piece) { return piece.repeatActionIndex >= 0; });
+        if (pendingRepeat != next.pieces.end())
+        {
+            next.status = "Finish the repeatable action or advance the turn before playing a card.";
+            commitSandboxSnapshot(std::move(next));
+            return;
+        }
         if (next.relentlessPieceId != 0)
         {
             next.status = "The Relentless piece must act again or you must advance the turn.";
@@ -5652,6 +5662,16 @@ int main(int argc, char** argv)
         game_data::Piece* piece = pieceByIdInSnapshotMutable(next, pieceId);
         if (!piece)
         {
+            return;
+        }
+        const auto pendingRepeat = std::find_if(
+            next.pieces.begin(),
+            next.pieces.end(),
+            [](const game_data::Piece& candidate) { return candidate.repeatActionIndex >= 0; });
+        if (pendingRepeat != next.pieces.end() && pendingRepeat->id != piece->id)
+        {
+            next.status = "Finish the repeatable action with that piece or advance the turn.";
+            commitSandboxSnapshot(std::move(next));
             return;
         }
         const bool continuingRepeat = piece->repeatActionIndex >= 0;
@@ -5973,6 +5993,16 @@ int main(int argc, char** argv)
         game_data::Piece* piece = pieceByIdInSnapshotMutable(next, pieceId);
         if (!piece || !game_data::pieceAbilityAvailable(next.pieces, *piece))
         {
+            return;
+        }
+        const auto pendingRepeat = std::find_if(
+            next.pieces.begin(),
+            next.pieces.end(),
+            [](const game_data::Piece& candidate) { return candidate.repeatActionIndex >= 0; });
+        if (pendingRepeat != next.pieces.end())
+        {
+            next.status = "Finish the repeatable action or advance the turn before using an ability.";
+            commitSandboxSnapshot(std::move(next));
             return;
         }
         if (next.relentlessPieceId != 0 && piece->id != next.relentlessPieceId)

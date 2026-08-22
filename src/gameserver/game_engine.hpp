@@ -240,6 +240,11 @@ public:
         {
             return false;
         }
+        if (pendingRepeatPiece(playerNumber) != nullptr)
+        {
+            setStatusFor(playerNumber, "Finish the repeatable action or pass before playing a card.");
+            return false;
+        }
         if (relentlessPieceId != 0)
         {
             setStatusFor(playerNumber, "The Relentless piece must act again or you must pass.");
@@ -315,7 +320,7 @@ public:
         {
             return false;
         }
-        if (relentlessPieceId != 0)
+        if (relentlessPieceId != 0 && pendingRepeatPiece(playerNumber) == nullptr)
         {
             setStatusFor(playerNumber, "The Relentless piece must act again or you must pass.");
             return false;
@@ -389,6 +394,11 @@ private:
         if (piece == nullptr || piece->owner != playerNumber || piece->hasActed ||
             !pieceAbilityAvailable(pieces, *piece))
         {
+            return false;
+        }
+        if (pendingRepeatPiece(playerNumber) != nullptr)
+        {
+            setStatusFor(playerNumber, "Finish the repeatable action or pass before using an ability.");
             return false;
         }
         if (relentlessPieceId != 0 && piece->id != relentlessPieceId)
@@ -689,6 +699,17 @@ private:
         return nullptr;
     }
 
+    Piece* pendingRepeatPiece(int playerNumber)
+    {
+        const auto found = std::find_if(
+            pieces.begin(),
+            pieces.end(),
+            [playerNumber](const Piece& piece) {
+                return piece.owner == playerNumber && piece.repeatActionIndex >= 0;
+            });
+        return found == pieces.end() ? nullptr : &*found;
+    }
+
     // Returns true when Rebirth replaced the destroyed piece. Callers use
     // that result to distinguish a lethal hit from an actual kill.
     bool destroyPiece(int id)
@@ -823,6 +844,12 @@ private:
         Piece* piece = pieceById(pieceId);
         if (piece == nullptr || piece->owner != playerNumber)
         {
+            return false;
+        }
+        const Piece* repeatingPiece = pendingRepeatPiece(playerNumber);
+        if (repeatingPiece != nullptr && repeatingPiece->id != piece->id)
+        {
+            setStatusFor(playerNumber, "Finish the repeatable action with that piece or pass.");
             return false;
         }
         const bool continuingRepeat = piece->repeatActionIndex >= 0;

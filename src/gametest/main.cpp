@@ -1587,7 +1587,8 @@ int main(int argc, char** argv)
     card_data::Card repeatHeroCard;
     repeatHeroCard.title = "Repeat Hero";
     repeatHeroCard.type = "Hero";
-    repeatHeroCard.integerValues = {{"health", 8}};
+    repeatHeroCard.integerValues = {{"health", 8}, {"abilityUses", 1}};
+    repeatHeroCard.stringValues = {{"ability", "dig"}};
     card_data::Action repeatAttack;
     repeatAttack.name = "Repeat Strike";
     repeatAttack.kind = "slide";
@@ -1600,24 +1601,72 @@ int main(int argc, char** argv)
     repeatAttack.repeat = 2;
     repeatHeroCard.actions = {repeatAttack};
 
-    GameEngine repeatEngine(15, {repeatHeroCard});
-    repeatEngine.submitDeck(1, {repeatHeroCard});
+    card_data::Card repeatPassCard;
+    repeatPassCard.title = "Repeat Pass";
+    repeatPassCard.type = "Spell";
+    repeatPassCard.integerValues = {{"cost", 0}, {"power", 0}};
+    repeatPassCard.stringValues = {{"effect", "resources"}};
+
+    GameEngine repeatEngine(15, {repeatHeroCard, repeatPassCard});
+    repeatEngine.submitDeck(1, {repeatHeroCard, repeatHeroCard, repeatPassCard});
     repeatEngine.submitDeck(2, {repeatHeroCard});
     repeatEngine.placeHero(1, 0, homeSquares(1)[0].first, homeSquares(1)[0].second);
+    repeatEngine.placeHero(1, 0, homeSquares(1)[1].first, homeSquares(1)[1].second);
     repeatEngine.placeHero(2, 0, homeSquares(2)[0].first, homeSquares(2)[0].second);
     const Piece* repeatAttacker = &repeatEngine.boardPieces()[0];
-    const Piece* repeatTarget = &repeatEngine.boardPieces()[1];
+    const Piece* otherRepeatHero = &repeatEngine.boardPieces()[1];
+    const Piece* repeatTarget = &repeatEngine.boardPieces()[2];
+    const int repeatAttackerId = repeatAttacker->id;
+    const int otherRepeatHeroId = otherRepeatHero->id;
+    const int repeatTargetRow = repeatTarget->row;
+    const int repeatTargetColumn = repeatTarget->column;
     const int repeatTargetHealth = repeatTarget->health;
     const bool firstRepeatAccepted = repeatEngine.attackPiece(
         1,
-        repeatAttacker->id,
-        repeatTarget->row,
-        repeatTarget->column);
+        repeatAttackerId,
+        repeatTargetRow,
+        repeatTargetColumn);
     check(firstRepeatAccepted &&
-              repeatEngine.boardPieces()[1].health == repeatTargetHealth - 1 &&
+              repeatEngine.boardPieces()[2].health == repeatTargetHealth - 1 &&
               repeatEngine.currentPlayer() == 1 &&
               repeatEngine.boardPieces()[0].repeatActionUses == 0,
           "a repeatable action keeps the turn active after its first use");
+
+    const bool otherPieceAccepted = repeatEngine.attackPiece(
+        1,
+        otherRepeatHeroId,
+        repeatTargetRow,
+        repeatTargetColumn);
+    check(!otherPieceAccepted &&
+              repeatEngine.boardPieces()[2].health == repeatTargetHealth - 1 &&
+              repeatEngine.snapshotFor(1).status.find("Finish the repeatable action") != std::string::npos,
+          "a pending repeat prevents another unit from starting an action");
+
+    const bool cardAcceptedDuringRepeat = repeatEngine.playCard(1, 0, -1, -1);
+    check(!cardAcceptedDuringRepeat &&
+              repeatEngine.snapshotFor(1).hand.size() == 1 &&
+              repeatEngine.currentPlayer() == 1,
+          "a pending repeat prevents playing a card");
+
+    const bool abilityAcceptedDuringRepeat = repeatEngine.useAbility(1, repeatAttackerId);
+    check(!abilityAcceptedDuringRepeat &&
+              repeatEngine.snapshotFor(1).holes[static_cast<std::size_t>(
+                  squareIndex(homeSquares(1)[0].first, homeSquares(1)[0].second))] == 0 &&
+              repeatEngine.currentPlayer() == 1,
+          "a pending repeat prevents substituting an ability for the repeated action");
+
+    const bool discardedDuringRepeat = repeatEngine.discardCard(1, 0);
+    const bool resumedRepeat = repeatEngine.attackPiece(
+        1,
+        repeatAttackerId,
+        repeatTargetRow,
+        repeatTargetColumn);
+    check(discardedDuringRepeat && resumedRepeat &&
+              repeatEngine.snapshotFor(1).players[0].discardsThisTurn == 1 &&
+              repeatEngine.boardPieces()[2].health == repeatTargetHealth - 2 &&
+              repeatEngine.boardPieces()[0].repeatActionUses == 1 &&
+              repeatEngine.currentPlayer() == 1,
+          "one discard is allowed during a repeat and does not interrupt it");
     check(repeatEngine.endTurn(1) && repeatEngine.currentPlayer() == 2,
           "the player can pass early before using all repeats");
 
