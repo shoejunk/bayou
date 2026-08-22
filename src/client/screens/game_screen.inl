@@ -356,6 +356,12 @@
             descriptions.push_back({"Passive: +" + std::to_string(piece.gatherResources) + " Resources each turn",
                                     sf::Color(190, 198, 214)});
         }
+        if (piece.healingAura > 0)
+        {
+            descriptions.push_back({"Healing aura: +" + std::to_string(piece.healingAura) +
+                                        " health to adjacent units at turn end",
+                                    sf::Color(190, 198, 214)});
+        }
         for (const game_data::Enchantment& enchantment : gameSnapshot.enchantments)
         {
             if (enchantment.target == static_cast<std::uint8_t>(game_data::EnchantmentTarget::Piece) &&
@@ -707,6 +713,11 @@
                 stats.push_back({
                     "GATHER", "+" + std::to_string(piece->gatherResources), BoardBrassBright});
             }
+            if (piece->healingAura > 0)
+            {
+                stats.push_back({
+                    "AURA", "+" + std::to_string(piece->healingAura), BoardBrassBright});
+            }
         }
         else
         {
@@ -721,6 +732,10 @@
                 if (card->tax > 0)
                 {
                     stats.push_back({"TAX", std::to_string(card->tax), BoardBrassBright});
+                }
+                if (card->healingAura > 0)
+                {
+                    stats.push_back({"AURA", "+" + std::to_string(card->healingAura), BoardBrassBright});
                 }
             }
             else

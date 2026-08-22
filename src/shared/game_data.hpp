@@ -27,6 +27,7 @@ constexpr int DeckCardCount = 20;   // non-hero cards
 constexpr int MaxCardCopies = 2;
 constexpr int MaxHeroCopies = 1;
 constexpr const char* DeckLimitField = "Deck Limit";
+constexpr const char* HealingAuraField = "healing aura";
 constexpr int MinHeroes = 1;
 constexpr int MaxHeroes = 4;
 constexpr int HeroCostLimit = 100;
@@ -410,6 +411,7 @@ struct GameCard
     int power = 0;                // spell or enchantment magnitude
     int tax = 0;                  // passive resources taken from the opponent each owner's turn
     int gatherResources = 0;      // passive resources gained at the start of each owner's turn
+    int healingAura = 0;          // health restored to every adjacent piece at the owner's turn end
     bool canControl = true;
     int growTurns = 0;
     std::vector<ActionProfile> actions;
@@ -454,6 +456,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.power = cardInt(card, "power", 0);
     g.tax = std::max(0, cardInt(card, "Tax", cardInt(card, "tax", 0)));
     g.gatherResources = std::max(0, cardInt(card, "gatherResources", 0));
+    g.healingAura = std::max(0, cardInt(card, HealingAuraField, 0));
     g.canControl = cardInt(card, "canControl", 1) != 0;
     g.growTurns = cardInt(card, "growTurns", 0);
     g.ability = normalizedAbility(cardStr(card, "ability"));
@@ -676,6 +679,7 @@ struct Piece
     int health = 1;
     int tax = 0;
     int gatherResources = 0;
+    int healingAura = 0;
     int width = 1;
     int height = 1;
     int attack = 0;
@@ -739,6 +743,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.health = card.health;
     piece.tax = card.tax;
     piece.gatherResources = card.gatherResources;
+    piece.healingAura = card.healingAura;
     piece.width = card.width;
     piece.height = card.height;
     piece.attack = card.attack;
@@ -943,7 +948,8 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
            << card.health << card.width << card.height << card.attack << card.attackRange
            << card.movePattern << card.moveRange << card.attackingMove
            << card.effect << card.target << card.power
-           << card.canControl << card.growTurns << card.tax << card.gatherResources;
+           << card.canControl << card.growTurns << card.tax << card.gatherResources
+           << card.healingAura;
     packet << static_cast<std::uint32_t>(card.actions.size());
     for (const ActionProfile& action : card.actions)
     {
@@ -975,7 +981,8 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
            >> card.health >> card.width >> card.height >> card.attack >> card.attackRange
            >> card.movePattern >> card.moveRange >> card.attackingMove
            >> card.effect >> card.target >> card.power
-           >> card.canControl >> card.growTurns >> card.tax >> card.gatherResources;
+           >> card.canControl >> card.growTurns >> card.tax >> card.gatherResources
+           >> card.healingAura;
     std::uint32_t actionCount = 0;
     packet >> actionCount;
     card.actions.clear();
@@ -1013,6 +1020,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
            << piece.walkAnimFrames << piece.idleAnimFrames
            << piece.attackAnimFrames << piece.damagedAnimFrames << piece.killedAnimFrames << piece.fidgetAnimFrames
            << piece.maxHealth << piece.health << piece.tax << piece.gatherResources
+           << piece.healingAura
            << piece.width << piece.height << piece.attack << piece.attackRange
            << piece.movePattern << piece.moveRange << piece.attackingMove
            << piece.canControl << piece.growTurnsRemaining << piece.disabledTurns << piece.sleepTurnsRemaining
@@ -1045,6 +1053,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
            >> piece.walkAnimFrames >> piece.idleAnimFrames
            >> piece.attackAnimFrames >> piece.damagedAnimFrames >> piece.killedAnimFrames >> piece.fidgetAnimFrames
            >> piece.maxHealth >> piece.health >> piece.tax >> piece.gatherResources
+           >> piece.healingAura
            >> piece.width >> piece.height >> piece.attack >> piece.attackRange
            >> piece.movePattern >> piece.moveRange >> piece.attackingMove
            >> piece.canControl >> piece.growTurnsRemaining >> piece.disabledTurns >> piece.sleepTurnsRemaining

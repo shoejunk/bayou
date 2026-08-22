@@ -349,6 +349,56 @@ int main(int argc, char** argv)
     check(!pieceFootprintFree(footprintPieces, footprintPieces[0], 3, 5),
           "multi-square movement rejects a blocker under any covered square");
 
+    card_data::Card auraDefinition;
+    auraDefinition.title = "Aura Unit";
+    auraDefinition.type = "Unit";
+    auraDefinition.integerValues = {{"healing aura", 3}};
+    const GameCard auraCard = toGameCard(auraDefinition);
+    check(auraCard.healingAura == 3,
+          "healing aura resolves from the optional card integer field");
+    Piece auraPiece;
+    auraPiece.id = 102;
+    auraPiece.owner = 1;
+    auraPiece.row = 3;
+    auraPiece.column = 3;
+    populatePieceFromCard(auraPiece, auraCard, false);
+    std::vector<Piece> auraPieces{auraPiece};
+    int nextAuraTargetId = 103;
+    for (int rowOffset = -1; rowOffset <= 1; ++rowOffset)
+    {
+        for (int columnOffset = -1; columnOffset <= 1; ++columnOffset)
+        {
+            if (rowOffset == 0 && columnOffset == 0)
+            {
+                continue;
+            }
+            Piece target;
+            target.id = nextAuraTargetId++;
+            target.owner = (target.id % 2 == 0) ? 1 : 2;
+            target.row = auraPiece.row + rowOffset;
+            target.column = auraPiece.column + columnOffset;
+            target.maxHealth = 10;
+            target.health = 1;
+            auraPieces.push_back(target);
+        }
+    }
+    Piece distantAuraTarget;
+    distantAuraTarget.id = nextAuraTargetId;
+    distantAuraTarget.owner = 2;
+    distantAuraTarget.row = auraPiece.row;
+    distantAuraTarget.column = auraPiece.column + 2;
+    distantAuraTarget.maxHealth = 10;
+    distantAuraTarget.health = 1;
+    auraPieces.push_back(distantAuraTarget);
+    applyHealingAuras(auraPieces, 1);
+    const bool allEightAuraSquaresHealed = std::all_of(
+        auraPieces.begin() + 1,
+        auraPieces.end() - 1,
+        [](const Piece& target) { return target.health == 4; });
+    check(allEightAuraSquaresHealed && auraPieces.front().health == 1 &&
+              auraPieces.back().health == 1,
+          "healing aura reaches all eight adjacent squares, including diagonals, and no farther");
+
     Piece largeRangedAttacker;
     largeRangedAttacker.id = 110;
     largeRangedAttacker.owner = 1;
@@ -935,7 +985,8 @@ int main(int argc, char** argv)
     encodedCard.traits = {"corrupt", "fey"};
     encodedCard.keywords = {"future-rule"};
     encodedCard.integerValues = {
-        {"attack", 9}, {"range", 5}, {"FidgetAnimFrames", 3}, {"Tax", 4}, {"Deck Limit", 3}};
+        {"attack", 9}, {"range", 5}, {"FidgetAnimFrames", 3}, {"Tax", 4},
+        {"healing aura", 3}, {"Deck Limit", 3}};
     encodedCard.stringValues = {
         {"FidgetAnim", "animations/fidget/test.png"},
         {"Token", "characters/encoded.png"},
@@ -978,7 +1029,7 @@ int main(int argc, char** argv)
               decodedCard.fidgetAnimFrames == 3 &&
               decodedCard.tokenPath == "characters/encoded.png" &&
               decodedCard.state1TokenPath == "characters/encoded-state1.png" &&
-              decodedCard.tax == 4,
+              decodedCard.tax == 4 && decodedCard.healingAura == 3,
           "referenced action object resolves into gameplay data without a legacy fallback attack");
 
     Piece visualStatePiece;
@@ -1126,6 +1177,7 @@ int main(int argc, char** argv)
     serializedCard.abilityUses = 2;
     serializedCard.gatherResources = 6;
     serializedCard.tax = 4;
+    serializedCard.healingAura = 6;
     serializedCard.actions[0].heal = 3;
     serializedCard.actions[0].nextState = 4;
     serializedCard.actions[0].control = 3;
@@ -1164,7 +1216,7 @@ int main(int argc, char** argv)
               roundTrippedCard.abilityLabels.size() == 2 &&
               roundTrippedCard.abilityUses == 2 &&
               roundTrippedCard.gatherResources == 6 &&
-              roundTrippedCard.tax == 4,
+              roundTrippedCard.tax == 4 && roundTrippedCard.healingAura == 6,
           "extended game card fields survive network serialization");
 
     Piece serializedPiece = profilePiece;
@@ -1192,6 +1244,7 @@ int main(int argc, char** argv)
     serializedPiece.abilityLabels = {"Dig"};
     serializedPiece.abilityUses = 1;
     serializedPiece.gatherResources = 7;
+    serializedPiece.healingAura = 5;
     serializedPiece.growTurnsRemaining = 2;
     serializedPiece.disabledTurns = 1;
     serializedPiece.sleepTurnsRemaining = 1;
@@ -1242,6 +1295,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.summonTitle == "Serialized Summon" &&
               roundTrippedPiece.rebirthTitle == "Serialized Rebirth" &&
               roundTrippedPiece.gatherResources == 7 &&
+              roundTrippedPiece.healingAura == 5 &&
               roundTrippedPiece.growTurnsRemaining == 2 &&
               roundTrippedPiece.disabledTurns == 1 &&
               roundTrippedPiece.sleepTurnsRemaining == 1 &&
@@ -2089,6 +2143,67 @@ int main(int argc, char** argv)
                       afterNextGather.players[0].controlledSquares + 5 &&
                   afterNextGather.players[1].resources == beforeNextGather.players[1].resources,
               "gatherResources grants passive income each turn without removing enemy Resources");
+    }
+
+    card_data::Card healingAuraHeroCard;
+    healingAuraHeroCard.title = "Healing Aura Hero";
+    healingAuraHeroCard.type = "Hero";
+    healingAuraHeroCard.integerValues = {{"health", 8}, {"healing aura", 3}};
+    card_data::Action auraMove;
+    auraMove.name = "Aura Move";
+    auraMove.kind = "slide";
+    auraMove.pattern = "horizontal";
+    auraMove.minRange = 1;
+    auraMove.maxRange = 7;
+    auraMove.canMove = true;
+    card_data::Action auraAttack;
+    auraAttack.name = "Aura Strike";
+    auraAttack.kind = "ranged";
+    auraAttack.pattern = "none";
+    auraAttack.minRange = 1;
+    auraAttack.maxRange = 1;
+    auraAttack.damage = 5;
+    auraAttack.canAttack = true;
+    healingAuraHeroCard.actions = {auraMove, auraAttack};
+    card_data::Card healingAuraTargetCard = plainHeroCard;
+    healingAuraTargetCard.title = "Healing Aura Target";
+    healingAuraTargetCard.integerValues = {{"health", 10}};
+    GameEngine healingAuraEngine(29, {healingAuraHeroCard, healingAuraTargetCard});
+    healingAuraEngine.submitDeck(1, {healingAuraHeroCard});
+    healingAuraEngine.submitDeck(2, {healingAuraTargetCard});
+    healingAuraEngine.placeHero(1, 0, homeSquares(1)[0].first, homeSquares(1)[0].second);
+    healingAuraEngine.placeHero(2, 0, homeSquares(2)[0].first, homeSquares(2)[0].second);
+    const auto healingAuraHero = std::find_if(
+        healingAuraEngine.boardPieces().begin(), healingAuraEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Healing Aura Hero"; });
+    const auto healingAuraTarget = std::find_if(
+        healingAuraEngine.boardPieces().begin(), healingAuraEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Healing Aura Target"; });
+    check(healingAuraHero != healingAuraEngine.boardPieces().end() &&
+              healingAuraTarget != healingAuraEngine.boardPieces().end() &&
+              healingAuraHero->healingAura == 3,
+          "healing aura resolves onto a spawned board piece");
+    if (healingAuraHero != healingAuraEngine.boardPieces().end() &&
+        healingAuraTarget != healingAuraEngine.boardPieces().end())
+    {
+        const int auraHeroId = healingAuraHero->id;
+        const int targetRow = healingAuraTarget->row;
+        const int targetColumn = healingAuraTarget->column;
+        const int targetHealthBeforeAttack = healingAuraTarget->health;
+        check(healingAuraEngine.movePiece(1, auraHeroId, targetRow, targetColumn - 1) &&
+                  healingAuraEngine.currentPlayer() == 2,
+              "a healing aura unit can move next to its target and end its turn");
+        check(healingAuraEngine.endTurn(2) && healingAuraEngine.currentPlayer() == 1,
+              "the target owner's turn can end without triggering the other player's aura");
+        check(healingAuraEngine.attackPiece(1, auraHeroId, targetRow, targetColumn) &&
+                  healingAuraEngine.currentPlayer() == 2,
+              "the healing aura unit can attack an adjacent target");
+        const auto healedTarget = std::find_if(
+            healingAuraEngine.boardPieces().begin(), healingAuraEngine.boardPieces().end(),
+            [](const Piece& piece) { return piece.name == "Healing Aura Target"; });
+        check(healedTarget != healingAuraEngine.boardPieces().end() &&
+                  healedTarget->health == targetHealthBeforeAttack - 5 + 3,
+              "healing aura heals an adjacent enemy by its amount when its owner ends the turn");
     }
 
     auto commandTestHero = [](const std::string& title, bool commands) {

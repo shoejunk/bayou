@@ -3906,6 +3906,7 @@ private:
         y = drawInstructionBullet(window, "growTurns: owner turns a newly summoned piece must wait before it can act. Default: 0.", y);
         y = drawInstructionBullet(window, "abilityUses: number of uses for a limited ability such as dig; use -1 for unlimited.", y);
         y = drawInstructionBullet(window, "gatherResources: passive Resources gained at the start of each owner's turn. It does not remove Resources from the opponent. Default: 0.", y);
+        y = drawInstructionBullet(window, "healing aura: optional health restored to every adjacent Hero or Unit at the end of this piece's owner's turn. Diagonals count. Default: 0.", y);
         y = drawInstructionBullet(window, "power: spell amount. It is damage dealt, health restored, or Resources gained depending on effect. Default: 0.", y);
         y = drawInstructionBullet(window, "Tax: optional passive Resources taken from the opponent (up to this amount) and gained by the owning player at the start of each owner's turn. Default: 0.", y);
         y += 12.0f;

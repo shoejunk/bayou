@@ -6458,6 +6458,7 @@ int main(int argc, char** argv)
                 --piece.sleepTurnsRemaining;
             }
         }
+        game_data::applyHealingAuras(next.pieces, endingPlayer);
 
         next.activePlayer = endingPlayer == 1 ? 2 : 1;
         const int startingPlayer = next.activePlayer;

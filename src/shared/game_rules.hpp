@@ -920,6 +920,29 @@ inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
     return std::max(rowGap, columnGap) == 1;
 }
 
+// Healing aura affects every other piece adjacent to an aura-bearing piece at
+// the end of that piece's current owner's turn. The footprint-aware adjacency
+// check includes all eight directions for 1x1 pieces and the perimeter of
+// larger pieces.
+inline void applyHealingAuras(std::vector<Piece>& pieces, int owner)
+{
+    for (const Piece& aura : pieces)
+    {
+        if (aura.owner != owner || aura.healingAura <= 0)
+        {
+            continue;
+        }
+
+        for (Piece& target : pieces)
+        {
+            if (target.id != aura.id && piecesAreAdjacent(aura, target))
+            {
+                applyActionHealing(target, aura.healingAura, 0);
+            }
+        }
+    }
+}
+
 struct PushResult
 {
     int movedSquares = 0;

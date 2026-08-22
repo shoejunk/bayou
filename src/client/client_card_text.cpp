@@ -100,6 +100,7 @@ bool isHiddenCardDetailKey(const std::string& key)
     return key == "Deck Limit" || key == "deckLimit" || key == "cost" || key == "heroCost" || key == "health" || key == "attack" || key == "Tax" || key == "tax" ||
         key == "range" || key == "move" || key == "attackingMove" || key == "power" ||
         key == "canControl" || key == "growTurns" || key == "abilityUses" || key == "gatherResources" ||
+        key == game_data::HealingAuraField ||
         key == "WalkAnimFrames" || key == "IdleAnimFrames" ||
         key == "AttackAnimFrames" || key == "DamagedAnimFrames" || key == "KilledAnimFrames" ||
         key == "rarity" || key == "effect" || key == "target" || key == "rebirth" ||
@@ -282,6 +283,12 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
         if (gameCard.gatherResources > 0)
         {
             details.push_back({"Gather: +" + std::to_string(gameCard.gatherResources) + " Resources each turn",
+                               sf::Color(143, 220, 205)});
+        }
+        if (gameCard.healingAura > 0)
+        {
+            details.push_back({"Healing aura: +" + std::to_string(gameCard.healingAura) +
+                                   " health to adjacent units at turn end",
                                sf::Color(143, 220, 205)});
         }
         if (!gameCard.rebirthTitle.empty())

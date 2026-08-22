@@ -1447,6 +1447,7 @@ private:
                 --piece.sleepTurnsRemaining;
             }
         }
+        applyHealingAuras(pieces, playerNumber);
     }
 
     bool resolveSpell(int playerNumber, const GameCard& card, int targetRow, int targetColumn)
