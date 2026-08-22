@@ -11,6 +11,7 @@
 #include <exception>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace game_data;
@@ -38,6 +39,15 @@ public:
         bool deckSubmitted = false;
     };
 
+    struct ScenarioPiece
+    {
+        int owner = 1;
+        GameCard card;
+        int row = 0;
+        int column = 0;
+        bool isHero = false;
+    };
+
     GameEngine(unsigned int seed, const std::vector<card_data::Card>& cardLibrary)
         : rng(seed)
     {
@@ -62,6 +72,77 @@ public:
     const std::array<std::uint8_t, BoardSquares>& boardControl() const { return control; }
     const std::array<std::uint8_t, BoardSquares>& boardHoles() const { return holes; }
     const EnginePlayer& playerState(int playerNumber) const { return playerRef(playerNumber); }
+
+    // Seeds an authored board while preserving the ordinary match rules for
+    // every action taken after setup. This is used by Story Mode and by tests;
+    // multiplayer setup continues through submitDeck/placeHero/beginPlay.
+    void loadScenario(
+        const std::vector<ScenarioPiece>& scenarioPieces,
+        std::vector<GameCard> playerOneHand = {},
+        std::vector<GameCard> playerTwoHand = {},
+        int playerOneResources = 0,
+        int playerTwoResources = 0,
+        int firstPlayer = 1,
+        std::string scenarioStatus = "Story encounter started.")
+    {
+        phaseValue = Phase::Playing;
+        activePlayer = std::clamp(firstPlayer, 1, 2);
+        winnerValue = 0;
+        control.fill(0);
+        holes.fill(0);
+        pieces.clear();
+        enchantments.clear();
+        nextPieceId = 1;
+        nextEnchantmentId = 1;
+        commandingPieceId = 0;
+        relentlessPieceId = 0;
+        relentlessActionKeepsTurn = false;
+
+        for (int playerNumber = 1; playerNumber <= 2; ++playerNumber)
+        {
+            EnginePlayer& player = playerRef(playerNumber);
+            player.number = playerNumber;
+            player.drawPile.clear();
+            player.hand = playerNumber == 1
+                ? std::move(playerOneHand)
+                : std::move(playerTwoHand);
+            player.heroesToPlace.clear();
+            player.resources = playerNumber == 1
+                ? std::max(0, playerOneResources)
+                : std::max(0, playerTwoResources);
+            player.discardsThisTurn = 0;
+            player.deckSubmitted = true;
+            for (const GameCard& card : player.hand)
+            {
+                rememberSummonCard(card);
+            }
+        }
+
+        for (const ScenarioPiece& scenarioPiece : scenarioPieces)
+        {
+            if (scenarioPiece.owner < 1 || scenarioPiece.owner > 2 ||
+                !inBounds(scenarioPiece.row, scenarioPiece.column))
+            {
+                continue;
+            }
+            rememberSummonCard(scenarioPiece.card);
+            spawnPiece(
+                scenarioPiece.owner,
+                scenarioPiece.card,
+                scenarioPiece.row,
+                scenarioPiece.column,
+                scenarioPiece.isHero);
+        }
+        recomputeControl();
+        for (Piece& piece : pieces)
+        {
+            if (piece.owner == activePlayer)
+            {
+                beginPieceTurn(piece);
+            }
+        }
+        status = std::move(scenarioStatus);
+    }
 
     void enableTimers()
     {

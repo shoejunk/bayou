@@ -29,7 +29,9 @@
 
             sf::Text heading(
                 gloomthornFontLoaded ? gloomthornFont : font,
-                card && cardRarity(*card) == "legendary" ? "A Legendary!" : "Card Acquired",
+                card && bayou::client::cardRarity(*card) == "legendary"
+                    ? "A Legendary!"
+                    : "Card Acquired",
                 24);
             centerText(heading, {400.0f, ShopPanelY + 30.0f});
             sf::Text headingShadow(heading);
@@ -188,4 +190,3 @@
         setMessageY(messageText, 562.0f);
         drawCrispText(window, messageText);
     };
-

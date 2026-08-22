@@ -104,11 +104,13 @@ if(BAYOU_BUILD_CLIENTS)
             src/client/client_config.cpp
             src/client/client_display.cpp
             src/client/client_sandbox.cpp
+            src/client/client_story.cpp
             src/client/client_string.cpp
             src/client/client_textures.cpp
             src/client/client_ui.cpp
             src/client/client_ui_capture.cpp
             src/client/deck_collection.cpp
+            src/gameserver/ai_player.cpp
         PUBLIC
             FILE_SET CXX_MODULES FILES
                 src/shared/network.cppm
@@ -228,6 +230,7 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
     target_sources(gametest
         PUBLIC
             src/gametest/main.cpp
+            src/gameserver/ai_player.cpp
     )
 
     target_link_libraries(gametest PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network bayou_transport)

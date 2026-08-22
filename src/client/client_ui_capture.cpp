@@ -269,6 +269,72 @@ card_data::Card makeCard(const SampleCard& source)
             card.actionDisplayNames.emplace_back(strike.name);
         }
     }
+
+    const std::string_view title = source.title;
+    if (title == "Goblin Sharpshooter")
+    {
+        card.actions.clear();
+        card.actionNames.clear();
+        card.actionDisplayNames.clear();
+
+        card_data::Action advance;
+        advance.name = "Advance";
+        advance.state = 0;
+        advance.pattern = "omni";
+        advance.minRange = 1;
+        advance.maxRange = 2;
+        advance.canMove = true;
+        advance.canAttack = false;
+        card.actions.push_back(advance);
+        card.actionNames.emplace_back(advance.name);
+        card.actionDisplayNames.emplace_back(advance.name);
+
+        card_data::Action fire;
+        fire.name = "Fire";
+        fire.state = 1;
+        fire.kind = "ranged";
+        fire.pattern = "orthogonal";
+        fire.minRange = 1;
+        fire.maxRange = 3;
+        fire.damage = source.attack;
+        fire.canMove = false;
+        fire.canAttack = true;
+        fire.lineOfSight = true;
+        fire.nextState = 1;
+        card.actions.push_back(fire);
+        card.actionNames.emplace_back(fire.name);
+        card.actionDisplayNames.emplace_back(fire.name);
+        card.stringValues.push_back({"ability", "transform"});
+        card.stringValues.push_back({"State1Token", "characters/goblinSharpshooter_aim.png"});
+        card.stringLists.push_back({"abilityLabels", {"Aim", "Lower Weapon"}});
+    }
+    else if (title == "Goblin Ambusher")
+    {
+        const std::vector<card_data::Action> materializedActions = card.actions;
+        const std::vector<std::string> materializedNames = card.actionDisplayNames;
+        for (std::size_t index = 0; index < materializedActions.size(); ++index)
+        {
+            card_data::Action hiddenAction = materializedActions[index];
+            hiddenAction.name += " Hidden";
+            hiddenAction.state = 1;
+            if (hiddenAction.canAttack)
+            {
+                hiddenAction.nextState = 0;
+            }
+            card.actions.push_back(hiddenAction);
+            card.actionNames.push_back(hiddenAction.name);
+            card.actionDisplayNames.push_back(
+                index < materializedNames.size() ? materializedNames[index] : hiddenAction.name);
+        }
+        card.stringValues.push_back({"ability", "dematerialize"});
+        card.stringLists.push_back({"abilityLabels", {"Hide", "Reveal"}});
+    }
+    else if (title == "Blackthorn Foreman")
+    {
+        card.stringValues.push_back({"ability", "summon"});
+        card.stringValues.push_back({"summon", "Blackthorn Lumberjack"});
+        card.stringLists.push_back({"abilityLabels", {"Create Lumberjack"}});
+    }
     card.integerValues.push_back({"width", 1});
     card.integerValues.push_back({"height", 1});
     card.stringValues.push_back({"rarity", source.rarity});
@@ -381,9 +447,22 @@ const std::vector<std::string>& knownScreens()
         "admin-tools",
         "card-editor",
         "conquest",
+        "story-briefing",
+        "story-deployment",
+        "story-game-1",
+        "story-game-2",
+        "story-game-3",
+        "story-game-4",
+        "story-game-5",
+        "story-game-6",
+        "story-game-7",
+        "story-game-8",
+        "story-sharpshooter-aimed",
+        "story-powers-used",
+        "story-ai-turn",
+        "story-ai-attack",
         "game",
-        // Match states. "game" only reaches the one-piece story tutorial, which
-        // shows almost nothing of the board that players actually stare at.
+        // Match states beyond the dedicated Story Mode captures above.
         "game-midgame",
         "game-selected",
         "game-popup",

@@ -6,7 +6,6 @@
 
 namespace
 {
-constexpr int AiSearchPlies = 2;
 constexpr int AiMaxCandidateActions = 80;
 
 const Piece* aiPieceAt(const std::vector<Piece>& pieces, int row, int column)
@@ -240,11 +239,38 @@ int evaluateEngine(const GameEngine& engine, int aiPlayer)
         int value = piece.health * (piece.isHero ? 10 : 4);
         for (const ActionProfile& action : piece.actions)
         {
+            if (action.state != piece.actionState)
+            {
+                continue;
+            }
             value += (action.damage + action.heal) * 3 + action.statusTurns * 4;
             if (action.canMove)
             {
                 value += action.maxRange;
             }
+        }
+        const std::vector<Piece> visiblePieces =
+            piecesVisibleTo(engine.boardPieces(), piece.owner);
+        int legalMoves = 0;
+        int legalAttacks = 0;
+        for (int row = 0; row < BoardSize; ++row)
+        {
+            for (int column = 0; column < BoardSize; ++column)
+            {
+                const ActionResolution resolution = resolvePieceAction(
+                    visiblePieces, engine.boardHoles(), piece, row, column);
+                if (!resolution.legal)
+                {
+                    continue;
+                }
+                legalMoves += resolution.moves ? 1 : 0;
+                legalAttacks += resolution.attacks ? 1 : 0;
+            }
+        }
+        value += std::min(legalMoves, 8) + std::min(legalAttacks, 4) * 3;
+        if (piece.hidden)
+        {
+            value += 8;
         }
         if (piece.disabledTurns > 0 || piece.growTurnsRemaining > 0)
         {
@@ -297,8 +323,9 @@ int searchAiPosition(const GameEngine& engine, int depth, int aiPlayer)
 
 } // namespace
 
-AiAction chooseAiAction(const GameEngine& engine, int aiPlayer)
+AiAction chooseAiAction(const GameEngine& engine, int aiPlayer, int searchPlies)
 {
+    searchPlies = std::max(1, searchPlies);
     std::vector<AiAction> actions = legalAiActions(engine, aiPlayer, true);
     AiAction bestAction;
     int bestScore = std::numeric_limits<int>::min();
@@ -306,7 +333,29 @@ AiAction chooseAiAction(const GameEngine& engine, int aiPlayer)
     {
         GameEngine next = engine;
         applyAiAction(next, aiPlayer, action);
-        const int score = searchAiPosition(next, AiSearchPlies - 1, aiPlayer);
+        int score = searchAiPosition(next, searchPlies - 1, aiPlayer);
+        if (action.kind == AiActionKind::UseAbility)
+        {
+            const auto piece = std::find_if(
+                engine.boardPieces().begin(),
+                engine.boardPieces().end(),
+                [&](const Piece& candidate) { return candidate.id == action.pieceId; });
+            if (piece != engine.boardPieces().end())
+            {
+                if (piece->ability == "summon")
+                {
+                    score += 700;
+                }
+                else if (piece->ability == "dematerialize" && !piece->hidden)
+                {
+                    score += 80;
+                }
+                else if (piece->ability == "transform")
+                {
+                    score += 35;
+                }
+            }
+        }
         if (score > bestScore)
         {
             bestScore = score;

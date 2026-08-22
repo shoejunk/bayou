@@ -22,5 +22,5 @@ struct AiAction
 };
 
 void applyAiAction(GameEngine& engine, int playerNumber, const AiAction& action);
-AiAction chooseAiAction(const GameEngine& engine, int aiPlayer);
+AiAction chooseAiAction(const GameEngine& engine, int aiPlayer, int searchPlies = 2);
 void placeAiHeroes(GameEngine& engine, int aiPlayer);

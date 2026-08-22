@@ -2186,7 +2186,7 @@
         const game_data::PlayerSnapshot& playerTwo = gameSnapshot.players[1];
         const int activePlayer = std::clamp(gameSnapshot.activePlayer, 1, 2);
         const std::string activePlayerName = storyMode
-            ? "Tinkering Tom"
+            ? (activePlayer == 1 ? "Blackthorn Company" : "Mirewatch")
             : (sandboxMode
             ? "Player " + std::to_string(activePlayer)
             : (activePlayer == me ? loggedInUsername : "Opponent"));
@@ -2235,7 +2235,7 @@
         const auto playerDisplayName = [&](int playerNumber) {
             if (storyMode)
             {
-                return playerNumber == 1 ? std::string("Tinkering Tom") : std::string("The Mire");
+                return playerNumber == 1 ? std::string("Blackthorn") : std::string("Mirewatch");
             }
             if (sandboxMode)
             {
@@ -2326,7 +2326,7 @@
             // Figures occupy their own lower row. All three columns use the same
             // positions on both sides so the labels remain evenly separated.
             const float figureStep = 58.0f;
-            const int figureCount = storyMode ? 0 : (enchantmentCount > 0 ? 3 : 2);
+            const int figureCount = storyMode ? 1 : (enchantmentCount > 0 ? 3 : 2);
             const float figureBlockX = x +
                 (GamePlayerBannerWidth - figureStep * static_cast<float>(figureCount)) * 0.5f;
             const float figureY = GameTopBarY + GamePlayerBannerHeight - 21.0f;
@@ -2337,7 +2337,13 @@
                 slot += 1.0f;
                 return sf::Vector2f{center, figureY};
             };
-            if (!storyMode)
+            if (storyMode)
+            {
+                drawBannerFigure(
+                    nextFigureCenter(), "LANDS", control,
+                    withAlpha(ownerColorBright(playerNumber), 255));
+            }
+            else
             {
                 drawBannerFigure(nextFigureCenter(), "RESOURCES", resources, BoardBrassBright);
                 drawBannerFigure(
@@ -2673,9 +2679,11 @@
             drawCrispText(window, count);
         }
 
-        if (phase == game_data::Phase::Playing && (sandboxMode || gameSnapshot.activePlayer == me))
+        const bool storyResultAction = storyMode && storyStage != StoryStage::Objective;
+        if ((phase == game_data::Phase::Playing &&
+             (sandboxMode || gameSnapshot.activePlayer == me)) || storyResultAction)
         {
-            if (abilityAvailable)
+            if (phase == game_data::Phase::Playing && abilityAvailable)
             {
                 abilityButton.setLabel(game_data::pieceAbilityLabel(*selectedPiece));
                 abilityButton.draw(window);
@@ -2700,36 +2708,40 @@
             }
         }
         leaveGameButton.draw(window);
+        if (storyMode)
+        {
+            storyRestartButton.draw(window);
+        }
 
         if (storyMode)
         {
-            // Tutorial coaching, as a lit instruction plaque rather than body text
-            // on a plain plate.
-            const char* stepHeading = "First Part Complete";
-            const char* stepBody =
-                "Tom steadies the marshworks. Leave returns to the menu; the story "
-                "will continue later.";
-            int stepNumber = 3;
-            sf::Color stepAccent = sf::Color(146, 232, 166);
-            if (storyStage == StoryStage::MoveTutorial)
+            const StoryMission& mission = storyMissions()[static_cast<std::size_t>(storyMissionIndex)];
+            std::string stepHeading = std::string(mission.lesson);
+            std::string stepBody = std::string(mission.objective) + " " + std::string(mission.hint);
+            const int stepNumber = storyMissionIndex + 1;
+            sf::Color stepAccent = BoardBrassBright;
+            if (storyStage == StoryStage::Complete)
             {
-                stepHeading = "Move Tinkering Tom";
-                stepBody = "Click Tom, then click the glowing square beside him. "
-                           "You can also drag him there.";
-                stepNumber = 1;
-                stepAccent = BoardBrassBright;
+                stepHeading = "Mission Complete";
+                stepBody = storyMissionIndex + 1 < static_cast<int>(storyMissions().size())
+                    ? "The next chapter is unlocked. Continue when you are ready."
+                    : "You have completed the Blackthorn tutorial arc.";
+                stepAccent = sf::Color(146, 232, 166);
             }
-            else if (storyStage == StoryStage::ValveChallenge)
+            else if (storyStage == StoryStage::Failed)
             {
-                stepHeading = "Repair the Valve";
-                stepBody = "Guide Tom to the glowing valve. He moves one square per "
-                           "step, so choose a clear path.";
-                stepNumber = 2;
-                stepAccent = BoardBrassBright;
+                stepHeading = "Mission Failed";
+                stepBody = "The Mirewatch force stopped you. Retry and adapt your position, attack order, and powers.";
+                stepAccent = sf::Color(233, 128, 106);
             }
 
-            const sf::Vector2f plaquePosition{GameBottomLeftX, GameBottomBarY + 14.0f};
-            const sf::Vector2f plaqueSize{560.0f, GameBottomBarHeight - 28.0f};
+            const bool leavesRoomForStoryHand = !gameSnapshot.hand.empty();
+            const sf::Vector2f plaquePosition{
+                leavesRoomForStoryHand ? 10.0f : GameBottomLeftX,
+                GameBottomBarY + 14.0f};
+            const sf::Vector2f plaqueSize{
+                leavesRoomForStoryHand ? 170.0f : 560.0f,
+                GameBottomBarHeight - 28.0f};
             drawBeveledPlate(
                 window,
                 plaquePosition,
@@ -2741,7 +2753,8 @@
 
             // Step medallion, so progress through the tutorial is legible.
             const sf::Vector2f medallion{
-                plaquePosition.x + 32.0f, plaquePosition.y + plaqueSize.y * 0.5f};
+                plaquePosition.x + (leavesRoomForStoryHand ? 25.0f : 32.0f),
+                plaquePosition.y + plaqueSize.y * 0.5f};
             drawEllipseOutline(window, medallion, 19.0f, 19.0f, 1.4f, withAlpha(stepAccent, 150));
             sf::CircleShape medallionFace(15.0f, 24);
             medallionFace.setOrigin({15.0f, 15.0f});
@@ -2755,8 +2768,34 @@
             centerText(stepText, medallion);
             drawCrispText(window, stepText);
 
-            const float textX = plaquePosition.x + 62.0f;
-            sf::Text heading(font, stepHeading, 17);
+            const float textX = plaquePosition.x + (leavesRoomForStoryHand ? 48.0f : 62.0f);
+            if (leavesRoomForStoryHand)
+            {
+                switch (storyMissionIndex)
+                {
+                case 3:
+                    stepHeading = "Deploy a Unit";
+                    stepBody = "Deploy the Debt Collector on the glowing square.";
+                    break;
+                case 4:
+                    stepHeading = "Hide & Summon";
+                    stepBody = "Use Hide and Create Lumberjack.";
+                    break;
+                case 5:
+                    stepHeading = "Combined Arms";
+                    stepBody = "Defeat both Mirewatch defenders.";
+                    break;
+                case 6:
+                    stepHeading = "Break the Escort";
+                    stepBody = "Break the escort. Defeat Donella.";
+                    break;
+                default:
+                    stepHeading = "Full Encounter";
+                    stepBody = "Defeat every Mirewatch unit.";
+                    break;
+                }
+            }
+            sf::Text heading(font, stepHeading, leavesRoomForStoryHand ? 13 : 17);
             heading.setLetterSpacing(1.1f);
             heading.setFillColor(BoardParchment);
             heading.setPosition({textX, plaquePosition.y + 16.0f});
@@ -2765,15 +2804,15 @@
                 window,
                 font,
                 stepBody,
-                13,
+                leavesRoomForStoryHand ? 10 : 13,
                 {textX, plaquePosition.y + 44.0f},
                 withAlpha(BoardParchmentMuted, 240),
-                plaqueSize.x - 78.0f,
+                plaqueSize.x - (leavesRoomForStoryHand ? 56.0f : 78.0f),
                 3.0f);
         }
 
         // ---- Hand -------------------------------------------------------------
-        if (!storyMode)
+        if (!storyMode || !gameSnapshot.hand.empty())
         {
             clampListOffset(gameHandOffset, gameSnapshot.hand.size(), VisibleGameHandCards);
             const std::size_t lastHandCard =

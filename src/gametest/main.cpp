@@ -23,6 +23,7 @@
 #include "../shared/game_data.hpp"
 #include "../shared/ranking.hpp"
 #include "../gameserver/game_engine.hpp"
+#include "../gameserver/ai_player.hpp"
 #include "../client/client_clock_warning.hpp"
 
 #include "../shared/network.hpp"
@@ -2484,6 +2485,140 @@ int main(int argc, char** argv)
     check(!revealedPiece.hidden && revealedPiece.actionState == 0 &&
               revealedPiece.disabledTurns >= HiddenRevealStunTurns,
           "revealed pieces materialize into action state zero, stunned");
+
+    const auto scenarioCard = [](const std::string& title, int health = 5) {
+        GameCard card;
+        card.title = title;
+        card.type = "Unit";
+        card.health = health;
+        return card;
+    };
+    GameCard scenarioHero = scenarioCard("Scenario Hero", 8);
+    scenarioHero.type = "Hero";
+    ActionProfile heroStep;
+    heroStep.name = "Advance";
+    heroStep.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
+    heroStep.minRange = 1;
+    heroStep.maxRange = 1;
+    heroStep.canMove = true;
+    scenarioHero.actions = {heroStep};
+
+    GameCard scenarioSharpshooter = scenarioCard("Goblin Sharpshooter", 4);
+    scenarioSharpshooter.ability = "transform";
+    scenarioSharpshooter.abilityLabels = {"Aim", "Lower Weapon"};
+    ActionProfile sharpshooterMove = heroStep;
+    sharpshooterMove.state = 0;
+    ActionProfile sharpshooterFire;
+    sharpshooterFire.name = "Fire";
+    sharpshooterFire.state = 1;
+    sharpshooterFire.nextState = 1;
+    sharpshooterFire.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+    sharpshooterFire.pattern = static_cast<std::uint8_t>(MovePattern::Horizontal);
+    sharpshooterFire.minRange = 1;
+    sharpshooterFire.maxRange = 3;
+    sharpshooterFire.damage = 1;
+    sharpshooterFire.canMove = false;
+    sharpshooterFire.canAttack = true;
+    sharpshooterFire.lineOfSight = true;
+    scenarioSharpshooter.actions = {sharpshooterMove, sharpshooterFire};
+
+    GameCard scenarioAmbusher = scenarioCard("Goblin Ambusher", 4);
+    scenarioAmbusher.ability = "dematerialize";
+    scenarioAmbusher.abilityLabels = {"Hide", "Reveal"};
+    ActionProfile hiddenStep = heroStep;
+    hiddenStep.state = 1;
+    scenarioAmbusher.actions = {heroStep, hiddenStep};
+
+    GameCard scenarioLumberjack = scenarioCard("Blackthorn Lumberjack", 4);
+    scenarioLumberjack.actions = {heroStep};
+    GameCard scenarioForeman = scenarioCard("Blackthorn Foreman", 7);
+    scenarioForeman.ability = "summon";
+    scenarioForeman.summonTitle = scenarioLumberjack.title;
+    scenarioForeman.abilityLabels = {"Create Lumberjack"};
+    scenarioForeman.actions = {heroStep};
+
+    GameEngine storyRulesEngine(404, {});
+    storyRulesEngine.loadScenario(
+        {{1, scenarioHero, 7, 0, true},
+         {1, scenarioSharpshooter, 4, 1, false},
+         {1, scenarioAmbusher, 5, 1, false},
+         {1, scenarioForeman, 6, 1, false},
+         {2, scenarioHero, 4, 4, true}},
+        {scenarioLumberjack},
+        {},
+        12,
+        12,
+        1,
+        "Scenario rules test");
+    const auto storyPieceId = [&](const std::string& title) {
+        const auto found = std::find_if(
+            storyRulesEngine.boardPieces().begin(),
+            storyRulesEngine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == title; });
+        return found == storyRulesEngine.boardPieces().end() ? 0 : found->id;
+    };
+
+    const int sharpshooterId = storyPieceId("Goblin Sharpshooter");
+    check(
+        sharpshooterId != 0 && storyRulesEngine.useAbility(1, sharpshooterId) &&
+            storyRulesEngine.currentPlayer() == 2,
+        "Story scenario Aim uses the normal one-action turn handoff");
+    storyRulesEngine.endTurn(2);
+    check(
+        storyRulesEngine.attackPiece(1, sharpshooterId, 4, 4) &&
+            storyRulesEngine.currentPlayer() == 2,
+        "Story scenario aimed Fire uses the authoritative ranged action");
+    storyRulesEngine.endTurn(2);
+    check(
+        storyRulesEngine.useAbility(1, sharpshooterId) &&
+            std::find_if(
+                storyRulesEngine.boardPieces().begin(),
+                storyRulesEngine.boardPieces().end(),
+                [&](const Piece& piece) { return piece.id == sharpshooterId; })->actionState == 0,
+        "Story scenario Lower Weapon restores the Sharpshooter movement state");
+
+    storyRulesEngine.endTurn(2);
+    const int ambusherId = storyPieceId("Goblin Ambusher");
+    const bool hidAmbusher =
+        ambusherId != 0 && storyRulesEngine.useAbility(1, ambusherId);
+    const Snapshot hiddenOpponentView = storyRulesEngine.snapshotFor(2);
+    check(
+        hidAmbusher &&
+            std::none_of(
+                hiddenOpponentView.pieces.begin(),
+                hiddenOpponentView.pieces.end(),
+                [&](const Piece& piece) { return piece.id == ambusherId; }),
+        "Story scenario Hide uses multiplayer concealment in the opponent snapshot");
+
+    storyRulesEngine.endTurn(2);
+    const int foremanId = storyPieceId("Blackthorn Foreman");
+    const std::size_t piecesBeforeSummon = storyRulesEngine.boardPieces().size();
+    check(
+        foremanId != 0 && storyRulesEngine.useAbility(1, foremanId) &&
+            storyRulesEngine.boardPieces().size() == piecesBeforeSummon + 1 &&
+            findPieceAt(storyRulesEngine.boardPieces(), 6, 2) != nullptr &&
+            storyRulesEngine.currentPlayer() == 2,
+        "Story scenario Foreman creates a Lumberjack and yields the next action");
+
+    GameEngine storyAiEngine(405, {});
+    storyAiEngine.loadScenario(
+        {{1, scenarioHero, 7, 0, true},
+         {2, scenarioHero, 0, 7, true},
+         {2, scenarioForeman, 3, 6, false},
+         {2, scenarioLumberjack, 5, 6, false}},
+        {},
+        {},
+        0,
+        0,
+        2,
+        "Scenario AI test");
+    const AiAction storyAiAction = chooseAiAction(storyAiEngine, 2);
+    const std::size_t aiPiecesBefore = storyAiEngine.boardPieces().size();
+    applyAiAction(storyAiEngine, 2, storyAiAction);
+    check(
+        storyAiAction.kind == AiActionKind::UseAbility &&
+            storyAiEngine.boardPieces().size() == aiPiecesBefore + 1,
+        "multiplayer AI values and uses a legal summoning power in Story scenarios");
 
     if (argc == 2 && std::string(argv[1]) == "--movement-only")
     {
