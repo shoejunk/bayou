@@ -848,6 +848,12 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
     return outcome;
 }
 
+inline bool pieceHasDematerialize(const Piece& piece)
+{
+    return normalizedAbility(piece.ability) == "dematerialize" ||
+        hasKeyword(piece.keywords, "dematerialize");
+}
+
 // Applies every gameplay side effect associated with entering an action state.
 // In particular, dematerialize uses state zero as materialized and every other
 // state as hidden, regardless of whether the transition came from an ability or
@@ -855,7 +861,7 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
 inline void setPieceActionState(Piece& piece, int state)
 {
     piece.actionState = state;
-    piece.hidden = normalizedAbility(piece.ability) == "dematerialize" && state != 0;
+    piece.hidden = pieceHasDematerialize(piece) && state != 0;
 }
 
 // Materializes a piece that was struck or bumped into while dematerialized and
@@ -918,6 +924,32 @@ inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
         std::max(second.column - (first.column + first.width - 1),
                  first.column - (second.column + second.width - 1)));
     return std::max(rowGap, columnGap) == 1;
+}
+
+// Reveal is a passive keyword: at the end of its owner's turn, every adjacent
+// enemy dematerialize piece in state one is forced back to materialized state
+// zero. This is a direct state change, so it does not apply the stun used when
+// a hidden piece is discovered by movement or an attack.
+inline void applyRevealKeywords(std::vector<Piece>& pieces, int owner)
+{
+    for (const Piece& revealer : pieces)
+    {
+        if (revealer.owner != owner || !hasKeyword(revealer.keywords, "reveal"))
+        {
+            continue;
+        }
+
+        for (Piece& target : pieces)
+        {
+            if (target.id == revealer.id || target.owner == owner ||
+                target.actionState != 1 || !pieceHasDematerialize(target) ||
+                !piecesAreAdjacent(revealer, target))
+            {
+                continue;
+            }
+            setPieceActionState(target, 0);
+        }
+    }
 }
 
 // Healing aura affects every other piece adjacent to an aura-bearing piece at

@@ -1448,6 +1448,7 @@ private:
             }
         }
         applyHealingAuras(pieces, playerNumber);
+        applyRevealKeywords(pieces, playerNumber);
     }
 
     bool resolveSpell(int playerNumber, const GameCard& card, int targetRow, int targetColumn)

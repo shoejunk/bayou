@@ -399,6 +399,93 @@ int main(int argc, char** argv)
               auraPieces.back().health == 1,
           "healing aura reaches all eight adjacent squares, including diagonals, and no farther");
 
+    Piece revealer;
+    revealer.id = 120;
+    revealer.owner = 1;
+    revealer.row = 3;
+    revealer.column = 3;
+    revealer.keywords = {"rEvEaL"};
+    Piece revealTarget;
+    revealTarget.id = 121;
+    revealTarget.owner = 2;
+    revealTarget.row = 3;
+    revealTarget.column = 4;
+    revealTarget.ability = "dematerialize";
+    revealTarget.actionState = 1;
+    revealTarget.hidden = true;
+    Piece distantRevealTarget = revealTarget;
+    distantRevealTarget.id = 122;
+    distantRevealTarget.column = 6;
+    Piece friendlyRevealTarget = revealTarget;
+    friendlyRevealTarget.id = 123;
+    friendlyRevealTarget.owner = 1;
+    Piece visibleRevealTarget = revealTarget;
+    visibleRevealTarget.id = 124;
+    visibleRevealTarget.actionState = 0;
+    visibleRevealTarget.hidden = false;
+    std::vector<Piece> revealPieces = {
+        revealer, revealTarget, distantRevealTarget, friendlyRevealTarget, visibleRevealTarget};
+    applyRevealKeywords(revealPieces, 1);
+    check(revealPieces[1].actionState == 0 && !revealPieces[1].hidden &&
+              revealPieces[2].actionState == 1 && revealPieces[2].hidden &&
+              revealPieces[3].actionState == 1 && revealPieces[3].hidden &&
+              revealPieces[4].actionState == 0 && !revealPieces[4].hidden,
+          "Reveal materializes only adjacent enemy dematerialize pieces in state one");
+
+    Piece keywordRevealTarget = revealTarget;
+    keywordRevealTarget.id = 125;
+    keywordRevealTarget.ability.clear();
+    keywordRevealTarget.keywords = {"DEMaterialize"};
+    revealPieces = {revealer, keywordRevealTarget};
+    applyRevealKeywords(revealPieces, 1);
+    check(revealPieces[1].actionState == 0 && !revealPieces[1].hidden,
+          "Reveal recognizes the dematerialize keyword independently of an active ability");
+
+    GameCard revealUnitCard;
+    revealUnitCard.title = "Reveal Unit";
+    revealUnitCard.type = "Unit";
+    revealUnitCard.keywords = {"Reveal"};
+    GameCard dematerializeUnitCard;
+    dematerializeUnitCard.title = "Dematerialize Unit";
+    dematerializeUnitCard.type = "Unit";
+    dematerializeUnitCard.ability = "dematerialize";
+    ActionProfile materializedAction;
+    materializedAction.state = 0;
+    ActionProfile dematerializedAction = materializedAction;
+    dematerializedAction.state = 1;
+    dematerializeUnitCard.actions = {materializedAction, dematerializedAction};
+    GameEngine revealEngine(41, {});
+    revealEngine.loadScenario(
+        {{1, revealUnitCard, 3, 3, false},
+         {2, dematerializeUnitCard, 3, 4, false}},
+        {},
+        {},
+        0,
+        0,
+        2,
+        "Reveal end-turn test");
+    const auto revealEngineTarget = std::find_if(
+        revealEngine.boardPieces().begin(),
+        revealEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Dematerialize Unit"; });
+    check(revealEngineTarget != revealEngine.boardPieces().end() &&
+              revealEngine.useAbility(2, revealEngineTarget->id) &&
+              revealEngine.currentPlayer() == 1 &&
+              revealEngineTarget->actionState == 1,
+          "a dematerialize unit can enter state one before the Reveal owner's turn");
+    const int revealEngineTargetId = revealEngineTarget == revealEngine.boardPieces().end()
+        ? 0
+        : revealEngineTarget->id;
+    check(revealEngine.endTurn(1),
+          "ending the Reveal owner's turn runs the passive reveal check");
+    const auto revealedByEngine = std::find_if(
+        revealEngine.boardPieces().begin(),
+        revealEngine.boardPieces().end(),
+        [revealEngineTargetId](const Piece& piece) { return piece.id == revealEngineTargetId; });
+    check(revealedByEngine != revealEngine.boardPieces().end() &&
+              revealedByEngine->actionState == 0 && !revealedByEngine->hidden,
+          "the authoritative end-turn path forces an adjacent enemy to state zero");
+
     Piece largeRangedAttacker;
     largeRangedAttacker.id = 110;
     largeRangedAttacker.owner = 1;

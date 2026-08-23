@@ -6459,6 +6459,7 @@ int main(int argc, char** argv)
             }
         }
         game_data::applyHealingAuras(next.pieces, endingPlayer);
+        game_data::applyRevealKeywords(next.pieces, endingPlayer);
 
         next.activePlayer = endingPlayer == 1 ? 2 : 1;
         const int startingPlayer = next.activePlayer;
