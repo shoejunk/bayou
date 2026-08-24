@@ -7,6 +7,12 @@
 namespace bayou::client
 {
 
+enum class StoryCampaign
+{
+    Blackthorn,
+    Mirewatch
+};
+
 struct StoryPanel
 {
     std::string_view speaker;
@@ -24,8 +30,12 @@ struct StoryMission
     std::array<StoryPanel, 3> briefing;
 };
 
-const std::array<StoryMission, 8>& storyMissions();
-int loadStoryCompletedCount(std::string_view username);
-bool saveStoryCompletedCount(std::string_view username, int completedCount);
+std::string_view storyCampaignName(StoryCampaign campaign);
+const std::array<StoryMission, 8>& storyMissions(StoryCampaign campaign);
+int loadStoryCompletedCount(std::string_view username, StoryCampaign campaign);
+bool saveStoryCompletedCount(
+    std::string_view username,
+    StoryCampaign campaign,
+    int completedCount);
 
 } // namespace bayou::client

@@ -1,5 +1,6 @@
     auto drawStoryIntro = [&]() {
-        const StoryMission& mission = storyMissions()[static_cast<std::size_t>(storyMissionIndex)];
+        const StoryMission& mission =
+            storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
         const StoryPanel& panel = mission.briefing[static_cast<std::size_t>(storyComicPage)];
 
         drawTitlePlaque(window, font, std::string(mission.title), {214.0f, 38.0f}, {572.0f, 58.0f});
@@ -7,7 +8,7 @@
             window,
             font,
             "MISSION " + std::to_string(storyMissionIndex + 1) + " / " +
-                std::to_string(storyMissions().size()),
+                std::to_string(storyMissions(storyCampaign).size()),
             13,
             {42.0f, 45.0f},
             sf::Color(198, 146, 70),
@@ -15,11 +16,12 @@
         drawText(
             window,
             font,
-            std::string(mission.sourceChapter),
+            std::string(storyCampaignName(storyCampaign)) + "  |  " +
+                std::string(mission.sourceChapter),
             12,
-            {590.0f, 92.0f},
+            {470.0f, 92.0f},
             sf::Color(190, 198, 214),
-            165.0f);
+            285.0f);
 
         const sf::Vector2f artPosition{48.0f, 112.0f};
         const sf::Vector2f artSize{280.0f, 342.0f};
@@ -104,6 +106,7 @@
 
         storyContinueButton.setLabel(storyComicPage + 1 >= 3 ? "Deploy" : "Continue");
         storyContinueButton.draw(window, animationTime);
+        storyBackButton.setLabel("Missions");
         storyBackButton.draw(window, animationTime);
         for (int page = 0; page < 3; ++page)
         {

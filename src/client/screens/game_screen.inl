@@ -2202,8 +2202,12 @@
         const game_data::PlayerSnapshot& playerOne = gameSnapshot.players[0];
         const game_data::PlayerSnapshot& playerTwo = gameSnapshot.players[1];
         const int activePlayer = std::clamp(gameSnapshot.activePlayer, 1, 2);
+        const bool mirewatchStory =
+            storyMode && storyCampaign == StoryCampaign::Mirewatch;
         const std::string activePlayerName = storyMode
-            ? (activePlayer == 1 ? "Blackthorn Company" : "Mirewatch")
+            ? (activePlayer == 1
+                ? (mirewatchStory ? "Mirewatch Resistance" : "Blackthorn Company")
+                : (mirewatchStory ? "Blackthorn Company" : "Mirewatch Resistance"))
             : (sandboxMode
             ? "Player " + std::to_string(activePlayer)
             : (activePlayer == me ? loggedInUsername : "Opponent"));
@@ -2252,7 +2256,9 @@
         const auto playerDisplayName = [&](int playerNumber) {
             if (storyMode)
             {
-                return playerNumber == 1 ? std::string("Blackthorn") : std::string("Mirewatch");
+                return playerNumber == 1
+                    ? (mirewatchStory ? std::string("Mirewatch") : std::string("Blackthorn"))
+                    : (mirewatchStory ? std::string("Blackthorn") : std::string("Mirewatch"));
             }
             if (sandboxMode)
             {
@@ -2734,7 +2740,8 @@
 
         if (storyMode)
         {
-            const StoryMission& mission = storyMissions()[static_cast<std::size_t>(storyMissionIndex)];
+            const StoryMission& mission =
+                storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
             std::string stepHeading = std::string(mission.lesson);
             std::string stepBody = std::string(mission.objective) + " " + std::string(mission.hint);
             const int stepNumber = storyMissionIndex + 1;
@@ -2742,15 +2749,18 @@
             if (storyStage == StoryStage::Complete)
             {
                 stepHeading = "Mission Complete";
-                stepBody = storyMissionIndex + 1 < static_cast<int>(storyMissions().size())
+                stepBody = storyMissionIndex + 1 < static_cast<int>(storyMissions(storyCampaign).size())
                     ? "The next chapter is unlocked. Continue when you are ready."
-                    : "You have completed the Blackthorn tutorial arc.";
+                    : "You have completed " + std::string(storyCampaignName(storyCampaign)) +
+                        " story arc.";
                 stepAccent = sf::Color(146, 232, 166);
             }
             else if (storyStage == StoryStage::Failed)
             {
                 stepHeading = "Mission Failed";
-                stepBody = "The Mirewatch force stopped you. Retry and adapt your position, attack order, and powers.";
+                stepBody = mirewatchStory
+                    ? "The Company stopped the resistance. Retry and adapt your position and attack order."
+                    : "The resistance stopped the Company. Retry and adapt your position and attack order.";
                 stepAccent = sf::Color(233, 128, 106);
             }
 
@@ -2790,28 +2800,25 @@
             const float textX = plaquePosition.x + (leavesRoomForStoryHand ? 48.0f : 62.0f);
             if (leavesRoomForStoryHand)
             {
-                switch (storyMissionIndex)
+                if (storyCampaign == StoryCampaign::Blackthorn && storyMissionIndex == 1)
                 {
-                case 3:
                     stepHeading = "Deploy a Unit";
                     stepBody = "Deploy the Debt Collector on the glowing square.";
-                    break;
-                case 4:
+                }
+                else if (storyCampaign == StoryCampaign::Blackthorn && storyMissionIndex == 2)
+                {
                     stepHeading = "Hide & Summon";
                     stepBody = "Use Hide and Create Lumberjack.";
-                    break;
-                case 5:
-                    stepHeading = "Combined Arms";
-                    stepBody = "Defeat both Mirewatch defenders.";
-                    break;
-                case 6:
-                    stepHeading = "Break the Escort";
-                    stepBody = "Break the escort. Defeat Donella.";
-                    break;
-                default:
-                    stepHeading = "Full Encounter";
-                    stepBody = "Defeat every Mirewatch unit.";
-                    break;
+                }
+                else if (storyCampaign == StoryCampaign::Mirewatch && storyMissionIndex == 2)
+                {
+                    stepHeading = "Deploy Informant";
+                    stepBody = "Deploy the Informant on the glowing square.";
+                }
+                else
+                {
+                    stepHeading = storyMissionIndex == 7 ? "Final Battle" : "Mission Objective";
+                    stepBody = std::string(mission.objective);
                 }
             }
             sf::Text heading(font, stepHeading, leavesRoomForStoryHand ? 13 : 17);

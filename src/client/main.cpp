@@ -751,6 +751,8 @@ enum class GameState
     CreateAccount,
     ChangePassword,
     Authenticated,
+    StorySelect,
+    StoryMissionSelect,
     StoryIntro,
     DeckSelect,
     Matchmaking,
@@ -1339,6 +1341,7 @@ int main(int argc, char** argv)
     std::optional<DisplayedClockWarning> displayedClockWarning;
     bool sandboxMode = false;
     bool storyMode = false;
+    StoryCampaign storyCampaign = StoryCampaign::Blackthorn;
     std::unique_ptr<GameEngine> storyEngine;
     bool storyAiPending = false;
     float storyAiActionAt = 0.0f;
@@ -1356,6 +1359,7 @@ int main(int argc, char** argv)
     bool storyUsedHide = false;
     bool storyUsedSummon = false;
     int storyCompletedCount = 0;
+    std::array<int, 2> storyCampaignProgress{};
     std::uint64_t storyGeneration = 0;
     std::optional<std::future<std::pair<std::uint64_t, AiAction>>> pendingStoryAi;
     int storyComicPage = 0;
@@ -1489,11 +1493,37 @@ int main(int argc, char** argv)
         font);
     Button storyContinueButton({558.0f, 520.0f}, {194.0f, 48.0f}, "Continue", font);
     Button storyBackButton({48.0f, 526.0f}, {112.0f, 40.0f}, "Back", font);
+    Button storyBlackthornButton({76.0f, 466.0f}, {288.0f, 48.0f}, "Begin", font);
+    Button storyMirewatchButton({436.0f, 466.0f}, {288.0f, 48.0f}, "Begin", font);
+    Button storySelectBackButton({48.0f, 536.0f}, {112.0f, 40.0f}, "Back", font);
+    std::array<Button, 8> storyMissionButtons{
+        Button({58.0f, 132.0f}, {326.0f, 72.0f}, "Mission 1", font),
+        Button({416.0f, 132.0f}, {326.0f, 72.0f}, "Mission 2", font),
+        Button({58.0f, 222.0f}, {326.0f, 72.0f}, "Mission 3", font),
+        Button({416.0f, 222.0f}, {326.0f, 72.0f}, "Mission 4", font),
+        Button({58.0f, 312.0f}, {326.0f, 72.0f}, "Mission 5", font),
+        Button({416.0f, 312.0f}, {326.0f, 72.0f}, "Mission 6", font),
+        Button({58.0f, 402.0f}, {326.0f, 72.0f}, "Mission 7", font),
+        Button({416.0f, 402.0f}, {326.0f, 72.0f}, "Mission 8", font),
+    };
+    Button storyRestartCampaignButton(
+        {500.0f, 522.0f}, {242.0f, 44.0f}, "Restart from Chapter 1", font);
+    Button storyMissionSelectBackButton({58.0f, 526.0f}, {112.0f, 40.0f}, "Back", font);
     Button storyRestartButton(
         {GamePlayerBannerLeftX + 12.0f, 198.0f}, {156.0f, 32.0f}, "Restart Mission", font);
     storyContinueButton.setVariant(ButtonVariant::Primary);
     storyContinueButton.setLabelSize(type::Subheading);
     storyBackButton.setVariant(ButtonVariant::Quiet);
+    storyBlackthornButton.setVariant(ButtonVariant::Primary);
+    storyMirewatchButton.setVariant(ButtonVariant::Primary);
+    storySelectBackButton.setVariant(ButtonVariant::Quiet);
+    for (Button& button : storyMissionButtons)
+    {
+        button.setLabelSize(type::Body);
+    }
+    storyRestartCampaignButton.setVariant(ButtonVariant::Primary);
+    storyRestartCampaignButton.setLabelSize(type::Body);
+    storyMissionSelectBackButton.setVariant(ButtonVariant::Quiet);
     storyRestartButton.setVariant(ButtonVariant::Quiet);
     storyRestartButton.setLabelSize(type::Caption);
     Button cancelResignButton({250.0f, 356.0f}, {130.0f, 42.0f}, "Cancel", font);
@@ -4738,11 +4768,40 @@ int main(int argc, char** argv)
         commitLocalSnapshot(std::move(nextSnapshot));
     };
 
-    auto showStoryIntro = [&]() {
+    const auto storyProgressIndex = [](StoryCampaign campaign) {
+        return campaign == StoryCampaign::Blackthorn ? std::size_t{0} : std::size_t{1};
+    };
+
+    auto showStorySelect = [&]() {
+        currentState = GameState::StorySelect;
+        storyCampaignProgress[0] =
+            loadStoryCompletedCount(loggedInUsername, StoryCampaign::Blackthorn);
+        storyCampaignProgress[1] =
+            loadStoryCompletedCount(loggedInUsername, StoryCampaign::Mirewatch);
+        title.setString("");
+        centerText(title, 400.0f);
+        setMessage(messageText, "", sf::Color::White);
+        clearFocus();
+    };
+
+    auto showStoryMissionSelect = [&](StoryCampaign campaign) {
+        storyCampaign = campaign;
+        storyCompletedCount = loadStoryCompletedCount(loggedInUsername, storyCampaign);
+        storyCampaignProgress[storyProgressIndex(storyCampaign)] = storyCompletedCount;
+        currentState = GameState::StoryMissionSelect;
+        title.setString("");
+        centerText(title, 400.0f);
+        setMessage(messageText, "", sf::Color::White);
+        clearFocus();
+    };
+
+    auto showStoryIntro = [&](int requestedMission = -1) {
         currentState = GameState::StoryIntro;
-        storyCompletedCount = loadStoryCompletedCount(loggedInUsername);
-        storyMissionIndex = std::min(
-            storyCompletedCount, static_cast<int>(storyMissions().size()) - 1);
+        storyCompletedCount = loadStoryCompletedCount(loggedInUsername, storyCampaign);
+        const int lastMission = static_cast<int>(storyMissions(storyCampaign).size()) - 1;
+        storyMissionIndex = requestedMission >= 0
+            ? std::clamp(requestedMission, 0, lastMission)
+            : std::min(storyCompletedCount, lastMission);
         title.setString("");
         centerText(title, 400.0f);
         setMessageY(messageText, 560.0f);
@@ -4902,96 +4961,182 @@ int main(int argc, char** argv)
             scenarioPieces.push_back({owner, storyCardNamed(cardTitle), row, column, isHero});
         };
 
-        switch (storyMissionIndex)
+        if (storyCampaign == StoryCampaign::Blackthorn)
         {
-        case 0:
-            spawnStoryPiece(1, "Braun Stonefist", 5, 0, true);
-            spawnStoryPiece(2, "Reed Baelstone", 0, 7, true);
-            storyTargetRow = 4;
-            storyTargetColumn = 1;
-            scenarioStatus = "Select Braun, then move him to the first glowing square.";
-            break;
-        case 1:
-            spawnStoryPiece(1, "Braun Stonefist", 6, 0, true);
-            spawnStoryPiece(1, "Blackthorn Lumberjack", 4, 2, false);
-            spawnStoryPiece(2, "Bull Gator", 4, 3, false);
-            spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
-            storyTargetRow = 4;
-            storyTargetColumn = 3;
-            scenarioStatus = "Select the Lumberjack, then attack the adjacent bull gator.";
-            break;
-        case 2:
-            spawnStoryPiece(1, "Braun Stonefist", 6, 0, true);
-            spawnStoryPiece(1, "Goblin Sharpshooter", 5, 1, false);
-            spawnStoryPiece(2, "Resistance Smuggler", 5, 4, false);
-            spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
-            storyTargetRow = 5;
-            storyTargetColumn = 4;
-            scenarioStatus = "Select the Sharpshooter and use Aim before firing.";
-            break;
-        case 3:
-            spawnStoryPiece(1, "Braun Stonefist", 4, 0, true);
-            spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
-            playerHand.push_back(storyCardNamed("Blackthorn Debt Collector"));
-            storyTargetRow = 3;
-            storyTargetColumn = 0;
-            scenarioStatus = "Select the Debt Collector card, then deploy it on the glowing square.";
-            break;
-        case 4:
-            spawnStoryPiece(1, "Braun Stonefist", 6, 0, true);
-            spawnStoryPiece(1, "Blackthorn Foreman", 4, 0, false);
-            spawnStoryPiece(1, "Goblin Ambusher", 3, 1, false);
-            spawnStoryPiece(1, "Blackthorn Lumberjack", 5, 1, false);
-            spawnStoryPiece(2, "Mirewatch Informant", 2, 5, false);
-            spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
-            playerHand.push_back(storyCardNamed("Blackthorn Debt Collector"));
-            storyTargetRow = 4;
-            storyTargetColumn = 4;
-            scenarioStatus =
-                "Hide the Ambusher, summon a Lumberjack with the Foreman, and control fourteen squares.";
-            break;
-        case 5:
-            spawnStoryPiece(1, "Braun Stonefist", 5, 0, true);
-            spawnStoryPiece(1, "Goblin Ambusher", 4, 1, false);
-            spawnStoryPiece(1, "Goblin Sharpshooter", 6, 1, false);
-            spawnStoryPiece(2, "Mirewatch Informant", 3, 5, false);
-            spawnStoryPiece(2, "Bog Spearman", 5, 5, false);
-            spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
-            playerHand.push_back(storyCardNamed("Blackthorn Lumberjack"));
-            enemyHand.push_back(storyCardNamed("Swamp Tracker"));
-            scenarioStatus =
-                "Defeat both defenders while Mirewatch moves, deploys, and uses its own powers.";
-            break;
-        case 6:
-            spawnStoryPiece(1, "Braun Stonefist", 5, 0, true);
-            spawnStoryPiece(1, "Blackthorn Lumberjack", 4, 1, false);
-            spawnStoryPiece(1, "Goblin Sharpshooter", 6, 1, false);
-            spawnStoryPiece(1, "Blackthorn Alchemist", 5, 2, false);
-            spawnStoryPiece(2, "Marshland Veteran", 3, 5, false);
-            spawnStoryPiece(2, "Bog Spearman", 5, 5, false);
-            spawnStoryPiece(2, "Donella of the Marsh", 4, 6, false);
-            spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
-            playerHand.push_back(storyCardNamed("Blackthorn Debt Collector"));
-            enemyHand.push_back(storyCardNamed("Mirewatch Informant"));
-            storyTargetRow = 4;
-            storyTargetColumn = 6;
-            scenarioStatus = "Break the escort, then concentrate your attacks on Donella.";
-            break;
-        default:
-            spawnStoryPiece(1, "Braun Stonefist", 5, 0, true);
-            spawnStoryPiece(1, "Blackthorn Foreman", 3, 1, false);
-            spawnStoryPiece(1, "Blackthorn Lumberjack", 4, 1, false);
-            spawnStoryPiece(1, "Goblin Ambusher", 5, 1, false);
-            spawnStoryPiece(1, "Goblin Sharpshooter", 6, 1, false);
-            spawnStoryPiece(2, "Reed Baelstone", 3, 6, true);
-            spawnStoryPiece(2, "Erevan the Shadow", 5, 6, false);
-            spawnStoryPiece(2, "Donella of the Marsh", 4, 7, false);
-            playerHand.push_back(storyCardNamed("Blackthorn Alchemist"));
-            enemyHand.push_back(storyCardNamed("Bog Spearman"));
-            storyTargetRow = 3;
-            storyTargetColumn = 6;
-            scenarioStatus = "Use the full Blackthorn match toolkit to defeat every defender.";
-            break;
+            switch (storyMissionIndex)
+            {
+            case 0:
+                spawnStoryPiece(1, "Braun Stonefist", 5, 0, true);
+                spawnStoryPiece(2, "Reed Baelstone", 0, 7, true);
+                storyTargetRow = 4;
+                storyTargetColumn = 1;
+                scenarioStatus = "Move Braun to the first marked crossing.";
+                break;
+            case 1:
+                spawnStoryPiece(1, "Braun Stonefist", 4, 0, true);
+                spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
+                playerHand.push_back(storyCardNamed("Blackthorn Debt Collector"));
+                storyTargetRow = 3;
+                storyTargetColumn = 0;
+                scenarioStatus = "Deploy the Debt Collector on the marked controlled square.";
+                break;
+            case 2:
+                spawnStoryPiece(1, "Braun Stonefist", 6, 0, true);
+                spawnStoryPiece(1, "Blackthorn Foreman", 4, 0, false);
+                spawnStoryPiece(1, "Goblin Ambusher", 3, 1, false);
+                spawnStoryPiece(1, "Blackthorn Lumberjack", 5, 1, false);
+                spawnStoryPiece(2, "Mirewatch Informant", 2, 5, false);
+                spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
+                playerHand.push_back(storyCardNamed("Blackthorn Lumberjack"));
+                scenarioStatus = "Hide the Ambusher, create a Lumberjack, and control fourteen squares.";
+                break;
+            case 3:
+                spawnStoryPiece(1, "Braun Stonefist", 6, 0, true);
+                spawnStoryPiece(1, "Goblin Sharpshooter", 5, 1, false);
+                spawnStoryPiece(2, "Mirewatch Informant", 5, 4, false);
+                spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
+                storyTargetRow = 5;
+                storyTargetColumn = 4;
+                scenarioStatus = "Aim the Sharpshooter, then stop the Informant.";
+                break;
+            case 4:
+                spawnStoryPiece(1, "Braun Stonefist", 5, 0, true);
+                spawnStoryPiece(1, "Goblin Ambusher", 4, 1, false);
+                spawnStoryPiece(1, "Goblin Sharpshooter", 6, 1, false);
+                spawnStoryPiece(2, "Mirewatch Informant", 3, 5, false);
+                spawnStoryPiece(2, "Bog Spearman", 5, 5, false);
+                spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
+                playerHand.push_back(storyCardNamed("Blackthorn Lumberjack"));
+                enemyHand.push_back(storyCardNamed("Swamp Tracker"));
+                scenarioStatus = "Defeat both Mirewatch defenders while the resistance answers each action.";
+                break;
+            case 5:
+                spawnStoryPiece(1, "Braun Stonefist", 5, 0, true);
+                spawnStoryPiece(1, "Blackthorn Lumberjack", 4, 1, false);
+                spawnStoryPiece(1, "Blackthorn Alchemist", 5, 2, false);
+                spawnStoryPiece(2, "Marshland Veteran", 3, 5, false);
+                spawnStoryPiece(2, "Bog Spearman", 5, 5, false);
+                spawnStoryPiece(2, "Donella of the Marsh", 4, 6, false);
+                spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
+                storyTargetRow = 4;
+                storyTargetColumn = 6;
+                scenarioStatus = "Break the escort, then concentrate attacks on Donella.";
+                break;
+            case 6:
+                spawnStoryPiece(1, "Victor Greyshard", 6, 0, true);
+                spawnStoryPiece(1, "Braun Stonefist", 4, 1, false);
+                spawnStoryPiece(1, "Grask", 5, 1, false);
+                spawnStoryPiece(2, "Donella of the Marsh", 4, 6, false);
+                spawnStoryPiece(2, "Vanya Bluewater", 5, 6, false);
+                spawnStoryPiece(2, "Reed Baelstone", 3, 7, true);
+                storyTargetRow = 3;
+                storyTargetColumn = 7;
+                scenarioStatus = "Screen Victor and defeat Reed before the Company line collapses.";
+                break;
+            default:
+                spawnStoryPiece(1, "Victor Greyshard", 6, 0, true);
+                spawnStoryPiece(1, "Grask", 4, 1, false);
+                spawnStoryPiece(1, "Blackthorn Foreman", 3, 1, false);
+                spawnStoryPiece(1, "Goblin Sharpshooter", 5, 1, false);
+                spawnStoryPiece(2, "Reed Baelstone", 3, 6, true);
+                spawnStoryPiece(2, "Donella of the Marsh", 4, 6, false);
+                spawnStoryPiece(2, "Vanya Bluewater", 5, 6, false);
+                spawnStoryPiece(2, "Marshland Veteran", 6, 6, false);
+                playerHand.push_back(storyCardNamed("Blackthorn Alchemist"));
+                enemyHand.push_back(storyCardNamed("Bog Spearman"));
+                storyTargetRow = 3;
+                storyTargetColumn = 6;
+                scenarioStatus = "Protect Victor and defeat every remaining resistance unit.";
+                break;
+            }
+        }
+        else
+        {
+            switch (storyMissionIndex)
+            {
+            case 0:
+                spawnStoryPiece(1, "Reed Baelstone", 5, 0, true);
+                spawnStoryPiece(2, "Braun Stonefist", 0, 7, true);
+                storyTargetRow = 4;
+                storyTargetColumn = 1;
+                scenarioStatus = "Move Reed to the first marked crossing.";
+                break;
+            case 1:
+                spawnStoryPiece(1, "Reed Baelstone", 6, 0, true);
+                spawnStoryPiece(1, "Bog Spearman", 4, 2, false);
+                spawnStoryPiece(2, "Blackthorn Debt Collector", 4, 4, false);
+                spawnStoryPiece(2, "Braun Stonefist", 1, 7, true);
+                storyTargetRow = 4;
+                storyTargetColumn = 4;
+                scenarioStatus = "Use the Bog Spearman's reach to remove the Debt Collector.";
+                break;
+            case 2:
+                spawnStoryPiece(1, "Reed Baelstone", 4, 0, true);
+                spawnStoryPiece(2, "Braun Stonefist", 1, 7, true);
+                playerHand.push_back(storyCardNamed("Mirewatch Informant"));
+                storyTargetRow = 3;
+                storyTargetColumn = 0;
+                scenarioStatus = "Deploy the Informant on the marked controlled square.";
+                break;
+            case 3:
+                spawnStoryPiece(1, "Maggie Mudroot", 6, 0, true);
+                spawnStoryPiece(1, "Donella of the Marsh", 4, 1, false);
+                spawnStoryPiece(1, "Marshland Veteran", 5, 1, false);
+                spawnStoryPiece(2, "Goblin Ambusher", 3, 5, false);
+                spawnStoryPiece(2, "Blackthorn Debt Collector", 5, 5, false);
+                spawnStoryPiece(2, "Braun Stonefist", 1, 7, true);
+                scenarioStatus = "Keep the formation together and defeat both Company units.";
+                break;
+            case 4:
+                spawnStoryPiece(1, "Reed Baelstone", 5, 0, true);
+                spawnStoryPiece(1, "Vanya Bluewater", 4, 1, false);
+                spawnStoryPiece(1, "Swamp Tracker", 6, 1, false);
+                spawnStoryPiece(2, "Goblin Sharpshooter", 4, 5, false);
+                spawnStoryPiece(2, "Blackthorn Lumberjack", 5, 5, false);
+                spawnStoryPiece(2, "Braun Stonefist", 1, 7, true);
+                storyTargetRow = 4;
+                storyTargetColumn = 5;
+                scenarioStatus = "Break the escort and deny the Sharpshooter a clear firing rank.";
+                break;
+            case 5:
+                spawnStoryPiece(1, "Reed Baelstone", 5, 0, true);
+                spawnStoryPiece(1, "Mirewatch Informant", 3, 1, false);
+                spawnStoryPiece(1, "Swamp Tracker", 4, 1, false);
+                spawnStoryPiece(1, "Bog Spearman", 6, 1, false);
+                spawnStoryPiece(2, "Blackthorn Foreman", 3, 6, false);
+                spawnStoryPiece(2, "Blackthorn Debt Collector", 5, 6, false);
+                spawnStoryPiece(2, "Braun Stonefist", 1, 7, true);
+                enemyHand.push_back(storyCardNamed("Blackthorn Lumberjack"));
+                scenarioStatus = "Open both exits by defeating the Foreman and Debt Collector.";
+                break;
+            case 6:
+                spawnStoryPiece(1, "Reed Baelstone", 5, 0, true);
+                spawnStoryPiece(1, "Donella of the Marsh", 4, 1, false);
+                spawnStoryPiece(1, "Vanya Bluewater", 6, 1, false);
+                spawnStoryPiece(2, "Braun Stonefist", 4, 6, false);
+                spawnStoryPiece(2, "Grask", 5, 6, false);
+                spawnStoryPiece(2, "Victor Greyshard", 1, 7, true);
+                storyTargetRow = 4;
+                storyTargetColumn = 6;
+                scenarioStatus = "Keep Reed behind the line and defeat Braun.";
+                break;
+            default:
+                spawnStoryPiece(1, "Reed Baelstone", 5, 0, true);
+                spawnStoryPiece(1, "Donella of the Marsh", 3, 1, false);
+                spawnStoryPiece(1, "Vanya Bluewater", 4, 1, false);
+                spawnStoryPiece(1, "Marshland Veteran", 5, 1, false);
+                spawnStoryPiece(1, "Bog Spearman", 6, 1, false);
+                spawnStoryPiece(2, "Victor Greyshard", 3, 7, true);
+                spawnStoryPiece(2, "Grask", 4, 6, false);
+                spawnStoryPiece(2, "Blackthorn Foreman", 5, 6, false);
+                spawnStoryPiece(2, "Goblin Sharpshooter", 6, 6, false);
+                playerHand.push_back(storyCardNamed("Mirewatch Informant"));
+                enemyHand.push_back(storyCardNamed("Blackthorn Alchemist"));
+                storyTargetRow = 3;
+                storyTargetColumn = 7;
+                scenarioStatus = "Protect Reed and defeat every remaining Company unit.";
+                break;
+            }
         }
 
         storyEngine->loadScenario(
@@ -5716,58 +5861,114 @@ int main(int argc, char** argv)
             storyTargetRow = -1;
             storyTargetColumn = -1;
             snapshot.status = heroMustSurvive && playerHeroCount == 0
-                ? "Mission failed: Braun fell before the objective was secured."
-                : "Mission failed: the Blackthorn force was defeated.";
+                ? storyCampaign == StoryCampaign::Blackthorn
+                    ? "Mission failed: the Company hero fell before the objective was secured."
+                    : "Mission failed: your Mirewatch hero fell before the objective was secured."
+                : storyCampaign == StoryCampaign::Blackthorn
+                    ? "Mission failed: the Blackthorn force was defeated."
+                    : "Mission failed: the Mirewatch force was defeated.";
             endTurnButton.setLabel("Retry Mission");
             return;
         }
 
         bool completed = false;
-        switch (storyMissionIndex)
+        if (storyCampaign == StoryCampaign::Blackthorn)
         {
-        case 0:
-            if (pieceAtObjective("Braun Stonefist"))
+            switch (storyMissionIndex)
             {
-                if (storyMissionStep == 0)
+            case 0:
+                if (pieceAtObjective("Braun Stonefist"))
                 {
-                    storyMissionStep = 1;
-                    storyTargetRow = 3;
-                    storyTargetColumn = 2;
-                    snapshot.status =
-                        "Braun reached the first marker. Mirewatch answers before his next move.";
+                    if (storyMissionStep == 0)
+                    {
+                        storyMissionStep = 1;
+                        storyTargetRow = 3;
+                        storyTargetColumn = 2;
+                        snapshot.status =
+                            "Braun reached the first crossing. Mirewatch answers before his next move.";
+                    }
+                    else
+                    {
+                        completed = true;
+                    }
                 }
-                else
-                {
-                    completed = true;
-                }
+                break;
+            case 1:
+                completed = playerHasPiece("Blackthorn Debt Collector");
+                break;
+            case 2:
+                completed = storyUsedHide && storyUsedSummon &&
+                    controlledCountInSnapshot(snapshot, 1) >= 14;
+                break;
+            case 3:
+                completed = storyUsedAim && !opponentHasPiece("Mirewatch Informant");
+                break;
+            case 4:
+                completed = !opponentHasPiece("Mirewatch Informant") &&
+                    !opponentHasPiece("Bog Spearman");
+                break;
+            case 5:
+                completed = !opponentHasPiece("Donella of the Marsh");
+                break;
+            case 6:
+                completed = !opponentHasPiece("Reed Baelstone");
+                break;
+            default:
+                completed =
+                    (static_cast<game_data::Phase>(snapshot.phase) == game_data::Phase::GameOver &&
+                     snapshot.winner == 1) ||
+                    opponentCount() == 0;
+                break;
             }
-            break;
-        case 1:
-            completed = !opponentHasPiece("Bull Gator");
-            break;
-        case 2:
-            completed = storyUsedAim && !opponentHasPiece("Resistance Smuggler");
-            break;
-        case 3:
-            completed = playerHasPiece("Blackthorn Debt Collector");
-            break;
-        case 4:
-            completed = storyUsedHide && storyUsedSummon &&
-                controlledCountInSnapshot(snapshot, 1) >= 14;
-            break;
-        case 5:
-            completed = !opponentHasPiece("Mirewatch Informant") &&
-                !opponentHasPiece("Bog Spearman");
-            break;
-        case 6:
-            completed = !opponentHasPiece("Donella of the Marsh");
-            break;
-        default:
-            completed =
-                (static_cast<game_data::Phase>(snapshot.phase) == game_data::Phase::GameOver &&
-                 snapshot.winner == 1) ||
-                opponentCount() == 0;
-            break;
+        }
+        else
+        {
+            switch (storyMissionIndex)
+            {
+            case 0:
+                if (pieceAtObjective("Reed Baelstone"))
+                {
+                    if (storyMissionStep == 0)
+                    {
+                        storyMissionStep = 1;
+                        storyTargetRow = 3;
+                        storyTargetColumn = 2;
+                        snapshot.status =
+                            "Reed reached the first crossing. Blackthorn answers before his next move.";
+                    }
+                    else
+                    {
+                        completed = true;
+                    }
+                }
+                break;
+            case 1:
+                completed = !opponentHasPiece("Blackthorn Debt Collector");
+                break;
+            case 2:
+                completed = playerHasPiece("Mirewatch Informant");
+                break;
+            case 3:
+                completed = !opponentHasPiece("Goblin Ambusher") &&
+                    !opponentHasPiece("Blackthorn Debt Collector");
+                break;
+            case 4:
+                completed = !opponentHasPiece("Goblin Sharpshooter");
+                break;
+            case 5:
+                completed = !opponentHasPiece("Blackthorn Foreman") &&
+                    !opponentHasPiece("Blackthorn Debt Collector");
+                break;
+            case 6:
+                completed = !opponentHasPiece("Braun Stonefist");
+                break;
+            default:
+                completed =
+                    (static_cast<game_data::Phase>(snapshot.phase) == game_data::Phase::GameOver &&
+                     snapshot.winner == 1) ||
+                    opponentCount() == 0;
+                break;
+            }
         }
 
         if (static_cast<game_data::Phase>(snapshot.phase) == game_data::Phase::GameOver &&
@@ -5782,12 +5983,14 @@ int main(int argc, char** argv)
             storyTargetRow = -1;
             storyTargetColumn = -1;
             storyCompletedCount = std::max(storyCompletedCount, storyMissionIndex + 1);
-            saveStoryCompletedCount(loggedInUsername, storyCompletedCount);
-            snapshot.status = storyMissionIndex + 1 < static_cast<int>(storyMissions().size())
+            saveStoryCompletedCount(loggedInUsername, storyCampaign, storyCompletedCount);
+            storyCampaignProgress[storyProgressIndex(storyCampaign)] = storyCompletedCount;
+            snapshot.status = storyMissionIndex + 1 < static_cast<int>(storyMissions(storyCampaign).size())
                 ? "Mission complete. Continue to the next chapter."
-                : "Story tutorial complete. Mirewatch is ready for a full match.";
+                : std::string(storyCampaignName(storyCampaign)) +
+                    " story complete. This faction is ready for a full match.";
             endTurnButton.setLabel(
-                storyMissionIndex + 1 < static_cast<int>(storyMissions().size())
+                storyMissionIndex + 1 < static_cast<int>(storyMissions(storyCampaign).size())
                     ? "Continue Story"
                     : "Finish Story");
         }
@@ -7313,6 +7516,10 @@ int main(int argc, char** argv)
 
     #include "screens/game_screen.inl"
 
+    #include "screens/story_select_screen.inl"
+
+    #include "screens/story_mission_select_screen.inl"
+
     #include "screens/story_intro_screen.inl"
 
     #include "screens/deck_select_screen.inl"
@@ -7798,8 +8005,24 @@ int main(int argc, char** argv)
             currentState = GameState::Conquest;
             conquestScreen.applyCaptureState(screen, allCardLibrary);
         }
-        else if (screen == "story-briefing")
+        else if (screen == "story-select")
         {
+            showStorySelect();
+        }
+        else if (screen == "story-mission-select" || screen == "story-mirewatch-mission-select")
+        {
+            showStoryMissionSelect(
+                screen == "story-mirewatch-mission-select"
+                    ? StoryCampaign::Mirewatch
+                    : StoryCampaign::Blackthorn);
+            storyCompletedCount = 5;
+            storyCampaignProgress[storyProgressIndex(storyCampaign)] = storyCompletedCount;
+        }
+        else if (screen == "story-briefing" || screen == "story-mirewatch-briefing")
+        {
+            storyCampaign = screen == "story-mirewatch-briefing"
+                ? StoryCampaign::Mirewatch
+                : StoryCampaign::Blackthorn;
             storyMissionIndex = 0;
             storyComicPage = 1;
             currentState = GameState::StoryIntro;
@@ -7808,12 +8031,14 @@ int main(int argc, char** argv)
         }
         else if (screen == "story-deployment")
         {
-            storyMissionIndex = 3;
+            storyCampaign = StoryCampaign::Blackthorn;
+            storyMissionIndex = 1;
             beginStory();
         }
         else if (screen == "story-sharpshooter-aimed")
         {
-            storyMissionIndex = 2;
+            storyCampaign = StoryCampaign::Blackthorn;
+            storyMissionIndex = 3;
             beginStory();
             const auto sharpshooter = std::find_if(
                 storyEngine->boardPieces().begin(),
@@ -7832,7 +8057,8 @@ int main(int argc, char** argv)
         }
         else if (screen == "story-powers-used")
         {
-            storyMissionIndex = 4;
+            storyCampaign = StoryCampaign::Blackthorn;
+            storyMissionIndex = 2;
             beginStory();
             const auto useStoryPower = [&](const std::string& pieceName) {
                 const auto piece = std::find_if(
@@ -7854,7 +8080,8 @@ int main(int argc, char** argv)
         }
         else if (screen == "story-ai-turn")
         {
-            storyMissionIndex = 5;
+            storyCampaign = StoryCampaign::Blackthorn;
+            storyMissionIndex = 4;
             beginStory();
             sendEndTurn();
             storyAiActionAt = animationTime;
@@ -7862,7 +8089,8 @@ int main(int argc, char** argv)
         }
         else if (screen == "story-ai-attack")
         {
-            storyMissionIndex = 5;
+            storyCampaign = StoryCampaign::Blackthorn;
+            storyMissionIndex = 4;
             beginStory();
             for (int exchange = 0; exchange < 3; ++exchange)
             {
@@ -7873,12 +8101,29 @@ int main(int argc, char** argv)
         }
         else if (screen.rfind("story-game-", 0) == 0)
         {
+            storyCampaign = StoryCampaign::Blackthorn;
             try
             {
                 storyMissionIndex = std::clamp(
                     std::stoi(screen.substr(std::string("story-game-").size())) - 1,
                     0,
-                    static_cast<int>(storyMissions().size()) - 1);
+                    static_cast<int>(storyMissions(storyCampaign).size()) - 1);
+            }
+            catch (const std::exception&)
+            {
+                storyMissionIndex = 0;
+            }
+            beginStory();
+        }
+        else if (screen.rfind("story-mirewatch-game-", 0) == 0)
+        {
+            storyCampaign = StoryCampaign::Mirewatch;
+            try
+            {
+                storyMissionIndex = std::clamp(
+                    std::stoi(screen.substr(std::string("story-mirewatch-game-").size())) - 1,
+                    0,
+                    static_cast<int>(storyMissions(storyCampaign).size()) - 1);
             }
             catch (const std::exception&)
             {
@@ -7962,7 +8207,7 @@ int main(int argc, char** argv)
         }
         else if (index == 1)
         {
-            showStoryIntro();
+            showStorySelect();
         }
         else if (index == 2)
         {
@@ -8840,11 +9085,54 @@ int main(int argc, char** argv)
                         showOptionsScreen(GameState::Menu);
                     }
                 }
+                else if (currentState == GameState::StorySelect)
+                {
+                    if (storySelectBackButton.isClicked(clickPos))
+                    {
+                        showAuthenticatedScreen();
+                    }
+                    else if (storyBlackthornButton.isClicked(clickPos))
+                    {
+                        showStoryMissionSelect(StoryCampaign::Blackthorn);
+                    }
+                    else if (storyMirewatchButton.isClicked(clickPos))
+                    {
+                        showStoryMissionSelect(StoryCampaign::Mirewatch);
+                    }
+                }
+                else if (currentState == GameState::StoryMissionSelect)
+                {
+                    if (storyMissionSelectBackButton.isClicked(clickPos))
+                    {
+                        showStorySelect();
+                    }
+                    else if (storyRestartCampaignButton.isClicked(clickPos))
+                    {
+                        showStoryIntro(0);
+                    }
+                    else
+                    {
+                        const int completed =
+                            storyCampaignProgress[storyProgressIndex(storyCampaign)];
+                        const int missionCount =
+                            static_cast<int>(storyMissions(storyCampaign).size());
+                        const int unlockedCount =
+                            std::min(missionCount, completed + (completed < missionCount ? 1 : 0));
+                        for (int index = 0; index < unlockedCount; ++index)
+                        {
+                            if (storyMissionButtons[static_cast<std::size_t>(index)].isClicked(clickPos))
+                            {
+                                showStoryIntro(index);
+                                break;
+                            }
+                        }
+                    }
+                }
                 else if (currentState == GameState::StoryIntro)
                 {
                     if (storyBackButton.isClicked(clickPos))
                     {
-                        showAuthenticatedScreen();
+                        showStoryMissionSelect(storyCampaign);
                     }
                     else if (storyContinueButton.isClicked(clickPos) && storyComicPage + 1 >= 3)
                     {
@@ -9055,7 +9343,7 @@ int main(int argc, char** argv)
                     }
                     else if (storyButton.isClicked(clickPos))
                     {
-                        showStoryIntro();
+                        showStorySelect();
                     }
                     else if (playButton.isClicked(clickPos))
                     {
@@ -9371,7 +9659,8 @@ int main(int argc, char** argv)
                         if (storyStage == StoryStage::Complete)
                         {
                             const bool hasNext =
-                                storyMissionIndex + 1 < static_cast<int>(storyMissions().size());
+                                storyMissionIndex + 1 <
+                                    static_cast<int>(storyMissions(storyCampaign).size());
                             leaveGame();
                             if (hasNext)
                             {
@@ -10029,9 +10318,17 @@ int main(int argc, char** argv)
                     {
                         leaveOptionsScreen();
                     }
-                    else if (currentState == GameState::StoryIntro)
+                    else if (currentState == GameState::StorySelect)
                     {
                         showAuthenticatedScreen();
+                    }
+                    else if (currentState == GameState::StoryMissionSelect)
+                    {
+                        showStorySelect();
+                    }
+                    else if (currentState == GameState::StoryIntro)
+                    {
+                        showStoryMissionSelect(storyCampaign);
                     }
                     else if (currentState == GameState::ChangePassword && !pendingPasswordChange)
                     {
@@ -10287,6 +10584,21 @@ int main(int argc, char** argv)
                 changePasswordOptionButton.update(mousePos);
             }
             optionsBackButton.update(mousePos);
+        }
+        else if (currentState == GameState::StorySelect)
+        {
+            storyBlackthornButton.update(mousePos);
+            storyMirewatchButton.update(mousePos);
+            storySelectBackButton.update(mousePos);
+        }
+        else if (currentState == GameState::StoryMissionSelect)
+        {
+            for (Button& button : storyMissionButtons)
+            {
+                button.update(mousePos);
+            }
+            storyRestartCampaignButton.update(mousePos);
+            storyMissionSelectBackButton.update(mousePos);
         }
         else if (currentState == GameState::StoryIntro)
         {
@@ -10717,6 +11029,14 @@ int main(int argc, char** argv)
 
             optionsBackButton.draw(window, animationTime);
             window.draw(messageText);
+        }
+        else if (currentState == GameState::StorySelect)
+        {
+            drawStorySelect();
+        }
+        else if (currentState == GameState::StoryMissionSelect)
+        {
+            drawStoryMissionSelect();
         }
         else if (currentState == GameState::StoryIntro)
         {
