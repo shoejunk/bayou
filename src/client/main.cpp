@@ -5362,8 +5362,16 @@ int main(int argc, char** argv)
         return height + PiecePopupScrollTextYInset;
     };
 
+    auto detailRowsScrollContentHeight = [&](const DetailRows& details, float contentWidth) {
+        // The renderer starts with a top inset; reserve the matching bottom
+        // inset in the scroll extent so the last row clears the inner frame.
+        return detailRowsHeight(details, contentWidth) + PiecePopupScrollTextYInset;
+    };
+
     auto detailRowsMaxScroll = [&](const DetailRows& details) {
-        return std::max(0.0f, detailRowsHeight(details, PiecePopupTextWidth) - PiecePopupScrollHeight);
+        return std::max(
+            0.0f,
+            detailRowsScrollContentHeight(details, PiecePopupTextWidth) - PiecePopupScrollHeight);
     };
 
     // The inspector has a wider and taller abilities viewport than the in-game

@@ -438,7 +438,7 @@
     };
 
     auto popupActionContentHeight = [&](const DetailRows& descriptions) {
-        return detailRowsHeight(descriptions, PiecePopupTextWidth);
+        return detailRowsScrollContentHeight(descriptions, PiecePopupTextWidth);
     };
 
     auto popupMaxScroll = [&](const DetailRows& descriptions) {
@@ -822,9 +822,11 @@
 
         std::optional<DetailTooltip> detailTooltip;
         const sf::View previousView = window.getView();
+        const float actionViewportY = PiecePopupScrollY + PiecePopupScrollTextYInset;
+        const float actionViewportHeight = popupScrollHeight - PiecePopupScrollTextYInset * 2.0f;
         sf::View actionView(sf::FloatRect(
-            {PiecePopupTextX, PiecePopupScrollY + inspectedPieceScroll},
-            {PiecePopupTextWidth, popupScrollHeight}));
+            {PiecePopupTextX, actionViewportY + inspectedPieceScroll},
+            {PiecePopupTextWidth, actionViewportHeight}));
         // Map the popup's logical rectangle through the active fixed canvas.
         // Hard-coded 800x600 fractions shift the child viewport left now that
         // the 16:9 view includes logical side gutters.
@@ -834,10 +836,10 @@
             previousView.getCenter() - baseViewSize * 0.5f;
         const sf::Vector2f popupViewportPosition{
             (PiecePopupTextX - baseViewTopLeft.x) / baseViewSize.x,
-            (PiecePopupScrollY - baseViewTopLeft.y) / baseViewSize.y};
+            (actionViewportY - baseViewTopLeft.y) / baseViewSize.y};
         const sf::Vector2f popupViewportSize{
             PiecePopupTextWidth / baseViewSize.x,
-            popupScrollHeight / baseViewSize.y};
+            actionViewportHeight / baseViewSize.y};
         actionView.setViewport(sf::FloatRect(
             {baseViewport.position.x + baseViewport.size.x * popupViewportPosition.x,
              baseViewport.position.y + baseViewport.size.y * popupViewportPosition.y},
@@ -850,9 +852,9 @@
         if (isInsideRect(
                 pointer,
                 PiecePopupTextX,
-                PiecePopupScrollY,
+                actionViewportY,
                 PiecePopupTextWidth,
-                popupScrollHeight))
+                actionViewportHeight))
         {
             detailPointer = pointer + sf::Vector2f(0.0f, inspectedPieceScroll);
         }
