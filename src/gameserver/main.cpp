@@ -769,7 +769,8 @@ public:
             }
 
             const bool timerRefreshDue =
-                engine.phase() == Phase::Playing &&
+                (engine.phase() == Phase::Playing ||
+                 engine.phase() == Phase::HeroPlacement) &&
                 now - lastTimerBroadcast >= TimerBroadcastInterval;
             if (changed || timerRefreshDue)
             {
@@ -1056,7 +1057,8 @@ private:
             }
 
             const bool timerRefreshDue =
-                engine.phase() == Phase::Playing &&
+                (engine.phase() == Phase::Playing ||
+                 engine.phase() == Phase::HeroPlacement) &&
                 now - lastTimerBroadcast >= TimerBroadcastInterval;
             if (changed || timerRefreshDue)
             {

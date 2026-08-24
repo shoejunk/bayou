@@ -1834,7 +1834,49 @@ int main(int argc, char** argv)
               exhaustedRepeatEngine.currentPlayer() == 2,
           "repeat actions stay in the turn and end it after all repeats are used");
 
-    GameEngine timerEngine(13, {plainHeroCard});
+    GameEngine placementTimerEngine(12, {plainHeroCard});
+    placementTimerEngine.enableTimers();
+    placementTimerEngine.submitDeck(1, {plainHeroCard});
+    placementTimerEngine.submitDeck(2, {plainHeroCard});
+    check(placementTimerEngine.phase() == Phase::HeroPlacement &&
+              placementTimerEngine.snapshotFor(1).turnRemainingMs == GameEngine::FullTurnTimerMs,
+          "hero placement starts with the two-minute turn timer");
+    placementTimerEngine.updateTimers(GameEngine::FullTurnTimerMs - 1);
+    check(placementTimerEngine.phase() == Phase::HeroPlacement &&
+              placementTimerEngine.snapshotFor(1).turnRemainingMs == 1,
+          "the server counts down the placement timer before normal play begins");
+    placementTimerEngine.updateTimers(1);
+    check(placementTimerEngine.phase() == Phase::GameOver &&
+              placementTimerEngine.winner() == 2 &&
+              placementTimerEngine.snapshotFor(1).status.find("hero placement time") != std::string::npos,
+          "failing to place heroes before the timer expires loses the game");
+
+    GameEngine incrementEngine(13, {plainHeroCard});
+    incrementEngine.enableTimers();
+    incrementEngine.submitDeck(1, {plainHeroCard});
+    incrementEngine.submitDeck(2, {plainHeroCard});
+    incrementEngine.placeHero(1, 0, homeSquares(1)[0].first, homeSquares(1)[0].second);
+    incrementEngine.placeHero(2, 0, homeSquares(2)[0].first, homeSquares(2)[0].second);
+    bool timedMovesAccepted = true;
+    for (std::size_t move = 0; move < GameEngine::IncrementMoveLimit; ++move)
+    {
+        timedMovesAccepted = incrementEngine.endTurn(1) && incrementEngine.endTurn(2) &&
+            timedMovesAccepted;
+    }
+    check(timedMovesAccepted,
+          "players can complete timed turns while earning the clock increment");
+    const Snapshot incrementSnapshot = incrementEngine.snapshotFor(1);
+    const std::int64_t incrementedClock =
+        GameEngine::RegularClockMs +
+        static_cast<std::int64_t>(GameEngine::IncrementMoveLimit) * GameEngine::IncrementMs;
+    check(incrementSnapshot.players[0].clockRemainingMs == incrementedClock &&
+              incrementSnapshot.players[1].clockRemainingMs == incrementedClock,
+          "the first 30 moves add 10 seconds to each player's authoritative clock");
+    check(incrementEngine.endTurn(1) &&
+              incrementEngine.snapshotFor(1).players[0].clockRemainingMs == incrementedClock,
+          "the clock increment stops after a player's 30th move");
+
+    GameEngine timerEngine(14, {plainHeroCard});
     timerEngine.enableTimers();
     timerEngine.submitDeck(1, {plainHeroCard});
     timerEngine.submitDeck(2, {plainHeroCard});

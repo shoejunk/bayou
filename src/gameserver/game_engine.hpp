@@ -20,6 +20,8 @@ class GameEngine
 {
 public:
     static constexpr std::int64_t RegularClockMs = 15 * 60 * 1000;
+    static constexpr std::int64_t IncrementMs = 10 * 1000;
+    static constexpr std::size_t IncrementMoveLimit = 30;
     static constexpr std::int64_t FullTurnTimerMs = 2 * 60 * 1000;
     static constexpr std::int64_t ReducedTurnTimerMs = 60 * 1000;
     static constexpr std::int64_t MinimumTurnTimerMs = 30 * 1000;
@@ -161,6 +163,7 @@ public:
     {
         timersEnabled = true;
         playerClockRemainingMs.fill(clockMs);
+        movesWithIncrement.fill(0);
         turnTimerLevels.fill(0);
         turnTimerDurations = {
             fullTurnTimerMs,
@@ -173,9 +176,14 @@ public:
 
     std::int64_t timeUntilNextTimerEventMs() const
     {
-        if (!timersEnabled || phaseValue != Phase::Playing)
+        if (!timersEnabled ||
+            (phaseValue != Phase::Playing && phaseValue != Phase::HeroPlacement))
         {
             return 0;
+        }
+        if (phaseValue == Phase::HeroPlacement)
+        {
+            return turnRemainingMs;
         }
         return std::min(
             playerClockRemainingMs[static_cast<std::size_t>(activePlayer - 1)],
@@ -187,25 +195,32 @@ public:
     // exposed through snapshots without being game-state transitions.
     bool updateTimers(std::int64_t elapsedMs)
     {
-        if (!timersEnabled || phaseValue != Phase::Playing || elapsedMs <= 0)
+        if (!timersEnabled ||
+            (phaseValue != Phase::Playing && phaseValue != Phase::HeroPlacement) ||
+            elapsedMs <= 0)
         {
             return false;
         }
 
         bool transitioned = false;
-        while (elapsedMs > 0 && phaseValue == Phase::Playing)
+        while (elapsedMs > 0 &&
+               (phaseValue == Phase::Playing || phaseValue == Phase::HeroPlacement))
         {
             const std::size_t activeIndex = static_cast<std::size_t>(activePlayer - 1);
-            const std::int64_t untilEvent = std::min(
-                playerClockRemainingMs[activeIndex],
-                turnRemainingMs);
+            const bool placingHeroes = phaseValue == Phase::HeroPlacement;
+            const std::int64_t untilEvent = placingHeroes
+                ? turnRemainingMs
+                : std::min(playerClockRemainingMs[activeIndex], turnRemainingMs);
             const std::int64_t consumed = std::min(elapsedMs, untilEvent);
-            playerClockRemainingMs[activeIndex] -= consumed;
+            if (!placingHeroes)
+            {
+                playerClockRemainingMs[activeIndex] -= consumed;
+            }
             turnRemainingMs -= consumed;
             elapsedMs -= consumed;
 
             // The match clock is decisive when both deadlines land together.
-            if (playerClockRemainingMs[activeIndex] <= 0)
+            if (!placingHeroes && playerClockRemainingMs[activeIndex] <= 0)
             {
                 playerClockRemainingMs[activeIndex] = 0;
                 winnerValue = activePlayer == 1 ? 2 : 1;
@@ -220,6 +235,17 @@ public:
             if (turnRemainingMs <= 0)
             {
                 const int timedOutPlayer = activePlayer;
+                if (placingHeroes)
+                {
+                    winnerValue = timedOutPlayer == 1 ? 2 : 1;
+                    phaseValue = Phase::GameOver;
+                    status = fmt::format(
+                        "Player {} ran out of hero placement time. Player {} wins!",
+                        timedOutPlayer,
+                        winnerValue);
+                    return true;
+                }
+
                 std::size_t& level = turnTimerLevels[activeIndex];
                 level = std::min<std::size_t>(level + 1, 2);
                 advanceTurn(fmt::format(
@@ -231,16 +257,22 @@ public:
         return transitioned;
     }
 
-    // A successful play, piece action, ability, or discard restores that
-    // player's next turn to two minutes. If the action keeps the turn (such as
-    // a discard or Command), the current turn timer is restored immediately.
+    // A successful play, piece action, ability, discard, or pass restores that
+    // player's next turn to two minutes. The first 30 completed moves also
+    // receive a 10-second increment on that player's authoritative clock.
     void recordPlayerMove(int playerNumber)
     {
         if (!timersEnabled || playerNumber < 1 || playerNumber > 2)
         {
             return;
         }
-        turnTimerLevels[static_cast<std::size_t>(playerNumber - 1)] = 0;
+        const std::size_t playerIndex = static_cast<std::size_t>(playerNumber - 1);
+        if (movesWithIncrement[playerIndex] < IncrementMoveLimit)
+        {
+            playerClockRemainingMs[playerIndex] += IncrementMs;
+            ++movesWithIncrement[playerIndex];
+        }
+        turnTimerLevels[playerIndex] = 0;
         if (phaseValue == Phase::Playing && activePlayer == playerNumber)
         {
             turnRemainingMs = turnTimerDurations[0];
@@ -276,6 +308,11 @@ public:
 
         if (bothDecksSubmitted())
         {
+            activePlayer = 1;
+            if (timersEnabled)
+            {
+                turnRemainingMs = turnTimerDurations[0];
+            }
             status = "Place your heroes on your starting squares.";
         }
     }
@@ -311,6 +348,14 @@ public:
         if (players[0].heroesToPlace.empty() && players[1].heroesToPlace.empty())
         {
             beginPlay();
+        }
+        else if (playerNumber == activePlayer && player.heroesToPlace.empty())
+        {
+            activePlayer = playerNumber == 1 ? 2 : 1;
+            if (timersEnabled)
+            {
+                turnRemainingMs = turnTimerDurations[0];
+            }
         }
         return true;
     }
@@ -600,6 +645,7 @@ public:
             return false;
         }
 
+        recordPlayerMove(playerNumber);
         advanceTurn(fmt::format("Player {} passed.", playerNumber));
         return true;
     }
@@ -700,6 +746,7 @@ private:
     bool relentlessActionKeepsTurn = false;
     bool timersEnabled = false;
     std::array<std::int64_t, 2> playerClockRemainingMs{RegularClockMs, RegularClockMs};
+    std::array<std::size_t, 2> movesWithIncrement{};
     std::array<std::size_t, 2> turnTimerLevels{};
     std::array<std::int64_t, 3> turnTimerDurations{
         FullTurnTimerMs,

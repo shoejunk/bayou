@@ -2450,7 +2450,9 @@
             if (gameSnapshot.timersEnabled && phase != game_data::Phase::GameOver)
             {
                 const std::int64_t liveTurnRemainingMs = liveTimer(
-                    gameSnapshot.turnRemainingMs, phase == game_data::Phase::Playing);
+                    gameSnapshot.turnRemainingMs,
+                    phase == game_data::Phase::Playing ||
+                        phase == game_data::Phase::HeroPlacement);
                 const bool urgent = liveTurnRemainingMs <= 30'000;
 
                 // A drain bar beside the figure, so time pressure is felt rather
