@@ -814,6 +814,11 @@ constexpr float HandGap = 5.0f;
 // Leaves room either side of the fan for the overflow chevrons.
 constexpr float HandStartX = 190.0f;
 constexpr std::size_t VisibleGameHandCards = 5;
+constexpr std::size_t ForesightChoiceColumns = 8;
+constexpr std::size_t ForesightVisibleRows = 3;
+constexpr float ForesightChoiceY = 142.0f;
+constexpr float ForesightChoiceRowPitch = 134.0f;
+constexpr float ForesightChoiceGap = 10.0f;
 constexpr float TrashCanWidth = GamePileWidth;
 constexpr float TrashCanHeight = GamePileHeight;
 constexpr float TrashCanSize = GamePileWidth;
@@ -1368,6 +1373,7 @@ int main(int argc, char** argv)
     int sandboxPlacementPlayer = 1;
     int nextSandboxPieceId = 1;
     std::size_t gameHandOffset = 0;
+    std::size_t foresightChoiceRowOffset = 0;
     std::optional<int> selectedPieceId;
     std::optional<std::size_t> selectedHandIndex;
     std::optional<int> inspectedPieceId;
@@ -2675,6 +2681,7 @@ int main(int argc, char** argv)
         sandboxPlacementPlayer = 1;
         nextSandboxPieceId = 1;
         gameHandOffset = 0;
+        foresightChoiceRowOffset = 0;
         gameDragKind = GameDragKind::None;
         draggingHandIndex.reset();
         draggingPieceId.reset();
@@ -3172,6 +3179,7 @@ int main(int argc, char** argv)
         storyTargetColumn = -1;
         sandboxPlacementPlayer = 1;
         gameHandOffset = 0;
+        foresightChoiceRowOffset = 0;
         nextSandboxPieceId = 1;
         gameSnapshot = {};
         gameSnapshotReceivedAt = {};
@@ -5739,6 +5747,40 @@ int main(int argc, char** argv)
         return std::nullopt;
     };
 
+    auto foresightChoiceAtPixel = [&](sf::Vector2f point) -> std::optional<std::size_t> {
+        if (gameSnapshot.foresightChoices.empty())
+        {
+            return std::nullopt;
+        }
+        const std::size_t totalRows =
+            (gameSnapshot.foresightChoices.size() + ForesightChoiceColumns - 1) /
+            ForesightChoiceColumns;
+        clampListOffset(foresightChoiceRowOffset, totalRows, ForesightVisibleRows);
+        const std::size_t visibleRows = std::min(
+            ForesightVisibleRows, totalRows - foresightChoiceRowOffset);
+        for (std::size_t visibleRow = 0; visibleRow < visibleRows; ++visibleRow)
+        {
+            const std::size_t row = foresightChoiceRowOffset + visibleRow;
+            const std::size_t rowStart = row * ForesightChoiceColumns;
+            const std::size_t rowCount = std::min(
+                ForesightChoiceColumns, gameSnapshot.foresightChoices.size() - rowStart);
+            const float rowWidth = static_cast<float>(rowCount) * HandCardWidth +
+                static_cast<float>(rowCount - 1) * ForesightChoiceGap;
+            const float startX = (ui_canvas::Width - rowWidth) * 0.5f;
+            const float y = ForesightChoiceY + static_cast<float>(visibleRow) *
+                ForesightChoiceRowPitch;
+            for (std::size_t column = 0; column < rowCount; ++column)
+            {
+                const float x = startX + static_cast<float>(column) *
+                    (HandCardWidth + ForesightChoiceGap);
+                if (isInsideRect(point, x, y, HandCardWidth, HandCardHeight + 24.0f))
+                {
+                    return rowStart + column;
+                }
+            }
+        }
+        return std::nullopt;
+    };
     auto isDiscardTrashCanAtPixel = [&](sf::Vector2f point) {
         return isInsideRect(
             point,
@@ -6705,6 +6747,13 @@ int main(int argc, char** argv)
     };
 
     auto updateStoryAi = [&]() {
+        if (storyMode && storyEngine && storyAiPending &&
+            storyEngine->hasPendingForesightChoice(2))
+        {
+            storyEngine->chooseForesightCard(2, 0);
+            syncStoryEngine();
+            return;
+        }
         if (pendingStoryAi)
         {
             if (pendingStoryAi->wait_for(std::chrono::seconds(0)) != std::future_status::ready)
@@ -6875,6 +6924,21 @@ int main(int argc, char** argv)
         sendGamePacket(packet);
     };
 
+    auto sendChooseForesightCard = [&](int choiceIndex) {
+        if (storyMode && storyEngine)
+        {
+            storyEngine->chooseForesightCard(1, choiceIndex);
+            syncStoryEngine();
+            return;
+        }
+        if (sandboxMode)
+        {
+            return;
+        }
+        sf::Packet packet;
+        packet << static_cast<std::uint8_t>(network::MessageType::ChooseForesightCard) << choiceIndex;
+        sendGamePacket(packet);
+    };
     auto sendEndTurn = [&]() {
         if (storyMode && storyEngine)
         {
@@ -7385,8 +7449,14 @@ int main(int argc, char** argv)
             return;
         }
 
-        const std::optional<std::pair<int, int>> square = squareAtPixel(clickPos);
-
+        if (!gameSnapshot.foresightChoices.empty())
+        {
+            if (const std::optional<std::size_t> choiceIndex = foresightChoiceAtPixel(clickPos))
+            {
+                sendChooseForesightCard(static_cast<int>(*choiceIndex));
+            }
+            return;
+        }
         if (phase == game_data::Phase::Playing &&
             (sandboxMode || gameSnapshot.activePlayer == me) &&
             selectedHandIndex && *selectedHandIndex < gameSnapshot.hand.size())
@@ -7401,6 +7471,7 @@ int main(int argc, char** argv)
             }
         }
 
+        const std::optional<std::pair<int, int>> square = squareAtPixel(clickPos);
         if (phase == game_data::Phase::HeroPlacement)
         {
             if (const std::optional<std::size_t> handIndex = handCardAtPixel(clickPos))
@@ -10170,6 +10241,23 @@ int main(int argc, char** argv)
                             0.0f,
                             popupMaxScroll(actionDescriptions));
                     }
+                }
+            }
+            else if (const auto* wheel = event->getIf<sf::Event::MouseWheelScrolled>();
+                     wheel && currentState == GameState::Game && haveSnapshot &&
+                     !gameSnapshot.foresightChoices.empty())
+            {
+                const sf::Vector2f wheelPos = window.mapPixelToCoords(wheel->position);
+                if (isInsideRect(wheelPos, 24.0f, 54.0f, 752.0f, 524.0f))
+                {
+                    const std::size_t totalRows =
+                        (gameSnapshot.foresightChoices.size() + ForesightChoiceColumns - 1) /
+                        ForesightChoiceColumns;
+                    scrollList(
+                        foresightChoiceRowOffset,
+                        totalRows,
+                        ForesightVisibleRows,
+                        wheel->delta);
                 }
             }
             else if (const auto* wheel = event->getIf<sf::Event::MouseWheelScrolled>();

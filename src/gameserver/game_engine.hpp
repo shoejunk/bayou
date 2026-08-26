@@ -34,6 +34,7 @@ public:
     {
         int number = 0;
         std::vector<GameCard> drawPile;
+        std::vector<GameCard> foresightChoices;
         std::vector<GameCard> hand;
         std::vector<GameCard> heroesToPlace;
         int resources = 0;
@@ -74,6 +75,11 @@ public:
     const std::array<std::uint8_t, BoardSquares>& boardControl() const { return control; }
     const std::array<std::uint8_t, BoardSquares>& boardHoles() const { return holes; }
     const EnginePlayer& playerState(int playerNumber) const { return playerRef(playerNumber); }
+    bool hasPendingForesightChoice(int playerNumber) const
+    {
+        return playerNumber >= 1 && playerNumber <= 2 &&
+            !playerRef(playerNumber).foresightChoices.empty();
+    }
 
     // Seeds an authored board while preserving the ordinary match rules for
     // every action taken after setup. This is used by Story Mode and by tests;
@@ -105,6 +111,7 @@ public:
             EnginePlayer& player = playerRef(playerNumber);
             player.number = playerNumber;
             player.drawPile.clear();
+            player.foresightChoices.clear();
             player.hand = playerNumber == 1
                 ? std::move(playerOneHand)
                 : std::move(playerTwoHand);
@@ -284,6 +291,7 @@ public:
     {
         EnginePlayer& player = playerRef(playerNumber);
         player.drawPile.clear();
+        player.foresightChoices.clear();
         player.heroesToPlace.clear();
 
         for (const card_data::Card& card : cards)
@@ -362,6 +370,10 @@ public:
 
     bool playCard(int playerNumber, int handIndex, int targetRow, int targetColumn)
     {
+        if (hasPendingForesightChoice(playerNumber))
+        {
+            return false;
+        }
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
         {
             return false;
@@ -442,6 +454,10 @@ public:
     // Discarding sends the card to the bottom of the draw pile without ending the turn.
     bool discardCard(int playerNumber, int handIndex)
     {
+        if (hasPendingForesightChoice(playerNumber))
+        {
+            return false;
+        }
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
         {
             return false;
@@ -511,6 +527,10 @@ public:
 private:
     bool useAbilityWithoutRecordingMove(int playerNumber, int pieceId)
     {
+        if (hasPendingForesightChoice(playerNumber))
+        {
+            return false;
+        }
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
         {
             return false;
@@ -638,8 +658,40 @@ private:
     }
 
 public:
+    bool chooseForesightCard(int playerNumber, int choiceIndex)
+    {
+        if (phaseValue != Phase::Playing || playerNumber != activePlayer)
+        {
+            return false;
+        }
+        EnginePlayer& player = playerRef(playerNumber);
+        if (player.foresightChoices.empty() || choiceIndex < 0 ||
+            choiceIndex >= static_cast<int>(player.foresightChoices.size()))
+        {
+            return false;
+        }
+
+        const GameCard chosenCard = player.foresightChoices[static_cast<std::size_t>(choiceIndex)];
+        for (std::size_t i = player.foresightChoices.size(); i-- > 0;)
+        {
+            if (static_cast<int>(i) != choiceIndex)
+            {
+                player.drawPile.insert(player.drawPile.begin(), player.foresightChoices[i]);
+            }
+        }
+        player.foresightChoices.clear();
+        player.hand.push_back(chosenCard);
+        status = fmt::format("Player {} chose {} with Foresight.", playerNumber, chosenCard.title);
+        recordPlayerMove(playerNumber);
+        return true;
+    }
+
     bool endTurn(int playerNumber)
     {
+        if (hasPendingForesightChoice(playerNumber))
+        {
+            return false;
+        }
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
         {
             return false;
@@ -696,6 +748,10 @@ public:
         snapshot.hand = phaseValue == Phase::HeroPlacement
             ? viewingPlayer.heroesToPlace
             : viewingPlayer.hand;
+        if (phaseValue == Phase::Playing && playerNumber == activePlayer)
+        {
+            snapshot.foresightChoices = viewingPlayer.foresightChoices;
+        }
         snapshot.status = status;
 
         for (int p = 0; p < 2; ++p)
@@ -964,11 +1020,15 @@ private:
         int toRow,
         int toColumn)
     {
-        if (phaseValue != Phase::Playing || playerNumber != activePlayer)
+        if (hasPendingForesightChoice(playerNumber))
         {
             return false;
         }
 
+        if (phaseValue != Phase::Playing || playerNumber != activePlayer)
+        {
+            return false;
+        }
         Piece* piece = pieceById(pieceId);
         if (piece == nullptr || piece->owner != playerNumber)
         {
@@ -1361,6 +1421,20 @@ private:
         return count;
     }
 
+    int foresightUnitCount(int playerNumber) const
+    {
+        int count = 0;
+        for (const Piece& piece : pieces)
+        {
+            if (piece.owner == playerNumber && !piece.isHero &&
+                hasKeyword(piece.keywords, "foresight"))
+            {
+                ++count;
+            }
+        }
+        return count;
+    }
+
     int heroesAlive(int playerNumber) const
     {
         int count = 0;
@@ -1399,6 +1473,7 @@ private:
                 static_cast<std::size_t>(playerNumber - 1)]];
         }
         EnginePlayer& player = playerRef(playerNumber);
+        player.foresightChoices.clear();
         player.discardsThisTurn = 0;
         updatePieceControlAtTurnStart(pieces, playerNumber);
         const int controlledIncome = controlledCount(playerNumber);
@@ -1427,7 +1502,15 @@ private:
             player.resources,
             playerEnchantmentResourceDrain(enchantments, playerNumber));
         player.resources -= resourceDrain;
-        drawCard(player);
+        const int foresightUnits = foresightUnitCount(playerNumber);
+        if (foresightUnits > 0)
+        {
+            prepareForesightDraw(player, foresightUnits);
+        }
+        else
+        {
+            drawCard(player);
+        }
 
         for (Piece& piece : pieces)
         {
@@ -1457,6 +1540,21 @@ private:
         }
         player.hand.push_back(player.drawPile.back());
         player.drawPile.pop_back();
+    }
+
+    void prepareForesightDraw(EnginePlayer& player, int foresightUnits)
+    {
+        player.foresightChoices.clear();
+        if (player.drawPile.empty() || static_cast<int>(player.hand.size()) >= MaxHandSize)
+        {
+            return;
+        }
+        const int choiceCount = std::max(0, foresightUnits) + 1;
+        for (int i = 0; i < choiceCount && !player.drawPile.empty(); ++i)
+        {
+            player.foresightChoices.push_back(player.drawPile.back());
+            player.drawPile.pop_back();
+        }
     }
 
     void advanceTurn(const std::string& actionStatus)

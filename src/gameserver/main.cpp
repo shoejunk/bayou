@@ -735,22 +735,29 @@ public:
             if (engine.phase() == Phase::Playing &&
                 engine.currentPlayer() == AiPlayerNumber)
             {
-                const int beforePlayer = engine.currentPlayer();
-                const bool resolvingCommand = engine.commandingPiece() != 0;
-                const AiAction action = chooseAiAction(engine, AiPlayerNumber);
-                applyAiAction(engine, AiPlayerNumber, action);
-                if (engine.phase() == Phase::Playing &&
-                    engine.currentPlayer() == beforePlayer &&
-                    engine.commandingPiece() == 0 &&
-                    !resolvingCommand &&
-                    action.kind != AiActionKind::EndTurn &&
-                    action.kind != AiActionKind::DiscardCard)
+                if (engine.hasPendingForesightChoice(AiPlayerNumber))
                 {
-                    engine.endTurn(AiPlayerNumber);
+                    engine.chooseForesightCard(AiPlayerNumber, 0);
+                    changed = true;
                 }
-                changed = true;
+                else
+                {
+                    const int beforePlayer = engine.currentPlayer();
+                    const bool resolvingCommand = engine.commandingPiece() != 0;
+                    const AiAction action = chooseAiAction(engine, AiPlayerNumber);
+                    applyAiAction(engine, AiPlayerNumber, action);
+                    if (engine.phase() == Phase::Playing &&
+                        engine.currentPlayer() == beforePlayer &&
+                        engine.commandingPiece() == 0 &&
+                        !resolvingCommand &&
+                        action.kind != AiActionKind::EndTurn &&
+                        action.kind != AiActionKind::DiscardCard)
+                    {
+                        engine.endTurn(AiPlayerNumber);
+                    }
+                    changed = true;
+                }
             }
-
             sf::Packet packet;
             const auto status = human.socket->receive(packet);
             if (status == sf::Socket::Status::Disconnected)

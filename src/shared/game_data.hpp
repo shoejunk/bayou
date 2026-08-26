@@ -928,6 +928,7 @@ struct Snapshot
     std::vector<Piece> pieces;
     std::vector<Enchantment> enchantments;
     std::vector<GameCard> hand;  // recipient's hand
+    std::vector<GameCard> foresightChoices;  // recipient's pending Foresight options
     std::string status;
 };
 
@@ -1147,6 +1148,12 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
         writeGameCard(packet, card);
     }
 
+    packet << static_cast<std::uint32_t>(snapshot.foresightChoices.size());
+    for (const GameCard& card : snapshot.foresightChoices)
+    {
+        writeGameCard(packet, card);
+    }
+
     packet << snapshot.status;
 }
 
@@ -1232,6 +1239,23 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot)
         snapshot.hand.push_back(card);
     }
 
+    std::uint32_t foresightChoiceCount = 0;
+    packet >> foresightChoiceCount;
+    if (!packet)
+    {
+        return false;
+    }
+    snapshot.foresightChoices.clear();
+    snapshot.foresightChoices.reserve(foresightChoiceCount);
+    for (std::uint32_t i = 0; i < foresightChoiceCount; ++i)
+    {
+        GameCard card;
+        if (!readGameCard(packet, card))
+        {
+            return false;
+        }
+        snapshot.foresightChoices.push_back(card);
+    }
     packet >> snapshot.status;
     return static_cast<bool>(packet);
 }

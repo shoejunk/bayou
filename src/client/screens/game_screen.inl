@@ -895,6 +895,93 @@
         drawDetailTooltip(detailTooltip);
     };
 
+    auto drawForesightChoices = [&]() {
+        if (gameSnapshot.foresightChoices.empty())
+        {
+            foresightChoiceRowOffset = 0;
+            return;
+        }
+
+        sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
+        overlay.setPosition({ui_canvas::Left, 0.0f});
+        overlay.setFillColor(sf::Color(5, 8, 9, 196));
+        window.draw(overlay);
+
+        drawBeveledPlate(
+            window,
+            {24.0f, 54.0f},
+            {752.0f, 524.0f},
+            sf::Color(14, 24, 24, 250),
+            BoardBrassBright,
+            true,
+            14.0f);
+
+        sf::Text title(font, "FORESIGHT", 23);
+        title.setLetterSpacing(1.8f);
+        title.setFillColor(BoardBrassBright);
+        centerText(title, {400.0f, 82.0f});
+        drawCrispText(window, title);
+        drawWrappedText(
+            window,
+            font,
+            "Choose one card for your hand. The rest return to the bottom of your deck.",
+            11,
+            {92.0f, 105.0f},
+            BoardParchmentMuted,
+            616.0f,
+            2.0f);
+
+        const std::size_t totalRows =
+            (gameSnapshot.foresightChoices.size() + ForesightChoiceColumns - 1) /
+            ForesightChoiceColumns;
+        clampListOffset(foresightChoiceRowOffset, totalRows, ForesightVisibleRows);
+        const std::size_t visibleRows = std::min(
+            ForesightVisibleRows, totalRows - foresightChoiceRowOffset);
+        for (std::size_t visibleRow = 0; visibleRow < visibleRows; ++visibleRow)
+        {
+            const std::size_t row = foresightChoiceRowOffset + visibleRow;
+            const std::size_t rowStart = row * ForesightChoiceColumns;
+            const std::size_t rowCards = std::min(
+                ForesightChoiceColumns, gameSnapshot.foresightChoices.size() - rowStart);
+            const float rowWidth = static_cast<float>(rowCards) * HandCardWidth +
+                static_cast<float>(rowCards - 1) * ForesightChoiceGap;
+            const float startX = (ui_canvas::Width - rowWidth) * 0.5f;
+            const float y = ForesightChoiceY + static_cast<float>(visibleRow) *
+                ForesightChoiceRowPitch;
+            for (std::size_t column = 0; column < rowCards; ++column)
+            {
+                const std::size_t index = rowStart + column;
+                const float x = startX + static_cast<float>(column) *
+                    (HandCardWidth + ForesightChoiceGap);
+                drawGameCardFace(
+                    {x, y},
+                    gameSnapshot.foresightChoices[index],
+                    false,
+                    true);
+                drawCutPlate(
+                    {x, y + HandCardHeight + 4.0f},
+                    {HandCardWidth, 19.0f},
+                    5.0f,
+                    sf::Color(8, 14, 15, 238),
+                    withAlpha(BoardBrassBright, 190),
+                    1.0f);
+                sf::Text choose(font, "CHOOSE", 8);
+                choose.setLetterSpacing(1.0f);
+                choose.setFillColor(BoardBrassBright);
+                centerText(choose, {x + HandCardWidth * 0.5f, y + HandCardHeight + 13.0f});
+                drawCrispText(window, choose);
+            }
+        }
+        if (totalRows > ForesightVisibleRows)
+        {
+            sf::Text scrollHint(font, "SCROLL FOR MORE", 9);
+            scrollHint.setLetterSpacing(1.0f);
+            scrollHint.setFillColor(BoardParchmentMuted);
+            centerText(scrollHint, {400.0f, 558.0f});
+            drawCrispText(window, scrollHint);
+        }
+    };
+
     auto drawGame = [&]() {
         if (!haveSnapshot)
         {
@@ -3003,7 +3090,14 @@
 
         if (storyMode)
         {
-            drawPiecePopup();
+            if (gameSnapshot.foresightChoices.empty())
+            {
+                drawPiecePopup();
+            }
+            else
+            {
+                drawForesightChoices();
+            }
             return;
         }
 
@@ -3129,5 +3223,12 @@
             leaveGameButton.draw(window);
         }
 
-        drawPiecePopup();
+        if (gameSnapshot.foresightChoices.empty())
+        {
+            drawPiecePopup();
+        }
+        else
+        {
+            drawForesightChoices();
+        }
     };

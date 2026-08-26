@@ -29,6 +29,7 @@ inline bool supported(network::MessageType type)
         case network::MessageType::UseAbility:
         case network::MessageType::DiscardCard:
         case network::MessageType::EndTurn:
+        case network::MessageType::ChooseForesightCard:
             return true;
         default:
             return false;
@@ -71,6 +72,7 @@ inline bool decodePayload(
             break;
         case network::MessageType::UseAbility:
         case network::MessageType::DiscardCard:
+        case network::MessageType::ChooseForesightCard:
             packet >> action.argumentOne;
             break;
         case network::MessageType::EndTurn:
@@ -168,6 +170,9 @@ inline bool apply(
             break;
         case network::MessageType::EndTurn:
             accepted = engine.endTurn(action.playerNumber);
+            break;
+        case network::MessageType::ChooseForesightCard:
+            accepted = engine.chooseForesightCard(action.playerNumber, action.argumentOne);
             break;
         default:
             if (error != nullptr)

@@ -486,6 +486,85 @@ int main(int argc, char** argv)
               revealedByEngine->actionState == 0 && !revealedByEngine->hidden,
           "the authoritative end-turn path forces an adjacent enemy to state zero");
 
+    GameCard foresightBoardUnit;
+    foresightBoardUnit.title = "Foresight Unit";
+    foresightBoardUnit.type = "Unit";
+    foresightBoardUnit.keywords = {"fOrEsIgHt"};
+    GameCard foresightHero = foresightBoardUnit;
+    foresightHero.title = "Foresight Hero";
+    foresightHero.type = "Hero";
+    GameCard opponentForesightUnit = foresightBoardUnit;
+    opponentForesightUnit.title = "Opponent Foresight Unit";
+    GameCard opponentHero = foresightHero;
+    opponentHero.title = "Opponent Hero";
+
+    const auto makeForesightDeckCard = [](const std::string& title) {
+        card_data::Card card;
+        card.title = title;
+        card.type = "Unit";
+        return card;
+    };
+
+    GameEngine foresightEngine(77, {});
+    foresightEngine.loadScenario(
+        {{1, foresightBoardUnit, 2, 2, false},
+         {1, foresightHero, 2, 4, true},
+         {2, opponentForesightUnit, 5, 5, false},
+         {2, opponentHero, 6, 5, true}},
+        {},
+        {},
+        0,
+        0,
+        1,
+        "Foresight draw test");
+    foresightEngine.submitDeck(1, {
+        makeForesightDeckCard("Foresight Draw A"),
+        makeForesightDeckCard("Foresight Draw B"),
+        makeForesightDeckCard("Foresight Draw C")});
+    foresightEngine.submitDeck(2, {makeForesightDeckCard("Opponent Draw")});
+    check(foresightEngine.endTurn(1), "a normal turn can end before Foresight is evaluated");
+    check(foresightEngine.hasPendingForesightChoice(2),
+          "the opponent's own Foresight choice is prepared on the opponent's turn");
+    check(foresightEngine.chooseForesightCard(2, 0), "the opponent can resolve its Foresight choice");
+    check(foresightEngine.endTurn(2), "the opponent turn can end before Foresight is evaluated");
+    const Snapshot foresightSnapshot = foresightEngine.snapshotFor(1);
+    check(foresightSnapshot.foresightChoices.size() == 2 &&
+              foresightEngine.playerState(1).drawPile.size() == 1,
+          "one owned non-Hero Foresight unit reveals two cards and leaves the rest of the deck intact");
+    check(foresightEngine.snapshotFor(2).foresightChoices.empty(),
+          "Foresight options are hidden from the opponent");
+    if (foresightSnapshot.foresightChoices.size() == 2)
+    {
+        const std::string returnedTitle = foresightSnapshot.foresightChoices[0].title;
+        const std::string chosenTitle = foresightSnapshot.foresightChoices[1].title;
+        check(!foresightEngine.endTurn(1), "a player must choose a Foresight card before ending the turn");
+        check(foresightEngine.chooseForesightCard(1, 1),
+              "the active player can choose one revealed Foresight card");
+        check(!foresightEngine.hasPendingForesightChoice(1) &&
+                  foresightEngine.playerState(1).hand.size() == 1 &&
+                  foresightEngine.playerState(1).hand[0].title == chosenTitle,
+              "the chosen Foresight card enters the hand and clears the pending choice");
+        const auto& remainingDrawPile = foresightEngine.playerState(1).drawPile;
+        const bool returnedToBottom = std::any_of(
+            remainingDrawPile.begin(), remainingDrawPile.end(),
+            [&returnedTitle](const GameCard& card) { return card.title == returnedTitle; });
+        const bool chosenStillInPile = std::any_of(
+            remainingDrawPile.begin(), remainingDrawPile.end(),
+            [&chosenTitle](const GameCard& card) { return card.title == chosenTitle; });
+        check(returnedToBottom && !chosenStillInPile && remainingDrawPile.size() == 2,
+              "the unchosen Foresight card returns to the bottom of the deck");
+    }
+
+    GameEngine ordinaryDrawEngine(78, {});
+    ordinaryDrawEngine.loadScenario({}, {}, {}, 0, 0, 1, "ordinary draw test");
+    ordinaryDrawEngine.submitDeck(1, {makeForesightDeckCard("Ordinary Draw A")});
+    ordinaryDrawEngine.submitDeck(2, {makeForesightDeckCard("Ordinary Draw B")});
+    check(ordinaryDrawEngine.endTurn(1), "an ordinary turn can end without Foresight");
+    check(ordinaryDrawEngine.endTurn(2), "the ordinary opponent turn can end");
+    check(ordinaryDrawEngine.snapshotFor(1).foresightChoices.empty() &&
+              ordinaryDrawEngine.playerState(1).hand.size() == 1,
+          "a player without Foresight still draws one card normally");
+
     Piece largeRangedAttacker;
     largeRangedAttacker.id = 110;
     largeRangedAttacker.owner = 1;
@@ -1411,6 +1490,10 @@ int main(int argc, char** argv)
         2,
         3,
         99});
+    GameCard serializedForesight;
+    serializedForesight.title = "Serialized Foresight";
+    serializedForesight.keywords = {"Foresight"};
+    serializedSnapshot.foresightChoices.push_back(serializedForesight);
     serializedSnapshot.status = "Command pending";
     sf::Packet snapshotPacket;
     writeSnapshot(snapshotPacket, serializedSnapshot);
@@ -1423,6 +1506,8 @@ int main(int argc, char** argv)
               roundTrippedSnapshot.players[0].clockRemainingMs == 876'543 &&
               roundTrippedSnapshot.enchantments.size() == 1 &&
               roundTrippedSnapshot.enchantments[0].title == "Serialized Enchantment" &&
+              roundTrippedSnapshot.foresightChoices.size() == 1 &&
+              roundTrippedSnapshot.foresightChoices[0].title == "Serialized Foresight" &&
               roundTrippedSnapshot.enchantments[0].targetPieceId == 99 &&
               roundTrippedSnapshot.status == "Command pending",
           "pending actions, enchantments, and game timers survive snapshot serialization");

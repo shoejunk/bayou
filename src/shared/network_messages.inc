@@ -136,7 +136,8 @@ enum class MessageType : std::uint8_t
     AdminUserStarterDeckRequest,
     AdminUserStarterDeckResponse,
     AudioSettingsUpdateRequest,
-    AudioSettingsUpdateResponse
+    AudioSettingsUpdateResponse,
+    ChooseForesightCard
 };
 
 struct CreateAccountRequest
