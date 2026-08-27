@@ -12,6 +12,16 @@ namespace
 // edges come from stacking rather than from a shader or a blurred texture.
 constexpr std::size_t EllipsePoints = 44;
 
+// Alpha-bound centers were measured from the shipped images. Using those as the
+// sprite origins puts the visible base, rather than its full transparent canvas,
+// on the projected center of its occupied squares.
+constexpr float PieceBaseArtworkCanvasWidth = 76.0f;
+constexpr sf::Vector2f PieceBaseArtworkCenter{128.5f, 127.5f};
+constexpr sf::Vector2f PieceBaseLargeArtworkCenter{255.5f, 249.5f};
+constexpr sf::Vector2f PieceBaseSocket{128.0f, 180.0f};
+constexpr sf::Vector2f PieceBaseLargeSocket{256.0f, 352.0f};
+constexpr float PieceBaseGemScale = 0.375f;
+
 sf::CircleShape makeEllipse(sf::Vector2f center, float radiusX, float radiusY)
 {
     const float radius = std::max(0.01f, radiusX);
@@ -141,18 +151,22 @@ void drawEllipseOutline(
 
 void drawPieceBase(
     sf::RenderTarget& target,
-    sf::Vector2f anchor,
+    sf::Vector2f center,
     float scale,
     int owner,
     bool exhausted,
-    float footprintWidth)
+    float footprintWidth,
+    float footprintHeight,
+    const sf::Texture* artwork,
+    const sf::Texture* gemArtwork)
 {
-    const float spread = std::max(1.0f, footprintWidth);
-    const float radiusX = 25.0f * scale * spread;
-    const float radiusY = 9.0f * scale;
+    const float spreadX = std::max(1.0f, footprintWidth);
+    const float spreadY = std::max(1.0f, footprintHeight);
+    const float radiusX = 25.0f * scale * spreadX;
+    const float radiusY = 9.0f * scale * spreadY;
     const float dim = exhausted ? 0.55f : 1.0f;
 
-    const sf::Vector2f baseCenter{anchor.x, anchor.y - PieceBaseLift * scale};
+    const sf::Vector2f baseCenter = center;
 
     // Contact shadow, offset a touch down-right to agree with the lantern-lit
     // backdrop, so the piece sits in the scene instead of floating over it.
@@ -164,8 +178,58 @@ void drawPieceBase(
         sf::Color(0, 0, 0, 190),
         6);
 
+    if (artwork)
+    {
+        const sf::Vector2u textureSize = artwork->getSize();
+        if (textureSize.x > 0 && textureSize.y > 0)
+        {
+            sf::Sprite base(*artwork);
+            const bool usesLargeBase = textureSize.x >= 512;
+            const sf::Vector2f artworkCenter = usesLargeBase
+                ? PieceBaseLargeArtworkCenter
+                : PieceBaseArtworkCenter;
+            base.setOrigin(artworkCenter);
+            base.setPosition(baseCenter);
+            const float artworkScale =
+                PieceBaseArtworkCanvasWidth * scale / static_cast<float>(textureSize.x);
+            const sf::Vector2f artworkScaleByFootprint{
+                artworkScale * spreadX,
+                artworkScale * spreadY};
+            base.setScale(artworkScaleByFootprint);
+            sf::Color artworkColor = shadeColor(sf::Color::White, dim);
+            artworkColor.a = exhausted ? 210 : 255;
+            base.setColor(artworkColor);
+            target.draw(base);
+
+            if (gemArtwork)
+            {
+                const sf::Vector2u gemSize = gemArtwork->getSize();
+                if (gemSize.x > 0 && gemSize.y > 0)
+                {
+                    const sf::Vector2f socket = usesLargeBase
+                        ? PieceBaseLargeSocket
+                        : PieceBaseSocket;
+
+                    sf::Sprite gem(*gemArtwork);
+                    gem.setOrigin({
+                        static_cast<float>(gemSize.x) * 0.5f,
+                        static_cast<float>(gemSize.y) * 0.5f});
+                    gem.setPosition({
+                        baseCenter.x + (socket.x - artworkCenter.x) * artworkScaleByFootprint.x,
+                        baseCenter.y + (socket.y - artworkCenter.y) * artworkScaleByFootprint.y});
+                    gem.setScale({
+                        artworkScaleByFootprint.x * PieceBaseGemScale,
+                        artworkScaleByFootprint.y * PieceBaseGemScale});
+                    gem.setColor(artworkColor);
+                    target.draw(gem);
+                }
+            }
+            return;
+        }
+    }
+
     sf::CircleShape plinth = makeEllipse(baseCenter, radiusX, radiusY);
-    plinth.setFillColor(withAlpha(shadeColor(ownerColorDeep(owner), dim), 232));
+    plinth.setFillColor(withAlpha(shadeColor(BoardPlate, dim), 232));
     target.draw(plinth);
 
     // Lit upper lip and a brass rim: two hairlines are enough to read as a
@@ -176,18 +240,24 @@ void drawPieceBase(
         radiusX * 0.93f,
         radiusY * 0.86f,
         1.0f,
-        withAlpha(shadeColor(ownerColor(owner), dim), 150));
+        withAlpha(shadeColor(BoardStoneLight, dim), 150));
     drawEllipseOutline(
         target, baseCenter, radiusX, radiusY, 1.4f, withAlpha(shadeColor(BoardBrass, dim), 208));
 }
 
 void drawPieceSelectionRing(
-    sf::RenderTarget& target, sf::Vector2f anchor, float scale, float pulse, sf::Color accent)
+    sf::RenderTarget& target,
+    sf::Vector2f center,
+    float scale,
+    float pulse,
+    sf::Color accent,
+    float footprintWidth,
+    float footprintHeight)
 {
-    const float radiusX = 29.0f * scale;
-    const float radiusY = 10.5f * scale;
+    const float radiusX = 29.0f * scale * std::max(1.0f, footprintWidth);
+    const float radiusY = 10.5f * scale * std::max(1.0f, footprintHeight);
     const float swell = 1.0f + pulse * 0.09f;
-    const sf::Vector2f baseCenter{anchor.x, anchor.y - PieceBaseLift * scale};
+    const sf::Vector2f baseCenter = center;
 
     drawSoftEllipse(
         target,
@@ -256,12 +326,69 @@ sf::Vector2f boardCellAnchor(const BoardCellMetrics& metrics)
     return {metrics.center.x, metrics.center.y + metrics.height * 0.36f};
 }
 
-sf::Vector2f boardFootprintAnchor(int row, int column, int width, int viewer)
+sf::Vector2f boardFootprintCenter(
+    int row, int column, int width, int height, int viewer)
 {
-    const sf::Vector2f left = boardCellAnchor(boardCellMetricsForViewer(row, column, viewer));
-    const sf::Vector2f right = boardCellAnchor(
-        boardCellMetricsForViewer(row, column + std::max(1, width) - 1, viewer));
-    return {(left.x + right.x) * 0.5f, (left.y + right.y) * 0.5f};
+    const int firstRow = std::clamp(row, 0, game_data::BoardSize - 1);
+    const int lastRow = std::clamp(
+        row + std::max(1, height) - 1, 0, game_data::BoardSize - 1);
+    const int firstColumn = std::clamp(column, 0, game_data::BoardSize - 1);
+    const int lastColumn = std::clamp(
+        column + std::max(1, width) - 1, 0, game_data::BoardSize - 1);
+
+    const int firstScreenRow = screenRowForViewer(firstRow, viewer);
+    const int lastScreenRow = screenRowForViewer(lastRow, viewer);
+    const int topScreenEdge = std::min(firstScreenRow, lastScreenRow);
+    const int bottomScreenEdge = std::max(firstScreenRow, lastScreenRow) + 1;
+    const int leftColumnEdge = std::min(firstColumn, lastColumn);
+    const int rightColumnEdge = std::max(firstColumn, lastColumn) + 1;
+
+    const std::array<sf::Vector2f, 4> corners = {
+        boardEdgePoint(topScreenEdge, leftColumnEdge),
+        boardEdgePoint(topScreenEdge, rightColumnEdge),
+        boardEdgePoint(bottomScreenEdge, rightColumnEdge),
+        boardEdgePoint(bottomScreenEdge, leftColumnEdge)};
+    return {
+        (corners[0].x + corners[1].x + corners[2].x + corners[3].x) * 0.25f,
+        (corners[0].y + corners[1].y + corners[2].y + corners[3].y) * 0.25f};
+}
+
+sf::Vector2f boardFootprintAnchor(
+    int row, int column, int width, int height, int viewer)
+{
+    sf::Vector2f total{0.0f, 0.0f};
+    int cellCount = 0;
+    for (int footprintRow = row;
+         footprintRow < row + std::max(1, height);
+         ++footprintRow)
+    {
+        for (int footprintColumn = column;
+             footprintColumn < column + std::max(1, width);
+             ++footprintColumn)
+        {
+            if (footprintRow < 0 || footprintColumn < 0 ||
+                footprintRow >= game_data::BoardSize ||
+                footprintColumn >= game_data::BoardSize)
+            {
+                continue;
+            }
+            total += boardCellAnchor(
+                boardCellMetricsForViewer(footprintRow, footprintColumn, viewer));
+            ++cellCount;
+        }
+    }
+
+    if (cellCount > 0)
+    {
+        return total / static_cast<float>(cellCount);
+    }
+
+    // Drag previews may briefly live entirely outside the board. Clamp before
+    // projecting so a negative row never reaches the perspective power curve.
+    return boardCellAnchor(boardCellMetricsForViewer(
+        std::clamp(row, 0, game_data::BoardSize - 1),
+        std::clamp(column, 0, game_data::BoardSize - 1),
+        viewer));
 }
 
 bool pointInConvex(sf::Vector2f point, const std::array<sf::Vector2f, 4>& corners)

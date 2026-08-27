@@ -118,7 +118,7 @@ constexpr SampleCard SampleCards[] = {
     // --- the Unseelie Court ------------------------------------------------
     {"Blightling", "Unit", "cards/blightling.png", 1, 0, 2, 1, 1, "Corrupt", "", "Unseelie", "starter", "Spore",
      "When Blightling dies, adjacent enemy units take 1 damage."},
-    {"Gloom Fairy", "Unit", "cards/gloomFairy.png", 2, 0, 3, 2, 2, "Corrupt", "", "Unseelie", "common", "Swift",
+    {"Gloom Fairy", "Unit", "cards/gloomFairy.png", 2, 0, 3, 2, 2, "Corrupt", "", "Unseelie", "uncommon", "Swift",
      "Swift. Gloom Fairy may move after attacking."},
     {"Eyeblight", "Unit", "cards/eyeblight.png", 3, 0, 4, 2, 3, "Undead", "", "Unseelie", "common", "Watcher",
      "Enemy units cannot use Ambush while Eyeblight is on the board."},
@@ -475,6 +475,7 @@ const std::vector<std::string>& knownScreens()
         "story-ai-attack",
         "game",
         // Match states beyond the dedicated Story Mode captures above.
+        "game-bases",
         "game-midgame",
         "game-selected",
         "game-popup",

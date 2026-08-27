@@ -83,6 +83,8 @@ constexpr const char* PasswordRequirementMessage =
     "Password needs 7-128 chars, upper, lower, number, special";
 constexpr const char* NewPasswordRequirementMessage =
     "New password needs 7-128 chars, upper, lower, number, special";
+constexpr const char* PieceBaseArtworkPath = "bases/basic0.png";
+constexpr const char* PieceBaseLargeArtworkPath = "bases/basic0_large.png";
 constexpr const char* PasswordRequirementHintLineOne =
     "Use a minimum of 7 characters.";
 constexpr const char* PasswordRequirementHintLineTwo =
@@ -994,6 +996,13 @@ int main(int argc, char** argv)
     TextureStore textures;
     sf::Texture* backdropTexture = textures.load("ui/gloomthorn-backdrop.png");
     sf::Texture* boardSurfaceTexture = textures.load("ui/board-surface-v2.png");
+    sf::Texture* pieceBaseArtwork = textures.load(PieceBaseArtworkPath);
+    sf::Texture* pieceBaseLargeArtwork = textures.load(PieceBaseLargeArtworkPath);
+    const std::array<sf::Texture*, 4> rarityGemArtworks = {
+        textures.load("bases/gem1.png"),
+        textures.load("bases/gem2.png"),
+        textures.load("bases/gem3.png"),
+        textures.load("bases/gem4.png")};
     sf::Texture* gloomthornTitleTexture = textures.load("ui/gloomthorn-title.png");
     sf::Texture* showPasswordTexture = textures.load("ui/password-eye-open.png");
     sf::Texture* hidePasswordTexture = textures.load("ui/password-eye-off.png");
@@ -5209,6 +5218,11 @@ int main(int argc, char** argv)
         pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
 
+        // Sandbox cards come from the authoritative card server too. Retaining
+        // that catalogue lets placed pieces keep their rarity gems after their
+        // GameCard has been converted into the lean network Piece shape.
+        allCardLibrary = cards;
+
         game_data::Snapshot snapshot;
         snapshot.phase = static_cast<std::uint8_t>(game_data::Phase::Playing);
         snapshot.activePlayer = 1;
@@ -5319,9 +5333,47 @@ int main(int argc, char** argv)
         return owner == 1 ? card.pieceBaseBluePath : card.pieceBaseRedPath;
     };
 
-    // basePath is accepted but no longer drawn: the shipped piece-base PNGs are
-    // flat navy discs with a hard white hairline, and drawPieceBase renders a lit
-    // plinth with a contact shadow in their place.
+    auto pieceBaseArtworkFor = [&](int width, int height) -> const sf::Texture* {
+        if (width == 4 && height == 4 && pieceBaseLargeArtwork)
+        {
+            return pieceBaseLargeArtwork;
+        }
+        return pieceBaseArtwork;
+    };
+
+    auto rarityGemArtworkFor = [&](const std::string& title) -> const sf::Texture* {
+        const auto findCard = [&](const std::vector<card_data::Card>& library)
+            -> const card_data::Card* {
+            const auto found = std::find_if(
+                library.begin(), library.end(), [&](const card_data::Card& card) {
+                    return card.title == title;
+                });
+            return found == library.end() ? nullptr : &*found;
+        };
+
+        const card_data::Card* definition = findCard(allCardLibrary);
+        if (!definition) definition = findCard(cardLibrary);
+        if (!definition) definition = findCard(matchDeck);
+        if (!definition) definition = findCard(matchHeroes);
+        if (!definition)
+        {
+            static const std::vector<card_data::Card> sampleCards =
+                ui_capture::sampleCardLibrary();
+            definition = findCard(sampleCards);
+        }
+
+        const std::string rarity = definition
+            ? game_data::cardRarity(*definition)
+            : "common";
+        std::size_t gemIndex = 0;
+        if (rarity == "uncommon") gemIndex = 1;
+        else if (rarity == "rare") gemIndex = 2;
+        else if (rarity == "legendary") gemIndex = 3;
+        return rarityGemArtworks[gemIndex];
+    };
+
+    // Legacy per-card base paths remain in network card data for compatibility.
+    // The shared basic0 artwork and rarity socket are drawn separately below.
     auto drawPieceVisual = [&](
         const std::string& tokenPath,
         const std::string& walkPath,
@@ -5385,19 +5437,32 @@ int main(int argc, char** argv)
     auto drawCardPiecePreview = [&](const game_data::GameCard& card,
                                     int owner,
                                     sf::Vector2f anchor,
+                                    sf::Vector2f baseCenter,
                                     float scale,
                                     bool valid) {
+        anchor.y -= PieceContentLift * scale;
         const sf::Color tint = valid ? sf::Color(255, 255, 255, 220) : sf::Color(220, 120, 110, 190);
         const std::string& tokenPath = cardTokenPath(card);
         const std::string& walkPath = cardWalkAnimPath(card);
 
-        drawPieceBase(window, anchor, scale, owner, false, static_cast<float>(card.width));
+        drawPieceBase(
+            window,
+            baseCenter,
+            scale,
+            owner,
+            false,
+            static_cast<float>(card.width),
+            static_cast<float>(card.height),
+            pieceBaseArtworkFor(card.width, card.height),
+            rarityGemArtworkFor(card.title));
         drawPieceSelectionRing(
             window,
-            anchor,
+            baseCenter,
             scale,
             0.7f,
-            valid ? sf::Color(132, 232, 186) : sf::Color(232, 104, 92));
+            valid ? sf::Color(132, 232, 186) : sf::Color(232, 104, 92),
+            static_cast<float>(card.width),
+            static_cast<float>(card.height));
         const bool drewPiece = drawPieceVisual(
             tokenPath,
             walkPath,
@@ -7735,6 +7800,10 @@ int main(int argc, char** argv)
         // A couple of collapsed squares, so the hole treatment is reviewable.
         snapshot.holes[static_cast<std::size_t>(game_data::squareIndex(6, 3))] = 1;
         snapshot.holes[static_cast<std::size_t>(game_data::squareIndex(1, 4))] = 1;
+        if (variant == "bases")
+        {
+            snapshot.holes.fill(0);
+        }
 
         // Player 1 holds the left flank, player 2 the right. Health is left short
         // of maximum on several pieces so damage states are visible.
@@ -7747,6 +7816,8 @@ int main(int argc, char** argv)
             int health;
             bool isHero;
             bool hasActed;
+            int widthOverride = 0;
+            int heightOverride = 0;
         };
         static constexpr CaptureDeployment Deployments[] = {
             {"Sylvara", 1, 3, 0, 16, true, false},
@@ -7760,24 +7831,48 @@ int main(int argc, char** argv)
             {"Goblin Sharpshooter", 2, 5, 6, 4, false, false},
             {"Erevan the Shadow", 2, 6, 6, 7, false, false},
         };
-        for (const CaptureDeployment& deployment : Deployments)
-        {
-            const game_data::GameCard card = gameCardNamed(deployment.title);
-            if (card.title.empty())
+        static constexpr CaptureDeployment BaseDeployments[] = {
+            {"Eyeblight", 1, 0, 0, 4, false, false, 1, 1},
+            {"Gloom Fairy", 1, 0, 7, 3, false, false, 1, 1},
+            {"Thorn Griffin", 2, 7, 0, 8, false, false, 1, 1},
+            {"Crystal Unicorn", 2, 2, 2, 9, false, false, 4, 4},
+        };
+        const auto spawnDeployments = [&](const auto& deployments) {
+            for (const CaptureDeployment& deployment : deployments)
             {
-                continue;
+                game_data::GameCard card = gameCardNamed(deployment.title);
+                if (card.title.empty())
+                {
+                    continue;
+                }
+                if (deployment.widthOverride > 0)
+                {
+                    card.width = deployment.widthOverride;
+                }
+                if (deployment.heightOverride > 0)
+                {
+                    card.height = deployment.heightOverride;
+                }
+                spawnSandboxPiece(
+                    snapshot,
+                    nextSandboxPieceId,
+                    deployment.owner,
+                    card,
+                    deployment.row,
+                    deployment.column,
+                    deployment.isHero);
+                game_data::Piece& piece = snapshot.pieces.back();
+                piece.health = std::min(deployment.health, piece.maxHealth);
+                piece.hasActed = deployment.hasActed;
             }
-            spawnSandboxPiece(
-                snapshot,
-                nextSandboxPieceId,
-                deployment.owner,
-                card,
-                deployment.row,
-                deployment.column,
-                deployment.isHero);
-            game_data::Piece& piece = snapshot.pieces.back();
-            piece.health = std::min(deployment.health, piece.maxHealth);
-            piece.hasActed = deployment.hasActed;
+        };
+        if (variant == "bases")
+        {
+            spawnDeployments(BaseDeployments);
+        }
+        else
+        {
+            spawnDeployments(Deployments);
         }
 
         // One held enemy, so the under-control badge is reviewable.
@@ -8205,6 +8300,10 @@ int main(int argc, char** argv)
         else if (screen == "game")
         {
             beginStory();
+        }
+        else if (screen == "game-bases")
+        {
+            seedCaptureMatch("bases");
         }
         else if (screen == "game-midgame")
         {

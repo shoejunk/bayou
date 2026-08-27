@@ -34,10 +34,12 @@ constexpr float PieceBaseHeight = 100.0f;
 // Small shared stand adjustment: close the artwork's transparent foot gap while
 // lifting the plinth enough that the piece reads as physically planted on it.
 constexpr float PieceStandOffset = 3.0f;
-// The plinth sits higher than the artwork anchor so its footprint stays inside
-// the occupied square instead of spilling into the row below.
-constexpr float PieceBaseLift = 12.0f;
-constexpr float PieceBasePipOffset = 7.2f;
+// Unit artwork and its health bubble share this small lift, leaving the rarity
+// gem unobstructed while the independently centered base stays put.
+constexpr float PieceContentLift = 11.0f;
+// Health bubbles remain tied to the unit artwork anchor, independent of the
+// base artwork's geometric centering within the occupied squares.
+constexpr float PieceHealthPipYOffset = -4.8f;
 constexpr float PieceWalkBaseHeight = 108.0f;
 constexpr float WalkAnimationLoopSeconds = 1.0f;
 constexpr float AttackAnimationDurationSeconds = 0.42f;
@@ -115,26 +117,37 @@ void drawEllipseOutline(
     float thickness,
     sf::Color color);
 
-// Contact shadow plus an owner-tinted plinth under a piece. Pieces are drawn as
-// bare cut-outs otherwise and read as stickers laid on the board.
+// Contact shadow plus a base under a piece. `center` is the projected geometric
+// center of the occupied squares and the artwork is aligned by its visible
+// bounds. A neutral procedural plinth remains as an asset-loading fallback.
 void drawPieceBase(
     sf::RenderTarget& target,
-    sf::Vector2f anchor,
+    sf::Vector2f center,
     float scale,
     int owner,
     bool exhausted,
-    float footprintWidth = 1.0f);
+    float footprintWidth = 1.0f,
+    float footprintHeight = 1.0f,
+    const sf::Texture* artwork = nullptr,
+    const sf::Texture* gemArtwork = nullptr);
 
 // The bright ring under the piece the player has picked up or selected.
 void drawPieceSelectionRing(
-    sf::RenderTarget& target, sf::Vector2f anchor, float scale, float pulse, sf::Color accent);
+    sf::RenderTarget& target,
+    sf::Vector2f center,
+    float scale,
+    float pulse,
+    sf::Color accent,
+    float footprintWidth = 1.0f,
+    float footprintHeight = 1.0f);
 int screenRowForViewer(int row, int viewer);
 int rowForScreenRow(int screenRow, int viewer);
 sf::Vector2f boardEdgePoint(int screenEdge, int columnEdge);
 float pieceScaleForScreenRow(int screenRow);
 BoardCellMetrics boardCellMetricsForViewer(int row, int column, int viewer);
 sf::Vector2f boardCellAnchor(const BoardCellMetrics& metrics);
-sf::Vector2f boardFootprintAnchor(int row, int column, int width, int viewer);
+sf::Vector2f boardFootprintCenter(int row, int column, int width, int height, int viewer);
+sf::Vector2f boardFootprintAnchor(int row, int column, int width, int height, int viewer);
 bool pointInConvex(sf::Vector2f point, const std::array<sf::Vector2f, 4>& corners);
 std::array<sf::Vector2f, 4> offsetQuad(std::array<sf::Vector2f, 4> corners, sf::Vector2f offset);
 sf::FloatRect pieceTargetRect(

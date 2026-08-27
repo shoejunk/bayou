@@ -21,9 +21,8 @@
         window.draw(plate);
     };
 
-    // Compact health pips sit inside the lower face of the plinth. A restrained
-    // dark backing keeps the pips legible over both bright fey tokens and dark
-    // enemy silhouettes without placing a separate status bar across their art.
+    // Health bubbles stay tied to the unit anchor, not the independently
+    // centered base artwork. Saturated team palettes make ownership unambiguous.
     auto drawPieceHealthPips = [&](sf::Vector2f anchor,
                                    float scale,
                                    int health,
@@ -31,6 +30,15 @@
                                    int owner,
                                    bool dimmed) {
         const float dim = dimmed ? 0.58f : 1.0f;
+        const sf::Color healthBright = owner == 1
+            ? sf::Color(55, 145, 255)
+            : owner == 2 ? sf::Color(240, 62, 68) : sf::Color(172, 172, 172);
+        const sf::Color healthDeep = owner == 1
+            ? sf::Color(5, 25, 78)
+            : owner == 2 ? sf::Color(82, 7, 12) : sf::Color(28, 28, 28);
+        const sf::Color healthHighlight = owner == 1
+            ? sf::Color(174, 220, 255)
+            : owner == 2 ? sf::Color(255, 184, 184) : sf::Color(232, 232, 232);
         const int pipCount = std::clamp(maxHealth, 1, 8);
         const float fraction = maxHealth > 0
             ? std::clamp(static_cast<float>(health) / static_cast<float>(maxHealth), 0.0f, 1.0f)
@@ -41,14 +49,14 @@
         const float radius = std::clamp(2.1f * scale, 1.35f, 2.8f);
         const float spacing = radius * 1.85f;
         const float startX = anchor.x - spacing * static_cast<float>(pipCount - 1) * 0.5f;
-        const float pipY = anchor.y + (PieceBasePipOffset - PieceBaseLift) * scale;
+        const float pipY = anchor.y + PieceHealthPipYOffset * scale;
         const float backingWidth = spacing * static_cast<float>(pipCount - 1) + radius * 2.8f;
         drawSoftEllipse(
             window,
             {anchor.x, pipY + radius * 0.12f},
             backingWidth * 0.5f,
             radius * 1.45f,
-            sf::Color(3, 7, 8, dimmed ? 154 : 204),
+            withAlpha(shadeColor(healthDeep, dim), dimmed ? 178 : 224),
             4);
         drawEllipseOutline(
             window,
@@ -56,7 +64,7 @@
             backingWidth * 0.5f,
             radius * 1.45f,
             std::max(0.6f, 0.8f * scale),
-            withAlpha(shadeColor(ownerColorBright(owner), dim), dimmed ? 118 : 184));
+            withAlpha(shadeColor(healthBright, dim), dimmed ? 170 : 242));
         for (int index = 0; index < pipCount; ++index)
         {
             sf::CircleShape pip(radius, 12);
@@ -65,10 +73,12 @@
             pip.setPosition({startX + spacing * static_cast<float>(index), pipY});
             const bool filled = index < filledPips;
             pip.setFillColor(filled
-                ? withAlpha(shadeColor(ownerColorBright(owner), dim), dimmed ? 192 : 250)
-                : withAlpha(shadeColor(BoardPlate, dim), 220));
+                ? withAlpha(shadeColor(healthBright, dim), dimmed ? 218 : 255)
+                : withAlpha(shadeColor(healthDeep, dim), 238));
             pip.setOutlineThickness(std::max(0.65f, 0.9f * scale));
-            pip.setOutlineColor(withAlpha(shadeColor(BoardBrass, dim), filled ? 220 : 130));
+            pip.setOutlineColor(filled
+                ? withAlpha(shadeColor(healthHighlight, dim), dimmed ? 184 : 246)
+                : withAlpha(shadeColor(healthBright, dim), dimmed ? 112 : 168));
             window.draw(pip);
         }
     };
@@ -1724,7 +1734,9 @@
             const game_data::Piece& piece = *piecePtr;
             BoardCellMetrics cell = boardCellMetrics(piece.row, piece.column);
             sf::Vector2f anchor = boardFootprintAnchor(
-                piece.row, piece.column, piece.width, gameSnapshot.yourPlayer);
+                piece.row, piece.column, piece.width, piece.height, gameSnapshot.yourPlayer);
+            sf::Vector2f baseCenter = boardFootprintCenter(
+                piece.row, piece.column, piece.width, piece.height, gameSnapshot.yourPlayer);
             float pieceScale = cell.depthScale;
             bool isMoving = false;
             float walkAnimationElapsed = 0.0f;
@@ -1743,13 +1755,28 @@
                         animation->second.toRow, animation->second.toColumn, gameSnapshot.yourPlayer);
                     const sf::Vector2f start = boardFootprintAnchor(
                         animation->second.fromRow, animation->second.fromColumn,
-                        piece.width, gameSnapshot.yourPlayer);
+                        piece.width, piece.height, gameSnapshot.yourPlayer);
                     const sf::Vector2f end = boardFootprintAnchor(
                         animation->second.toRow, animation->second.toColumn,
-                        piece.width, gameSnapshot.yourPlayer);
+                        piece.width, piece.height, gameSnapshot.yourPlayer);
+                    const sf::Vector2f startBaseCenter = boardFootprintCenter(
+                        animation->second.fromRow,
+                        animation->second.fromColumn,
+                        piece.width,
+                        piece.height,
+                        gameSnapshot.yourPlayer);
+                    const sf::Vector2f endBaseCenter = boardFootprintCenter(
+                        animation->second.toRow,
+                        animation->second.toColumn,
+                        piece.width,
+                        piece.height,
+                        gameSnapshot.yourPlayer);
                     anchor = {
                         start.x + (end.x - start.x) * progress,
                         start.y + (end.y - start.y) * progress};
+                    baseCenter = {
+                        startBaseCenter.x + (endBaseCenter.x - startBaseCenter.x) * progress,
+                        startBaseCenter.y + (endBaseCenter.y - startBaseCenter.y) * progress};
                     pieceScale = startCell.depthScale + (endCell.depthScale - startCell.depthScale) * progress;
                 }
                 else
@@ -1780,8 +1807,11 @@
                         const float lunge = std::sin(progress * Pi) * AttackLungePixels * pieceScale;
                         const float shake = std::sin(progress * Pi * 6.0f) *
                             AttackShakePixels * pieceScale * (1.0f - progress);
-                        anchor.x += dx / distance * lunge;
-                        anchor.y += dy / distance * lunge + shake;
+                        const sf::Vector2f lungeOffset{
+                            dx / distance * lunge,
+                            dy / distance * lunge + shake};
+                        anchor += lungeOffset;
+                        baseCenter += lungeOffset;
                         pieceScale *= 1.0f + 0.045f * std::sin(progress * Pi);
                     }
                 }
@@ -1790,6 +1820,8 @@
                     pieceAttackAnimations.erase(piece.id);
                 }
             }
+
+            anchor.y -= PieceContentLift * pieceScale;
 
             const bool pieceUnavailable =
                 ((piece.hasActed ||
@@ -1894,38 +1926,41 @@
                 // instead of reading as a cut-out laid over it.
                 drawPieceBase(
                     window,
-                    anchor,
+                    baseCenter,
                     pieceScale,
                     piece.owner,
                     pieceUnavailable,
-                    static_cast<float>(piece.width));
+                    static_cast<float>(piece.width),
+                    static_cast<float>(piece.height),
+                    pieceBaseArtworkFor(piece.width, piece.height),
+                    rarityGemArtworkFor(piece.name));
 
-                // A clean owner-coloured outer rim survives the busy token art
-                // and the perspective-shrunk far rank. It is deliberately kept
-                // to the plinth, so allegiance is clearer without tinting art.
-                const float footprint = std::max(1.0f, static_cast<float>(piece.width));
-                const sf::Vector2f baseCenter{
-                    anchor.x, anchor.y - PieceBaseLift * pieceScale};
-                const float rimDim = pieceUnavailable ? 0.56f : 1.0f;
-                drawEllipseOutline(
-                    window,
-                    baseCenter,
-                    26.8f * pieceScale * footprint,
-                    9.8f * pieceScale,
-                    std::max(1.0f, 1.45f * pieceScale),
-                    withAlpha(shadeColor(ownerColorBright(piece.owner), rimDim),
-                              pieceUnavailable ? 138 : 226));
+                const float footprintWidth = std::max(1.0f, static_cast<float>(piece.width));
+                const float footprintHeight = std::max(1.0f, static_cast<float>(piece.height));
 
                 const bool pieceIsSelected = selectedPieceId && *selectedPieceId == piece.id;
                 if (pieceIsSelected)
                 {
                     const float pulse = 0.5f + 0.5f * std::sin(animationTime * 3.4f);
-                    drawPieceSelectionRing(window, anchor, pieceScale, pulse, BoardBrassBright);
+                    drawPieceSelectionRing(
+                        window,
+                        baseCenter,
+                        pieceScale,
+                        pulse,
+                        BoardBrassBright,
+                        footprintWidth,
+                        footprintHeight);
                 }
                 else if (highlightedPiece && highlightedPiece->id == piece.id)
                 {
                     drawPieceSelectionRing(
-                        window, anchor, pieceScale, 0.35f, withAlpha(BoardBrassBright, 170));
+                        window,
+                        baseCenter,
+                        pieceScale,
+                        0.35f,
+                        withAlpha(BoardBrassBright, 170),
+                        footprintWidth,
+                        footprintHeight);
                 }
             }
 
@@ -2071,11 +2106,11 @@
                     // Occupied targets cover the tile-level reticle, so repeat a
                     // larger crosshair over the plinth after the token is drawn.
                     // This keeps the board faithful to the command ribbon.
-                    const float footprint = std::max(1.0f, static_cast<float>(piece.width));
-                    const sf::Vector2f center{
-                        anchor.x, anchor.y - PieceBaseLift * pieceScale};
-                    const float radiusX = 31.0f * pieceScale * footprint;
-                    const float radiusY = 12.5f * pieceScale;
+                    const float footprintWidth = std::max(1.0f, static_cast<float>(piece.width));
+                    const float footprintHeight = std::max(1.0f, static_cast<float>(piece.height));
+                    const sf::Vector2f center = baseCenter;
+                    const float radiusX = 31.0f * pieceScale * footprintWidth;
+                    const float radiusY = 12.5f * pieceScale * footprintHeight;
                     const sf::Color targetRed(238, 116, 94, 248);
                     drawRadialGlow(
                         window,
@@ -2134,8 +2169,19 @@
 
             const game_data::Piece& killedPiece = animation->piece;
             const BoardCellMetrics cell = boardCellMetrics(killedPiece.row, killedPiece.column);
-            const sf::Vector2f anchor = boardFootprintAnchor(
-                killedPiece.row, killedPiece.column, killedPiece.width, gameSnapshot.yourPlayer);
+            sf::Vector2f anchor = boardFootprintAnchor(
+                killedPiece.row,
+                killedPiece.column,
+                killedPiece.width,
+                killedPiece.height,
+                gameSnapshot.yourPlayer);
+            anchor.y -= PieceContentLift * cell.depthScale;
+            const sf::Vector2f baseCenter = boardFootprintCenter(
+                killedPiece.row,
+                killedPiece.column,
+                killedPiece.width,
+                killedPiece.height,
+                gameSnapshot.yourPlayer);
             const int killedFrameCount = std::max(1, killedPiece.killedAnimFrames);
             const int killedFrame = std::min(
                 static_cast<int>(progress * static_cast<float>(killedFrameCount)),
@@ -2145,11 +2191,14 @@
             // The plinth fades out with the piece standing on it.
             drawPieceBase(
                 window,
-                anchor,
+                baseCenter,
                 cell.depthScale * (1.0f - progress * 0.2f),
                 killedPiece.owner,
                 true,
-                static_cast<float>(killedPiece.width));
+                static_cast<float>(killedPiece.width),
+                static_cast<float>(killedPiece.height),
+                pieceBaseArtworkFor(killedPiece.width, killedPiece.height),
+                rarityGemArtworkFor(killedPiece.name));
             const bool drewKilledPiece = drawPieceVisual(
                 pieceTokenPath(killedPiece),
                 killedPiece.killedAnimPath,
@@ -2193,9 +2242,14 @@
             {
                 const game_data::Piece& ghostPiece = ghost->piece;
                 const BoardCellMetrics cell = boardCellMetrics(ghostPiece.row, ghostPiece.column);
-                const sf::Vector2f anchor = boardFootprintAnchor(
-                    ghostPiece.row, ghostPiece.column, ghostPiece.width, gameSnapshot.yourPlayer);
+                sf::Vector2f anchor = boardFootprintAnchor(
+                    ghostPiece.row,
+                    ghostPiece.column,
+                    ghostPiece.width,
+                    ghostPiece.height,
+                    gameSnapshot.yourPlayer);
                 const float scale = cell.depthScale;
+                anchor.y -= PieceContentLift * scale;
                 const auto alpha = static_cast<std::uint8_t>(
                     std::clamp(220.0f * (1.0f - elapsed / DematerializeBlinkSeconds), 0.0f, 220.0f));
                 const sf::Color tint(255, 255, 255, alpha);
@@ -2233,7 +2287,7 @@
             }
 
             sf::Vector2f position = effect->boardPosition
-                ? boardFootprintAnchor(effect->row, effect->column, 1, gameSnapshot.yourPlayer)
+                ? boardFootprintAnchor(effect->row, effect->column, 1, 1, gameSnapshot.yourPlayer)
                 : effect->screenPosition;
             position.y -= 28.0f * progress;
             sf::Color color = effect->color;
@@ -2251,6 +2305,8 @@
             }
             int row = enchantment.targetRow;
             int column = enchantment.targetColumn;
+            int footprintWidth = 1;
+            int footprintHeight = 1;
             if (enchantment.target == static_cast<std::uint8_t>(game_data::EnchantmentTarget::Piece))
             {
                 const game_data::Piece* targetPiece = gamePieceById(enchantment.targetPieceId);
@@ -2260,12 +2316,19 @@
                 }
                 row = targetPiece->row;
                 column = targetPiece->column;
+                footprintWidth = targetPiece->width;
+                footprintHeight = targetPiece->height;
             }
             if (!game_data::inBounds(row, column))
             {
                 continue;
             }
-            const sf::Vector2f anchor = boardFootprintAnchor(row, column, 1, gameSnapshot.yourPlayer);
+            const sf::Vector2f anchor = boardFootprintAnchor(
+                row,
+                column,
+                footprintWidth,
+                footprintHeight,
+                gameSnapshot.yourPlayer);
             const sf::Vector2f badgePosition{anchor.x + 12.0f, anchor.y - 35.0f};
             sf::CircleShape badge(11.0f);
             badge.setPosition({badgePosition.x - 11.0f, badgePosition.y - 11.0f});
@@ -2998,6 +3061,7 @@
                 if ((draggedCard.type == "Unit" || draggedCard.type == "Hero") && !draggingHandOverTrash)
                 {
                     sf::Vector2f anchor = gameDragCurrentPos;
+                    sf::Vector2f baseCenter = gameDragCurrentPos;
                     float scale = 1.0f;
                     if (draggedHandSquare)
                     {
@@ -3007,10 +3071,23 @@
                             draggedHandSquare->first,
                             draggedHandSquare->second,
                             draggedCard.width,
+                            draggedCard.height,
+                            gameSnapshot.yourPlayer);
+                        baseCenter = boardFootprintCenter(
+                            draggedHandSquare->first,
+                            draggedHandSquare->second,
+                            draggedCard.width,
+                            draggedCard.height,
                             gameSnapshot.yourPlayer);
                         scale = metrics.depthScale;
                     }
-                    drawCardPiecePreview(draggedCard, sandboxPlayer, anchor, scale, draggedHandDropValid);
+                    drawCardPiecePreview(
+                        draggedCard,
+                        sandboxPlayer,
+                        anchor,
+                        baseCenter,
+                        scale,
+                        draggedHandDropValid);
                 }
                 else
                 {
@@ -3029,6 +3106,7 @@
             else if (gameDragKind == GameDragKind::Piece && draggedPiece)
             {
                 sf::Vector2f anchor = gameDragCurrentPos;
+                sf::Vector2f baseCenter = gameDragCurrentPos;
                 float scale = 1.0f;
                 if (draggedPieceSquare)
                 {
@@ -3038,25 +3116,38 @@
                         draggedPieceSquare->first,
                         draggedPieceSquare->second,
                         draggedPiece->width,
+                        draggedPiece->height,
+                        gameSnapshot.yourPlayer);
+                    baseCenter = boardFootprintCenter(
+                        draggedPieceSquare->first,
+                        draggedPieceSquare->second,
+                        draggedPiece->width,
+                        draggedPiece->height,
                         gameSnapshot.yourPlayer);
                     scale = metrics.depthScale;
                 }
+                anchor.y -= PieceContentLift * scale;
                 const sf::Color tint = draggedPieceDropValid
                     ? sf::Color(255, 255, 255, 220)
                     : sf::Color(220, 120, 110, 190);
                 drawPieceBase(
                     window,
-                    anchor,
+                    baseCenter,
                     scale,
                     draggedPiece->owner,
                     false,
-                    static_cast<float>(draggedPiece->width));
+                    static_cast<float>(draggedPiece->width),
+                    static_cast<float>(draggedPiece->height),
+                    pieceBaseArtworkFor(draggedPiece->width, draggedPiece->height),
+                    rarityGemArtworkFor(draggedPiece->name));
                 drawPieceSelectionRing(
                     window,
-                    anchor,
+                    baseCenter,
                     scale,
                     0.7f,
-                    draggedPieceDropValid ? BoardBrassBright : sf::Color(232, 104, 92));
+                    draggedPieceDropValid ? BoardBrassBright : sf::Color(232, 104, 92),
+                    static_cast<float>(draggedPiece->width),
+                    static_cast<float>(draggedPiece->height));
                 const bool drewPiece = drawPieceVisual(
                     pieceTokenPath(*draggedPiece),
                     pieceWalkAnimPath(*draggedPiece),
