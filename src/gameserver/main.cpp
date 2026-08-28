@@ -1181,6 +1181,13 @@ private:
                 engine.discardCard(playerNumber, handIndex);
                 return true;
             }
+            case MessageType::ChooseForesightCard:
+            {
+                int choiceIndex = 0;
+                packet >> choiceIndex;
+                engine.chooseForesightCard(playerNumber, choiceIndex);
+                return true;
+            }
             case MessageType::EndTurn:
                 engine.endTurn(playerNumber);
                 return true;
