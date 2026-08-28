@@ -7522,32 +7522,12 @@ int main(int argc, char** argv)
             }
             return;
         }
-        if (phase == game_data::Phase::Playing &&
-            (sandboxMode || gameSnapshot.activePlayer == me) &&
-            selectedHandIndex && *selectedHandIndex < gameSnapshot.hand.size())
-        {
-            const game_data::GameCard& selectedCard = gameSnapshot.hand[*selectedHandIndex];
-            const std::optional<int> targetPlayer = playerReadoutAtPixel(clickPos);
-            if (selectedCard.type == "Enchantment" && selectedCard.target == "player" && targetPlayer)
-            {
-                sendPlayCard(static_cast<int>(*selectedHandIndex), -1, *targetPlayer);
-                selectedHandIndex.reset();
-                return;
-            }
-        }
-
         const std::optional<std::pair<int, int>> square = squareAtPixel(clickPos);
         if (phase == game_data::Phase::HeroPlacement)
         {
             if (const std::optional<std::size_t> handIndex = handCardAtPixel(clickPos))
             {
                 handleHandCardClick(*handIndex);
-            }
-            else if (square && selectedHandIndex &&
-                     *selectedHandIndex < gameSnapshot.hand.size())
-            {
-                sendPlaceHero(static_cast<int>(*selectedHandIndex), square->first, square->second);
-                selectedHandIndex.reset();
             }
             return;
         }
@@ -7569,8 +7549,7 @@ int main(int argc, char** argv)
             return;
         }
 
-        const auto [row, column] = *square;
-        const game_data::Piece* clicked = gamePieceAt(row, column);
+        const game_data::Piece* clicked = gamePieceAt(square->first, square->second);
 
         // During the other player's turn, board clicks are previews only.
         // Selecting a piece belonging to the inactive player must never send
@@ -7584,55 +7563,12 @@ int main(int argc, char** argv)
             return;
         }
 
+        // Board actions are drag-only. A click can select a card or piece for
+        // previews and ability inspection, but it must never submit a card
+        // placement, move, or attack. Those actions are submitted exclusively
+        // by finishGameDrag() on mouse release after the drag threshold.
         if (selectedHandIndex)
         {
-            sendPlayCard(static_cast<int>(*selectedHandIndex), row, column);
-            selectedHandIndex.reset();
-            return;
-        }
-
-        if (selectedPieceId)
-        {
-            const game_data::Piece* selected = gamePieceById(*selectedPieceId);
-            if (selected)
-            {
-                if (!sandboxMode && selected->owner != gameSnapshot.activePlayer)
-                {
-                    selectedPieceId = clicked && clicked->owner != gameSnapshot.activePlayer
-                        ? std::optional<int>(clicked->id)
-                        : (clicked && pieceCanTakeGameAction(*clicked)
-                            ? std::optional<int>(clicked->id)
-                            : std::nullopt);
-                    return;
-                }
-                if (clicked && clicked->owner != (sandboxMode ? selected->owner : me))
-                {
-                    const game_data::PieceActionOutcome outcome = game_data::resolvePieceActionThroughHidden(
-                        gameSnapshot.pieces, gameSnapshot.holes, *selected, row, column);
-                    if (outcome.action.legal)
-                    {
-                        requestPieceAction(selected->id, row, column);
-                    }
-                    selectedPieceId.reset();
-                    return;
-                }
-                if (clicked && (sandboxMode || clicked->owner == me))
-                {
-                    selectedPieceId = pieceCanTakeGameAction(*clicked)
-                        ? std::optional<int>(clicked->id)
-                        : std::nullopt;
-                    return;
-                }
-                const game_data::PieceActionOutcome outcome = game_data::resolvePieceActionThroughHidden(
-                    gameSnapshot.pieces, gameSnapshot.holes, *selected, row, column);
-                if (outcome.action.legal)
-                {
-                    requestPieceAction(selected->id, row, column);
-                }
-                selectedPieceId.reset();
-                return;
-            }
-            selectedPieceId.reset();
             return;
         }
 
