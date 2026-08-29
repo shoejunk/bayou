@@ -47,6 +47,8 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
         [&](const Piece& piece) { return piece.id == engine.commandingPiece(); });
     const Piece* commander = commanderFound == pieces.end() ? nullptr : &*commanderFound;
     const int relentlessPieceId = engine.relentlessPiece();
+    const bool normalPieceActionAvailable =
+        !engine.playerState(playerNumber).pieceActionUsedThisTurn;
     for (const Piece& piece : pieces)
     {
         if (piece.owner != playerNumber || piece.hasActed || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
@@ -58,6 +60,11 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
             continue;
         }
         if (commander != nullptr && !pieceCanReceiveCommand(*commander, piece))
+        {
+            continue;
+        }
+        if (!normalPieceActionAvailable && commander == nullptr &&
+            relentlessPieceId == 0 && piece.repeatActionIndex < 0)
         {
             continue;
         }

@@ -39,6 +39,7 @@ public:
         std::vector<GameCard> heroesToPlace;
         int resources = 0;
         int discardsThisTurn = 0;
+        bool pieceActionUsedThisTurn = false;
         bool deckSubmitted = false;
     };
 
@@ -120,6 +121,7 @@ public:
                 ? std::max(0, playerOneResources)
                 : std::max(0, playerTwoResources);
             player.discardsThisTurn = 0;
+            player.pieceActionUsedThisTurn = false;
             player.deckSubmitted = true;
             for (const GameCard& card : player.hand)
             {
@@ -447,7 +449,8 @@ public:
         player.resources -= card.cost;
         player.hand.erase(player.hand.begin() + handIndex);
         recordPlayerMove(playerNumber);
-        advanceTurn(fmt::format("Player {} played {}.", playerNumber, card.title));
+        recomputeControl();
+        status = fmt::format("Player {} played {}.", playerNumber, card.title);
         return true;
     }
 
@@ -558,6 +561,12 @@ private:
         const bool relentlessAction = relentlessPieceId != 0;
         const bool actionKeepsTurn = commandedAction ||
             (relentlessAction && relentlessActionKeepsTurn);
+        if (playerRef(playerNumber).pieceActionUsedThisTurn &&
+            !commandedAction && !relentlessAction)
+        {
+            setStatusFor(playerNumber, "Only one piece may take a normal action each turn.");
+            return false;
+        }
         if (commandedAction && !pieceCanReceiveCommand(*commander, *piece))
         {
             setStatusFor(playerNumber, "Command must activate a ready adjacent friendly piece.");
@@ -630,6 +639,10 @@ private:
             return true;
         }
         actingPiece->hasActed = true;
+        if (!commandedAction)
+        {
+            playerRef(playerNumber).pieceActionUsedThisTurn = true;
+        }
         if (relentlessAction)
         {
             relentlessPieceId = 0;
@@ -652,7 +665,8 @@ private:
         }
         else
         {
-            advanceTurn(fmt::format("{} used {}.", actingPieceName, abilityLabel));
+            recomputeControl();
+            status = fmt::format("{} used {}.", actingPieceName, abilityLabel);
         }
         return true;
     }
@@ -767,6 +781,7 @@ public:
             view.heroesAlive = heroesAlive(p + 1);
             view.drawPileCount = static_cast<int>(player.drawPile.size());
             view.discardsThisTurn = player.discardsThisTurn;
+            view.pieceActionUsedThisTurn = player.pieceActionUsedThisTurn;
             view.clockRemainingMs = playerClockRemainingMs[static_cast<std::size_t>(p)];
         }
 
@@ -1073,6 +1088,12 @@ private:
         const bool actionKeepsTurn = commandedAction ||
             (relentlessAction && relentlessActionKeepsTurn);
         const std::string commanderName = commandedAction ? commander->name : std::string();
+        if (playerRef(playerNumber).pieceActionUsedThisTurn &&
+            !continuingRepeat && !commandedAction && !relentlessAction)
+        {
+            setStatusFor(playerNumber, "Only one piece may take a normal action each turn.");
+            return false;
+        }
         if (commandedAction && !pieceCanReceiveCommand(*commander, *piece))
         {
             setStatusFor(playerNumber, "Command must activate a ready adjacent friendly piece.");
@@ -1247,6 +1268,10 @@ private:
             setPieceActionState(*survivingAttacker, action.nextState);
         }
         survivingAttacker->hasActed = !gainsRelentlessAction && !repeatRemaining;
+        if (!commandedAction)
+        {
+            playerRef(playerNumber).pieceActionUsedThisTurn = true;
+        }
         const bool moved = survivingAttacker->row != originRow ||
             survivingAttacker->column != originColumn;
         const bool leavesTrail = moved && pieceHasTrailAbility(*survivingAttacker);
@@ -1391,7 +1416,8 @@ private:
         {
             relentlessPieceId = 0;
             relentlessActionKeepsTurn = false;
-            advanceTurn(result);
+            recomputeControl();
+            status = result;
         }
         return true;
     }
@@ -1475,6 +1501,7 @@ private:
         EnginePlayer& player = playerRef(playerNumber);
         player.foresightChoices.clear();
         player.discardsThisTurn = 0;
+        player.pieceActionUsedThisTurn = false;
         updatePieceControlAtTurnStart(pieces, playerNumber);
         const int controlledIncome = controlledCount(playerNumber);
         player.resources += controlledIncome;

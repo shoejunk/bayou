@@ -470,9 +470,11 @@ int main(int argc, char** argv)
         [](const Piece& piece) { return piece.name == "Dematerialize Unit"; });
     check(revealEngineTarget != revealEngine.boardPieces().end() &&
               revealEngine.useAbility(2, revealEngineTarget->id) &&
-              revealEngine.currentPlayer() == 1 &&
+              revealEngine.currentPlayer() == 2 &&
               revealEngineTarget->actionState == 1,
-          "a dematerialize unit can enter state one before the Reveal owner's turn");
+          "a dematerialize unit can enter state one without automatically ending its turn");
+    check(revealEngine.endTurn(2) && revealEngine.currentPlayer() == 1,
+          "the explicit end-turn action hands play to the Reveal owner");
     const int revealEngineTargetId = revealEngineTarget == revealEngine.boardPieces().end()
         ? 0
         : revealEngineTarget->id;
@@ -564,6 +566,120 @@ int main(int argc, char** argv)
     check(ordinaryDrawEngine.snapshotFor(1).foresightChoices.empty() &&
               ordinaryDrawEngine.playerState(1).hand.size() == 1,
           "a player without Foresight still draws one card normally");
+
+    GameCard actionEconomyHero;
+    actionEconomyHero.title = "Action Economy Hero";
+    actionEconomyHero.type = "Hero";
+    actionEconomyHero.health = 6;
+    ActionProfile actionEconomyStep;
+    actionEconomyStep.name = "Step";
+    actionEconomyStep.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
+    actionEconomyStep.minRange = 1;
+    actionEconomyStep.maxRange = 1;
+    actionEconomyStep.canMove = true;
+    actionEconomyHero.actions = {actionEconomyStep};
+    GameCard actionEconomyUnit = actionEconomyHero;
+    actionEconomyUnit.title = "Fresh Unit";
+    actionEconomyUnit.type = "Unit";
+    actionEconomyUnit.cost = 0;
+    GameCard freeResources;
+    freeResources.title = "Free Resources";
+    freeResources.type = "Spell";
+    freeResources.effect = "resources";
+    freeResources.power = 1;
+    freeResources.cost = 0;
+    GameEngine actionEconomyEngine(45, {});
+    actionEconomyEngine.loadScenario(
+        {{1, actionEconomyHero, 7, 0, true},
+         {1, actionEconomyHero, 7, 2, true},
+         {2, actionEconomyHero, 0, 7, true}},
+        {freeResources, freeResources, actionEconomyUnit, actionEconomyUnit, freeResources},
+        {},
+        10,
+        0,
+        1,
+        "Explicit turn test");
+    const int firstReadyHeroId = actionEconomyEngine.boardPieces()[0].id;
+    const int secondReadyHeroId = actionEconomyEngine.boardPieces()[1].id;
+    check(
+        actionEconomyEngine.playCard(1, 0, -1, -1) &&
+            actionEconomyEngine.playCard(1, 0, -1, -1) &&
+            actionEconomyEngine.currentPlayer() == 1,
+        "a player can play multiple affordable cards without ending the turn");
+    check(
+        actionEconomyEngine.playCard(1, 0, 7, 1) &&
+            actionEconomyEngine.playCard(1, 0, 6, 1),
+        "a player can deploy multiple affordable units in one turn");
+    const bool freshUnitsStunned = std::count_if(
+        actionEconomyEngine.boardPieces().begin(),
+        actionEconomyEngine.boardPieces().end(),
+        [](const Piece& piece) {
+            return piece.name == "Fresh Unit" && piece.hasActed;
+        }) == 2;
+    check(
+        freshUnitsStunned,
+        "newly deployed units are unavailable for the rest of the turn");
+    check(
+        actionEconomyEngine.movePiece(1, firstReadyHeroId, 6, 0) &&
+            actionEconomyEngine.currentPlayer() == 1 &&
+            actionEconomyEngine.playerState(1).pieceActionUsedThisTurn,
+        "a hero can move on the first turn without automatically ending it");
+    check(
+        !actionEconomyEngine.movePiece(1, secondReadyHeroId, 6, 2),
+        "only one ordinary piece can move each turn");
+    check(
+        actionEconomyEngine.playCard(1, 0, -1, -1) &&
+            actionEconomyEngine.currentPlayer() == 1,
+        "cards remain playable after the turn's ordinary piece action");
+    check(
+        actionEconomyEngine.endTurn(1) &&
+            actionEconomyEngine.currentPlayer() == 2,
+        "the End Turn action is what hands play to the opponent");
+    actionEconomyEngine.endTurn(2);
+    const bool freshUnitsReadyNextTurn = std::all_of(
+        actionEconomyEngine.boardPieces().begin(),
+        actionEconomyEngine.boardPieces().end(),
+        [](const Piece& piece) {
+            return piece.name != "Fresh Unit" || !piece.hasActed;
+        });
+    check(
+        freshUnitsReadyNextTurn,
+        "newly deployed units become ready at the start of their owner's next turn");
+
+    card_data::Card handLimitHero;
+    handLimitHero.title = "Hand Limit Hero";
+    handLimitHero.type = "Hero";
+    handLimitHero.integerValues = {{"health", 5}};
+    card_data::Card handLimitUnit;
+    handLimitUnit.title = "Hand Limit Unit";
+    handLimitUnit.type = "Unit";
+    handLimitUnit.integerValues = {{"health", 2}, {"cost", 1}};
+    std::vector<card_data::Card> handLimitDeck = {handLimitHero};
+    for (int i = 0; i < 10; ++i)
+    {
+        handLimitDeck.push_back(handLimitUnit);
+    }
+    GameEngine handLimitEngine(46, {handLimitHero, handLimitUnit});
+    handLimitEngine.submitDeck(1, handLimitDeck);
+    handLimitEngine.submitDeck(2, handLimitDeck);
+    handLimitEngine.placeHero(1, 0, homeSquares(1)[0].first, homeSquares(1)[0].second);
+    handLimitEngine.placeHero(2, 0, homeSquares(2)[0].first, homeSquares(2)[0].second);
+    for (int round = 0; round < 3; ++round)
+    {
+        handLimitEngine.endTurn(1);
+        handLimitEngine.endTurn(2);
+    }
+    check(
+        MaxHandSize == 7 &&
+            handLimitEngine.playerState(1).hand.size() == static_cast<std::size_t>(MaxHandSize),
+        "ordinary draws fill the hand to the new seven-card maximum");
+    const std::size_t drawPileAtHandLimit = handLimitEngine.playerState(1).drawPile.size();
+    handLimitEngine.endTurn(1);
+    handLimitEngine.endTurn(2);
+    check(
+        handLimitEngine.playerState(1).hand.size() == static_cast<std::size_t>(MaxHandSize) &&
+            handLimitEngine.playerState(1).drawPile.size() == drawPileAtHandLimit,
+        "ordinary draws stop cleanly when the seven-card hand is full");
 
     Piece largeRangedAttacker;
     largeRangedAttacker.id = 110;
@@ -1478,6 +1594,7 @@ int main(int argc, char** argv)
     serializedSnapshot.timersEnabled = true;
     serializedSnapshot.turnRemainingMs = 54'321;
     serializedSnapshot.players[0].clockRemainingMs = 876'543;
+    serializedSnapshot.players[0].pieceActionUsedThisTurn = true;
     serializedSnapshot.enchantments.push_back({
         7,
         1,
@@ -1504,6 +1621,7 @@ int main(int argc, char** argv)
               roundTrippedSnapshot.timersEnabled &&
               roundTrippedSnapshot.turnRemainingMs == 54'321 &&
               roundTrippedSnapshot.players[0].clockRemainingMs == 876'543 &&
+              roundTrippedSnapshot.players[0].pieceActionUsedThisTurn &&
               roundTrippedSnapshot.enchantments.size() == 1 &&
               roundTrippedSnapshot.enchantments[0].title == "Serialized Enchantment" &&
               roundTrippedSnapshot.foresightChoices.size() == 1 &&
@@ -1619,21 +1737,25 @@ int main(int argc, char** argv)
                 rebirthHandIndex(1, "Rebirth Charm One"),
                 rebirthHomeTwo.first,
                 rebirthHomeTwo.second) &&
+            rebirthEngine.endTurn(1) &&
             rebirthEngine.playCard(
                 2,
                 rebirthHandIndex(2, "Rebirth Pass One"),
                 -1,
                 -1) &&
+            rebirthEngine.endTurn(2) &&
             rebirthEngine.playCard(
                 1,
                 rebirthHandIndex(1, "Rebirth Charm Two"),
                 rebirthHomeTwo.first,
                 rebirthHomeTwo.second) &&
+            rebirthEngine.endTurn(1) &&
             rebirthEngine.playCard(
                 2,
                 rebirthHandIndex(2, "Rebirth Pass Two"),
                 -1,
-                -1),
+                -1) &&
+            rebirthEngine.endTurn(2),
         "rebirth test setup attaches multiple enchantments to the original piece");
 
     const Piece* rebirthAttacker = rebirthPieceByName("Rebirth Slayer");
@@ -1748,6 +1870,7 @@ int main(int argc, char** argv)
     check(
         enchantmentEngine.playCard(1, handIndexFor(1, "Resource Blight"), -1, 2),
         "a player enchantment can attach by dragging to a player target");
+    enchantmentEngine.endTurn(1);
     Snapshot enchantmentSnapshot = enchantmentEngine.snapshotFor(1);
     check(
         enchantmentSnapshot.enchantments.size() == 1 &&
@@ -1765,6 +1888,7 @@ int main(int argc, char** argv)
             enchantmentHomeTwo.first,
             enchantmentHomeTwo.second),
         "a square enchantment can attach to a board square");
+    enchantmentEngine.endTurn(2);
     check(
         enchantmentEngine.playCard(
             1,
@@ -1772,6 +1896,7 @@ int main(int argc, char** argv)
             enchantmentHomeOne.first,
             enchantmentHomeOne.second),
         "a piece enchantment can attach to a board piece");
+    enchantmentEngine.endTurn(1);
     enchantmentSnapshot = enchantmentEngine.snapshotFor(1);
     const int expectedEnchantedResources = std::max(
         0,
@@ -1788,6 +1913,7 @@ int main(int argc, char** argv)
             enchantmentHomeTwo.first,
             enchantmentHomeTwo.second),
         "multiple piece enchantments can persist on different pieces");
+    enchantmentEngine.endTurn(2);
     const int enchantedAttackerId = enchantmentEngine.boardPieces().front().id;
     check(
         enchantmentEngine.attackPiece(
@@ -1916,8 +2042,10 @@ int main(int argc, char** argv)
     check(exhaustedFirst && exhaustedSecond && exhaustedThird &&
               exhaustedRepeatEngine.boardPieces()[1].id == exhaustedTargetId &&
               exhaustedRepeatEngine.boardPieces()[1].health == exhaustedTargetHealth - 3 &&
+              exhaustedRepeatEngine.currentPlayer() == 1 &&
+              exhaustedRepeatEngine.endTurn(1) &&
               exhaustedRepeatEngine.currentPlayer() == 2,
-          "repeat actions stay in the turn and end it after all repeats are used");
+          "repeat actions stay in the turn until the player explicitly ends it");
 
     GameEngine placementTimerEngine(12, {plainHeroCard});
     placementTimerEngine.enableTimers();
@@ -2191,6 +2319,7 @@ int main(int argc, char** argv)
               changedStateHero->hidden && hiddenFromOpponent,
           "an action entering a dematerialized state hides the piece from its opponent");
 
+    stateEngine.endTurn(1);
     stateEngine.endTurn(2);
     stateEngine.movePiece(1, stateHeroId, trailOrigin.first, trailOrigin.second + 2);
     changedStateHero = stateEngine.boardPieces().empty()
@@ -2292,6 +2421,7 @@ int main(int argc, char** argv)
                   controlVictimHome.first,
                   controlVictimHome.second),
           "control test setup deploys a non-hero victim");
+    controlEngine.endTurn(2);
     check(controlEngine.attackPiece(
               1, controlAttackerId, controlVictimHome.first, controlVictimHome.second),
           "authoritative control action is accepted");
@@ -2302,6 +2432,7 @@ int main(int argc, char** argv)
               controlledVictim->owner == 1 && controlledVictim->originalOwner == 2 &&
               controlledVictim->controlTurnsRemaining == 2,
           "authoritative attack changes a surviving target's controller");
+    controlEngine.endTurn(1);
     controlEngine.endTurn(2);
     controlledVictim = std::find_if(
         controlEngine.boardPieces().begin(), controlEngine.boardPieces().end(),
@@ -2405,13 +2536,17 @@ int main(int argc, char** argv)
         const int targetColumn = healingAuraTarget->column;
         const int targetHealthBeforeAttack = healingAuraTarget->health;
         check(healingAuraEngine.movePiece(1, auraHeroId, targetRow, targetColumn - 1) &&
+                  healingAuraEngine.currentPlayer() == 1 &&
+                  healingAuraEngine.endTurn(1) &&
                   healingAuraEngine.currentPlayer() == 2,
-              "a healing aura unit can move next to its target and end its turn");
+              "a healing aura unit moves next to its target and waits for explicit End Turn");
         check(healingAuraEngine.endTurn(2) && healingAuraEngine.currentPlayer() == 1,
               "the target owner's turn can end without triggering the other player's aura");
         check(healingAuraEngine.attackPiece(1, auraHeroId, targetRow, targetColumn) &&
+                  healingAuraEngine.currentPlayer() == 1 &&
+                  healingAuraEngine.endTurn(1) &&
                   healingAuraEngine.currentPlayer() == 2,
-              "the healing aura unit can attack an adjacent target");
+              "the healing aura unit attacks, then the player explicitly ends the turn");
         const auto healedTarget = std::find_if(
             healingAuraEngine.boardPieces().begin(), healingAuraEngine.boardPieces().end(),
             [](const Piece& piece) { return piece.name == "Healing Aura Target"; });
@@ -2488,8 +2623,11 @@ int main(int argc, char** argv)
                   testEnemyAfter && testEnemyAfter->health == enemyHealthBefore - 1,
               "the commanded friendly piece attacks without ending the turn");
         commandEngine.movePiece(1, normalId, player1Home[2].first, 1);
-        check(commandEngine.currentPlayer() == 2,
-              "a normal move after the commanded action ends the turn");
+        check(commandEngine.currentPlayer() == 1 &&
+                  commandEngine.playerState(1).pieceActionUsedThisTurn &&
+                  commandEngine.endTurn(1) &&
+                  commandEngine.currentPlayer() == 2,
+              "a normal move after the commanded action waits for explicit End Turn");
     }
 
     auto relentlessTestHero = [](const std::string& title, bool relentless, bool canDig) {
@@ -2583,10 +2721,12 @@ int main(int argc, char** argv)
             1, attackerId, player1Home[0].first, player1Home[0].second + 1);
         const Piece* movedRelentless =
             relentlessPieceNamed(relentlessMoveBranch, "Relentless Hero");
-        check(relentlessMoveBranch.currentPlayer() == 2 &&
+        check(relentlessMoveBranch.currentPlayer() == 1 &&
                   relentlessMoveBranch.relentlessPiece() == 0 &&
-                  movedRelentless && movedRelentless->column == 1,
-              "the immediate Relentless action may be a normal move and then ends the turn");
+                  movedRelentless && movedRelentless->column == 1 &&
+                  relentlessMoveBranch.endTurn(1) &&
+                  relentlessMoveBranch.currentPlayer() == 2,
+              "the immediate Relentless action may be a normal move before explicit End Turn");
 
         relentlessEngine.movePiece(
             1, allyId, player1Home[1].first, player1Home[1].second + 1);
@@ -2604,12 +2744,14 @@ int main(int argc, char** argv)
               "a second Relentless kill chains another immediate action");
 
         relentlessEngine.useAbility(1, attackerId);
-        check(relentlessEngine.currentPlayer() == 2 &&
+        check(relentlessEngine.currentPlayer() == 1 &&
                   relentlessEngine.relentlessPiece() == 0 &&
                   relentlessEngine.boardHoles()[static_cast<std::size_t>(squareIndex(
                       player1Home[0].first,
-                      player1Home[0].second))] != 0,
-              "the immediate Relentless action may use an ability and then ends the turn");
+                      player1Home[0].second))] != 0 &&
+                  relentlessEngine.endTurn(1) &&
+                  relentlessEngine.currentPlayer() == 2,
+              "the immediate Relentless action may use an ability before explicit End Turn");
     }
 
     Piece corruptHero;
@@ -2890,11 +3032,15 @@ int main(int argc, char** argv)
     const int sharpshooterId = storyPieceId("Goblin Sharpshooter");
     check(
         sharpshooterId != 0 && storyRulesEngine.useAbility(1, sharpshooterId) &&
+            storyRulesEngine.currentPlayer() == 1 &&
+            storyRulesEngine.endTurn(1) &&
             storyRulesEngine.currentPlayer() == 2,
-        "Story scenario Aim uses the normal one-action turn handoff");
+        "Story scenario Aim waits for explicit End Turn");
     storyRulesEngine.endTurn(2);
     check(
         storyRulesEngine.attackPiece(1, sharpshooterId, 4, 4) &&
+            storyRulesEngine.currentPlayer() == 1 &&
+            storyRulesEngine.endTurn(1) &&
             storyRulesEngine.currentPlayer() == 2,
         "Story scenario aimed Fire uses the authoritative ranged action");
     storyRulesEngine.endTurn(2);
@@ -2906,6 +3052,7 @@ int main(int argc, char** argv)
                 [&](const Piece& piece) { return piece.id == sharpshooterId; })->actionState == 0,
         "Story scenario Lower Weapon restores the Sharpshooter movement state");
 
+    storyRulesEngine.endTurn(1);
     storyRulesEngine.endTurn(2);
     const int ambusherId = storyPieceId("Goblin Ambusher");
     const bool hidAmbusher =
@@ -2919,6 +3066,7 @@ int main(int argc, char** argv)
                 [&](const Piece& piece) { return piece.id == ambusherId; }),
         "Story scenario Hide uses multiplayer concealment in the opponent snapshot");
 
+    storyRulesEngine.endTurn(1);
     storyRulesEngine.endTurn(2);
     const int foremanId = storyPieceId("Blackthorn Foreman");
     const std::size_t piecesBeforeSummon = storyRulesEngine.boardPieces().size();
@@ -2926,8 +3074,8 @@ int main(int argc, char** argv)
         foremanId != 0 && storyRulesEngine.useAbility(1, foremanId) &&
             storyRulesEngine.boardPieces().size() == piecesBeforeSummon + 1 &&
             findPieceAt(storyRulesEngine.boardPieces(), 6, 2) != nullptr &&
-            storyRulesEngine.currentPlayer() == 2,
-        "Story scenario Foreman creates a Lumberjack and yields the next action");
+            storyRulesEngine.currentPlayer() == 1,
+        "Story scenario Foreman creates a Lumberjack without automatically ending the turn");
 
     GameEngine storyAiEngine(405, {});
     storyAiEngine.loadScenario(

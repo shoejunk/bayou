@@ -815,7 +815,25 @@ constexpr float HandCardHeight = 104.0f;
 constexpr float HandGap = 5.0f;
 // Leaves room either side of the fan for the overflow chevrons.
 constexpr float HandStartX = 190.0f;
-constexpr std::size_t VisibleGameHandCards = 5;
+constexpr float HandRightX = 582.0f;
+constexpr float HandHoverLift = 24.0f;
+constexpr std::size_t VisibleGameHandCards = 7;
+inline float gameHandCardPitch(std::size_t visibleCards)
+{
+    if (visibleCards <= 1)
+    {
+        return HandCardWidth + HandGap;
+    }
+    return std::min(
+        HandCardWidth + HandGap,
+        (HandRightX - HandStartX - HandCardWidth) /
+            static_cast<float>(visibleCards - 1));
+}
+inline float gameHandCardX(std::size_t visibleIndex, std::size_t visibleCards)
+{
+    return HandStartX +
+        static_cast<float>(visibleIndex) * gameHandCardPitch(visibleCards);
+}
 constexpr std::size_t ForesightChoiceColumns = 8;
 constexpr std::size_t ForesightVisibleRows = 3;
 constexpr float ForesightChoiceY = 142.0f;
@@ -1492,7 +1510,7 @@ int main(int argc, char** argv)
     Button endTurnButton(
         {GameActionButtonX, GameActionButtonY},
         {GameEndTurnButtonWidth, GamePrimaryButtonHeight},
-        "Pass Turn",
+        "End Turn",
         font);
     Button sandboxPlayerButton(
         {GameActionButtonX, GameActionButtonY}, {52.0f, GamePrimaryButtonHeight}, "P1", font);
@@ -4707,6 +4725,14 @@ int main(int argc, char** argv)
             const game_data::Piece* commander = gamePieceById(gameSnapshot.commandingPieceId);
             return commander != nullptr && game_data::pieceCanReceiveCommand(*commander, piece);
         }
+        const bool normalActionSpent =
+            playerNumber >= 1 && playerNumber <= 2 &&
+            gameSnapshot.players[static_cast<std::size_t>(playerNumber - 1)]
+                .pieceActionUsedThisTurn;
+        if (!sandboxMode && normalActionSpent && piece.repeatActionIndex < 0)
+        {
+            return false;
+        }
         if (storyMode)
         {
             return piece.owner == playerNumber && !piece.hasActed &&
@@ -5801,10 +5827,20 @@ int main(int argc, char** argv)
 
     auto handCardAtPixel = [&](sf::Vector2f point) -> std::optional<std::size_t> {
         const std::size_t last = std::min(gameSnapshot.hand.size(), gameHandOffset + VisibleGameHandCards);
-        for (std::size_t i = gameHandOffset; i < last; ++i)
+        const std::size_t visibleCards = last - gameHandOffset;
+        const float pitch = gameHandCardPitch(visibleCards);
+        for (std::size_t visibleIndex = visibleCards; visibleIndex-- > 0;)
         {
-            const float x = HandStartX + static_cast<float>(i - gameHandOffset) * (HandCardWidth + HandGap);
-            if (isInsideRect(point, x, HandY, HandCardWidth, HandCardHeight))
+            const std::size_t i = gameHandOffset + visibleIndex;
+            const float x = gameHandCardX(visibleIndex, visibleCards);
+            const float exposedWidth =
+                visibleIndex + 1 < visibleCards ? pitch : HandCardWidth;
+            if (isInsideRect(
+                    point,
+                    x,
+                    HandY - HandHoverLift,
+                    exposedWidth,
+                    HandCardHeight + HandHoverLift))
             {
                 return i;
             }
@@ -6171,7 +6207,7 @@ int main(int argc, char** argv)
             }
 
             spawnSandboxPiece(next, nextSandboxPieceId, actingPlayer, card, row, column, card.type == "Hero");
-            if (storyMode)
+            if (card.type == "Unit")
             {
                 next.pieces.back().hasActed = true;
             }
@@ -7825,7 +7861,7 @@ int main(int argc, char** argv)
         // yet afford. That makes every affordability state visible at once.
         static constexpr const char* HandTitles[] = {
             "Heartwood Sister", "Heartshoot", "Duchess Dewbell",
-            "Thorn Griffin", "Hidden Path", "Crystal Unicorn"};
+            "Thorn Griffin", "Hidden Path", "Crystal Unicorn", "Blightling"};
         for (const char* handTitle : HandTitles)
         {
             game_data::GameCard card = gameCardNamed(handTitle);
@@ -8241,9 +8277,15 @@ int main(int argc, char** argv)
         {
             seedCaptureMatch("bases");
         }
-        else if (screen == "game-midgame")
+        else if (screen == "game-midgame" || screen == "game-hand-hover")
         {
             seedCaptureMatch("midgame");
+            if (screen == "game-hand-hover")
+            {
+                captureHoverPoint = sf::Vector2f{
+                    gameHandCardX(3, VisibleGameHandCards) + 24.0f,
+                    HandY + 46.0f};
+            }
         }
         else if (screen == "game-selected")
         {
@@ -10300,9 +10342,19 @@ int main(int argc, char** argv)
                      gameSnapshot.hand.size() > VisibleGameHandCards)
             {
                 const sf::Vector2f wheelPos = window.mapPixelToCoords(wheel->position);
-                const float handWidth = static_cast<float>(VisibleGameHandCards) * HandCardWidth +
-                    static_cast<float>(VisibleGameHandCards - 1) * HandGap;
-                if (isInsideRect(wheelPos, HandStartX, HandY - 22.0f, handWidth, HandCardHeight + 22.0f))
+                const std::size_t visibleCards =
+                    std::min(gameSnapshot.hand.size(), VisibleGameHandCards);
+                const float handWidth = visibleCards == 0
+                    ? HandRightX - HandStartX
+                    : gameHandCardPitch(visibleCards) *
+                            static_cast<float>(visibleCards - 1) +
+                        HandCardWidth;
+                if (isInsideRect(
+                        wheelPos,
+                        HandStartX,
+                        HandY - HandHoverLift,
+                        handWidth,
+                        HandCardHeight + HandHoverLift))
                 {
                     scrollList(gameHandOffset, gameSnapshot.hand.size(), VisibleGameHandCards, wheel->delta);
                 }

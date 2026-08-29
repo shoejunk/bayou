@@ -201,7 +201,7 @@ inline std::optional<std::string> deckRulesError(const std::vector<card_data::Ca
 
 // Hand / resource tuning.
 constexpr int StartingHandSize = 4;
-constexpr int MaxHandSize = 4;
+constexpr int MaxHandSize = 7;
 constexpr int MaxDiscardsPerTurn = 1;
 
 enum class Phase : std::uint8_t
@@ -907,6 +907,7 @@ struct PlayerSnapshot
     int heroesAlive = 0;
     int drawPileCount = 0;
     int discardsThisTurn = 0;
+    bool pieceActionUsedThisTurn = false;
     std::int64_t clockRemainingMs = 0;
 };
 
@@ -1101,14 +1102,16 @@ inline void writePlayerSnapshot(sf::Packet& packet, const PlayerSnapshot& player
 {
     packet << player.resources << player.controlledSquares << player.handCount
            << player.heroesToPlace << player.heroesAlive << player.drawPileCount
-           << player.discardsThisTurn << player.clockRemainingMs;
+           << player.discardsThisTurn << player.pieceActionUsedThisTurn
+           << player.clockRemainingMs;
 }
 
 inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 {
     packet >> player.resources >> player.controlledSquares >> player.handCount
            >> player.heroesToPlace >> player.heroesAlive >> player.drawPileCount
-           >> player.discardsThisTurn >> player.clockRemainingMs;
+           >> player.discardsThisTurn >> player.pieceActionUsedThisTurn
+           >> player.clockRemainingMs;
     return static_cast<bool>(packet);
 }
 

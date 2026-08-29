@@ -139,7 +139,8 @@
     auto drawGameCardFace = [&](sf::Vector2f position,
                                const game_data::GameCard& card,
                                bool selected,
-                               bool affordable) {
+                               bool affordable,
+                               float readableWidth) {
         const float width = HandCardWidth;
         const float height = HandCardHeight;
         const sf::Color frame = selected
@@ -199,8 +200,11 @@
 
         // Name band across the art's foot. Wrapped over two lines rather than
         // elided, so a card is identifiable without hovering it.
+        readableWidth = std::clamp(readableWidth, 38.0f, width);
+        const unsigned int nameSize = readableWidth < width ? 8U : 9U;
+        const float nameWidth = readableWidth - 10.0f;
         const std::vector<std::string> nameLines =
-            wrapText(font, card.title, 9, width - 12.0f);
+            wrapText(font, card.title, nameSize, nameWidth);
         const std::size_t shownLines = std::min<std::size_t>(2, nameLines.size());
         for (std::size_t line = 0; line < shownLines; ++line)
         {
@@ -208,15 +212,15 @@
             const bool truncated = lastShown && nameLines.size() > shownLines;
             sf::Text nameText(
                 font,
-                truncated ? elideToWidth(font, nameLines[line] + "...", 9, width - 12.0f)
+                truncated ? elideToWidth(font, nameLines[line] + "...", nameSize, nameWidth)
                           : nameLines[line],
-                9);
+                nameSize);
             nameText.setFillColor(inkColor);
             nameText.setOutlineThickness(1.0f);
             nameText.setOutlineColor(sf::Color(0, 0, 0, 210));
             centerText(
                 nameText,
-                {position.x + width * 0.5f,
+                {position.x + readableWidth * 0.5f,
                  scrimBottom - 6.0f -
                      static_cast<float>(shownLines - 1 - line) * 10.0f});
             drawCrispText(window, nameText);
@@ -967,7 +971,8 @@
                     {x, y},
                     gameSnapshot.foresightChoices[index],
                     false,
-                    true);
+                    true,
+                    HandCardWidth);
                 drawCutPlate(
                     {x, y + HandCardHeight + 4.0f},
                     {HandCardWidth, 19.0f},
@@ -1825,7 +1830,13 @@
 
             const bool pieceUnavailable =
                 ((piece.hasActed ||
-                  (gameSnapshot.relentlessPieceId != 0 && piece.id != gameSnapshot.relentlessPieceId)) &&
+                  (gameSnapshot.relentlessPieceId != 0 && piece.id != gameSnapshot.relentlessPieceId) ||
+                  (gameSnapshot.players[static_cast<std::size_t>(
+                       std::clamp(gameSnapshot.activePlayer, 1, 2) - 1)]
+                       .pieceActionUsedThisTurn &&
+                   gameSnapshot.relentlessPieceId == 0 &&
+                   gameSnapshot.commandingPieceId == 0 &&
+                   piece.repeatActionIndex < 0)) &&
                  piece.owner == gameSnapshot.activePlayer) || piece.disabledTurns > 0;
 
             const std::string& walkPath = pieceWalkAnimPath(piece);
@@ -2993,17 +3004,39 @@
             clampListOffset(gameHandOffset, gameSnapshot.hand.size(), VisibleGameHandCards);
             const std::size_t lastHandCard =
                 std::min(gameSnapshot.hand.size(), gameHandOffset + VisibleGameHandCards);
-            for (std::size_t i = gameHandOffset; i < lastHandCard; ++i)
-            {
-                const float x =
-                    HandStartX + static_cast<float>(i - gameHandOffset) * (HandCardWidth + HandGap);
+            const std::size_t visibleHandCards = lastHandCard - gameHandOffset;
+            const std::optional<std::size_t> hoveredHandCard =
+                gameDragActive ? std::nullopt : handCardAtPixel(currentPointer);
+            const auto drawHandCard = [&](std::size_t i, bool hovered) {
+                const std::size_t visibleIndex = i - gameHandOffset;
+                const float x = gameHandCardX(visibleIndex, visibleHandCards);
                 const game_data::GameCard& card = gameSnapshot.hand[i];
                 const bool affordable = phase == game_data::Phase::HeroPlacement ||
                     (gameSnapshot.relentlessPieceId == 0 &&
-                     (sandboxMode || card.cost <= mine.resources) && (sandboxMode || gameSnapshot.activePlayer == me) &&
+                     (sandboxMode || card.cost <= mine.resources) &&
+                     (sandboxMode || gameSnapshot.activePlayer == me) &&
                      phase == game_data::Phase::Playing &&
                      (sandboxMode || game_data::heroTraitsAllowCard(gameSnapshot.pieces, me, card)));
-                drawGameCardFace({x, HandY}, card, selectedHandIndex && *selectedHandIndex == i, affordable);
+                drawGameCardFace(
+                    {x, HandY - (hovered ? HandHoverLift : 0.0f)},
+                    card,
+                    selectedHandIndex && *selectedHandIndex == i,
+                    affordable,
+                    hovered || visibleIndex + 1 == visibleHandCards
+                        ? HandCardWidth
+                        : gameHandCardPitch(visibleHandCards));
+            };
+            for (std::size_t i = gameHandOffset; i < lastHandCard; ++i)
+            {
+                if (!hoveredHandCard || *hoveredHandCard != i)
+                {
+                    drawHandCard(i, false);
+                }
+            }
+            if (hoveredHandCard && *hoveredHandCard >= gameHandOffset &&
+                *hoveredHandCard < lastHandCard)
+            {
+                drawHandCard(*hoveredHandCard, true);
             }
 
             if (gameSnapshot.hand.empty())
@@ -3012,17 +3045,16 @@
                 emptyHand.setFillColor(withAlpha(BoardParchmentMuted, 168));
                 centerText(
                     emptyHand,
-                    {HandStartX + (HandCardWidth * static_cast<float>(VisibleGameHandCards) +
-                                   HandGap * static_cast<float>(VisibleGameHandCards - 1)) * 0.5f,
+                    {HandStartX + (HandRightX - HandStartX) * 0.5f,
                      HandY + HandCardHeight * 0.5f});
                 drawCrispText(window, emptyHand);
             }
             else if (gameSnapshot.hand.size() > VisibleGameHandCards)
             {
                 // Overflow chevrons instead of the "Cards 1-5/6" debug readout.
-                const float handRight = HandStartX +
-                    HandCardWidth * static_cast<float>(VisibleGameHandCards) +
-                    HandGap * static_cast<float>(VisibleGameHandCards - 1);
+                const float handRight =
+                    gameHandCardX(visibleHandCards - 1, visibleHandCards) +
+                    HandCardWidth;
                 const float arrowY = HandY + HandCardHeight * 0.5f;
                 const auto drawChevron = [&](float centerX, bool pointsLeft, bool enabled) {
                     const sf::Color accent = enabled
@@ -3100,7 +3132,8 @@
                          gameDragCurrentPos.y - HandCardHeight / 2.0f},
                         draggedCard,
                         true,
-                        affordable);
+                        affordable,
+                        HandCardWidth);
                 }
             }
             else if (gameDragKind == GameDragKind::Piece && draggedPiece)
