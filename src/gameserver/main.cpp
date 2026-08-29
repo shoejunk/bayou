@@ -1177,6 +1177,9 @@ private:
                 engine.chooseForesightCard(playerNumber, choiceIndex);
                 return true;
             }
+            case MessageType::DrawCard:
+                engine.drawCard(playerNumber);
+                return true;
             case MessageType::EndTurn:
                 engine.endTurn(playerNumber);
                 return true;

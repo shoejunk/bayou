@@ -201,7 +201,8 @@ inline std::optional<std::string> deckRulesError(const std::vector<card_data::Ca
 
 // Hand / resource tuning.
 constexpr int StartingHandSize = 4;
-constexpr int MaxHandSize = 7;
+constexpr int MaxHandSize = 4;
+constexpr int DrawCardResourceCost = 50;
 constexpr int MaxDiscardsPerTurn = 1;
 
 enum class Phase : std::uint8_t

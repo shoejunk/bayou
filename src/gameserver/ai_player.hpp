@@ -9,6 +9,7 @@ enum class AiActionKind
     AttackPiece,
     UseAbility,
     PlayCard,
+    DrawCard,
     DiscardCard
 };
 

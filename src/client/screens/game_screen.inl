@@ -468,35 +468,58 @@
         drawCrispText(window, text);
     };
 
-    // The draw pile, as a stack of card backs. Previously the deck simply was not
-    // shown, so players had no idea how close they were to running out.
-    auto drawDrawPile = [&](int remaining) {
+    // The deck is the paid-draw button. Keep the count, action, exact price and
+    // disabled reason legible without requiring a tooltip.
+    auto drawDrawPile = [&](int remaining, bool available, bool hovered, const std::string& caption) {
         const float centerX = GameDeckPileX + GamePileWidth * 0.5f;
+        const float lift = available && hovered ? 3.0f : 0.0f;
+        const sf::Color accent = available
+            ? (hovered ? BoardBrassBright : BoardBrass)
+            : BoardBrassDim;
         const int layers = remaining <= 0 ? 1 : std::min(3, 1 + remaining / 8);
         for (int i = layers - 1; i >= 0; --i)
         {
             const float offset = static_cast<float>(i) * 2.2f;
             const bool top = i == 0;
             drawCutPlate(
-                {GameDeckPileX - offset, GamePileY - offset},
+                {GameDeckPileX - offset, GamePileY - offset - lift},
                 {GamePileWidth, GamePileHeight - 14.0f},
                 6.0f,
                 remaining > 0 ? sf::Color(18, 25, 30, 246) : sf::Color(18, 20, 21, 210),
-                remaining > 0 ? (top ? BoardBrass : BoardBrassDim) : sf::Color(72, 62, 50),
-                top ? 1.5f : 1.0f);
+                remaining > 0 ? (top ? accent : BoardBrassDim) : sf::Color(72, 62, 50),
+                top ? (hovered && available ? 2.2f : 1.5f) : 1.0f);
         }
-        // Keep the remaining-card count as the only content on the face, centered
-        // in the tall slot now that the decorative sigil has been removed.
-        sf::Text count(font, std::to_string(std::max(0, remaining)), 16);
-        count.setFillColor(remaining > 0 ? BoardParchment : withAlpha(BoardParchmentMuted, 170));
-        count.setOutlineThickness(1.0f);
-        count.setOutlineColor(sf::Color(0, 0, 0, 200));
-        centerText(count, {centerX, GamePileY + (GamePileHeight - 14.0f) * 0.5f});
+
+        const float faceY = GamePileY - lift;
+        sf::Text count(font, std::to_string(std::max(0, remaining)) + " LEFT", 8);
+        count.setLetterSpacing(1.1f);
+        count.setFillColor(withAlpha(BoardParchmentMuted, remaining > 0 ? 220 : 150));
+        centerText(count, {centerX, faceY + 13.0f});
         drawCrispText(window, count);
 
+        sf::Text drawLabel(font, "DRAW", 11);
+        drawLabel.setLetterSpacing(1.25f);
+        drawLabel.setFillColor(available ? BoardParchment : withAlpha(BoardParchmentMuted, 170));
+        centerText(drawLabel, {centerX, faceY + 34.0f});
+        drawCrispText(window, drawLabel);
+
+        sf::Text cost(font, std::to_string(game_data::DrawCardResourceCost), 22);
+        cost.setStyle(sf::Text::Bold);
+        cost.setFillColor(available ? accent : withAlpha(BoardParchmentMuted, 160));
+        cost.setOutlineThickness(1.0f);
+        cost.setOutlineColor(sf::Color(0, 0, 0, 210));
+        centerText(cost, {centerX, faceY + 57.0f});
+        drawCrispText(window, cost);
+
+        sf::Text resourceLabel(font, "RESOURCES", 7);
+        resourceLabel.setLetterSpacing(1.05f);
+        resourceLabel.setFillColor(withAlpha(BoardParchmentMuted, available ? 220 : 145));
+        centerText(resourceLabel, {centerX, faceY + 76.0f});
+        drawCrispText(window, resourceLabel);
+
         drawSlotCaption(
-            centerX, GamePileY + GamePileHeight - 5.0f, "DECK",
-            withAlpha(BoardParchmentMuted, 206));
+            centerX, GamePileY + GamePileHeight - 5.0f, caption,
+            available ? withAlpha(BoardBrassBright, 240) : withAlpha(BoardParchmentMuted, 180));
     };
 
     // The discard slot, which doubles as the drop target for pitching a card.
@@ -938,7 +961,7 @@
         drawWrappedText(
             window,
             font,
-            "Choose one card for your hand. The rest return to the bottom of your deck.",
+            "Your 50-Resource draw triggered Foresight. Choose one; the rest go to the bottom.",
             11,
             {92.0f, 105.0f},
             BoardParchmentMuted,
@@ -2821,7 +2844,34 @@
         const bool commandBarActive = phase == game_data::Phase::Playing && !storyMode;
         if (commandBarActive)
         {
-            drawDrawPile(mine.drawPileCount);
+            const bool canDraw = playerCanDrawCard();
+            std::string drawCaption = "WAIT";
+            if (mine.drawPileCount <= 0)
+            {
+                drawCaption = "EMPTY";
+            }
+            else if (static_cast<int>(gameSnapshot.hand.size()) >= game_data::MaxHandSize)
+            {
+                drawCaption = "HAND FULL";
+            }
+            else if (!gameSnapshot.foresightChoices.empty())
+            {
+                drawCaption = "CHOOSE CARD";
+            }
+            else if (gameSnapshot.activePlayer == me &&
+                     mine.resources < game_data::DrawCardResourceCost)
+            {
+                drawCaption = "NEED 50";
+            }
+            else if (canDraw)
+            {
+                drawCaption = "CLICK DECK";
+            }
+            drawDrawPile(
+                mine.drawPileCount,
+                canDraw,
+                isDrawPileAtPixel(currentPointer),
+                drawCaption);
 
             const bool draggingHandCard =
                 gameDragActive &&

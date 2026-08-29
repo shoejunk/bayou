@@ -817,7 +817,7 @@ constexpr float HandGap = 5.0f;
 constexpr float HandStartX = 190.0f;
 constexpr float HandRightX = 582.0f;
 constexpr float HandHoverLift = 24.0f;
-constexpr std::size_t VisibleGameHandCards = 7;
+constexpr std::size_t VisibleGameHandCards = 4;
 inline float gameHandCardPitch(std::size_t visibleCards)
 {
     if (visibleCards <= 1)
@@ -5890,6 +5890,14 @@ int main(int argc, char** argv)
             TrashCanWidth + TrashCanDropPadding * 2.0f,
             TrashCanHeight + TrashCanDropPadding * 2.0f);
     };
+    auto isDrawPileAtPixel = [&](sf::Vector2f point) {
+        return isInsideRect(
+            point,
+            GameDeckPileX,
+            GamePileY - 4.0f,
+            GamePileWidth,
+            GamePileHeight - 6.0f);
+    };
 
     auto playerReadoutAtPixel = [&](sf::Vector2f point) -> std::optional<int> {
         if (isInsideRect(
@@ -7040,6 +7048,21 @@ int main(int argc, char** argv)
         packet << static_cast<std::uint8_t>(network::MessageType::ChooseForesightCard) << choiceIndex;
         sendGamePacket(packet);
     };
+    auto sendDrawCard = [&]() {
+        if (storyMode && storyEngine)
+        {
+            storyEngine->drawCard(1);
+            syncStoryEngine();
+            return;
+        }
+        if (sandboxMode)
+        {
+            return;
+        }
+        sf::Packet packet;
+        packet << static_cast<std::uint8_t>(network::MessageType::DrawCard);
+        sendGamePacket(packet);
+    };
     auto sendEndTurn = [&]() {
         if (storyMode && storyEngine)
         {
@@ -7090,6 +7113,25 @@ int main(int argc, char** argv)
         }
         const game_data::PlayerSnapshot& mine = gameSnapshot.players[static_cast<std::size_t>(me - 1)];
         return mine.discardsThisTurn < game_data::MaxDiscardsPerTurn && !gameSnapshot.hand.empty();
+    };
+
+    auto playerCanDrawCard = [&]() {
+        if (!haveSnapshot || sandboxMode ||
+            static_cast<game_data::Phase>(gameSnapshot.phase) != game_data::Phase::Playing ||
+            !gameSnapshot.foresightChoices.empty())
+        {
+            return false;
+        }
+        const int me = gameSnapshot.yourPlayer;
+        if (me < 1 || me > 2 || gameSnapshot.activePlayer != me)
+        {
+            return false;
+        }
+        const game_data::PlayerSnapshot& mine =
+            gameSnapshot.players[static_cast<std::size_t>(me - 1)];
+        return mine.drawPileCount > 0 &&
+            mine.resources >= game_data::DrawCardResourceCost &&
+            static_cast<int>(gameSnapshot.hand.size()) < game_data::MaxHandSize;
     };
 
     auto canDiscardHandCard = [&](std::size_t handIndex) {
@@ -7569,6 +7611,15 @@ int main(int argc, char** argv)
         }
 
         // Playing phase: only the active player may act.
+        if (isDrawPileAtPixel(clickPos))
+        {
+            if (playerCanDrawCard())
+            {
+                selectedHandIndex.reset();
+                sendDrawCard();
+            }
+            return;
+        }
         if (const std::optional<std::size_t> handIndex = handCardAtPixel(clickPos))
         {
             if (sandboxMode || gameSnapshot.activePlayer == me)
@@ -7860,8 +7911,7 @@ int main(int argc, char** argv)
         // mixes cards she permits with ones she does not and one the player cannot
         // yet afford. That makes every affordability state visible at once.
         static constexpr const char* HandTitles[] = {
-            "Heartwood Sister", "Heartshoot", "Duchess Dewbell",
-            "Thorn Griffin", "Hidden Path", "Crystal Unicorn", "Blightling"};
+            "Heartwood Sister", "Heartshoot", "Duchess Dewbell", "Crystal Unicorn"};
         for (const char* handTitle : HandTitles)
         {
             game_data::GameCard card = gameCardNamed(handTitle);
@@ -7875,7 +7925,7 @@ int main(int argc, char** argv)
 
         snapshot.timersEnabled = true;
         snapshot.turnRemainingMs = 47'000;
-        snapshot.players[0].resources = 7;
+        snapshot.players[0].resources = 125;
         snapshot.players[0].controlledSquares = controlledCountInSnapshot(snapshot, 1);
         snapshot.players[0].handCount = static_cast<int>(snapshot.hand.size());
         snapshot.players[0].heroesAlive = heroesAliveInSnapshot(snapshot, 1);
@@ -8280,7 +8330,19 @@ int main(int argc, char** argv)
         else if (screen == "game-midgame" || screen == "game-hand-hover")
         {
             seedCaptureMatch("midgame");
-            if (screen == "game-hand-hover")
+            if (screen == "game-midgame")
+            {
+                if (!gameSnapshot.hand.empty())
+                {
+                    gameSnapshot.hand.pop_back();
+                    gameSnapshot.players[0].handCount =
+                        static_cast<int>(gameSnapshot.hand.size());
+                }
+                captureHoverPoint = sf::Vector2f{
+                    GameDeckPileX + GamePileWidth * 0.5f,
+                    GamePileY + (GamePileHeight - 14.0f) * 0.5f};
+            }
+            else
             {
                 captureHoverPoint = sf::Vector2f{
                     gameHandCardX(3, VisibleGameHandCards) + 24.0f,

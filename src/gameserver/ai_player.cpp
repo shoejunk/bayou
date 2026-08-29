@@ -19,6 +19,7 @@ int actionPriority(const AiAction& action)
     {
         case AiActionKind::AttackPiece: return 700;
         case AiActionKind::PlayCard: return 600;
+        case AiActionKind::DrawCard: return 550;
         case AiActionKind::UseAbility: return 500;
         case AiActionKind::MovePiece: return 300;
         case AiActionKind::DiscardCard: return 100;
@@ -182,6 +183,12 @@ std::vector<AiAction> legalAiActions(const GameEngine& engine, int playerNumber,
                 actions.push_back({AiActionKind::DiscardCard, 0, handIndex});
             }
         }
+        if (player.resources >= DrawCardResourceCost &&
+            static_cast<int>(player.hand.size()) < MaxHandSize &&
+            !player.drawPile.empty())
+        {
+            actions.push_back({AiActionKind::DrawCard});
+        }
     }
 
     actions.push_back({AiActionKind::EndTurn});
@@ -212,6 +219,12 @@ void applyAiAction(GameEngine& engine, int playerNumber, const AiAction& action)
             break;
         case AiActionKind::PlayCard:
             engine.playCard(playerNumber, action.handIndex, action.row, action.column);
+            break;
+        case AiActionKind::DrawCard:
+            if (engine.drawCard(playerNumber) && engine.hasPendingForesightChoice(playerNumber))
+            {
+                engine.chooseForesightCard(playerNumber, 0);
+            }
             break;
         case AiActionKind::DiscardCard:
             engine.discardCard(playerNumber, action.handIndex);

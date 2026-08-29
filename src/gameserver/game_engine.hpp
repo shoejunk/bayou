@@ -696,6 +696,57 @@ public:
         player.foresightChoices.clear();
         player.hand.push_back(chosenCard);
         status = fmt::format("Player {} chose {} with Foresight.", playerNumber, chosenCard.title);
+        return true;
+    }
+
+    bool drawCard(int playerNumber)
+    {
+        if (hasPendingForesightChoice(playerNumber))
+        {
+            return false;
+        }
+        if (phaseValue != Phase::Playing || playerNumber != activePlayer)
+        {
+            return false;
+        }
+
+        EnginePlayer& player = playerRef(playerNumber);
+        if (static_cast<int>(player.hand.size()) >= MaxHandSize)
+        {
+            setStatusFor(playerNumber, "Your hand is full.");
+            return false;
+        }
+        if (player.drawPile.empty())
+        {
+            setStatusFor(playerNumber, "Your deck is empty.");
+            return false;
+        }
+        if (player.resources < DrawCardResourceCost)
+        {
+            setStatusFor(
+                playerNumber,
+                fmt::format("Drawing a card costs {} Resources.", DrawCardResourceCost));
+            return false;
+        }
+
+        player.resources -= DrawCardResourceCost;
+        const int foresightUnits = foresightUnitCount(playerNumber);
+        if (foresightUnits > 0)
+        {
+            prepareForesightDraw(player, foresightUnits);
+            status = fmt::format(
+                "Player {} spent {} Resources to draw with Foresight.",
+                playerNumber,
+                DrawCardResourceCost);
+        }
+        else
+        {
+            drawTopCard(player);
+            status = fmt::format(
+                "Player {} spent {} Resources to draw a card.",
+                playerNumber,
+                DrawCardResourceCost);
+        }
         recordPlayerMove(playerNumber);
         return true;
     }
@@ -1481,7 +1532,7 @@ private:
             EnginePlayer& player = playerRef(p);
             for (int i = 0; i < StartingHandSize; ++i)
             {
-                drawCard(player);
+                drawTopCard(player);
             }
         }
 
@@ -1529,16 +1580,6 @@ private:
             player.resources,
             playerEnchantmentResourceDrain(enchantments, playerNumber));
         player.resources -= resourceDrain;
-        const int foresightUnits = foresightUnitCount(playerNumber);
-        if (foresightUnits > 0)
-        {
-            prepareForesightDraw(player, foresightUnits);
-        }
-        else
-        {
-            drawCard(player);
-        }
-
         for (Piece& piece : pieces)
         {
             if (piece.owner == playerNumber)
@@ -1559,7 +1600,7 @@ private:
             resourceDrain > 0 ? fmt::format(" and drained {} Resources", resourceDrain) : "");
     }
 
-    void drawCard(EnginePlayer& player)
+    void drawTopCard(EnginePlayer& player)
     {
         if (player.drawPile.empty() || static_cast<int>(player.hand.size()) >= MaxHandSize)
         {

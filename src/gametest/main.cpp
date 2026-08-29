@@ -515,8 +515,8 @@ int main(int argc, char** argv)
          {2, opponentHero, 6, 5, true}},
         {},
         {},
-        0,
-        0,
+        100,
+        100,
         1,
         "Foresight draw test");
     foresightEngine.submitDeck(1, {
@@ -524,15 +524,27 @@ int main(int argc, char** argv)
         makeForesightDeckCard("Foresight Draw B"),
         makeForesightDeckCard("Foresight Draw C")});
     foresightEngine.submitDeck(2, {makeForesightDeckCard("Opponent Draw")});
-    check(foresightEngine.endTurn(1), "a normal turn can end before Foresight is evaluated");
-    check(foresightEngine.hasPendingForesightChoice(2),
-          "the opponent's own Foresight choice is prepared on the opponent's turn");
+    check(foresightEngine.endTurn(1), "a normal turn can end without drawing a card");
+    check(!foresightEngine.hasPendingForesightChoice(2) &&
+              foresightEngine.playerState(2).hand.empty(),
+          "Foresight and ordinary drawing do not trigger at the start of a turn");
+    const int opponentResourcesBeforeDraw = foresightEngine.playerState(2).resources;
+    check(foresightEngine.drawCard(2) &&
+              foresightEngine.hasPendingForesightChoice(2) &&
+              foresightEngine.playerState(2).resources ==
+                  opponentResourcesBeforeDraw - DrawCardResourceCost,
+          "spending 50 Resources triggers the opponent's Foresight draw");
     check(foresightEngine.chooseForesightCard(2, 0), "the opponent can resolve its Foresight choice");
-    check(foresightEngine.endTurn(2), "the opponent turn can end before Foresight is evaluated");
+    check(foresightEngine.endTurn(2), "the opponent can end the turn after resolving Foresight");
+    const int resourcesBeforeForesightDraw = foresightEngine.playerState(1).resources;
+    check(foresightEngine.drawCard(1),
+          "the active player can spend 50 Resources to draw with Foresight");
     const Snapshot foresightSnapshot = foresightEngine.snapshotFor(1);
     check(foresightSnapshot.foresightChoices.size() == 2 &&
-              foresightEngine.playerState(1).drawPile.size() == 1,
-          "one owned non-Hero Foresight unit reveals two cards and leaves the rest of the deck intact");
+              foresightEngine.playerState(1).drawPile.size() == 1 &&
+              foresightEngine.playerState(1).resources ==
+                  resourcesBeforeForesightDraw - DrawCardResourceCost,
+          "one owned non-Hero Foresight unit reveals two cards for each paid draw");
     check(foresightEngine.snapshotFor(2).foresightChoices.empty(),
           "Foresight options are hidden from the opponent");
     if (foresightSnapshot.foresightChoices.size() == 2)
@@ -555,17 +567,43 @@ int main(int argc, char** argv)
             [&chosenTitle](const GameCard& card) { return card.title == chosenTitle; });
         check(returnedToBottom && !chosenStillInPile && remainingDrawPile.size() == 2,
               "the unchosen Foresight card returns to the bottom of the deck");
+        const int resourcesBeforeSecondForesightDraw =
+            foresightEngine.playerState(1).resources;
+        check(foresightEngine.drawCard(1) &&
+                  foresightEngine.hasPendingForesightChoice(1) &&
+                  foresightEngine.playerState(1).resources ==
+                      resourcesBeforeSecondForesightDraw - DrawCardResourceCost,
+              "Foresight triggers again on another paid draw in the same turn");
+        check(foresightEngine.chooseForesightCard(1, 0) &&
+                  foresightEngine.playerState(1).hand.size() == 2,
+              "the second Foresight draw adds another chosen card to the hand");
     }
 
     GameEngine ordinaryDrawEngine(78, {});
-    ordinaryDrawEngine.loadScenario({}, {}, {}, 0, 0, 1, "ordinary draw test");
-    ordinaryDrawEngine.submitDeck(1, {makeForesightDeckCard("Ordinary Draw A")});
+    ordinaryDrawEngine.loadScenario({}, {}, {}, 150, 0, 1, "ordinary draw test");
+    ordinaryDrawEngine.submitDeck(1, {
+        makeForesightDeckCard("Ordinary Draw A"),
+        makeForesightDeckCard("Ordinary Draw B"),
+        makeForesightDeckCard("Ordinary Draw C")});
     ordinaryDrawEngine.submitDeck(2, {makeForesightDeckCard("Ordinary Draw B")});
-    check(ordinaryDrawEngine.endTurn(1), "an ordinary turn can end without Foresight");
+    check(ordinaryDrawEngine.endTurn(1), "an ordinary turn can end without buying a draw");
     check(ordinaryDrawEngine.endTurn(2), "the ordinary opponent turn can end");
     check(ordinaryDrawEngine.snapshotFor(1).foresightChoices.empty() &&
-              ordinaryDrawEngine.playerState(1).hand.size() == 1,
-          "a player without Foresight still draws one card normally");
+              ordinaryDrawEngine.playerState(1).hand.empty() &&
+              ordinaryDrawEngine.playerState(1).drawPile.size() == 3,
+          "turn starts never draw cards or consume the deck");
+    check(ordinaryDrawEngine.drawCard(1) &&
+              ordinaryDrawEngine.playerState(1).hand.size() == 1 &&
+              ordinaryDrawEngine.playerState(1).drawPile.size() == 2 &&
+              ordinaryDrawEngine.playerState(1).resources == 100,
+          "a paid draw moves the top card to hand and spends exactly 50 Resources");
+    check(ordinaryDrawEngine.drawCard(1) && ordinaryDrawEngine.drawCard(1) &&
+              ordinaryDrawEngine.playerState(1).hand.size() == 3 &&
+              ordinaryDrawEngine.playerState(1).resources == 0,
+          "a player may buy as many same-turn draws as Resources allow");
+    check(!ordinaryDrawEngine.drawCard(1) &&
+              ordinaryDrawEngine.playerState(1).hand.size() == 3,
+          "a player cannot draw without the required 50 Resources");
 
     GameCard actionEconomyHero;
     actionEconomyHero.title = "Action Economy Hero";
@@ -646,40 +684,34 @@ int main(int argc, char** argv)
         freshUnitsReadyNextTurn,
         "newly deployed units become ready at the start of their owner's next turn");
 
-    card_data::Card handLimitHero;
-    handLimitHero.title = "Hand Limit Hero";
-    handLimitHero.type = "Hero";
-    handLimitHero.integerValues = {{"health", 5}};
-    card_data::Card handLimitUnit;
-    handLimitUnit.title = "Hand Limit Unit";
-    handLimitUnit.type = "Unit";
-    handLimitUnit.integerValues = {{"health", 2}, {"cost", 1}};
-    std::vector<card_data::Card> handLimitDeck = {handLimitHero};
-    for (int i = 0; i < 10; ++i)
-    {
-        handLimitDeck.push_back(handLimitUnit);
-    }
-    GameEngine handLimitEngine(46, {handLimitHero, handLimitUnit});
-    handLimitEngine.submitDeck(1, handLimitDeck);
-    handLimitEngine.submitDeck(2, handLimitDeck);
-    handLimitEngine.placeHero(1, 0, homeSquares(1)[0].first, homeSquares(1)[0].second);
-    handLimitEngine.placeHero(2, 0, homeSquares(2)[0].first, homeSquares(2)[0].second);
-    for (int round = 0; round < 3; ++round)
-    {
-        handLimitEngine.endTurn(1);
-        handLimitEngine.endTurn(2);
-    }
+    GameCard handLimitCard;
+    handLimitCard.title = "Held Card";
+    handLimitCard.type = "Unit";
+    GameEngine handLimitEngine(46, {});
+    handLimitEngine.loadScenario(
+        {},
+        {handLimitCard, handLimitCard, handLimitCard},
+        {},
+        100,
+        0,
+        1,
+        "Hand limit test");
+    handLimitEngine.submitDeck(1, {
+        makeForesightDeckCard("Hand Limit Draw A"),
+        makeForesightDeckCard("Hand Limit Draw B")});
+    handLimitEngine.submitDeck(2, {makeForesightDeckCard("Opponent Hand Limit Draw")});
     check(
-        MaxHandSize == 7 &&
-            handLimitEngine.playerState(1).hand.size() == static_cast<std::size_t>(MaxHandSize),
-        "ordinary draws fill the hand to the new seven-card maximum");
+        MaxHandSize == 4 && handLimitEngine.drawCard(1) &&
+            handLimitEngine.playerState(1).hand.size() == static_cast<std::size_t>(MaxHandSize) &&
+            handLimitEngine.playerState(1).resources == 50,
+        "a paid draw fills the hand to the four-card maximum");
     const std::size_t drawPileAtHandLimit = handLimitEngine.playerState(1).drawPile.size();
-    handLimitEngine.endTurn(1);
-    handLimitEngine.endTurn(2);
     check(
-        handLimitEngine.playerState(1).hand.size() == static_cast<std::size_t>(MaxHandSize) &&
-            handLimitEngine.playerState(1).drawPile.size() == drawPileAtHandLimit,
-        "ordinary draws stop cleanly when the seven-card hand is full");
+        !handLimitEngine.drawCard(1) &&
+            handLimitEngine.playerState(1).hand.size() == static_cast<std::size_t>(MaxHandSize) &&
+            handLimitEngine.playerState(1).drawPile.size() == drawPileAtHandLimit &&
+            handLimitEngine.playerState(1).resources == 50,
+        "a full four-card hand blocks another draw without spending Resources");
 
     Piece largeRangedAttacker;
     largeRangedAttacker.id = 110;

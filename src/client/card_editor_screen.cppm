@@ -3948,9 +3948,9 @@ private:
         y += 12.0f;
 
         y = drawInstructionSection(window, "7. Turn and board rules that affect balance", y);
-        y = drawInstructionBullet(window, "On a turn, playing a card, moving, or attacking ends the turn. A piece can therefore move or attack, not both, before the opponent acts.", y);
+        y = drawInstructionBullet(window, "A player may play any number of affordable cards, but normally only one piece may move or attack each turn. Repeat actions, Relentless, and Command provide their listed exceptions. Only End Turn passes play to the opponent.", y);
         y = drawInstructionBullet(window, "A piece with canControl=1 controls its occupied square and influences adjacent territory. Pieces with canControl=0 do neither. Ties keep the current controller.", y);
-        y = drawInstructionBullet(window, "At the start of a turn, the player gains 1 Resource per controlled square, gains each piece's gatherResources amount, Tax pieces collect Resources from the opponent, draws one card if below the 8-card hand limit or uses Foresight to choose among revealed cards, and refreshes their pieces.", y);
+        y = drawInstructionBullet(window, "At the start of a turn, the player gains 1 Resource per controlled square, gains each piece's gatherResources amount, Tax pieces collect Resources from the opponent, and refreshes their pieces. Drawing costs 50 Resources: click the deck while below the 4-card hand limit. Foresight reveals its choices on every paid draw.", y);
         y = drawInstructionBullet(window, "Attacks use the range, pattern, line-of-sight, and blocker settings of the selected action.", y);
         y += 12.0f;
 
