@@ -57,6 +57,11 @@ constexpr auto InitialRequestTimeout = std::chrono::seconds(2);
 // rejected before allocating, so a crafted count cannot exhaust memory.
 constexpr std::uint32_t MaxDeckPacketCards = 64;
 constexpr int AiPlayerNumber = 2;
+// Whole turns of lookahead: the AI's turn, the reply it has to survive, and
+// two more. Self-play says four is where extra depth stops paying, and it
+// costs well under a tenth of a second per decision against a turn timer
+// measured in minutes.
+constexpr int AiMatchSearchTurns = 4;
 constexpr const char* AiOpponentName = "Bayou Automaton";
 
 struct JoinedPlayer
@@ -737,13 +742,20 @@ public:
             {
                 if (engine.hasPendingForesightChoice(AiPlayerNumber))
                 {
-                    engine.chooseForesightCard(AiPlayerNumber, 0);
+                    engine.chooseForesightCard(
+                        AiPlayerNumber, chooseAiForesightCard(engine, AiPlayerNumber));
                     changed = true;
                 }
                 else
                 {
-                    const AiAction action = chooseAiAction(engine, AiPlayerNumber);
-                    applyAiAction(engine, AiPlayerNumber, action);
+                    const AiAction action =
+                        chooseAiAction(engine, AiPlayerNumber, AiMatchSearchTurns);
+                    if (!applyAiAction(engine, AiPlayerNumber, action))
+                    {
+                        // Nothing the planner offered was accepted; pass rather
+                        // than spin on the same rejected action.
+                        engine.endTurn(AiPlayerNumber);
+                    }
                     changed = true;
                 }
             }

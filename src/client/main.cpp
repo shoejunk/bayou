@@ -6859,7 +6859,7 @@ int main(int argc, char** argv)
         if (storyMode && storyEngine && storyAiPending &&
             storyEngine->hasPendingForesightChoice(2))
         {
-            storyEngine->chooseForesightCard(2, 0);
+            storyEngine->chooseForesightCard(2, chooseAiForesightCard(*storyEngine, 2));
             syncStoryEngine();
             return;
         }
@@ -6877,7 +6877,12 @@ int main(int argc, char** argv)
                 storyEngine->phase() == game_data::Phase::Playing &&
                 storyEngine->currentPlayer() == 2)
             {
-                applyAiAction(*storyEngine, 2, action);
+                if (!applyAiAction(*storyEngine, 2, action))
+                {
+                    // Nothing the planner offered was playable here; pass so the
+                    // encounter cannot stall on a rejected action.
+                    storyEngine->endTurn(2);
+                }
                 syncStoryEngine();
             }
             return;
@@ -6900,6 +6905,9 @@ int main(int argc, char** argv)
         pendingStoryAi.emplace(std::async(
             std::launch::async,
             [generation, engine = std::move(engineCopy)]() mutable {
+                // Story encounters are authored teaching positions, so the
+                // tutorial opponent plans its own turn and stops there rather
+                // than playing the full-strength match search.
                 return std::pair{generation, chooseAiAction(engine, 2, 1)};
             }));
     };

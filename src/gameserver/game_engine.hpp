@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <exception>
+#include <memory>
 #include <random>
 #include <string>
 #include <utility>
@@ -182,6 +183,12 @@ public:
     }
 
     bool timersAreEnabled() const { return timersEnabled; }
+
+    // Search copies do not show their status line to anyone, and composing it
+    // costs more than simulating the action it describes. Turning narration off
+    // leaves every rules outcome untouched and only stops the prose.
+    void setNarrationEnabled(bool enabled) { narrationEnabled = enabled; }
+    bool narrationIsEnabled() const { return narrationEnabled; }
 
     std::int64_t timeUntilNextTimerEventMs() const
     {
@@ -450,7 +457,10 @@ public:
         player.hand.erase(player.hand.begin() + handIndex);
         recordPlayerMove(playerNumber);
         recomputeControl();
-        status = fmt::format("Player {} played {}.", playerNumber, card.title);
+        if (narrationEnabled)
+        {
+            status = fmt::format("Player {} played {}.", playerNumber, card.title);
+        }
         return true;
     }
 
@@ -487,7 +497,11 @@ public:
         // The draw pile is drawn from the back, so the front is the bottom of the deck.
         player.drawPile.insert(player.drawPile.begin(), card);
         ++player.discardsThisTurn;
-        status = fmt::format("Player {} discarded {} to the bottom of the deck.", playerNumber, card.title);
+        if (narrationEnabled)
+        {
+            status =
+                fmt::format("Player {} discarded {} to the bottom of the deck.", playerNumber, card.title);
+        }
         recordPlayerMove(playerNumber);
         return true;
     }
@@ -559,8 +573,6 @@ private:
         const Piece* commander = commandingPieceId != 0 ? pieceById(commandingPieceId) : nullptr;
         const bool commandedAction = commander != nullptr;
         const bool relentlessAction = relentlessPieceId != 0;
-        const bool actionKeepsTurn = commandedAction ||
-            (relentlessAction && relentlessActionKeepsTurn);
         if (playerRef(playerNumber).pieceActionUsedThisTurn &&
             !commandedAction && !relentlessAction)
         {
@@ -623,9 +635,12 @@ private:
             relentlessPieceId = 0;
             relentlessActionKeepsTurn = false;
             commandingPieceId = piece->id;
-            status = fmt::format(
-                "{} used Command. Activate one adjacent friendly piece.",
-                actingPieceName);
+            if (narrationEnabled)
+            {
+                status = fmt::format(
+                    "{} used Command. Activate one adjacent friendly piece.",
+                    actingPieceName);
+            }
             return true;
         }
         else
@@ -652,21 +667,22 @@ private:
         {
             commandingPieceId = 0;
             recomputeControl();
-            status = fmt::format(
-                "{} commanded {} to use {}.",
-                commanderName,
-                actingPieceName,
-                abilityLabel);
-        }
-        else if (actionKeepsTurn)
-        {
-            recomputeControl();
-            status = fmt::format("{} used {}.", actingPieceName, abilityLabel);
+            if (narrationEnabled)
+            {
+                status = fmt::format(
+                    "{} commanded {} to use {}.",
+                    commanderName,
+                    actingPieceName,
+                    abilityLabel);
+            }
         }
         else
         {
             recomputeControl();
-            status = fmt::format("{} used {}.", actingPieceName, abilityLabel);
+            if (narrationEnabled)
+            {
+                status = fmt::format("{} used {}.", actingPieceName, abilityLabel);
+            }
         }
         return true;
     }
@@ -734,18 +750,24 @@ public:
         if (foresightUnits > 0)
         {
             prepareForesightDraw(player, foresightUnits);
-            status = fmt::format(
-                "Player {} spent {} Resources to draw with Foresight.",
-                playerNumber,
-                DrawCardResourceCost);
+            if (narrationEnabled)
+            {
+                status = fmt::format(
+                    "Player {} spent {} Resources to draw with Foresight.",
+                    playerNumber,
+                    DrawCardResourceCost);
+            }
         }
         else
         {
             drawTopCard(player);
-            status = fmt::format(
-                "Player {} spent {} Resources to draw a card.",
-                playerNumber,
-                DrawCardResourceCost);
+            if (narrationEnabled)
+            {
+                status = fmt::format(
+                    "Player {} spent {} Resources to draw a card.",
+                    playerNumber,
+                    DrawCardResourceCost);
+            }
         }
         recordPlayerMove(playerNumber);
         return true;
@@ -763,7 +785,8 @@ public:
         }
 
         recordPlayerMove(playerNumber);
-        advanceTurn(fmt::format("Player {} passed.", playerNumber));
+        advanceTurn(
+            narrationEnabled ? fmt::format("Player {} passed.", playerNumber) : std::string());
         return true;
     }
 
@@ -839,6 +862,90 @@ public:
         return snapshot;
     }
 
+    // A tally a player can read straight off their own snapshot.
+    int controlledSquares(int playerNumber) const { return controlledCount(playerNumber); }
+
+    // Reduces this engine to what one player is entitled to reason about, and
+    // returns how many opposing heroes were removed by that reduction.
+    // Opposing dematerialized pieces are erased outright - they are absent
+    // from that player's snapshot, so a copy used to plan a move must not
+    // contain them either - and the opponent's hidden cards go with them. A
+    // player still sees the opponent's living-hero count in their snapshot, so
+    // the returned tally lets a planner keep that number honest without
+    // learning where a concealed hero stands. Presentation-only strings are
+    // dropped too: a planning copy is duplicated thousands of times during a
+    // search and never rendered.
+    int redactForPlanning(int playerNumber)
+    {
+        narrationEnabled = false;
+        status.clear();
+
+        const int opponent = playerNumber == 1 ? 2 : 1;
+        int concealedOpponentHeroes = 0;
+        for (const Piece& piece : pieces)
+        {
+            if (piece.hidden && piece.owner != playerNumber && piece.isHero)
+            {
+                ++concealedOpponentHeroes;
+            }
+        }
+        pieces.erase(
+            std::remove_if(
+                pieces.begin(),
+                pieces.end(),
+                [&](const Piece& piece) { return piece.hidden && piece.owner != playerNumber; }),
+            pieces.end());
+        enchantments.erase(
+            std::remove_if(
+                enchantments.begin(),
+                enchantments.end(),
+                [&](const Enchantment& enchantment) {
+                    return enchantment.target ==
+                        static_cast<std::uint8_t>(EnchantmentTarget::Piece) &&
+                        std::none_of(
+                            pieces.begin(),
+                            pieces.end(),
+                            [&](const Piece& piece) {
+                                return piece.id == enchantment.targetPieceId;
+                            });
+                }),
+            enchantments.end());
+
+        EnginePlayer& hiddenSide = playerRef(opponent);
+        hiddenSide.hand.clear();
+        hiddenSide.drawPile.clear();
+        hiddenSide.foresightChoices.clear();
+        hiddenSide.heroesToPlace.clear();
+
+        for (Piece& piece : pieces)
+        {
+            stripPresentation(piece);
+        }
+        EnginePlayer& planner = playerRef(playerNumber);
+        // A player knows what is in their deck but not what order it is in, so
+        // the planner gets one plausible ordering instead of the real one. It
+        // may still decide a draw is worth paying for; it just cannot pick the
+        // turn that lands the card it wants.
+        std::shuffle(planner.drawPile.begin(), planner.drawPile.end(), rng);
+        for (GameCard& card : planner.hand)
+        {
+            stripPresentation(card);
+        }
+        for (GameCard& card : planner.drawPile)
+        {
+            stripPresentation(card);
+        }
+        for (GameCard& card : planner.heroesToPlace)
+        {
+            stripPresentation(card);
+        }
+        for (GameCard& card : mutableSummonCatalog())
+        {
+            stripPresentation(card);
+        }
+        return concealedOpponentHeroes;
+    }
+
     void resign(int playerNumber)
     {
         if (phaseValue == Phase::GameOver)
@@ -860,7 +967,11 @@ private:
     std::vector<Piece> pieces;
     std::vector<Enchantment> enchantments;
     std::array<EnginePlayer, 2> players{};
-    std::vector<GameCard> summonCatalog;
+    // The summon catalog is the whole card library and stops changing once a
+    // match is under way, so copies of the engine (the AI search makes many)
+    // share one and only detach if a copy actually records a new card.
+    std::shared_ptr<std::vector<GameCard>> summonCatalog =
+        std::make_shared<std::vector<GameCard>>();
     int nextPieceId = 1;
     int nextEnchantmentId = 1;
     int commandingPieceId = 0;
@@ -875,7 +986,25 @@ private:
         ReducedTurnTimerMs,
         MinimumTurnTimerMs};
     std::int64_t turnRemainingMs = FullTurnTimerMs;
+    bool narrationEnabled = true;
     std::string status = "Waiting for both decks...";
+
+    template <typename Renderable>
+    static void stripPresentation(Renderable& value)
+    {
+        value.imagePath.clear();
+        value.walkAnimPath.clear();
+        value.idleAnimPath.clear();
+        value.attackAnimPath.clear();
+        value.damagedAnimPath.clear();
+        value.killedAnimPath.clear();
+        value.fidgetAnimPath.clear();
+        value.tokenPath.clear();
+        value.state1TokenPath.clear();
+        value.pieceBaseBluePath.clear();
+        value.pieceBaseRedPath.clear();
+        value.abilityLabels.clear();
+    }
 
     EnginePlayer& playerRef(int playerNumber)
     {
@@ -1034,15 +1163,25 @@ private:
         return rebornPieceId != 0;
     }
 
+    std::vector<GameCard>& mutableSummonCatalog()
+    {
+        if (summonCatalog.use_count() > 1)
+        {
+            summonCatalog = std::make_shared<std::vector<GameCard>>(*summonCatalog);
+        }
+        return *summonCatalog;
+    }
+
     void rememberSummonCard(const GameCard& card)
     {
+        std::vector<GameCard>& catalog = mutableSummonCatalog();
         const auto found = std::find_if(
-            summonCatalog.begin(),
-            summonCatalog.end(),
-            [&](const GameCard& existing) { return existing.title == card.title; });
-        if (found == summonCatalog.end())
+            catalog.begin(),
+            catalog.end(),
+            [&](const GameCard& candidate) { return candidate.title == card.title; });
+        if (found == catalog.end())
         {
-            summonCatalog.push_back(card);
+            catalog.push_back(card);
             return;
         }
         *found = card;
@@ -1074,10 +1213,10 @@ private:
     const GameCard* summonCardByTitle(const std::string& title) const
     {
         const auto found = std::find_if(
-            summonCatalog.begin(),
-            summonCatalog.end(),
+            summonCatalog->begin(),
+            summonCatalog->end(),
             [&](const GameCard& card) { return card.title == title; });
-        return found == summonCatalog.end() ? nullptr : &*found;
+        return found == summonCatalog->end() ? nullptr : &*found;
     }
 
     bool performPieceAction(
@@ -1349,7 +1488,7 @@ private:
         }
 
         std::string result;
-        if (action.attacks)
+        if (narrationEnabled && action.attacks)
         {
             const int effectiveDisabledTurns = damagedTargetNames.empty()
                 ? std::max(0, action.statusTurns)
@@ -1412,19 +1551,19 @@ private:
                 result += " It materialized!";
             }
         }
-        else if (!revealedName.empty())
+        else if (narrationEnabled && !revealedName.empty())
         {
             result = fmt::format(
                 "{} bumped into a hidden {}! It materialized, stunned.",
                 attackerName,
                 revealedName);
         }
-        else
+        else if (narrationEnabled)
         {
             result = fmt::format("{} moved.", attackerName);
         }
 
-        if (repeatRemaining)
+        if (narrationEnabled && repeatRemaining)
         {
             result += fmt::format(
                 " {} repeat(s) remaining for this action.",
@@ -1441,34 +1580,30 @@ private:
             relentlessPieceId = attackerId;
             relentlessActionKeepsTurn = actionKeepsTurn;
             recomputeControl();
-            status = (commandedAction ? fmt::format("{} commanded {}", commanderName, result) : result) +
-                " Relentless: it may act again immediately.";
+            if (narrationEnabled)
+            {
+                status =
+                    (commandedAction ? fmt::format("{} commanded {}", commanderName, result) : result) +
+                    " Relentless: it may act again immediately.";
+            }
         }
         else if (commandedAction)
         {
             recomputeControl();
-            status = fmt::format("{} commanded {}", commanderName, result);
-        }
-        else if (actionKeepsTurn)
-        {
-            relentlessPieceId = 0;
-            relentlessActionKeepsTurn = false;
-            recomputeControl();
-            status = result;
-        }
-        else if (repeatRemaining)
-        {
-            relentlessPieceId = 0;
-            relentlessActionKeepsTurn = false;
-            recomputeControl();
-            status = result;
+            if (narrationEnabled)
+            {
+                status = fmt::format("{} commanded {}", commanderName, result);
+            }
         }
         else
         {
             relentlessPieceId = 0;
             relentlessActionKeepsTurn = false;
             recomputeControl();
-            status = result;
+            if (narrationEnabled)
+            {
+                status = result;
+            }
         }
         return true;
     }
@@ -1588,6 +1723,10 @@ private:
             }
         }
 
+        if (!narrationEnabled)
+        {
+            return;
+        }
         status = fmt::format(
             "Player {}'s turn. +{} Resources{}{}{}{}.",
             playerNumber,
@@ -1645,7 +1784,7 @@ private:
 
         activePlayer = activePlayer == 1 ? 2 : 1;
         startTurn(activePlayer);
-        if (!actionStatus.empty())
+        if (narrationEnabled && !actionStatus.empty())
         {
             status = actionStatus + " " + status;
         }
@@ -1787,7 +1926,10 @@ private:
 
     void setStatusFor(int playerNumber, const std::string& message)
     {
-        status = message;
+        if (narrationEnabled)
+        {
+            status = message;
+        }
         (void)playerNumber;
     }
 

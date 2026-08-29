@@ -3129,6 +3129,127 @@ int main(int argc, char** argv)
             storyAiEngine.boardPieces().size() == aiPiecesBefore + 1,
         "multiplayer AI values and uses a legal summoning power in Story scenarios");
 
+    // --- the planner must not see through dematerialize --------------------
+    // A dematerialized enemy piece is absent from the opponent's snapshot, so
+    // the AI's decision has to come out identical whether or not one is on the
+    // board. A hidden piece exerts no square control, so adding one inside its
+    // owner's home block changes nothing else the planner is allowed to read.
+    GameCard ambusherCard = scenarioCard("Hidden Ambusher", 6);
+    ambusherCard.ability = "dematerialize";
+    ambusherCard.abilityLabels = {"Hide", "Reveal"};
+    {
+        ActionProfile hiddenStep = heroStep;
+        hiddenStep.state = 1;
+        ambusherCard.actions = {heroStep, hiddenStep};
+    }
+
+    GameCard concealTestUnit = scenarioCard("Line Trooper", 6);
+    {
+        ActionProfile strike = heroStep;
+        strike.damage = 3;
+        strike.canAttack = true;
+        concealTestUnit.actions = {strike};
+    }
+
+    // The ambusher goes last so every other piece keeps the same id in both
+    // boards and the two decisions stay directly comparable.
+    const std::vector<GameEngine::ScenarioPiece> concealBase = {
+        {1, scenarioHero, 2, 0, true},
+        {1, concealTestUnit, 4, 0, false},
+        {1, concealTestUnit, 4, 4, false},
+        {2, scenarioHero, 5, 7, true},
+        {2, concealTestUnit, 4, 5, false}};
+    std::vector<GameEngine::ScenarioPiece> concealWithHidden = concealBase;
+    concealWithHidden.push_back({1, ambusherCard, 3, 0, false});
+
+    GameEngine plainEngine(707, {});
+    plainEngine.loadScenario(concealBase, {}, {}, 40, 40, 1, "Concealment control");
+    plainEngine.endTurn(1);
+
+    GameEngine hiddenEngine(707, {});
+    hiddenEngine.loadScenario(concealWithHidden, {}, {}, 40, 40, 1, "Concealment test");
+    const auto ambusherPiece = std::find_if(
+        hiddenEngine.boardPieces().begin(),
+        hiddenEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Hidden Ambusher"; });
+    const bool ambusherHid = ambusherPiece != hiddenEngine.boardPieces().end() &&
+        hiddenEngine.useAbility(1, ambusherPiece->id);
+    hiddenEngine.endTurn(1);
+
+    const auto ambusherAfterHiding = std::find_if(
+        hiddenEngine.boardPieces().begin(),
+        hiddenEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Hidden Ambusher"; });
+    check(
+        ambusherHid && ambusherAfterHiding != hiddenEngine.boardPieces().end() &&
+            ambusherAfterHiding->hidden,
+        "the concealment fixture actually dematerializes its ambusher");
+    check(
+        plainEngine.boardControl() == hiddenEngine.boardControl() &&
+            plainEngine.currentPlayer() == 2 && hiddenEngine.currentPlayer() == 2,
+        "a dematerialized piece leaves square control untouched");
+
+    const AiAction plainChoice = chooseAiAction(plainEngine, 2);
+    const AiAction hiddenChoice = chooseAiAction(hiddenEngine, 2);
+    check(
+        plainChoice.kind == hiddenChoice.kind && plainChoice.pieceId == hiddenChoice.pieceId &&
+            plainChoice.handIndex == hiddenChoice.handIndex &&
+            plainChoice.row == hiddenChoice.row && plainChoice.column == hiddenChoice.column,
+        "the AI plans the same move whether or not an enemy piece is dematerialized");
+
+    GameEngine redacted = hiddenEngine;
+    const int concealedHeroes = redacted.redactForPlanning(2);
+    check(
+        concealedHeroes == 0 &&
+            std::none_of(
+                redacted.boardPieces().begin(),
+                redacted.boardPieces().end(),
+                [](const Piece& piece) { return piece.owner == 1 && piece.hidden; }) &&
+            redacted.boardPieces().size() + 1 == hiddenEngine.boardPieces().size(),
+        "planning redaction drops opposing dematerialized pieces");
+
+    GameEngine ownView = hiddenEngine;
+    const int ownConcealed = ownView.redactForPlanning(1);
+    check(
+        ownConcealed == 0 &&
+            std::any_of(
+                ownView.boardPieces().begin(),
+                ownView.boardPieces().end(),
+                [](const Piece& piece) { return piece.owner == 1 && piece.hidden; }),
+        "planning redaction keeps a player's own dematerialized pieces");
+
+    // A hidden hero still has to be counted: its owner has not lost.
+    GameCard hiddenHeroCard = ambusherCard;
+    hiddenHeroCard.title = "Hidden Hero";
+    hiddenHeroCard.type = "Hero";
+    GameEngine hiddenHeroEngine(708, {});
+    hiddenHeroEngine.loadScenario(
+        {{1, hiddenHeroCard, 3, 0, true}, {2, scenarioHero, 5, 7, true}},
+        {},
+        {},
+        0,
+        0,
+        1,
+        "Concealed hero test");
+    const auto hiddenHeroPiece = std::find_if(
+        hiddenHeroEngine.boardPieces().begin(),
+        hiddenHeroEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Hidden Hero"; });
+    const bool heroHid = hiddenHeroPiece != hiddenHeroEngine.boardPieces().end() &&
+        hiddenHeroEngine.useAbility(1, hiddenHeroPiece->id);
+    GameEngine heroRedacted = hiddenHeroEngine;
+    check(
+        heroHid && heroRedacted.redactForPlanning(2) == 1,
+        "planning redaction reports opposing heroes it had to conceal");
+
+    // Whatever the planner returns has to be something the real engine accepts,
+    // or an AI match would stall repeating a rejected action.
+    GameEngine legalityEngine = hiddenEngine;
+    const AiAction legalityChoice = chooseAiAction(legalityEngine, 2);
+    check(
+        applyAiAction(legalityEngine, 2, legalityChoice),
+        "the AI only returns actions the authoritative engine accepts");
+
     if (argc == 2 && std::string(argv[1]) == "--movement-only")
     {
         return failures == 0 ? 0 : 1;
