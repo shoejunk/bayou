@@ -21,68 +21,6 @@
         window.draw(plate);
     };
 
-    // Health bubbles stay tied to the unit anchor, not the independently
-    // centered base artwork. Saturated team palettes make ownership unambiguous.
-    auto drawPieceHealthPips = [&](sf::Vector2f anchor,
-                                   float scale,
-                                   int health,
-                                   int maxHealth,
-                                   int owner,
-                                   bool dimmed) {
-        const float dim = dimmed ? 0.58f : 1.0f;
-        const sf::Color healthBright = owner == 1
-            ? sf::Color(55, 145, 255)
-            : owner == 2 ? sf::Color(240, 62, 68) : sf::Color(172, 172, 172);
-        const sf::Color healthDeep = owner == 1
-            ? sf::Color(5, 25, 78)
-            : owner == 2 ? sf::Color(82, 7, 12) : sf::Color(28, 28, 28);
-        const sf::Color healthHighlight = owner == 1
-            ? sf::Color(174, 220, 255)
-            : owner == 2 ? sf::Color(255, 184, 184) : sf::Color(232, 232, 232);
-        const int pipCount = std::clamp(maxHealth, 1, 8);
-        const float fraction = maxHealth > 0
-            ? std::clamp(static_cast<float>(health) / static_cast<float>(maxHealth), 0.0f, 1.0f)
-            : 0.0f;
-        const int filledPips = health > 0
-            ? std::clamp(static_cast<int>(std::ceil(fraction * static_cast<float>(pipCount))), 1, pipCount)
-            : 0;
-        const float radius = std::clamp(2.1f * scale, 1.35f, 2.8f);
-        const float spacing = radius * 1.85f;
-        const float startX = anchor.x - spacing * static_cast<float>(pipCount - 1) * 0.5f;
-        const float pipY = anchor.y + PieceHealthPipYOffset * scale;
-        const float backingWidth = spacing * static_cast<float>(pipCount - 1) + radius * 2.8f;
-        drawSoftEllipse(
-            window,
-            {anchor.x, pipY + radius * 0.12f},
-            backingWidth * 0.5f,
-            radius * 1.45f,
-            withAlpha(shadeColor(healthDeep, dim), dimmed ? 178 : 224),
-            4);
-        drawEllipseOutline(
-            window,
-            {anchor.x, pipY + radius * 0.12f},
-            backingWidth * 0.5f,
-            radius * 1.45f,
-            std::max(0.6f, 0.8f * scale),
-            withAlpha(shadeColor(healthBright, dim), dimmed ? 170 : 242));
-        for (int index = 0; index < pipCount; ++index)
-        {
-            sf::CircleShape pip(radius, 12);
-            pip.setOrigin({radius, radius});
-            pip.setScale({1.0f, 0.68f});
-            pip.setPosition({startX + spacing * static_cast<float>(index), pipY});
-            const bool filled = index < filledPips;
-            pip.setFillColor(filled
-                ? withAlpha(shadeColor(healthBright, dim), dimmed ? 218 : 255)
-                : withAlpha(shadeColor(healthDeep, dim), 238));
-            pip.setOutlineThickness(std::max(0.65f, 0.9f * scale));
-            pip.setOutlineColor(filled
-                ? withAlpha(shadeColor(healthHighlight, dim), dimmed ? 184 : 246)
-                : withAlpha(shadeColor(healthBright, dim), dimmed ? 112 : 168));
-            window.draw(pip);
-        }
-    };
-
     // Stand-in for a piece whose token art is missing. A framed cameo standing on
     // the plinth reads as deliberate; the flat owner-coloured circle it replaces
     // read as an unfinished asset.
@@ -1765,6 +1703,13 @@
                 piece.row, piece.column, piece.width, piece.height, gameSnapshot.yourPlayer);
             sf::Vector2f baseCenter = boardFootprintCenter(
                 piece.row, piece.column, piece.width, piece.height, gameSnapshot.yourPlayer);
+            sf::Vector2f healthBadgeCenter = boardFootprintHealthBadgeCenter(
+                piece.row,
+                piece.column,
+                piece.width,
+                piece.height,
+                gameSnapshot.yourPlayer,
+                piece.owner);
             float pieceScale = cell.depthScale;
             bool isMoving = false;
             float walkAnimationElapsed = 0.0f;
@@ -1799,12 +1744,33 @@
                         piece.width,
                         piece.height,
                         gameSnapshot.yourPlayer);
+                    const sf::Vector2f startHealthBadgeCenter =
+                        boardFootprintHealthBadgeCenter(
+                            animation->second.fromRow,
+                            animation->second.fromColumn,
+                            piece.width,
+                            piece.height,
+                            gameSnapshot.yourPlayer,
+                            piece.owner);
+                    const sf::Vector2f endHealthBadgeCenter =
+                        boardFootprintHealthBadgeCenter(
+                            animation->second.toRow,
+                            animation->second.toColumn,
+                            piece.width,
+                            piece.height,
+                            gameSnapshot.yourPlayer,
+                            piece.owner);
                     anchor = {
                         start.x + (end.x - start.x) * progress,
                         start.y + (end.y - start.y) * progress};
                     baseCenter = {
                         startBaseCenter.x + (endBaseCenter.x - startBaseCenter.x) * progress,
                         startBaseCenter.y + (endBaseCenter.y - startBaseCenter.y) * progress};
+                    healthBadgeCenter = {
+                        startHealthBadgeCenter.x +
+                            (endHealthBadgeCenter.x - startHealthBadgeCenter.x) * progress,
+                        startHealthBadgeCenter.y +
+                            (endHealthBadgeCenter.y - startHealthBadgeCenter.y) * progress};
                     pieceScale = startCell.depthScale + (endCell.depthScale - startCell.depthScale) * progress;
                 }
                 else
@@ -1840,6 +1806,7 @@
                             dy / distance * lunge + shake};
                         anchor += lungeOffset;
                         baseCenter += lungeOffset;
+                        healthBadgeCenter += lungeOffset;
                         pieceScale *= 1.0f + 0.045f * std::sin(progress * Pi);
                     }
                 }
@@ -1848,8 +1815,6 @@
                     pieceAttackAnimations.erase(piece.id);
                 }
             }
-
-            anchor.y -= PieceContentLift * pieceScale;
 
             const bool pieceUnavailable =
                 ((piece.hasActed ||
@@ -1966,7 +1931,7 @@
                     pieceUnavailable,
                     static_cast<float>(piece.width),
                     static_cast<float>(piece.height),
-                    pieceBaseArtworkFor(piece.width, piece.height),
+                    pieceBaseArtworkFor(piece.owner, piece.width, piece.height),
                     rarityGemArtworkFor(piece.name));
 
                 const float footprintWidth = std::max(1.0f, static_cast<float>(piece.width));
@@ -2055,41 +2020,26 @@
             }
             if (!foregroundOnly)
             {
-                drawPieceHealthPips(
-                    anchor, pieceScale, piece.health, piece.maxHealth, piece.owner, pieceUnavailable);
-            }
-
-            if (!foregroundOnly && piece.isHero)
-            {
-                // A hero's loss ends the match, so mark it with a small crown.
-                const float chipHeight = std::clamp(16.0f * pieceScale, 13.0f, 22.0f);
-                const float chipWidth = std::clamp(31.0f * pieceScale, 25.0f, 44.0f);
-                const float span = std::clamp(13.0f * pieceScale, 11.0f, 17.0f);
-                const float crownX = anchor.x + chipWidth * 0.5f - span * 0.14f;
-                const float crownY =
-                    anchor.y - chipHeight * 0.34f - span * 0.34f - 5.0f * pieceScale;
-                sf::ConvexShape crown(7);
-                crown.setPoint(0, {crownX - span * 0.5f, crownY + span * 0.32f});
-                crown.setPoint(1, {crownX - span * 0.5f, crownY - span * 0.18f});
-                crown.setPoint(2, {crownX - span * 0.25f, crownY + span * 0.04f});
-                crown.setPoint(3, {crownX, crownY - span * 0.32f});
-                crown.setPoint(4, {crownX + span * 0.25f, crownY + span * 0.04f});
-                crown.setPoint(5, {crownX + span * 0.5f, crownY - span * 0.18f});
-                crown.setPoint(6, {crownX + span * 0.5f, crownY + span * 0.32f});
-                crown.setFillColor(withAlpha(BoardBrassBright, pieceUnavailable ? 155 : 245));
-                crown.setOutlineThickness(1.0f);
-                crown.setOutlineColor(sf::Color(32, 20, 10, 230));
-                window.draw(crown);
+                drawPieceHealthBadge(
+                    window,
+                    healthBadgeCenter,
+                    pieceScale,
+                    piece.health,
+                    piece.owner,
+                    pieceUnavailable,
+                    font,
+                    piece.isHero);
             }
 
             if (!foregroundOnly && piece.controlTurnsRemaining > 0)
             {
-                // Held piece: a violet badge on the base's other shoulder.
+                // Held piece: keep the violet badge opposite the health badge.
                 const float chipHeight = std::clamp(16.0f * pieceScale, 13.0f, 22.0f);
                 const float chipWidth = std::clamp(31.0f * pieceScale, 25.0f, 44.0f);
                 const float radius = std::clamp(8.0f * pieceScale, 7.0f, 11.0f);
                 const sf::Vector2f center{
-                    anchor.x - chipWidth * 0.5f + radius * 0.2f,
+                    anchor.x + (piece.owner == 1 ? 1.0f : -1.0f) *
+                        (chipWidth * 0.5f - radius * 0.2f),
                     anchor.y - chipHeight * 0.34f - radius * 0.32f};
                 sf::CircleShape badge(radius, 18);
                 badge.setOrigin({radius, radius});
@@ -2209,13 +2159,19 @@
                 killedPiece.width,
                 killedPiece.height,
                 gameSnapshot.yourPlayer);
-            anchor.y -= PieceContentLift * cell.depthScale;
             const sf::Vector2f baseCenter = boardFootprintCenter(
                 killedPiece.row,
                 killedPiece.column,
                 killedPiece.width,
                 killedPiece.height,
                 gameSnapshot.yourPlayer);
+            const sf::Vector2f healthBadgeCenter = boardFootprintHealthBadgeCenter(
+                killedPiece.row,
+                killedPiece.column,
+                killedPiece.width,
+                killedPiece.height,
+                gameSnapshot.yourPlayer,
+                killedPiece.owner);
             const int killedFrameCount = std::max(1, killedPiece.killedAnimFrames);
             const int killedFrame = std::min(
                 static_cast<int>(progress * static_cast<float>(killedFrameCount)),
@@ -2231,7 +2187,7 @@
                 true,
                 static_cast<float>(killedPiece.width),
                 static_cast<float>(killedPiece.height),
-                pieceBaseArtworkFor(killedPiece.width, killedPiece.height),
+                pieceBaseArtworkFor(killedPiece.owner, killedPiece.width, killedPiece.height),
                 rarityGemArtworkFor(killedPiece.name));
             const bool drewKilledPiece = drawPieceVisual(
                 pieceTokenPath(killedPiece),
@@ -2256,6 +2212,15 @@
                         anchor, cell.depthScale, false, killedPiece.width, killedPiece.height), tint);
                 }
             }
+            drawPieceHealthBadge(
+                window,
+                healthBadgeCenter,
+                cell.depthScale * (1.0f - progress * 0.2f),
+                0,
+                killedPiece.owner,
+                true,
+                font,
+                killedPiece.isHero);
             ++animation;
         }
 
@@ -2283,7 +2248,6 @@
                     ghostPiece.height,
                     gameSnapshot.yourPlayer);
                 const float scale = cell.depthScale;
-                anchor.y -= PieceContentLift * scale;
                 const auto alpha = static_cast<std::uint8_t>(
                     std::clamp(220.0f * (1.0f - elapsed / DematerializeBlinkSeconds), 0.0f, 220.0f));
                 const sf::Color tint(255, 255, 255, alpha);
@@ -2715,8 +2679,8 @@
 
         // The upper board row can rise into the top readout band. Draw its art
         // again after the HUD so it remains visible; the foreground pass omits
-        // bases, pips, crowns, and control badges so those details retain normal
-        // board depth and cannot cover a piece in front of them.
+        // bases, health badges, crowns, and control badges so those details retain
+        // normal board depth and cannot cover a piece in front of them.
         drawPieceLayer(true);
 
         // ---- Command bar ------------------------------------------------------
@@ -3144,6 +3108,10 @@
                 {
                     sf::Vector2f anchor = gameDragCurrentPos;
                     sf::Vector2f baseCenter = gameDragCurrentPos;
+                    sf::Vector2f healthBadgeCenter{
+                        gameDragCurrentPos.x + (sandboxPlayer == 1 ? -34.0f : 34.0f) *
+                            static_cast<float>(std::max(1, draggedCard.width)),
+                        gameDragCurrentPos.y + 18.0f * static_cast<float>(std::max(1, draggedCard.height))};
                     float scale = 1.0f;
                     if (draggedHandSquare)
                     {
@@ -3161,6 +3129,13 @@
                             draggedCard.width,
                             draggedCard.height,
                             gameSnapshot.yourPlayer);
+                        healthBadgeCenter = boardFootprintHealthBadgeCenter(
+                            draggedHandSquare->first,
+                            draggedHandSquare->second,
+                            draggedCard.width,
+                            draggedCard.height,
+                            gameSnapshot.yourPlayer,
+                            sandboxPlayer);
                         scale = metrics.depthScale;
                     }
                     drawCardPiecePreview(
@@ -3168,6 +3143,7 @@
                         sandboxPlayer,
                         anchor,
                         baseCenter,
+                        healthBadgeCenter,
                         scale,
                         draggedHandDropValid);
                 }
@@ -3190,6 +3166,10 @@
             {
                 sf::Vector2f anchor = gameDragCurrentPos;
                 sf::Vector2f baseCenter = gameDragCurrentPos;
+                sf::Vector2f healthBadgeCenter{
+                    gameDragCurrentPos.x + (draggedPiece->owner == 1 ? -34.0f : 34.0f) *
+                        static_cast<float>(std::max(1, draggedPiece->width)),
+                    gameDragCurrentPos.y + 18.0f * static_cast<float>(std::max(1, draggedPiece->height))};
                 float scale = 1.0f;
                 if (draggedPieceSquare)
                 {
@@ -3207,9 +3187,15 @@
                         draggedPiece->width,
                         draggedPiece->height,
                         gameSnapshot.yourPlayer);
+                    healthBadgeCenter = boardFootprintHealthBadgeCenter(
+                        draggedPieceSquare->first,
+                        draggedPieceSquare->second,
+                        draggedPiece->width,
+                        draggedPiece->height,
+                        gameSnapshot.yourPlayer,
+                        draggedPiece->owner);
                     scale = metrics.depthScale;
                 }
-                anchor.y -= PieceContentLift * scale;
                 const sf::Color tint = draggedPieceDropValid
                     ? sf::Color(255, 255, 255, 220)
                     : sf::Color(220, 120, 110, 190);
@@ -3221,7 +3207,10 @@
                     false,
                     static_cast<float>(draggedPiece->width),
                     static_cast<float>(draggedPiece->height),
-                    pieceBaseArtworkFor(draggedPiece->width, draggedPiece->height),
+                    pieceBaseArtworkFor(
+                        draggedPiece->owner,
+                        draggedPiece->width,
+                        draggedPiece->height),
                     rarityGemArtworkFor(draggedPiece->name));
                 drawPieceSelectionRing(
                     window,
@@ -3252,13 +3241,15 @@
                         anchor, scale, draggedPiece->owner, draggedPiece->imagePath, tint);
                 }
 
-                drawPieceHealthPips(
-                    anchor,
+                drawPieceHealthBadge(
+                    window,
+                    healthBadgeCenter,
                     scale,
                     draggedPiece->health,
-                    draggedPiece->maxHealth,
                     draggedPiece->owner,
-                    false);
+                    false,
+                    font,
+                    draggedPiece->isHero);
             }
         }
 

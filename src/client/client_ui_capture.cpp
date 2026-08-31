@@ -476,6 +476,7 @@ const std::vector<std::string>& knownScreens()
         "game",
         // Match states beyond the dedicated Story Mode captures above.
         "game-bases",
+        "game-bases-blue-large",
         "game-midgame",
         "game-hand-hover",
         "game-selected",

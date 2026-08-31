@@ -1,7 +1,9 @@
 #include "client_board_layout.hpp"
+#include "client_ui.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace bayou::client
 {
@@ -12,15 +14,60 @@ namespace
 // edges come from stacking rather than from a shader or a blurred texture.
 constexpr std::size_t EllipsePoints = 44;
 
-// Alpha-bound centers were measured from the shipped images. Using those as the
-// sprite origins puts the visible base, rather than its full transparent canvas,
-// on the projected center of its occupied squares.
+// Alpha-bound centers and socket centers were measured from the 512px team
+// variants. Using visible-art origins keeps both normal and 4x4 bases centered
+// on their projected footprints even though their canvases have equal sizes.
 constexpr float PieceBaseArtworkCanvasWidth = 76.0f;
-constexpr sf::Vector2f PieceBaseArtworkCenter{128.5f, 127.5f};
-constexpr sf::Vector2f PieceBaseLargeArtworkCenter{255.5f, 249.5f};
-constexpr sf::Vector2f PieceBaseSocket{128.0f, 180.0f};
-constexpr sf::Vector2f PieceBaseLargeSocket{256.0f, 352.0f};
-constexpr float PieceBaseGemScale = 0.375f;
+constexpr sf::Vector2f PieceBaseArtworkCenter{256.25f, 256.75f};
+constexpr sf::Vector2f PieceBaseLargeArtworkCenter{257.0f, 255.25f};
+constexpr sf::Vector2f PieceBaseSocket{256.0f, 366.5f};
+constexpr sf::Vector2f PieceBaseLargeSocket{256.5f, 365.0f};
+constexpr sf::Vector2f PieceBaseSocketMaskSize{40.0f, 50.0f};
+constexpr sf::Vector2f PieceBaseLargeSocketMaskSize{27.0f, 31.0f};
+constexpr float PieceBaseGemScale = 0.75f;
+constexpr float PieceBaseLargeGemScale = 0.50f;
+
+struct PieceBaseArtworkLayout
+{
+    bool usesLargeBase = false;
+    sf::Vector2f artworkCenter{};
+    sf::Vector2f artworkScale{};
+    sf::Vector2f socketPosition{};
+};
+
+bool resolvePieceBaseArtworkLayout(
+    const sf::Texture* artwork,
+    sf::Vector2f baseCenter,
+    float scale,
+    float spreadX,
+    float spreadY,
+    PieceBaseArtworkLayout& result)
+{
+    if (!artwork)
+    {
+        return false;
+    }
+    const sf::Vector2u textureSize = artwork->getSize();
+    if (textureSize.x == 0 || textureSize.y == 0)
+    {
+        return false;
+    }
+
+    result.usesLargeBase = spreadX >= 3.5f && spreadY >= 3.5f;
+    result.artworkCenter = result.usesLargeBase
+        ? PieceBaseLargeArtworkCenter
+        : PieceBaseArtworkCenter;
+    const sf::Vector2f socket = result.usesLargeBase
+        ? PieceBaseLargeSocket
+        : PieceBaseSocket;
+    const float artworkScale =
+        PieceBaseArtworkCanvasWidth * scale / static_cast<float>(textureSize.x);
+    result.artworkScale = {artworkScale * spreadX, artworkScale * spreadY};
+    result.socketPosition = {
+        baseCenter.x + (socket.x - result.artworkCenter.x) * result.artworkScale.x,
+        baseCenter.y + (socket.y - result.artworkCenter.y) * result.artworkScale.y};
+    return true;
+}
 
 sf::CircleShape makeEllipse(sf::Vector2f center, float radiusX, float radiusY)
 {
@@ -178,54 +225,60 @@ void drawPieceBase(
         sf::Color(0, 0, 0, 190),
         6);
 
-    if (artwork)
+    PieceBaseArtworkLayout artworkLayout;
+    if (resolvePieceBaseArtworkLayout(
+            artwork, baseCenter, scale, spreadX, spreadY, artworkLayout))
     {
-        const sf::Vector2u textureSize = artwork->getSize();
-        if (textureSize.x > 0 && textureSize.y > 0)
+        sf::Sprite base(*artwork);
+        base.setOrigin(artworkLayout.artworkCenter);
+        base.setPosition(baseCenter);
+        base.setScale(artworkLayout.artworkScale);
+        sf::Color artworkColor = shadeColor(sf::Color::White, dim);
+        artworkColor.a = exhausted ? 210 : 255;
+        base.setColor(artworkColor);
+        target.draw(base);
+
+        if (gemArtwork)
         {
-            sf::Sprite base(*artwork);
-            const bool usesLargeBase = textureSize.x >= 512;
-            const sf::Vector2f artworkCenter = usesLargeBase
-                ? PieceBaseLargeArtworkCenter
-                : PieceBaseArtworkCenter;
-            base.setOrigin(artworkCenter);
-            base.setPosition(baseCenter);
-            const float artworkScale =
-                PieceBaseArtworkCanvasWidth * scale / static_cast<float>(textureSize.x);
-            const sf::Vector2f artworkScaleByFootprint{
-                artworkScale * spreadX,
-                artworkScale * spreadY};
-            base.setScale(artworkScaleByFootprint);
-            sf::Color artworkColor = shadeColor(sf::Color::White, dim);
-            artworkColor.a = exhausted ? 210 : 255;
-            base.setColor(artworkColor);
-            target.draw(base);
-
-            if (gemArtwork)
+            const sf::Vector2u gemSize = gemArtwork->getSize();
+            if (gemSize.x > 0 && gemSize.y > 0)
             {
-                const sf::Vector2u gemSize = gemArtwork->getSize();
-                if (gemSize.x > 0 && gemSize.y > 0)
-                {
-                    const sf::Vector2f socket = usesLargeBase
-                        ? PieceBaseLargeSocket
-                        : PieceBaseSocket;
+                // Cover the gem baked into the team artwork before drawing the
+                // card-rarity gem. The mask stays inside the gold socket frame.
+                const sf::Vector2f maskSize = artworkLayout.usesLargeBase
+                    ? PieceBaseLargeSocketMaskSize
+                    : PieceBaseSocketMaskSize;
+                const float halfMaskWidth =
+                    maskSize.x * artworkLayout.artworkScale.x * 0.5f;
+                const float halfMaskHeight =
+                    maskSize.y * artworkLayout.artworkScale.y * 0.5f;
+                sf::ConvexShape socketMask(4);
+                socketMask.setPoint(0, {0.0f, -halfMaskHeight});
+                socketMask.setPoint(1, {halfMaskWidth, 0.0f});
+                socketMask.setPoint(2, {0.0f, halfMaskHeight});
+                socketMask.setPoint(3, {-halfMaskWidth, 0.0f});
+                socketMask.setPosition(artworkLayout.socketPosition);
+                socketMask.setFillColor(withAlpha(
+                    shadeColor(sf::Color(13, 16, 24), dim),
+                    exhausted ? 225 : 255));
+                target.draw(socketMask);
 
-                    sf::Sprite gem(*gemArtwork);
-                    gem.setOrigin({
-                        static_cast<float>(gemSize.x) * 0.5f,
-                        static_cast<float>(gemSize.y) * 0.5f});
-                    gem.setPosition({
-                        baseCenter.x + (socket.x - artworkCenter.x) * artworkScaleByFootprint.x,
-                        baseCenter.y + (socket.y - artworkCenter.y) * artworkScaleByFootprint.y});
-                    gem.setScale({
-                        artworkScaleByFootprint.x * PieceBaseGemScale,
-                        artworkScaleByFootprint.y * PieceBaseGemScale});
-                    gem.setColor(artworkColor);
-                    target.draw(gem);
-                }
+                sf::Sprite gem(*gemArtwork);
+                gem.setOrigin({
+                    static_cast<float>(gemSize.x) * 0.5f,
+                    static_cast<float>(gemSize.y) * 0.5f});
+                gem.setPosition(artworkLayout.socketPosition);
+                const float gemScale = artworkLayout.usesLargeBase
+                    ? PieceBaseLargeGemScale
+                    : PieceBaseGemScale;
+                gem.setScale({
+                    artworkLayout.artworkScale.x * gemScale,
+                    artworkLayout.artworkScale.y * gemScale});
+                gem.setColor(artworkColor);
+                target.draw(gem);
             }
-            return;
         }
+        return;
     }
 
     sf::CircleShape plinth = makeEllipse(baseCenter, radiusX, radiusY);
@@ -243,6 +296,90 @@ void drawPieceBase(
         withAlpha(shadeColor(BoardStoneLight, dim), 150));
     drawEllipseOutline(
         target, baseCenter, radiusX, radiusY, 1.4f, withAlpha(shadeColor(BoardBrass, dim), 208));
+}
+
+void drawPieceHealthBadge(
+    sf::RenderWindow& window,
+    sf::Vector2f center,
+    float scale,
+    int health,
+    int owner,
+    bool dimmed,
+    const sf::Font& font,
+    bool crowned)
+{
+    const float radius = std::clamp(9.0f * scale, 8.0f, 11.0f);
+    const float dim = dimmed ? 0.65f : 1.0f;
+    const sf::Color bright = owner == 1
+        ? sf::Color(55, 145, 255)
+        : owner == 2 ? sf::Color(240, 62, 68) : sf::Color(172, 172, 172);
+    const sf::Color deep = owner == 1
+        ? sf::Color(5, 25, 78)
+        : owner == 2 ? sf::Color(82, 7, 12) : sf::Color(28, 28, 28);
+    const sf::Color highlight = owner == 1
+        ? sf::Color(184, 226, 255)
+        : owner == 2 ? sf::Color(255, 190, 190) : sf::Color(238, 238, 238);
+
+    sf::CircleShape shadow(radius + 1.2f, 28);
+    shadow.setOrigin({radius + 1.2f, radius + 1.2f});
+    shadow.setPosition({center.x + 1.2f * scale, center.y + 1.5f * scale});
+    shadow.setFillColor(sf::Color(0, 0, 0, dimmed ? 150 : 205));
+    window.draw(shadow);
+
+    sf::CircleShape badge(radius, 28);
+    badge.setOrigin({radius, radius});
+    badge.setPosition(center);
+    badge.setFillColor(withAlpha(shadeColor(bright, dim), dimmed ? 225 : 255));
+    badge.setOutlineThickness(std::max(1.1f, 1.35f * scale));
+    badge.setOutlineColor(withAlpha(shadeColor(highlight, dim), dimmed ? 210 : 250));
+    window.draw(badge);
+
+    sf::CircleShape inner(radius * 0.76f, 28);
+    inner.setOrigin({radius * 0.76f, radius * 0.76f});
+    inner.setPosition(center);
+    inner.setFillColor(sf::Color::Transparent);
+    inner.setOutlineThickness(std::max(0.7f, 0.8f * scale));
+    inner.setOutlineColor(withAlpha(shadeColor(deep, dim), dimmed ? 130 : 175));
+    window.draw(inner);
+
+    const unsigned int characterSize = static_cast<unsigned int>(std::lround(
+        std::clamp(13.0f * scale, 12.0f, 17.0f)));
+    sf::Text healthText(font, std::to_string(std::max(0, health)), characterSize);
+    healthText.setStyle(sf::Text::Bold);
+    healthText.setLetterSpacing(0.86f);
+    healthText.setFillColor(withAlpha(
+        sf::Color(255, 250, 224), dimmed ? 230 : 255));
+    healthText.setOutlineColor(withAlpha(
+        deep, dimmed ? 220 : 255));
+    healthText.setOutlineThickness(std::max(0.85f, 0.95f * scale));
+
+    const float maxTextWidth = radius * 1.45f;
+    const float textWidth = healthText.getLocalBounds().size.x;
+    if (textWidth > maxTextWidth && textWidth > 0.0f)
+    {
+        healthText.setScale({maxTextWidth / textWidth, 1.0f});
+    }
+    centerText(healthText, {center.x, center.y - 0.35f * scale});
+    drawCrispText(window, healthText);
+
+    if (crowned)
+    {
+        const float span = std::clamp(13.0f * scale, 11.0f, 17.0f);
+        const float overlap = std::clamp(2.0f * scale, 1.5f, 2.5f);
+        const float crownY = center.y - radius - span * 0.32f + overlap;
+        sf::ConvexShape crown(7);
+        crown.setPoint(0, {center.x - span * 0.5f, crownY + span * 0.32f});
+        crown.setPoint(1, {center.x - span * 0.5f, crownY - span * 0.18f});
+        crown.setPoint(2, {center.x - span * 0.25f, crownY + span * 0.04f});
+        crown.setPoint(3, {center.x, crownY - span * 0.32f});
+        crown.setPoint(4, {center.x + span * 0.25f, crownY + span * 0.04f});
+        crown.setPoint(5, {center.x + span * 0.5f, crownY - span * 0.18f});
+        crown.setPoint(6, {center.x + span * 0.5f, crownY + span * 0.32f});
+        crown.setFillColor(withAlpha(BoardBrassBright, dimmed ? 155 : 245));
+        crown.setOutlineThickness(std::max(0.8f, 1.0f * scale));
+        crown.setOutlineColor(sf::Color(32, 20, 10, 230));
+        window.draw(crown);
+    }
 }
 
 void drawPieceSelectionRing(
@@ -326,7 +463,9 @@ sf::Vector2f boardCellAnchor(const BoardCellMetrics& metrics)
     return {metrics.center.x, metrics.center.y + metrics.height * 0.36f};
 }
 
-sf::Vector2f boardFootprintCenter(
+namespace
+{
+std::array<sf::Vector2f, 4> boardFootprintCorners(
     int row, int column, int width, int height, int viewer)
 {
     const int firstRow = std::clamp(row, 0, game_data::BoardSize - 1);
@@ -343,14 +482,54 @@ sf::Vector2f boardFootprintCenter(
     const int leftColumnEdge = std::min(firstColumn, lastColumn);
     const int rightColumnEdge = std::max(firstColumn, lastColumn) + 1;
 
-    const std::array<sf::Vector2f, 4> corners = {
+    return {
         boardEdgePoint(topScreenEdge, leftColumnEdge),
         boardEdgePoint(topScreenEdge, rightColumnEdge),
         boardEdgePoint(bottomScreenEdge, rightColumnEdge),
         boardEdgePoint(bottomScreenEdge, leftColumnEdge)};
+}
+
+sf::Vector2f normalizedDirection(sf::Vector2f value)
+{
+    const float length = std::sqrt(value.x * value.x + value.y * value.y);
+    return length > 0.001f ? value / length : sf::Vector2f{};
+}
+} // namespace
+
+sf::Vector2f boardFootprintCenter(
+    int row, int column, int width, int height, int viewer)
+{
+    const std::array<sf::Vector2f, 4> corners =
+        boardFootprintCorners(row, column, width, height, viewer);
     return {
         (corners[0].x + corners[1].x + corners[2].x + corners[3].x) * 0.25f,
         (corners[0].y + corners[1].y + corners[2].y + corners[3].y) * 0.25f};
+}
+
+sf::Vector2f boardFootprintHealthBadgeCenter(
+    int row, int column, int width, int height, int viewer, int owner)
+{
+    const std::array<sf::Vector2f, 4> corners =
+        boardFootprintCorners(row, column, width, height, viewer);
+    const int firstRow = std::clamp(row, 0, game_data::BoardSize - 1);
+    const int lastRow = std::clamp(
+        row + std::max(1, height) - 1, 0, game_data::BoardSize - 1);
+    const int nearScreenRow = std::max(
+        screenRowForViewer(firstRow, viewer),
+        screenRowForViewer(lastRow, viewer));
+    const float radius = std::clamp(
+        9.0f * pieceScaleForScreenRow(nearScreenRow), 8.0f, 11.0f);
+    const float inset = radius + 2.5f;
+    if (owner == 1)
+    {
+        const sf::Vector2f towardNearRight = normalizedDirection(corners[2] - corners[3]);
+        const sf::Vector2f towardFarLeft = normalizedDirection(corners[0] - corners[3]);
+        return corners[3] + (towardNearRight + towardFarLeft) * inset;
+    }
+
+    const sf::Vector2f towardNearLeft = normalizedDirection(corners[3] - corners[2]);
+    const sf::Vector2f towardFarRight = normalizedDirection(corners[1] - corners[2]);
+    return corners[2] + (towardNearLeft + towardFarRight) * inset;
 }
 
 sf::Vector2f boardFootprintAnchor(

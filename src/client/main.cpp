@@ -83,8 +83,10 @@ constexpr const char* PasswordRequirementMessage =
     "Password needs 7-128 chars, upper, lower, number, special";
 constexpr const char* NewPasswordRequirementMessage =
     "New password needs 7-128 chars, upper, lower, number, special";
-constexpr const char* PieceBaseArtworkPath = "bases/basic0.png";
-constexpr const char* PieceBaseLargeArtworkPath = "bases/basic0_large.png";
+constexpr const char* PieceBaseBlueArtworkPath = "bases/basic0_blue.png";
+constexpr const char* PieceBaseRedArtworkPath = "bases/basic0_red.png";
+constexpr const char* PieceBaseLargeBlueArtworkPath = "bases/basic0_large_blue.png";
+constexpr const char* PieceBaseLargeRedArtworkPath = "bases/basic0_large_red.png";
 constexpr const char* PasswordRequirementHintLineOne =
     "Use a minimum of 7 characters.";
 constexpr const char* PasswordRequirementHintLineTwo =
@@ -1014,8 +1016,10 @@ int main(int argc, char** argv)
     TextureStore textures;
     sf::Texture* backdropTexture = textures.load("ui/gloomthorn-backdrop.png");
     sf::Texture* boardSurfaceTexture = textures.load("ui/board-surface-v2.png");
-    sf::Texture* pieceBaseArtwork = textures.load(PieceBaseArtworkPath);
-    sf::Texture* pieceBaseLargeArtwork = textures.load(PieceBaseLargeArtworkPath);
+    sf::Texture* pieceBaseBlueArtwork = textures.load(PieceBaseBlueArtworkPath);
+    sf::Texture* pieceBaseRedArtwork = textures.load(PieceBaseRedArtworkPath);
+    sf::Texture* pieceBaseLargeBlueArtwork = textures.load(PieceBaseLargeBlueArtworkPath);
+    sf::Texture* pieceBaseLargeRedArtwork = textures.load(PieceBaseLargeRedArtworkPath);
     const std::array<sf::Texture*, 4> rarityGemArtworks = {
         textures.load("bases/gem1.png"),
         textures.load("bases/gem2.png"),
@@ -5244,9 +5248,8 @@ int main(int argc, char** argv)
         pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
 
-        // Sandbox cards come from the authoritative card server too. Retaining
-        // that catalogue lets placed pieces keep their rarity gems after their
-        // GameCard has been converted into the lean network Piece shape.
+        // Sandbox cards come from the authoritative card server too. Retain the
+        // catalogue after each GameCard is converted into the lean Piece shape.
         allCardLibrary = cards;
 
         game_data::Snapshot snapshot;
@@ -5359,12 +5362,13 @@ int main(int argc, char** argv)
         return owner == 1 ? card.pieceBaseBluePath : card.pieceBaseRedPath;
     };
 
-    auto pieceBaseArtworkFor = [&](int width, int height) -> const sf::Texture* {
-        if (width == 4 && height == 4 && pieceBaseLargeArtwork)
+    auto pieceBaseArtworkFor = [&](int owner, int width, int height) -> const sf::Texture* {
+        const bool usesLargeBase = width == 4 && height == 4;
+        if (owner == 1)
         {
-            return pieceBaseLargeArtwork;
+            return usesLargeBase ? pieceBaseLargeBlueArtwork : pieceBaseBlueArtwork;
         }
-        return pieceBaseArtwork;
+        return usesLargeBase ? pieceBaseLargeRedArtwork : pieceBaseRedArtwork;
     };
 
     auto rarityGemArtworkFor = [&](const std::string& title) -> const sf::Texture* {
@@ -5399,7 +5403,8 @@ int main(int argc, char** argv)
     };
 
     // Legacy per-card base paths remain in network card data for compatibility.
-    // The shared basic0 artwork and rarity socket are drawn separately below.
+    // Team-specific basic0 artwork and the rarity socket overlay are drawn
+    // separately below, so baked-in team gems never replace card rarity.
     auto drawPieceVisual = [&](
         const std::string& tokenPath,
         const std::string& walkPath,
@@ -5464,9 +5469,9 @@ int main(int argc, char** argv)
                                     int owner,
                                     sf::Vector2f anchor,
                                     sf::Vector2f baseCenter,
+                                    sf::Vector2f healthBadgeCenter,
                                     float scale,
                                     bool valid) {
-        anchor.y -= PieceContentLift * scale;
         const sf::Color tint = valid ? sf::Color(255, 255, 255, 220) : sf::Color(220, 120, 110, 190);
         const std::string& tokenPath = cardTokenPath(card);
         const std::string& walkPath = cardWalkAnimPath(card);
@@ -5479,7 +5484,7 @@ int main(int argc, char** argv)
             false,
             static_cast<float>(card.width),
             static_cast<float>(card.height),
-            pieceBaseArtworkFor(card.width, card.height),
+            pieceBaseArtworkFor(owner, card.width, card.height),
             rarityGemArtworkFor(card.title));
         drawPieceSelectionRing(
             window,
@@ -5512,6 +5517,15 @@ int main(int argc, char** argv)
                     anchor, scale, false, card.width, card.height), tint);
             }
         }
+        drawPieceHealthBadge(
+            window,
+            healthBadgeCenter,
+            scale,
+            card.health,
+            owner,
+            !valid,
+            font,
+            card.type == "Hero");
     };
 
     auto drawLargeCollectionCard = [&](const card_data::Card& card, sf::Vector2f position, sf::Vector2f size) {
@@ -7831,7 +7845,7 @@ int main(int argc, char** argv)
         // A couple of collapsed squares, so the hole treatment is reviewable.
         snapshot.holes[static_cast<std::size_t>(game_data::squareIndex(6, 3))] = 1;
         snapshot.holes[static_cast<std::size_t>(game_data::squareIndex(1, 4))] = 1;
-        if (variant == "bases")
+        if (variant == "bases" || variant == "bases-blue-large")
         {
             snapshot.holes.fill(0);
         }
@@ -7884,10 +7898,15 @@ int main(int argc, char** argv)
                 {
                     card.height = deployment.heightOverride;
                 }
+                const int owner =
+                    variant == "bases-blue-large" &&
+                    deployment.widthOverride == 4 && deployment.heightOverride == 4
+                    ? 1
+                    : deployment.owner;
                 spawnSandboxPiece(
                     snapshot,
                     nextSandboxPieceId,
-                    deployment.owner,
+                    owner,
                     card,
                     deployment.row,
                     deployment.column,
@@ -7897,7 +7916,7 @@ int main(int argc, char** argv)
                 piece.hasActed = deployment.hasActed;
             }
         };
-        if (variant == "bases")
+        if (variant == "bases" || variant == "bases-blue-large")
         {
             spawnDeployments(BaseDeployments);
         }
@@ -8334,6 +8353,10 @@ int main(int argc, char** argv)
         else if (screen == "game-bases")
         {
             seedCaptureMatch("bases");
+        }
+        else if (screen == "game-bases-blue-large")
+        {
+            seedCaptureMatch("bases-blue-large");
         }
         else if (screen == "game-midgame" || screen == "game-hand-hover")
         {
