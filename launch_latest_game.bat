@@ -38,5 +38,5 @@ if not exist "%~dp0build\Debug\SteamTactics.exe" (
 
 echo.
 echo Starting the latest game...
-start "Bayou Bonanza" "%~dp0build\Debug\SteamTactics.exe"
-exit /b 0
+call "%~dp0debug_client.bat"
+exit /b %errorlevel%
