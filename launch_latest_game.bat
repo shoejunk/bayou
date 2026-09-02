@@ -13,10 +13,7 @@ echo Updating the game from GitHub...
 git pull --ff-only origin main
 if errorlevel 1 (
     echo.
-    echo The game was not updated. Check your GitHub sign-in, internet connection,
-    echo or local changes, then try again.
-    pause
-    exit /b 1
+    echo The game could not be updated. Continuing with the local checkout.
 )
 
 echo.
