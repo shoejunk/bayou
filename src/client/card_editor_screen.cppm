@@ -69,12 +69,13 @@ constexpr float ListRowHeight = 56.0f;
 constexpr std::size_t VisibleCardRows = 8;
 constexpr std::size_t VisibleActionRows = 8;
 constexpr std::size_t VisibleActionDropdownRows = 5;
-constexpr std::size_t VisibleTargetFilterRows = 12;
+constexpr std::size_t VisibleTargetFilterRows = 10;
 constexpr float ActionDropdownRowHeight = 32.0f;
 constexpr std::size_t VisibleRarityDropdownRows = 6;
 constexpr float RarityDropdownRowHeight = 32.0f;
 constexpr float TargetFilterTop = 224.0f;
 constexpr float TargetFilterRowHeight = 36.0f;
+constexpr float InfestFieldTop = 636.0f;
 
 constexpr std::array<const char*, 6> CardRarityOptions = {
     "common", "uncommon", "rare", "legendary", "token", "starter"};
@@ -971,6 +972,7 @@ private:
     InputBox actionPushField;
     InputBox actionControlField;
     InputBox actionRepeatField;
+    InputBox actionInfestField;
     std::vector<InputBox> actionTargetFilterFields;
     EditorButton backButton;
     EditorButton instructionsButton;
@@ -1088,13 +1090,15 @@ private:
         bool actionIncludesNextState = false;
         bool actionIncludesControl = false;
         bool actionIncludesRepeat = false;
+        bool actionIncludesInfest = false;
         if (!card_data::readCardListHeader(
                 response,
                 count,
                 legacyFormat,
                 &actionIncludesNextState,
                 &actionIncludesControl,
-                &actionIncludesRepeat))
+                &actionIncludesRepeat,
+                &actionIncludesInfest))
         {
             socket.disconnect();
             return {false, "Unsupported card list payload"};
@@ -1111,7 +1115,8 @@ private:
                     legacyFormat,
                     actionIncludesNextState,
                     actionIncludesControl,
-                    actionIncludesRepeat))
+                    actionIncludesRepeat,
+                    actionIncludesInfest))
             {
                 socket.disconnect();
                 return {false, "Invalid card list payload"};
@@ -1370,6 +1375,7 @@ private:
         actionPushField = makeCompactField("0", {140.0f, 32.0f});
         actionControlField = makeCompactField("0", {140.0f, 32.0f});
         actionRepeatField = makeCompactField("0", {140.0f, 32.0f});
+        actionInfestField = makeCompactField("", {294.0f, 32.0f});
         if (const std::optional<std::filesystem::path> path = resolveAssetImagePath("ui/action-link.png"))
         {
             hasActionLinkTexture = actionLinkTexture.loadFromFile(*path);
@@ -1490,6 +1496,7 @@ private:
                 &actionPushField,
                 &actionControlField,
                 &actionRepeatField,
+                &actionInfestField,
             };
             for (InputBox& field : actionTargetFilterFields)
             {
@@ -1991,6 +1998,7 @@ private:
             &actionPushField,
             &actionControlField,
             &actionRepeatField,
+            &actionInfestField,
         };
         for (const InputBox* field : fields)
         {
@@ -2278,6 +2286,7 @@ private:
         action.push = std::max(0, formInt(actionPushField, 0));
         action.control = std::max(0, formInt(actionControlField, 0));
         action.repeat = std::max(0, formInt(actionRepeatField, 0));
+        action.infest = trim(actionInfestField.getValue());
         for (const InputBox& field : actionTargetFilterFields)
         {
             const std::string value = trim(field.getValue());
@@ -2311,6 +2320,7 @@ private:
         actionPushField.setValue("0");
         actionControlField.setValue("0");
         actionRepeatField.setValue("0");
+        actionInfestField.setValue("");
         actionTargetFilterFields.clear();
         actionTargetFilterOffset = 0;
         removeActionTargetFilterButtons.clear();
@@ -2348,6 +2358,7 @@ private:
         actionPushField.setValue(std::to_string(action.push));
         actionControlField.setValue(std::to_string(action.control));
         actionRepeatField.setValue(std::to_string(action.repeat));
+        actionInfestField.setValue(action.infest);
         actionTargetFilterFields.clear();
         for (const std::string& value : action.targetFilter)
         {
@@ -3940,6 +3951,7 @@ private:
         y = drawInstructionBullet(window, "ability: transform, dematerialize, dig, summon, or command. Transform-style abilities switch action states; dig creates a tunnel hole; summon creates the unit named by the summon string field in the space in front; command lets one ready adjacent friendly piece take any normal action without ending the turn.", y);
         y = drawInstructionBullet(window, "summon: exact Unit card title created by the active summon ability or passive Trail keyword. Player 1's active summon goes to the right and Player 2's to the left; Trail summons into the moving piece's former position. Summoned units cannot act until their owner's next turn.", y);
         y = drawInstructionBullet(window, "rebirth: exact Unit or Hero card title that replaces this piece when it is destroyed. The replacement is a new piece using that card's stats, art, and animations; all piece enchantments move to it. A successful rebirth does not count as a kill, does not trigger Relentless, and stops attacking movement before its square.", y);
+        y = drawInstructionBullet(window, "infest: exact Unit card title that replaces an attacked enemy Unit when it is destroyed. The replacement appears in the destroyed Unit's square under the player who applied the infestation; a later infestation overrides the earlier one. Heroes cannot be infested.", y);
         y = drawInstructionBullet(window, "Cards store ordered references to reusable action objects plus a separate display name for each reference, so the same logic can have different fantasy names on different cards.", y);
         y = drawInstructionBullet(window, "An action is available in its state and changes the piece to nextState after use. nextState defaults to the action's state, so ordinary actions keep the piece unchanged.", y);
         y = drawInstructionBullet(window, "abilityLabels is an ordered String List containing the button label for each action state.", y);
@@ -4448,6 +4460,7 @@ private:
         actionPushField.setPosition({340.0f, 638.0f});
         actionControlField.setPosition({500.0f, 638.0f});
         actionRepeatField.setPosition({660.0f, 638.0f});
+        actionInfestField.setPosition({870.0f, InfestFieldTop});
         layoutActionTargetFilterControls();
     }
 
@@ -4538,7 +4551,7 @@ private:
                 fmt::format("{}-{} of {}  mouse wheel", actionTargetFilterOffset + 1,
                             lastVisible, actionTargetFilterFields.size()),
                 12,
-                {870.0f, 672.0f},
+                {870.0f, TargetFilterTop + TargetFilterRowHeight * VisibleTargetFilterRows + 12.0f},
                 Muted,
                 306.0f);
 
@@ -4560,6 +4573,8 @@ private:
             thumb.setFillColor(Accent);
             window.draw(thumb);
         }
+        drawText(window, font, "Infest unit", 14, {870.0f, InfestFieldTop - 24.0f}, Muted);
+        actionInfestField.draw(window);
         deleteButton.draw(window);
         saveActionButton.draw(window);
         drawText(window, font, status, 16, {340.0f, 702.0f}, statusColor, 174.0f);

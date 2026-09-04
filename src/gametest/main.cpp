@@ -1326,6 +1326,7 @@ int main(int argc, char** argv)
     });
     encodedCard.actions[0].targetFilter = {"corrupt", "armored"};
     encodedCard.actions[0].repeat = 2;
+    encodedCard.actions[0].infest = "Infesting Unit";
     const GameCard decodedCard = toGameCard(encodedCard);
     check(decodedCard.actions.size() == 1 &&
               decodedCard.traits == encodedCard.traits &&
@@ -1336,6 +1337,7 @@ int main(int argc, char** argv)
               decodedCard.actions[0].heal == 0 &&
               decodedCard.actions[0].push == 3 &&
               decodedCard.actions[0].repeat == 2 &&
+              decodedCard.actions[0].infest == encodedCard.actions[0].infest &&
               decodedCard.actions[0].targetFilter == encodedCard.actions[0].targetFilter &&
               decodedCard.actions[0].canMove &&
               decodedCard.actions[0].canAttack &&
@@ -1381,8 +1383,9 @@ int main(int argc, char** argv)
               roundTrippedAction.push == 3 &&
               roundTrippedAction.control == 3 &&
               roundTrippedAction.repeat == 2 &&
+              roundTrippedAction.infest == encodedHealingAction.infest &&
               roundTrippedAction.targetFilter == encodedHealingAction.targetFilter,
-          "card-server action serialization keeps healing, push, repeat, and target-filter data");
+          "card-server action serialization keeps healing, push, repeat, target-filter, and infest data");
 
     sf::Packet legacyCardListPacket;
     legacyCardListPacket << static_cast<std::uint32_t>(1);
@@ -1412,15 +1415,18 @@ int main(int argc, char** argv)
     bool currentActionsIncludeNextState = false;
     bool currentActionsIncludeControl = false;
     bool currentActionsIncludeRepeat = false;
+    bool currentActionsIncludeInfest = false;
     check(card_data::readCardListHeader(
               currentCardListHeader,
               currentCardCount,
               currentCardFormatIsLegacy,
               &currentActionsIncludeNextState,
               &currentActionsIncludeControl,
-              &currentActionsIncludeRepeat) &&
+              &currentActionsIncludeRepeat,
+              &currentActionsIncludeInfest) &&
               currentCardCount == 3 && !currentCardFormatIsLegacy &&
-              currentActionsIncludeNextState && currentActionsIncludeControl && currentActionsIncludeRepeat,
+              currentActionsIncludeNextState && currentActionsIncludeControl && currentActionsIncludeRepeat &&
+              currentActionsIncludeInfest,
           "versioned card-list headers select the traits-and-keywords format");
 
     sf::Packet previousCardListHeader;
@@ -1431,15 +1437,18 @@ int main(int argc, char** argv)
     bool previousActionsIncludeNextState = true;
     bool previousActionsIncludeControl = true;
     bool previousActionsIncludeRepeat = true;
+    bool previousActionsIncludeInfest = true;
     check(card_data::readCardListHeader(
               previousCardListHeader,
               previousCardCount,
               previousCardFormatIsLegacy,
               &previousActionsIncludeNextState,
               &previousActionsIncludeControl,
-              &previousActionsIncludeRepeat) &&
+              &previousActionsIncludeRepeat,
+              &previousActionsIncludeInfest) &&
               previousCardCount == 0 && !previousCardFormatIsLegacy &&
-              !previousActionsIncludeNextState && !previousActionsIncludeControl && !previousActionsIncludeRepeat,
+              !previousActionsIncludeNextState && !previousActionsIncludeControl && !previousActionsIncludeRepeat &&
+              !previousActionsIncludeInfest,
           "schema-six card lists remain readable with next state defaulting to state");
 
     card_data::Card limitedUnit;
@@ -1506,6 +1515,7 @@ int main(int argc, char** argv)
               roundTrippedCard.actions[0].nextState == 4 &&
               roundTrippedCard.actions[0].push == 3 &&
               roundTrippedCard.actions[0].control == 3 &&
+              roundTrippedCard.actions[0].infest == serializedCard.actions[0].infest &&
               roundTrippedCard.actions[0].targetFilter == serializedCard.actions[0].targetFilter &&
               roundTrippedCard.traits == encodedCard.traits &&
               roundTrippedCard.keywords == encodedCard.keywords &&
@@ -1564,6 +1574,8 @@ int main(int argc, char** argv)
     serializedPiece.sleepTurnsRemaining = 1;
     serializedPiece.originalOwner = 2;
     serializedPiece.controlTurnsRemaining = 2;
+    serializedPiece.infestationTitle = "Serialized Infestation";
+    serializedPiece.infestationOwner = 1;
     serializedPiece.repeatActionIndex = 0;
     serializedPiece.repeatActionState = 3;
     serializedPiece.repeatActionUses = 1;
@@ -1574,6 +1586,7 @@ int main(int argc, char** argv)
         serializedPiece.actions[0].push = 3;
         serializedPiece.actions[0].nextState = 5;
         serializedPiece.actions[0].control = 4;
+        serializedPiece.actions[0].infest = "Serialized Action Infest";
         serializedPiece.actions[0].targetFilter = {"fey", "warded"};
     }
     sf::Packet piecePacket;
@@ -1586,6 +1599,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.actions[0].push == 3 &&
               roundTrippedPiece.actions[0].nextState == 5 &&
               roundTrippedPiece.actions[0].control == 4 &&
+              roundTrippedPiece.actions[0].infest == serializedPiece.actions[0].infest &&
               roundTrippedPiece.actions[0].targetFilter == serializedPiece.actions[0].targetFilter &&
               roundTrippedPiece.traits == serializedPiece.traits &&
               roundTrippedPiece.keywords == serializedPiece.keywords &&
@@ -1615,6 +1629,8 @@ int main(int argc, char** argv)
               roundTrippedPiece.sleepTurnsRemaining == 1 &&
               roundTrippedPiece.originalOwner == 2 &&
               roundTrippedPiece.controlTurnsRemaining == 2 &&
+              roundTrippedPiece.infestationTitle == "Serialized Infestation" &&
+              roundTrippedPiece.infestationOwner == 1 &&
               roundTrippedPiece.repeatActionIndex == 0 &&
               roundTrippedPiece.repeatActionState == 3 &&
               roundTrippedPiece.repeatActionUses == 1,
@@ -1837,7 +1853,99 @@ int main(int argc, char** argv)
             rebirthAttackerAfterAttack->column == rebirthHomeTwo.second - 1 &&
             rebirthEngine.relentlessPiece() == 0 &&
             rebirthEngine.phase() == Phase::Playing,
-        "rebirth retains enchantments, blocks attack movement, and does not trigger Relentless");
+          "rebirth retains enchantments, blocks attack movement, and does not trigger Relentless");
+
+    const auto makeInfestationAttacker = [](
+        const std::string& title,
+        const std::string& infestationTitle) {
+        card_data::Card card;
+        card.title = title;
+        card.type = "Unit";
+        card.integerValues = {{"health", 4}};
+        card_data::Action attack;
+        attack.name = title + " Attack";
+        attack.kind = "ranged";
+        attack.pattern = "omni";
+        attack.minRange = 1;
+        attack.maxRange = 1;
+        attack.damage = 1;
+        attack.canMove = false;
+        attack.canAttack = true;
+        attack.lineOfSight = true;
+        attack.infest = infestationTitle;
+        card.actions = {attack};
+        return card;
+    };
+    const card_data::Card infestationAttackerOne =
+        makeInfestationAttacker("Infesting One", "Infestation One");
+    const card_data::Card infestationAttackerTwo =
+        makeInfestationAttacker("Infesting Two", "Infestation Two");
+    card_data::Card infestationVictim;
+    infestationVictim.title = "Infestation Victim";
+    infestationVictim.type = "Unit";
+    infestationVictim.integerValues = {{"health", 2}};
+    const auto makeInfestedUnit = [](const std::string& title) {
+        card_data::Card card;
+        card.title = title;
+        card.type = "Unit";
+        card.integerValues = {{"health", 3}};
+        return card;
+    };
+    const card_data::Card infestationOne = makeInfestedUnit("Infestation One");
+    const card_data::Card infestationTwo = makeInfestedUnit("Infestation Two");
+    const std::vector<card_data::Card> infestationCatalog = {
+        infestationAttackerOne,
+        infestationAttackerTwo,
+        infestationVictim,
+        infestationOne,
+        infestationTwo};
+    GameEngine infestationEngine(303, infestationCatalog);
+    infestationEngine.loadScenario(
+        {{1, toGameCard(infestationAttackerOne), 3, 3, false},
+         {1, toGameCard(infestationAttackerTwo), 4, 3, false},
+         {2, toGameCard(infestationVictim), 3, 4, false}},
+        {},
+        {},
+        0,
+        0,
+        1,
+        "Infestation test");
+    const auto infestationPieceByName = [&](const std::string& name) -> const Piece* {
+        const auto found = std::find_if(
+            infestationEngine.boardPieces().begin(),
+            infestationEngine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == name; });
+        return found == infestationEngine.boardPieces().end() ? nullptr : &*found;
+    };
+    const Piece* firstInfester = infestationPieceByName("Infesting One");
+    check(
+        firstInfester != nullptr &&
+            infestationEngine.attackPiece(1, firstInfester->id, 3, 4),
+        "an attack with a valid infest unit title is accepted");
+    const Piece* victimAfterFirstInfestation = infestationPieceByName("Infestation Victim");
+    check(
+        victimAfterFirstInfestation != nullptr &&
+            victimAfterFirstInfestation->health == 1 &&
+            victimAfterFirstInfestation->infestationTitle == "Infestation One" &&
+            victimAfterFirstInfestation->infestationOwner == 1,
+        "a valid infestation records its replacement unit and infesting player");
+    check(
+        infestationEngine.endTurn(1) && infestationEngine.endTurn(2),
+        "the infestation override test advances to the second attacker");
+    const Piece* secondInfester = infestationPieceByName("Infesting Two");
+    check(
+        secondInfester != nullptr &&
+            infestationEngine.attackPiece(1, secondInfester->id, 3, 4),
+        "a second infestation attack can finish the victim");
+    const Piece* spawnedInfestation = infestationPieceByName("Infestation Two");
+    check(
+        infestationPieceByName("Infestation Victim") == nullptr &&
+            spawnedInfestation != nullptr &&
+            spawnedInfestation->owner == 1 &&
+            spawnedInfestation->row == 3 &&
+            spawnedInfestation->column == 4 &&
+            !spawnedInfestation->isHero,
+        "the newest infestation overrides the old one and spawns under its infesting player");
 
     card_data::Card enchantmentHero;
     enchantmentHero.title = "Enchantment Test Hero";

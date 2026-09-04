@@ -254,6 +254,7 @@ struct ActionProfile
     bool lineOfSight = false;
     int push = 0;
     std::vector<std::string> targetFilter;
+    std::string infest;
 };
 
 inline int actionNextState(const ActionProfile& action)
@@ -495,6 +496,7 @@ inline GameCard toGameCard(const card_data::Card& card)
         action.repeat = std::max(0, definition.repeat);
         action.push = std::max(0, definition.push);
         action.targetFilter = definition.targetFilter;
+        action.infest = definition.infest;
         g.actions.push_back(action);
         if (actionLooksLikeAttackingMove(definition))
         {
@@ -693,6 +695,8 @@ struct Piece
     int disabledTurns = 0;
     int sleepTurnsRemaining = 0;
     int controlTurnsRemaining = 0;
+    std::string infestationTitle;
+    int infestationOwner = 0;
     std::vector<ActionProfile> actions;
     int actionState = 0;
     int repeatActionIndex = -1;
@@ -960,6 +964,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
                << action.damage << action.heal << action.statusTurns << action.cooldownTurns << action.control
                << action.repeat << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
         card_data::writeStringVector(packet, action.targetFilter);
+        packet << action.infest;
     }
     packet << card.ability << card.summonTitle << card.rebirthTitle;
     card_data::writeStringVector(packet, card.abilityLabels);
@@ -1000,6 +1005,11 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
         {
             return false;
         }
+        packet >> action.infest;
+        if (!packet)
+        {
+            return false;
+        }
         card.actions.push_back(action);
     }
     packet >> card.ability >> card.summonTitle >> card.rebirthTitle;
@@ -1029,7 +1039,8 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
            << piece.canControl << piece.growTurnsRemaining << piece.disabledTurns << piece.sleepTurnsRemaining
             << piece.actionState << piece.repeatActionIndex << piece.repeatActionState << piece.repeatActionUses
             << piece.ability << piece.summonTitle << piece.rebirthTitle << piece.abilityUses << piece.hidden
-            << piece.isHero << piece.hasActed << piece.controlTurnsRemaining;
+            << piece.isHero << piece.hasActed << piece.controlTurnsRemaining
+            << piece.infestationTitle << piece.infestationOwner;
     packet << static_cast<std::uint32_t>(piece.actions.size());
     for (const ActionProfile& action : piece.actions)
     {
@@ -1037,6 +1048,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
                << action.damage << action.heal << action.statusTurns << action.cooldownTurns << action.control
                << action.repeat << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
         card_data::writeStringVector(packet, action.targetFilter);
+        packet << action.infest;
     }
     card_data::writeStringVector(packet, piece.abilityLabels);
 }
@@ -1062,7 +1074,8 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
            >> piece.canControl >> piece.growTurnsRemaining >> piece.disabledTurns >> piece.sleepTurnsRemaining
            >> piece.actionState >> piece.repeatActionIndex >> piece.repeatActionState >> piece.repeatActionUses
            >> piece.ability >> piece.summonTitle >> piece.rebirthTitle >> piece.abilityUses >> piece.hidden
-           >> piece.isHero >> piece.hasActed >> piece.controlTurnsRemaining;
+           >> piece.isHero >> piece.hasActed >> piece.controlTurnsRemaining
+           >> piece.infestationTitle >> piece.infestationOwner;
     std::uint32_t actionCount = 0;
     packet >> actionCount;
     piece.actions.clear();
@@ -1074,6 +1087,11 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
                >> action.damage >> action.heal >> action.statusTurns >> action.cooldownTurns >> action.control
                >> action.repeat >> action.canMove >> action.canAttack >> action.passThrough >> action.lineOfSight >> action.push;
         if (!packet || !card_data::readStringVector(packet, action.targetFilter))
+        {
+            return false;
+        }
+        packet >> action.infest;
+        if (!packet)
         {
             return false;
         }

@@ -1089,50 +1089,66 @@ private:
         return found == pieces.end() ? nullptr : &*found;
     }
 
-    // Returns true when Rebirth replaced the destroyed piece. Callers use
-    // that result to distinguish a lethal hit from an actual kill.
-    bool destroyPiece(int id)
+    struct PieceDestructionResult
     {
+        bool replacementSpawned = false;
+        bool wasRebirth = false;
+        bool wasInfestation = false;
+    };
+
+    // A replacement prevents the death from counting as a kill. The result
+    // identifies whether that replacement came from Rebirth or infestation.
+    PieceDestructionResult destroyPiece(int id)
+    {
+        PieceDestructionResult result;
         const auto dying = std::find_if(
             pieces.begin(),
             pieces.end(),
             [id](const Piece& piece) { return piece.id == id; });
         if (dying == pieces.end())
         {
-            return false;
+            return result;
         }
 
         const Piece original = *dying;
+        const GameCard* infestationDefinition = summonCardByTitle(original.infestationTitle);
+        const bool hasValidInfestation = !original.isHero &&
+            original.infestationOwner >= 1 && original.infestationOwner <= 2 &&
+            infestationDefinition != nullptr && infestationDefinition->type == "Unit";
         const GameCard* rebirthDefinition = summonCardByTitle(original.rebirthTitle);
         const bool hasValidRebirth = rebirthDefinition != nullptr &&
             (rebirthDefinition->type == "Unit" || rebirthDefinition->type == "Hero");
-        const GameCard rebirthCard = hasValidRebirth ? *rebirthDefinition : GameCard{};
+        const bool hasValidReplacement = hasValidInfestation || hasValidRebirth;
+        const bool replacementIsInfestation = hasValidInfestation;
+        const GameCard replacementCard = hasValidInfestation
+            ? *infestationDefinition
+            : (hasValidRebirth ? *rebirthDefinition : GameCard{});
 
         pieces.erase(dying);
 
-        int rebornPieceId = 0;
-        if (hasValidRebirth &&
-            cardFootprintFree(pieces, rebirthCard, original.row, original.column))
+        int replacementPieceId = 0;
+        if (hasValidReplacement &&
+            cardFootprintFree(pieces, replacementCard, original.row, original.column))
         {
             spawnPiece(
-                original.owner,
-                rebirthCard,
+                replacementIsInfestation ? original.infestationOwner : original.owner,
+                replacementCard,
                 original.row,
                 original.column,
-                rebirthCard.type == "Hero");
-            Piece& reborn = pieces.back();
-            reborn.hasActed = true;
-            rebornPieceId = reborn.id;
+                !replacementIsInfestation && replacementCard.type == "Hero");
+            Piece& replacement = pieces.back();
+            replacement.hasActed = true;
+            replacementPieceId = replacement.id;
         }
 
-        if (rebornPieceId != 0)
+        if (replacementPieceId != 0)
         {
             for (Enchantment& enchantment : enchantments)
             {
                 if (enchantment.target == static_cast<std::uint8_t>(EnchantmentTarget::Piece) &&
                     enchantment.targetPieceId == id)
                 {
-                    enchantment.targetPieceId = rebornPieceId;
+                    enchantment.targetPieceId = replacementPieceId;
                     enchantment.targetRow = original.row;
                     enchantment.targetColumn = original.column;
                 }
@@ -1160,7 +1176,10 @@ private:
             relentlessPieceId = 0;
             relentlessActionKeepsTurn = false;
         }
-        return rebornPieceId != 0;
+        result.replacementSpawned = replacementPieceId != 0;
+        result.wasInfestation = replacementIsInfestation && result.replacementSpawned;
+        result.wasRebirth = !replacementIsInfestation && result.replacementSpawned;
+        return result;
     }
 
     std::vector<GameCard>& mutableSummonCatalog()
@@ -1310,17 +1329,26 @@ private:
         const int originRow = piece->row;
         const int originColumn = piece->column;
         const std::string attackerName = piece->name;
+        const int attackerActionState = piece->actionState;
         std::vector<std::string> damagedTargetNames;
         std::vector<std::string> healedTargetNames;
         std::vector<std::string> controlledTargetNames;
         std::vector<int> defeatedOwners;
         bool anyTargetDestroyed = false;
         bool anyTargetReborn = false;
+        bool anyTargetInfestationSpawned = false;
         bool anyTargetWasHidden = false;
         int pushedSquares = 0;
         int pushCollisionDamage = 0;
         const int attackDamage = action.damage +
             pieceEnchantmentDamageBonus(enchantments, attackerId);
+        const std::string infestationTitle = action.actionIndex >= 0 &&
+                action.actionIndex < static_cast<int>(piece->actions.size())
+            ? piece->actions[static_cast<std::size_t>(action.actionIndex)].infest
+            : std::string();
+        const GameCard* infestationDefinition = summonCardByTitle(infestationTitle);
+        const bool actionHasInfest = !infestationTitle.empty() &&
+            infestationDefinition != nullptr && infestationDefinition->type == "Unit";
 
         if (action.attacks)
         {
@@ -1344,6 +1372,11 @@ private:
                 else
                 {
                     damagedTargetNames.push_back(targetName);
+                    if (actionHasInfest && !target->isHero)
+                    {
+                        target->infestationTitle = infestationTitle;
+                        target->infestationOwner = attackerOwner;
+                    }
                     const std::vector<DamageAssignment> damageAssignments =
                         applyDamageWithBodyguards(
                             pieces, targetId, attackDamage, action.statusTurns, rng);
@@ -1353,9 +1386,11 @@ private:
                         if (damagedPiece != nullptr && damagedPiece->health <= 0)
                         {
                             defeatedOwners.push_back(pieceOriginalOwner(*damagedPiece));
-                            const bool reborn = destroyPiece(damagedPiece->id);
-                            anyTargetReborn = anyTargetReborn || reborn;
-                            anyTargetDestroyed = anyTargetDestroyed || !reborn;
+                            const PieceDestructionResult destruction = destroyPiece(damagedPiece->id);
+                            anyTargetReborn = anyTargetReborn || destruction.wasRebirth;
+                            anyTargetInfestationSpawned =
+                                anyTargetInfestationSpawned || destruction.wasInfestation;
+                            anyTargetDestroyed = anyTargetDestroyed || !destruction.replacementSpawned;
                         }
                     }
                     const PushResult pushResult = applyActionPush(
@@ -1370,9 +1405,11 @@ private:
                         pushedTarget != nullptr && pushedTarget->health <= 0)
                     {
                         defeatedOwners.push_back(pieceOriginalOwner(*pushedTarget));
-                        const bool reborn = destroyPiece(pushedTarget->id);
-                        anyTargetReborn = anyTargetReborn || reborn;
-                        anyTargetDestroyed = anyTargetDestroyed || !reborn;
+                        const PieceDestructionResult destruction = destroyPiece(pushedTarget->id);
+                        anyTargetReborn = anyTargetReborn || destruction.wasRebirth;
+                        anyTargetInfestationSpawned =
+                            anyTargetInfestationSpawned || destruction.wasInfestation;
+                        anyTargetDestroyed = anyTargetDestroyed || !destruction.replacementSpawned;
                     }
                     if (action.control > 0)
                     {
@@ -1442,7 +1479,7 @@ private:
         else if (action.repeat > 0)
         {
             survivingAttacker->repeatActionIndex = action.actionIndex;
-            survivingAttacker->repeatActionState = piece->actionState;
+            survivingAttacker->repeatActionState = attackerActionState;
             survivingAttacker->repeatActionUses = 0;
             repeatRemaining = true;
         }
@@ -1545,6 +1582,10 @@ private:
             if (anyTargetReborn)
             {
                 result += " Rebirth returned a piece to the board!";
+            }
+            if (anyTargetInfestationSpawned)
+            {
+                result += " Infestation spawned a unit!";
             }
             if (anyTargetWasHidden)
             {

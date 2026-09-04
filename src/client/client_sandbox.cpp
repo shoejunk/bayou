@@ -58,16 +58,18 @@ void removePieceFromSnapshot(game_data::Snapshot& snapshot, int id)
         snapshot.enchantments.end());
 }
 
-bool destroyPieceInSnapshot(
+PieceDestructionResult destroyPieceInSnapshot(
     game_data::Snapshot& snapshot,
     int& nextPieceId,
     int id,
-    const game_data::GameCard* rebirthCard)
+    const game_data::GameCard* rebirthCard,
+    const game_data::GameCard* infestationCard)
 {
+    PieceDestructionResult result;
     const game_data::Piece* found = pieceByIdInSnapshot(snapshot, id);
     if (found == nullptr)
     {
-        return false;
+        return result;
     }
 
     const game_data::Piece original = *found;
@@ -78,28 +80,38 @@ bool destroyPieceInSnapshot(
             [id](const game_data::Piece& piece) { return piece.id == id; }),
         snapshot.pieces.end());
 
-    int rebornPieceId = 0;
-    if (rebirthCard != nullptr &&
+    const bool hasValidInfestation = !original.isHero &&
+        original.infestationOwner >= 1 && original.infestationOwner <= 2 &&
+        infestationCard != nullptr && infestationCard->type == "Unit";
+    const bool hasValidRebirth = rebirthCard != nullptr &&
         (rebirthCard->type == "Unit" || rebirthCard->type == "Hero") &&
+        !hasValidInfestation;
+    const game_data::GameCard* replacementCard = hasValidInfestation
+        ? infestationCard
+        : (hasValidRebirth ? rebirthCard : nullptr);
+    const bool replacementIsInfestation = hasValidInfestation;
+
+    int replacementPieceId = 0;
+    if (replacementCard != nullptr &&
         game_data::cardFootprintFree(
             snapshot.pieces,
-            *rebirthCard,
+            *replacementCard,
             original.row,
             original.column))
     {
         spawnSandboxPiece(
             snapshot,
             nextPieceId,
-            original.owner,
-            *rebirthCard,
+            replacementIsInfestation ? original.infestationOwner : original.owner,
+            *replacementCard,
             original.row,
             original.column,
-            rebirthCard->type == "Hero");
+            !replacementIsInfestation && replacementCard->type == "Hero");
         snapshot.pieces.back().hasActed = true;
-        rebornPieceId = snapshot.pieces.back().id;
+        replacementPieceId = snapshot.pieces.back().id;
     }
 
-    if (rebornPieceId != 0)
+    if (replacementPieceId != 0)
     {
         for (game_data::Enchantment& enchantment : snapshot.enchantments)
         {
@@ -107,7 +119,7 @@ bool destroyPieceInSnapshot(
                     static_cast<std::uint8_t>(game_data::EnchantmentTarget::Piece) &&
                 enchantment.targetPieceId == id)
             {
-                enchantment.targetPieceId = rebornPieceId;
+                enchantment.targetPieceId = replacementPieceId;
                 enchantment.targetRow = original.row;
                 enchantment.targetColumn = original.column;
             }
@@ -135,7 +147,10 @@ bool destroyPieceInSnapshot(
     {
         snapshot.relentlessPieceId = 0;
     }
-    return rebornPieceId != 0;
+    result.replacementSpawned = replacementPieceId != 0;
+    result.wasInfestation = replacementIsInfestation && result.replacementSpawned;
+    result.wasRebirth = !replacementIsInfestation && result.replacementSpawned;
+    return result;
 }
 
 int controlledCountInSnapshot(const game_data::Snapshot& snapshot, int playerNumber)

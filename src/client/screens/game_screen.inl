@@ -290,6 +290,11 @@
             descriptions.push_back({"Under control: " + std::to_string(piece.controlTurnsRemaining) + " turns",
                                     ownerColor(piece.owner)});
         }
+        if (!piece.infestationTitle.empty())
+        {
+            descriptions.push_back({"Infested: " + piece.infestationTitle,
+                                    sf::Color(194, 150, 235)});
+        }
         if (!piece.ability.empty())
         {
             descriptions.push_back({"Ability: " + game_data::pieceAbilityLabel(piece), sf::Color(210, 216, 228)});

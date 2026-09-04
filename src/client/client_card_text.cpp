@@ -239,6 +239,7 @@ ActionDescription actionDescription(const game_data::ActionProfile& action, std:
     description.cooldown = std::max(0, action.cooldownTurns);
     description.control = std::max(0, action.control);
     description.repeat = std::max(0, action.repeat);
+    description.infest = action.infest;
     return description;
 }
 

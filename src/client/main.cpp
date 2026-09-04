@@ -5743,6 +5743,12 @@ int main(int argc, char** argv)
                 x += 8.0f;
                 const std::string repeatLabel = "Repeat +" + std::to_string(action.repeat);
                 drawText(window, font, repeatLabel, 13, {x, y + 1.0f}, row.color);
+                x += measuredTextWidth(repeatLabel, 13);
+            }
+            if (!action.infest.empty())
+            {
+                x += 8.0f;
+                drawText(window, font, "Infest " + action.infest, 13, {x, y + 1.0f}, row.color, width);
             }
             y += 33.0f;
         }
@@ -6161,9 +6167,35 @@ int main(int argc, char** argv)
         }
     };
 
+    const auto sandboxCardNamed = [&](const game_data::Snapshot& snapshot, const std::string& title) {
+        for (const game_data::GameCard& card : snapshot.hand)
+        {
+            if (card.title == title)
+            {
+                return card;
+            }
+        }
+        for (const card_data::Card& card : allCardLibrary)
+        {
+            if (card.title == title)
+            {
+                return game_data::toGameCard(card);
+            }
+        }
+        for (const card_data::Card& card : cardLibrary)
+        {
+            if (card.title == title)
+            {
+                return game_data::toGameCard(card);
+            }
+        }
+        return game_data::GameCard{};
+    };
+
     auto destroySandboxPiece = [&](game_data::Snapshot& snapshot, int pieceId) {
         const game_data::Piece* piece = pieceByIdInSnapshot(snapshot, pieceId);
         const game_data::GameCard* rebirthCard = nullptr;
+        game_data::GameCard infestationCardValue;
         if (piece != nullptr && !piece->rebirthTitle.empty())
         {
             const auto found = std::find_if(
@@ -6177,11 +6209,18 @@ int main(int argc, char** argv)
                 rebirthCard = &*found;
             }
         }
+        if (piece != nullptr && !piece->infestationTitle.empty())
+        {
+            infestationCardValue = sandboxCardNamed(snapshot, piece->infestationTitle);
+        }
+        const game_data::GameCard* infestationCard =
+            infestationCardValue.type == "Unit" ? &infestationCardValue : nullptr;
         return destroyPieceInSnapshot(
             snapshot,
             nextSandboxPieceId,
             pieceId,
-            rebirthCard);
+            rebirthCard,
+            infestationCard);
     };
 
     auto sandboxPlayCard = [&](int handIndex, int row, int column) {
@@ -6424,16 +6463,24 @@ int main(int argc, char** argv)
         const int originRow = piece->row;
         const int originColumn = piece->column;
         const std::string attackerName = piece->name;
+        const int attackerActionState = piece->actionState;
         std::vector<std::string> damagedTargetNames;
         std::vector<std::string> healedTargetNames;
         std::vector<std::string> controlledTargetNames;
         bool anyTargetDestroyed = false;
         bool anyTargetReborn = false;
+        bool anyTargetInfestationSpawned = false;
         bool anyTargetWasHidden = false;
         int pushedSquares = 0;
         int pushCollisionDamage = 0;
         const int attackDamage = action.damage +
             game_data::pieceEnchantmentDamageBonus(next.enchantments, attackerId);
+        const std::string infestationTitle = action.actionIndex >= 0 &&
+                action.actionIndex < static_cast<int>(piece->actions.size())
+            ? piece->actions[static_cast<std::size_t>(action.actionIndex)].infest
+            : std::string();
+        const game_data::GameCard infestationCard = sandboxCardNamed(next, infestationTitle);
+        const bool actionHasInfest = !infestationTitle.empty() && infestationCard.type == "Unit";
 
         const std::string commanderName = commandedAction ? commander->name : std::string();
         if (action.attacks)
@@ -6458,6 +6505,11 @@ int main(int argc, char** argv)
                 else
                 {
                     damagedTargetNames.push_back(targetName);
+                    if (actionHasInfest && !target->isHero)
+                    {
+                        target->infestationTitle = infestationTitle;
+                        target->infestationOwner = attackerOwner;
+                    }
                     const std::vector<game_data::DamageAssignment> damageAssignments =
                         game_data::applyDamageWithBodyguards(
                             next.pieces,
@@ -6471,9 +6523,11 @@ int main(int argc, char** argv)
                             pieceByIdInSnapshotMutable(next, assignment.pieceId);
                         if (damagedPiece && damagedPiece->health <= 0)
                         {
-                            const bool reborn = destroySandboxPiece(next, damagedPiece->id);
-                            anyTargetReborn = anyTargetReborn || reborn;
-                            anyTargetDestroyed = anyTargetDestroyed || !reborn;
+                            const PieceDestructionResult destruction = destroySandboxPiece(next, damagedPiece->id);
+                            anyTargetReborn = anyTargetReborn || destruction.wasRebirth;
+                            anyTargetInfestationSpawned =
+                                anyTargetInfestationSpawned || destruction.wasInfestation;
+                            anyTargetDestroyed = anyTargetDestroyed || !destruction.replacementSpawned;
                         }
                     }
                     const game_data::PushResult pushResult = game_data::applyActionPush(
@@ -6488,9 +6542,11 @@ int main(int argc, char** argv)
                             pieceByIdInSnapshotMutable(next, targetId);
                         pushedTarget && pushedTarget->health <= 0)
                     {
-                        const bool reborn = destroySandboxPiece(next, pushedTarget->id);
-                        anyTargetReborn = anyTargetReborn || reborn;
-                        anyTargetDestroyed = anyTargetDestroyed || !reborn;
+                        const PieceDestructionResult destruction = destroySandboxPiece(next, pushedTarget->id);
+                        anyTargetReborn = anyTargetReborn || destruction.wasRebirth;
+                        anyTargetInfestationSpawned =
+                            anyTargetInfestationSpawned || destruction.wasInfestation;
+                        anyTargetDestroyed = anyTargetDestroyed || !destruction.replacementSpawned;
                     }
                     if (action.control > 0)
                     {
@@ -6557,7 +6613,7 @@ int main(int argc, char** argv)
         else if (action.repeat > 0)
         {
             acting->repeatActionIndex = action.actionIndex;
-            acting->repeatActionState = piece->actionState;
+            acting->repeatActionState = attackerActionState;
             acting->repeatActionUses = 0;
             repeatRemaining = true;
         }
@@ -6627,6 +6683,10 @@ int main(int argc, char** argv)
             if (anyTargetReborn)
             {
                 next.status += " Rebirth returned a piece to the board!";
+            }
+            if (anyTargetInfestationSpawned)
+            {
+                next.status += " Infestation spawned a unit!";
             }
             if (anyTargetWasHidden)
             {
