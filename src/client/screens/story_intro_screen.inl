@@ -4,24 +4,26 @@
         const StoryPanel& panel = mission.briefing[static_cast<std::size_t>(storyComicPage)];
 
         drawTitlePlaque(window, font, std::string(mission.title), {214.0f, 38.0f}, {572.0f, 58.0f});
+        const bool storyOnly = mission.objectiveSpec.kind == StoryObjectiveKind::StoryOnly;
         drawText(
             window,
             font,
-            "MISSION " + std::to_string(storyMissionIndex + 1) + " / " +
+            "ENTRY " + std::to_string(storyMissionIndex + 1) + " OF " +
                 std::to_string(storyMissions(storyCampaign).size()),
             13,
             {42.0f, 45.0f},
             sf::Color(198, 146, 70),
             150.0f);
-        drawText(
+        drawWrappedText(
             window,
             font,
             std::string(storyCampaignName(storyCampaign)) + "  |  " +
                 std::string(mission.sourceChapter),
             12,
-            {470.0f, 92.0f},
+            {452.0f, 82.0f},
             sf::Color(190, 198, 214),
-            285.0f);
+            300.0f,
+            2.0f);
 
         const sf::Vector2f artPosition{48.0f, 112.0f};
         const sf::Vector2f artSize{280.0f, 342.0f};
@@ -35,7 +37,7 @@
             10.0f);
         if (sf::Texture* art = textures.load(std::string(panel.artPath)))
         {
-            drawContainSprite(
+            drawCoverSprite(
                 window,
                 *art,
                 {{artPosition.x + 14.0f, artPosition.y + 14.0f},
@@ -78,6 +80,18 @@
             7.0f);
 
         const sf::Vector2f lessonPosition{360.0f, 400.0f};
+        int playerInputCount = 0;
+        for (const StoryScriptAction& step : mission.script)
+        {
+            if (step.owner == 1)
+            {
+                ++playerInputCount;
+            }
+        }
+        const std::string goalHeading = storyOnly
+            ? "STORY CHAPTER - NO BOARD ACTIONS"
+            : "MISSION GOAL - " + std::to_string(playerInputCount) +
+                " GUIDED ACTIONS";
         drawBeveledPlate(
             window,
             lessonPosition,
@@ -89,8 +103,8 @@
         drawText(
             window,
             font,
-            std::string(mission.lesson),
-            15,
+            goalHeading,
+            14,
             lessonPosition + sf::Vector2f(18.0f, 14.0f),
             sf::Color(146, 232, 166),
             350.0f);
@@ -104,14 +118,27 @@
             350.0f,
             4.0f);
 
-        storyContinueButton.setLabel(storyComicPage + 1 >= 3 ? "Deploy" : "Continue");
+        const int panelCount = static_cast<int>(mission.briefing.size());
+        storyContinueButton.setLabel(
+            storyComicPage + 1 >= panelCount
+                ? (storyOnly ? "Continue Story" : "Start Mission")
+                : "Continue");
         storyContinueButton.draw(window, animationTime);
-        storyBackButton.setLabel("Missions");
+        storyBackButton.setLabel(storyComicPage > 0 ? "Previous" : "Missions");
         storyBackButton.draw(window, animationTime);
-        for (int page = 0; page < 3; ++page)
+        drawCenteredText(
+            window,
+            font,
+            "BRIEFING " + std::to_string(storyComicPage + 1) + " OF " +
+                std::to_string(panelCount),
+            type::Caption,
+            {400.0f, 548.0f},
+            palette::InkMuted);
+        const float dotsWidth = static_cast<float>(std::max(0, panelCount - 1)) * 14.0f;
+        for (int page = 0; page < panelCount; ++page)
         {
-            sf::CircleShape dot(4.0f);
-            dot.setPosition({388.0f + static_cast<float>(page) * 18.0f, 548.0f});
+            sf::CircleShape dot(2.5f);
+            dot.setPosition({400.0f - dotsWidth * 0.5f + static_cast<float>(page) * 14.0f, 564.0f});
             dot.setFillColor(page == storyComicPage ? sf::Color(218, 166, 78) : sf::Color(82, 88, 84));
             window.draw(dot);
         }

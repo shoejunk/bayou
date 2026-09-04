@@ -48,13 +48,36 @@ void drawCoverSprite(
 {
     sf::Sprite sprite(texture);
     const sf::Vector2u imageSize = texture.getSize();
-    const float scale = std::max(target.size.x / static_cast<float>(imageSize.x),
-                                 target.size.y / static_cast<float>(imageSize.y));
-    sprite.setScale({scale, scale});
+    if (imageSize.x == 0 || imageSize.y == 0 ||
+        target.size.x <= 0.0f || target.size.y <= 0.0f)
+    {
+        return;
+    }
+
+    const float sourceAspect =
+        static_cast<float>(imageSize.x) / static_cast<float>(imageSize.y);
+    const float targetAspect = target.size.x / target.size.y;
+    sf::Vector2i cropPosition{0, 0};
+    sf::Vector2i cropSize{
+        static_cast<int>(imageSize.x), static_cast<int>(imageSize.y)};
+    if (sourceAspect > targetAspect)
+    {
+        cropSize.x = std::max(1, static_cast<int>(
+            std::lround(static_cast<float>(imageSize.y) * targetAspect)));
+        cropPosition.x = (static_cast<int>(imageSize.x) - cropSize.x) / 2;
+    }
+    else
+    {
+        cropSize.y = std::max(1, static_cast<int>(
+            std::lround(static_cast<float>(imageSize.x) / targetAspect)));
+        cropPosition.y = (static_cast<int>(imageSize.y) - cropSize.y) / 2;
+    }
+    sprite.setTextureRect({cropPosition, cropSize});
+    sprite.setScale({
+        target.size.x / static_cast<float>(cropSize.x),
+        target.size.y / static_cast<float>(cropSize.y)});
     sprite.setColor(color);
-    sprite.setPosition({
-        target.position.x + (target.size.x - static_cast<float>(imageSize.x) * scale) * 0.5f,
-        target.position.y + (target.size.y - static_cast<float>(imageSize.y) * scale) * 0.5f});
+    sprite.setPosition(target.position);
     window.draw(sprite);
 }
 

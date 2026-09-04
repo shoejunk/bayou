@@ -1212,7 +1212,37 @@
         if (storyMode && storyTargetRow >= 0 && storyTargetColumn >= 0 &&
             game_data::inBounds(storyTargetRow, storyTargetColumn))
         {
-            highlight[static_cast<std::size_t>(game_data::squareIndex(storyTargetRow, storyTargetColumn))] = 5;
+            const std::size_t targetIndex =
+                static_cast<std::size_t>(game_data::squareIndex(storyTargetRow, storyTargetColumn));
+            bool restrictToAuthoredTarget = false;
+            bool requiredActorSelected = false;
+            if (storyStage == StoryStage::Objective)
+            {
+                const StoryMission& activeMission =
+                    storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
+                if (storyMissionStep >= 0 &&
+                    storyMissionStep < static_cast<int>(activeMission.script.size()))
+                {
+                    const StoryScriptAction& step =
+                        activeMission.script[static_cast<std::size_t>(storyMissionStep)];
+                    restrictToAuthoredTarget =
+                        step.kind == StoryActionKind::Move || step.kind == StoryActionKind::Attack;
+                    requiredActorSelected = step.actorRole.empty() ||
+                        (highlightedPiece &&
+                         highlightedPiece->id == storyPieceIdForRole(step.actorRole));
+                }
+            }
+            if (restrictToAuthoredTarget)
+            {
+                const int normalActionMarker =
+                    requiredActorSelected ? highlight[targetIndex] : 0;
+                std::fill(highlight.begin(), highlight.end(), 0);
+                highlight[targetIndex] = normalActionMarker;
+            }
+            else
+            {
+                highlight[targetIndex] = 5;
+            }
         }
 
         const std::array<sf::Vector2f, 4> boardTop = {
@@ -1678,6 +1708,36 @@
             window.draw(rivet);
         }
 
+        if (storyMode)
+        {
+            const auto drawCoordinateLabel = [&](const std::string& label, sf::Vector2f center) {
+                sf::Text coordinate(font, label, 12);
+                coordinate.setFillColor(BoardParchment);
+                coordinate.setOutlineThickness(1.5f);
+                coordinate.setOutlineColor(sf::Color(0, 0, 0, 230));
+                centerText(coordinate, center);
+                drawCrispText(window, coordinate);
+            };
+
+            for (int column = 0; column < game_data::BoardSize; ++column)
+            {
+                const sf::Vector2f from = boardEdgePoint(game_data::BoardSize, column);
+                const sf::Vector2f to = boardEdgePoint(game_data::BoardSize, column + 1);
+                drawCoordinateLabel(
+                    std::string(1, static_cast<char>('A' + column)),
+                    {(from.x + to.x) * 0.5f, (from.y + to.y) * 0.5f + 12.0f});
+            }
+            for (int screenRow = 0; screenRow < game_data::BoardSize; ++screenRow)
+            {
+                const sf::Vector2f from = boardEdgePoint(screenRow, 0);
+                const sf::Vector2f to = boardEdgePoint(screenRow + 1, 0);
+                drawCoordinateLabel(
+                    std::to_string(
+                        rowForScreenRow(screenRow, gameSnapshot.yourPlayer) + 1),
+                    {(from.x + to.x) * 0.5f - 13.0f, (from.y + to.y) * 0.5f});
+            }
+        }
+
         // Pieces.
         std::vector<const game_data::Piece*> pieceDrawOrder;
         pieceDrawOrder.reserve(gameSnapshot.pieces.size());
@@ -1698,6 +1758,32 @@
             }
             return a->column < b->column;
         });
+
+        int requiredStoryActorId = 0;
+        int requiredStoryTargetId = 0;
+        if (storyMode && storyStage == StoryStage::Objective)
+        {
+            const StoryMission& activeMission =
+                storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
+            if (storyMissionStep >= 0 &&
+                storyMissionStep < static_cast<int>(activeMission.script.size()))
+            {
+                const StoryScriptAction& currentStep =
+                    activeMission.script[static_cast<std::size_t>(storyMissionStep)];
+                if (!currentStep.actorRole.empty())
+                {
+                    requiredStoryActorId = storyPieceIdForRole(currentStep.actorRole);
+                }
+                if (!currentStep.targetRole.empty())
+                {
+                    requiredStoryTargetId = storyPieceIdForRole(currentStep.targetRole);
+                }
+                else if (!currentStep.effectRole.empty())
+                {
+                    requiredStoryTargetId = storyPieceIdForRole(currentStep.effectRole);
+                }
+            }
+        }
 
         const auto drawPieceLayer = [&](bool foregroundOnly) {
         for (const game_data::Piece* piecePtr : pieceDrawOrder)
@@ -1943,7 +2029,35 @@
                 const float footprintHeight = std::max(1.0f, static_cast<float>(piece.height));
 
                 const bool pieceIsSelected = selectedPieceId && *selectedPieceId == piece.id;
-                if (pieceIsSelected)
+                const bool pieceIsRequiredStoryActor =
+                    requiredStoryActorId != 0 && requiredStoryActorId == piece.id;
+                const bool pieceIsRequiredStoryTarget =
+                    requiredStoryTargetId != 0 && requiredStoryTargetId == piece.id;
+                if (pieceIsRequiredStoryActor)
+                {
+                    const float pulse = 0.5f + 0.5f * std::sin(animationTime * 4.6f);
+                    drawPieceSelectionRing(
+                        window,
+                        baseCenter,
+                        pieceScale * 1.14f,
+                        pulse,
+                        sf::Color(255, 214, 104),
+                        footprintWidth,
+                        footprintHeight);
+                }
+                else if (pieceIsRequiredStoryTarget)
+                {
+                    const float pulse = 0.5f + 0.5f * std::sin(animationTime * 4.2f);
+                    drawPieceSelectionRing(
+                        window,
+                        baseCenter,
+                        pieceScale * 1.10f,
+                        pulse,
+                        sf::Color(238, 116, 94),
+                        footprintWidth,
+                        footprintHeight);
+                }
+                else if (pieceIsSelected)
                 {
                     const float pulse = 0.5f + 0.5f * std::sin(animationTime * 3.4f);
                     drawPieceSelectionRing(
@@ -2425,7 +2539,7 @@
                                           const std::string& caption,
                                           const std::string& value,
                                           sf::Color valueColor) {
-            sf::Text captionText(font, caption, 8);
+            sf::Text captionText(font, caption, storyMode ? 9 : 8);
             captionText.setFillColor(withAlpha(BoardParchmentMuted, 208));
             centerText(captionText, {center.x, center.y - 8.0f});
             drawCrispText(window, captionText);
@@ -2516,14 +2630,14 @@
             if (storyMode)
             {
                 drawBannerFigure(
-                    nextFigureCenter(), "LANDS", control,
+                    nextFigureCenter(), "CONTROLLED SQUARES", control,
                     withAlpha(ownerColorBright(playerNumber), 255));
             }
             else
             {
                 drawBannerFigure(nextFigureCenter(), "RESOURCES", resources, BoardBrassBright);
                 drawBannerFigure(
-                    nextFigureCenter(), "LANDS", control,
+                    nextFigureCenter(), "CONTROL", control,
                     withAlpha(ownerColorBright(playerNumber), 255));
                 if (enchantmentCount > 0)
                 {
@@ -2537,9 +2651,14 @@
             const float textLeft = x + 22.0f;
             const float textRight = x + GamePlayerBannerWidth - 22.0f;
             const float textWidth = std::max(30.0f, textRight - textLeft);
+            std::string displayName = playerDisplayName(playerNumber);
+            if (storyMode && playerNumber == me)
+            {
+                displayName += " (YOU)";
+            }
             sf::Text nameText(
                 font,
-                elideToWidth(font, playerDisplayName(playerNumber), 14, textWidth),
+                elideToWidth(font, displayName, 14, textWidth),
                 14);
             nameText.setFillColor(isActive ? BoardParchment : withAlpha(BoardParchmentMuted, 226));
             nameText.setPosition({
@@ -2568,11 +2687,40 @@
         // ---- Active turn readout ---------------------------------------------
         {
             const bool myTurn = sandboxMode || activePlayer == me;
+            std::string storyTurnLabel = myTurn ? "YOUR TUTORIAL TURN" : "WATCH OPPONENT";
+            if (storyMode && myTurn && phase == game_data::Phase::Playing &&
+                storyMissionIndex >= 0 &&
+                storyMissionIndex < static_cast<int>(storyMissions(storyCampaign).size()))
+            {
+                const StoryMission& mission =
+                    storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
+                int totalPlayerTurns = 0;
+                int currentPlayerTurn = 0;
+                int previousOwner = 0;
+                for (int i = 0; i < static_cast<int>(mission.script.size()); ++i)
+                {
+                    const int owner = mission.script[static_cast<std::size_t>(i)].owner;
+                    if (owner == me && previousOwner != me)
+                    {
+                        ++totalPlayerTurns;
+                        if (i <= storyMissionStep)
+                        {
+                            currentPlayerTurn = totalPlayerTurns;
+                        }
+                    }
+                    previousOwner = owner;
+                }
+                if (totalPlayerTurns > 1 && currentPlayerTurn > 0)
+                {
+                    storyTurnLabel = "YOUR TURN " + std::to_string(currentPlayerTurn) +
+                        " OF " + std::to_string(totalPlayerTurns);
+                }
+            }
             const std::string turnLabel = phase == game_data::Phase::GameOver
                 ? std::string("MATCH OVER")
                 : (phase == game_data::Phase::HeroPlacement
                     ? std::string("DEPLOY YOUR HEROES")
-                    : (storyMode ? std::string("TUTORIAL")
+                    : (storyMode ? storyTurnLabel
                                  : (myTurn ? std::string("YOUR TURN")
                                            : std::string("OPPONENT'S TURN"))));
             const int turnPlayer = activePlayer == 2 ? 2 : 1;
@@ -2592,7 +2740,7 @@
                 true,
                 12.0f);
 
-            sf::Text label(font, elideToWidth(font, turnLabel, 8, GameTurnPlaqueWidth - 16.0f), 8);
+            sf::Text label(font, elideToWidth(font, turnLabel, 10, GameTurnPlaqueWidth - 16.0f), 10);
             label.setLetterSpacing(1.05f);
             label.setFillColor(BoardParchment);
             label.setOutlineThickness(1.0f);
@@ -2687,6 +2835,115 @@
         // bases, health badges, crowns, and control badges so those details retain
         // normal board depth and cannot cover a piece in front of them.
         drawPieceLayer(true);
+
+        // Keep the chapter identity visible after the briefing. This compact
+        // plaque occupies the open space between the two owner banners and is
+        // drawn after the foreground pieces so a tall sprite cannot erase it.
+        if (storyMode && storyMissionIndex >= 0 &&
+            storyMissionIndex < static_cast<int>(storyMissions(storyCampaign).size()))
+        {
+            const StoryMission& mission =
+                storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
+            constexpr sf::Vector2f missionPlateSize{410.0f, 44.0f};
+            const sf::Vector2f missionPlatePosition{
+                BoardCenterX - missionPlateSize.x * 0.5f, 7.0f};
+            drawBeveledPlate(
+                window,
+                missionPlatePosition,
+                missionPlateSize,
+                sf::Color(12, 20, 21, 244),
+                withAlpha(ownerColorBright(me), 210),
+                false,
+                8.0f);
+            drawCenteredText(
+                window,
+                font,
+                "ENTRY " + std::to_string(storyMissionIndex + 1) + " OF " +
+                    std::to_string(storyMissions(storyCampaign).size()) +
+                    "  -  PLAYABLE MISSION",
+                9,
+                {BoardCenterX, missionPlatePosition.y + 11.0f},
+                withAlpha(ownerColorBright(me), 245));
+            sf::Text missionTitle(
+                gloomthornFontLoaded ? gloomthornFont : font,
+                elideToWidth(
+                    gloomthornFontLoaded ? gloomthornFont : font,
+                    std::string(mission.title),
+                    16,
+                    missionPlateSize.x - 28.0f),
+                16);
+            missionTitle.setFillColor(BoardParchment);
+            centerText(
+                missionTitle,
+                {BoardCenterX, missionPlatePosition.y + 29.0f});
+            drawCrispText(window, missionTitle);
+        }
+
+        // During guided steps, label the required piece and target directly on
+        // the board. A pulsing ring alone cannot tell a new player whether it
+        // means actor, destination, danger, or selection.
+        if (storyMode && storyStage == StoryStage::Objective)
+        {
+            const auto storyPiece = [&](int id) -> const game_data::Piece* {
+                const auto found = std::find_if(
+                    gameSnapshot.pieces.begin(), gameSnapshot.pieces.end(),
+                    [&](const game_data::Piece& piece) { return piece.id == id; });
+                return found == gameSnapshot.pieces.end() ? nullptr : &*found;
+            };
+            const auto drawStoryTagAt = [&](const sf::Vector2f center, const std::string& label,
+                                             sf::Color accent, float verticalOffset) {
+                const std::string fitted = elideToWidth(font, label, 11, 146.0f);
+                sf::Text text(font, fitted, 11);
+                text.setFillColor(sf::Color(255, 246, 222));
+                const float width = std::clamp(
+                    text.getLocalBounds().size.x + 18.0f, 62.0f, 160.0f);
+                const sf::Vector2f position{
+                    std::clamp(center.x - width * 0.5f, 18.0f, 782.0f - width),
+                    std::clamp(center.y + verticalOffset, 68.0f, 466.0f)};
+                drawCutPlate(
+                    position, {width, 22.0f}, 5.0f,
+                    sf::Color(9, 14, 15, 244), withAlpha(accent, 244), 1.4f);
+                centerText(text, {position.x + width * 0.5f, position.y + 11.0f});
+                drawCrispText(window, text);
+            };
+            const auto drawStoryTag = [&](int id, std::string_view role, sf::Color accent,
+                                           float verticalOffset) {
+                const game_data::Piece* piece = storyPiece(id);
+                if (!piece)
+                {
+                    return;
+                }
+                const sf::Vector2f center = boardFootprintCenter(
+                    piece->row, piece->column, piece->width, piece->height,
+                    gameSnapshot.yourPlayer);
+                drawStoryTagAt(
+                    center, std::string(role) + ": " + piece->name, accent, verticalOffset);
+            };
+
+            if (requiredStoryTargetId == 0 &&
+                game_data::inBounds(storyTargetRow, storyTargetColumn))
+            {
+                std::string squareName(
+                    1, static_cast<char>('A' + storyTargetColumn));
+                squareName += std::to_string(storyTargetRow + 1);
+                drawStoryTagAt(
+                    boardCellAnchor(boardCellMetrics(storyTargetRow, storyTargetColumn)),
+                    "TARGET: " + squareName,
+                    sf::Color(126, 214, 178),
+                    -28.0f);
+            }
+
+            if (requiredStoryTargetId != 0 && requiredStoryTargetId != requiredStoryActorId)
+            {
+                drawStoryTag(
+                    requiredStoryTargetId, "TARGET", sf::Color(238, 116, 94), -18.0f);
+            }
+            if (requiredStoryActorId != 0)
+            {
+                drawStoryTag(
+                    requiredStoryActorId, "ACT", sf::Color(255, 214, 104), -42.0f);
+            }
+        }
 
         // ---- Command bar ------------------------------------------------------
         // A rail carrying resources, the piles, the hand and the turn actions. The
@@ -2893,15 +3150,41 @@
                 abilityButton.setLabel(game_data::pieceAbilityLabel(*selectedPiece));
                 abilityButton.draw(window);
             }
+            bool endTurnAvailable = true;
+            if (storyMode)
+            {
+                endTurnAvailable = storyStage != StoryStage::Objective;
+                const StoryMission& mission =
+                    storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
+                if (storyStage == StoryStage::Objective && storyPopupPanels.empty() &&
+                    storyMissionStep >= 0 &&
+                    storyMissionStep < static_cast<int>(mission.script.size()))
+                {
+                    const StoryScriptAction& step =
+                        mission.script[static_cast<std::size_t>(storyMissionStep)];
+                    endTurnAvailable =
+                        step.owner == me && step.kind == StoryActionKind::EndTurn;
+                }
+                endTurnButton.setEnabled(endTurnAvailable);
+                endTurnButton.setLabel(endTurnAvailable ? "End Turn" : "Finish Step First");
+            }
+            else
+            {
+                endTurnButton.setEnabled(true);
+            }
+
             // Warm bloom behind the primary action, so ending the turn outranks
             // leaving the match instead of the two reading as equal peers.
-            drawCutPlate(
-                {GameActionButtonX - 4.0f, GameActionButtonY - 4.0f},
-                {GameActionButtonWidth + 8.0f, GamePrimaryButtonHeight + 8.0f},
-                11.0f,
-                withAlpha(BoardBrassBright, 34),
-                withAlpha(BoardBrassBright, 128),
-                1.4f);
+            if (!storyMode || endTurnAvailable)
+            {
+                drawCutPlate(
+                    {GameActionButtonX - 4.0f, GameActionButtonY - 4.0f},
+                    {GameActionButtonWidth + 8.0f, GamePrimaryButtonHeight + 8.0f},
+                    11.0f,
+                    withAlpha(BoardBrassBright, 34),
+                    withAlpha(BoardBrassBright, 128),
+                    1.4f);
+            }
             if (sandboxMode && !storyMode)
             {
                 sandboxPlayerButton.draw(window);
@@ -2916,21 +3199,108 @@
         if (storyMode)
         {
             storyRestartButton.draw(window);
+            const StoryMission& mission =
+                storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
+            const sf::Vector2f goalPosition{GamePlayerBannerLeftX + 12.0f, 238.0f};
+            const sf::Vector2f goalSize{156.0f, 218.0f};
+            drawBeveledPlate(
+                window,
+                goalPosition,
+                goalSize,
+                withAlpha(BoardPlate, 242),
+                withAlpha(ownerColorBright(me), 190),
+                false,
+                8.0f);
+            drawText(
+                window,
+                font,
+                "MISSION GOAL",
+                12,
+                goalPosition + sf::Vector2f(12.0f, 12.0f),
+                BoardBrassBright,
+                goalSize.x - 24.0f);
+            drawSeparatorRule(
+                window,
+                goalPosition + sf::Vector2f(12.0f, 34.0f),
+                goalSize.x - 24.0f,
+                false);
+            int totalGuidedSteps = 0;
+            int completedGuidedSteps = 0;
+            for (std::size_t index = 0; index < mission.script.size(); ++index)
+            {
+                if (mission.script[index].owner != 1)
+                {
+                    continue;
+                }
+                ++totalGuidedSteps;
+                if (static_cast<int>(index) < storyMissionStep)
+                {
+                    ++completedGuidedSteps;
+                }
+            }
+            drawText(
+                window,
+                font,
+                "ACTIONS COMPLETE " + std::to_string(completedGuidedSteps) + " / " +
+                    std::to_string(totalGuidedSteps),
+                10,
+                goalPosition + sf::Vector2f(12.0f, 43.0f),
+                withAlpha(ownerColorBright(me), 235),
+                goalSize.x - 24.0f);
+            drawWrappedText(
+                window,
+                font,
+                std::string(mission.objective),
+                12,
+                goalPosition + sf::Vector2f(12.0f, 64.0f),
+                BoardParchmentMuted,
+                goalSize.x - 24.0f,
+                3.0f);
         }
 
         if (storyMode)
         {
             const StoryMission& mission =
                 storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
-            std::string stepHeading = std::string(mission.lesson);
-            std::string stepBody = std::string(mission.objective) + " " + std::string(mission.hint);
-            const int stepNumber = storyMissionIndex + 1;
+            std::string stepHeading = "MISSION GOAL";
+            std::string stepBody = std::string(mission.objective);
+            int stepNumber = 1;
+            int totalGuidedSteps = 0;
+            bool currentStepRequiresPlayerInput = true;
+            for (const StoryScriptAction& step : mission.script)
+            {
+                if (step.owner == 1)
+                {
+                    ++totalGuidedSteps;
+                }
+            }
+            if (!mission.script.empty() && storyMissionStep >= 0 &&
+                storyMissionStep < static_cast<int>(mission.script.size()))
+            {
+                const StoryScriptAction& scriptedStep =
+                    mission.script[static_cast<std::size_t>(storyMissionStep)];
+                stepHeading = scriptedStep.heading.empty()
+                    ? std::string(mission.lesson)
+                    : std::string(scriptedStep.heading);
+                stepBody = scriptedStep.instruction.empty()
+                    ? std::string(mission.objective)
+                    : std::string(scriptedStep.instruction);
+                currentStepRequiresPlayerInput = scriptedStep.owner == 1;
+                stepNumber = 0;
+                for (int index = 0; index <= storyMissionStep; ++index)
+                {
+                    if (mission.script[static_cast<std::size_t>(index)].owner == 1)
+                    {
+                        ++stepNumber;
+                    }
+                }
+            }
             sf::Color stepAccent = BoardBrassBright;
             if (storyStage == StoryStage::Complete)
             {
                 stepHeading = "Mission Complete";
                 stepBody = storyMissionIndex + 1 < static_cast<int>(storyMissions(storyCampaign).size())
-                    ? "The next chapter is unlocked. Continue when you are ready."
+                    ? "The next mission is unlocked. Continue when you are ready."
                     : "You have completed " + std::string(storyCampaignName(storyCampaign)) +
                         " story arc.";
                 stepAccent = sf::Color(146, 232, 166);
@@ -2947,10 +3317,10 @@
             const bool leavesRoomForStoryHand = !gameSnapshot.hand.empty();
             const sf::Vector2f plaquePosition{
                 leavesRoomForStoryHand ? 10.0f : GameBottomLeftX,
-                GameBottomBarY + 14.0f};
+                GameBottomBarY + 8.0f};
             const sf::Vector2f plaqueSize{
                 leavesRoomForStoryHand ? 170.0f : 560.0f,
-                GameBottomBarHeight - 28.0f};
+                GameBottomBarHeight - 16.0f};
             drawBeveledPlate(
                 window,
                 plaquePosition,
@@ -2972,7 +3342,26 @@
             medallionFace.setOutlineThickness(1.6f);
             medallionFace.setOutlineColor(withAlpha(stepAccent, 235));
             window.draw(medallionFace);
-            sf::Text stepText(font, std::to_string(stepNumber), 17);
+            sf::Text stepLabel(
+                font,
+                storyStage == StoryStage::Objective
+                    ? (currentStepRequiresPlayerInput ? std::string("GUIDED ACTION") : std::string("OPPONENT"))
+                    : std::string("STATUS"),
+                10);
+            stepLabel.setFillColor(withAlpha(stepAccent, 230));
+            centerText(stepLabel, {medallion.x, plaquePosition.y + 13.0f});
+            drawCrispText(window, stepLabel);
+            sf::Text stepText(
+                font,
+                storyStage == StoryStage::Complete
+                    ? std::string("OK")
+                    : storyStage == StoryStage::Failed
+                        ? std::string("!")
+                        : !currentStepRequiresPlayerInput
+                            ? std::string("AUTO")
+                            : std::to_string(stepNumber) + "/" +
+                                std::to_string(std::max(1, totalGuidedSteps)),
+                storyStage == StoryStage::Objective ? 14 : 17);
             stepText.setFillColor(stepAccent);
             centerText(stepText, medallion);
             drawCrispText(window, stepText);
@@ -2980,38 +3369,70 @@
             const float textX = plaquePosition.x + (leavesRoomForStoryHand ? 48.0f : 62.0f);
             if (leavesRoomForStoryHand)
             {
-                if (storyCampaign == StoryCampaign::Blackthorn && storyMissionIndex == 1)
+                const auto storySquareName = [](int row, int column) {
+                    if (!game_data::inBounds(row, column))
+                    {
+                        return std::string("the glowing square");
+                    }
+                    return std::string(1, static_cast<char>('A' + column)) +
+                        std::to_string(row + 1);
+                };
+                switch (mission.objectiveSpec.kind)
                 {
-                    stepHeading = "Deploy a Unit";
-                    stepBody = "Deploy the Debt Collector on the glowing square.";
-                }
-                else if (storyCampaign == StoryCampaign::Blackthorn && storyMissionIndex == 2)
-                {
-                    stepHeading = "Hide & Summon";
-                    stepBody = "Use Hide and Create Lumberjack.";
-                }
-                else if (storyCampaign == StoryCampaign::Mirewatch && storyMissionIndex == 2)
-                {
-                    stepHeading = "Deploy Informant";
-                    stepBody = "Deploy the Informant on the glowing square.";
-                }
-                else
-                {
-                    stepHeading = storyMissionIndex == 7 ? "Final Battle" : "Mission Objective";
+                case StoryObjectiveKind::DeployCard:
+                    stepHeading = "DEPLOY CARD";
+                    stepBody = "Play " +
+                        (mission.objectiveSpec.cardTitle.empty()
+                            ? std::string("the highlighted card")
+                            : std::string(mission.objectiveSpec.cardTitle)) +
+                        " on glowing " +
+                        storySquareName(
+                            mission.objectiveSpec.targetRow,
+                            mission.objectiveSpec.targetColumn) +
+                        ".";
+                    break;
+                case StoryObjectiveKind::ReachSquare:
+                    stepHeading = "REACH THE SQUARE";
+                    stepBody = "Move the marked unit to glowing " +
+                        storySquareName(
+                            mission.objectiveSpec.targetRow,
+                            mission.objectiveSpec.targetColumn) +
+                        ".";
+                    break;
+                case StoryObjectiveKind::ControlSquares:
+                    stepHeading = "TAKE CONTROL";
+                    stepBody = "Control " +
+                        std::to_string(mission.objectiveSpec.amount) +
+                        " squares.";
+                    break;
+                case StoryObjectiveKind::DefeatRole:
+                    stepHeading = "DEFEAT THE TARGET";
+                    stepBody = "Defeat the marked enemy.";
+                    break;
+                case StoryObjectiveKind::DefeatAllEnemies:
+                    stepHeading = "DEFEAT THE ENEMIES";
+                    stepBody = "Defeat every enemy unit.";
+                    break;
+                case StoryObjectiveKind::Scripted:
+                    break;
+                case StoryObjectiveKind::StoryOnly:
+                case StoryObjectiveKind::Legacy:
+                    stepHeading = "MISSION GOAL";
                     stepBody = std::string(mission.objective);
+                    break;
                 }
             }
-            sf::Text heading(font, stepHeading, leavesRoomForStoryHand ? 13 : 17);
+            sf::Text heading(font, stepHeading, leavesRoomForStoryHand ? 14 : 18);
             heading.setLetterSpacing(1.1f);
             heading.setFillColor(BoardParchment);
-            heading.setPosition({textX, plaquePosition.y + 16.0f});
+            heading.setPosition({textX, plaquePosition.y + 12.0f});
             drawCrispText(window, heading);
             drawWrappedText(
                 window,
                 font,
                 stepBody,
-                leavesRoomForStoryHand ? 10 : 13,
-                {textX, plaquePosition.y + 44.0f},
+                leavesRoomForStoryHand ? 11 : 14,
+                {textX, plaquePosition.y + 37.0f},
                 withAlpha(BoardParchmentMuted, 240),
                 plaqueSize.x - (leavesRoomForStoryHand ? 56.0f : 78.0f),
                 3.0f);
@@ -3260,7 +3681,72 @@
 
         if (storyMode)
         {
-            if (gameSnapshot.foresightChoices.empty())
+            if (!storyPopupPanels.empty())
+            {
+                sf::RectangleShape veil({ui_canvas::Width, ui_canvas::Height});
+                veil.setPosition({ui_canvas::Left, 0.0f});
+                veil.setFillColor(sf::Color(4, 8, 9, 214));
+                window.draw(veil);
+
+                const StoryPanel& panel = storyPopupPanels[storyPopupPage];
+                drawBeveledPlate(
+                    window,
+                    {72.0f, 66.0f},
+                    {656.0f, 466.0f},
+                    sf::Color(20, 29, 28, 252),
+                    BoardBrassBright,
+                    true,
+                    16.0f);
+                drawBeveledPlate(
+                    window,
+                    {94.0f, 100.0f},
+                    {226.0f, 342.0f},
+                    sf::Color(31, 40, 37, 250),
+                    BoardBrassDim,
+                    false,
+                    10.0f);
+                if (sf::Texture* art = textures.load(std::string(panel.artPath)))
+                {
+                    drawCoverSprite(window, *art, {{108.0f, 114.0f}, {198.0f, 314.0f}});
+                }
+                drawText(
+                    window,
+                    gloomthornFontLoaded ? gloomthornFont : font,
+                    std::string(panel.speaker),
+                    25,
+                    {350.0f, 112.0f},
+                    BoardBrassBright,
+                    338.0f);
+                drawSeparatorRule(window, {350.0f, 154.0f}, 338.0f);
+                drawWrappedText(
+                    window,
+                    font,
+                    std::string(panel.text),
+                    18,
+                    {350.0f, 178.0f},
+                    BoardParchment,
+                    338.0f,
+                    8.0f);
+                drawText(
+                    window,
+                    font,
+                    "IN-MISSION BEAT " + std::to_string(storyPopupPage + 1) + " OF " +
+                        std::to_string(storyPopupPanels.size()),
+                    12,
+                    {350.0f, 426.0f},
+                    BoardParchmentMuted,
+                    160.0f);
+                storyPopupContinueButton.setLabel(
+                    storyPopupPage + 1 >= storyPopupPanels.size() && storyCompleteAfterPopup
+                        ? "Finish Mission"
+                        : "Continue");
+                if (storyPopupPage > 0)
+                {
+                    storyPopupPreviousButton.draw(window, animationTime);
+                }
+                storyPopupContinueButton.draw(window, animationTime);
+            }
+            else if (gameSnapshot.foresightChoices.empty())
             {
                 drawPiecePopup();
             }

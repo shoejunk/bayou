@@ -10,6 +10,7 @@
 #include "client_display.hpp"
 #include "client_sandbox.hpp"
 #include "client_story.hpp"
+#include "client_story_cards.hpp"
 #include "client_string.hpp"
 #include "client_textures.hpp"
 #include "client_ui.hpp"
@@ -783,6 +784,13 @@ enum class DeckEditorMode
     EditDeck
 };
 
+enum class GameConfirmationAction
+{
+    Resign,
+    ExitStory,
+    RestartStory
+};
+
 // The 16:9 canvas has a narrow gutter on either side of the legacy board. Keep
 // owner readouts in those gutters so the upper board row can never cover them.
 constexpr float GameTopBarY = 5.0f;
@@ -896,6 +904,7 @@ constexpr float CardPopupAbilitiesHeight = 150.0f;
 constexpr float PieceDoubleClickSeconds = 0.38f;
 constexpr float DeckCardDoubleClickSeconds = 0.38f;
 constexpr float GameDragStartDistanceSquared = 36.0f;
+constexpr int StoryMissionPageSize = 8;
 std::string urlEncode(const std::string& value)
 {
     static constexpr char Hex[] = "0123456789ABCDEF";
@@ -1285,6 +1294,7 @@ int main(int argc, char** argv)
     bool exitDesktopPopupVisible = false;
     bool deckUnsavedChangesPopupVisible = false;
     bool resignConfirmPopupVisible = false;
+    GameConfirmationAction gameConfirmationAction = GameConfirmationAction::Resign;
     bool exitDesktopCloseHovered = false;
     bool authenticatedSettingsHovered = false;
     bool pendingAutoLogin = false;
@@ -1390,10 +1400,16 @@ int main(int argc, char** argv)
     };
     StoryStage storyStage = StoryStage::None;
     int storyMissionIndex = 0;
+    int storyMissionPage = 0;
     int storyMissionStep = 0;
     bool storyUsedAim = false;
     bool storyUsedHide = false;
     bool storyUsedSummon = false;
+    std::vector<std::pair<std::string_view, int>> storyRolePieceIds;
+    std::vector<StoryPanel> storyPopupPanels;
+    std::size_t storyPopupPage = 0;
+    bool storyCompleteAfterPopup = false;
+    float storyScriptActionAt = 0.0f;
     int storyCompletedCount = 0;
     std::array<int, 2> storyCampaignProgress{};
     std::uint64_t storyGeneration = 0;
@@ -1529,6 +1545,8 @@ int main(int argc, char** argv)
         "Resign",
         font);
     Button storyContinueButton({558.0f, 520.0f}, {194.0f, 48.0f}, "Continue", font);
+    Button storyPopupPreviousButton({312.0f, 472.0f}, {196.0f, 46.0f}, "Previous", font);
+    Button storyPopupContinueButton({524.0f, 472.0f}, {196.0f, 46.0f}, "Continue", font);
     Button storyBackButton({48.0f, 526.0f}, {112.0f, 40.0f}, "Back", font);
     Button storyBlackthornButton({76.0f, 466.0f}, {288.0f, 48.0f}, "Begin", font);
     Button storyMirewatchButton({436.0f, 466.0f}, {288.0f, 48.0f}, "Begin", font);
@@ -1544,27 +1562,41 @@ int main(int argc, char** argv)
         Button({416.0f, 402.0f}, {326.0f, 72.0f}, "Mission 8", font),
     };
     Button storyRestartCampaignButton(
-        {500.0f, 522.0f}, {242.0f, 44.0f}, "Restart from Chapter 1", font);
+        {570.0f, 526.0f}, {172.0f, 40.0f}, "Replay Mission 1", font);
     Button storyMissionSelectBackButton({58.0f, 526.0f}, {112.0f, 40.0f}, "Back", font);
+    Button storyMissionPreviousPageButton({188.0f, 526.0f}, {94.0f, 40.0f}, "Prev Page", font);
+    Button storyMissionNextPageButton({292.0f, 526.0f}, {94.0f, 40.0f}, "Next Page", font);
     Button storyRestartButton(
         {GamePlayerBannerLeftX + 12.0f, 198.0f}, {156.0f, 32.0f}, "Restart Mission", font);
     storyContinueButton.setVariant(ButtonVariant::Primary);
     storyContinueButton.setLabelSize(type::Subheading);
+    storyPopupPreviousButton.setVariant(ButtonVariant::Secondary);
+    storyPopupPreviousButton.setLabelSize(type::Subheading);
+    storyPopupContinueButton.setVariant(ButtonVariant::Primary);
+    storyPopupContinueButton.setLabelSize(type::Subheading);
     storyBackButton.setVariant(ButtonVariant::Quiet);
     storyBlackthornButton.setVariant(ButtonVariant::Primary);
+    storyBlackthornButton.setLabelSize(type::Body);
     storyMirewatchButton.setVariant(ButtonVariant::Primary);
+    storyMirewatchButton.setLabelSize(type::Body);
     storySelectBackButton.setVariant(ButtonVariant::Quiet);
     for (Button& button : storyMissionButtons)
     {
         button.setLabelSize(type::Body);
     }
-    storyRestartCampaignButton.setVariant(ButtonVariant::Primary);
-    storyRestartCampaignButton.setLabelSize(type::Body);
+    storyRestartCampaignButton.setVariant(ButtonVariant::Quiet);
+    storyRestartCampaignButton.setLabelSize(type::Caption);
     storyMissionSelectBackButton.setVariant(ButtonVariant::Quiet);
+    storyMissionPreviousPageButton.setVariant(ButtonVariant::Quiet);
+    storyMissionNextPageButton.setVariant(ButtonVariant::Quiet);
+    storyMissionPreviousPageButton.setLabelSize(type::Caption);
+    storyMissionNextPageButton.setLabelSize(type::Caption);
     storyRestartButton.setVariant(ButtonVariant::Quiet);
     storyRestartButton.setLabelSize(type::Caption);
     Button cancelResignButton({250.0f, 356.0f}, {130.0f, 42.0f}, "Cancel", font);
     Button confirmResignButton({420.0f, 356.0f}, {130.0f, 42.0f}, "Resign", font);
+    cancelResignButton.setVariant(ButtonVariant::Quiet);
+    confirmResignButton.setVariant(ButtonVariant::Danger);
     Button closePiecePopupButton({PiecePopupX + 358.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {120.0f, 38.0f}, "Close", font);
     Button discardCardButton({PiecePopupX + 22.0f, PiecePopupY + PiecePopupHeight - 54.0f}, {220.0f, 38.0f},
                              "Discard to deck bottom", font);
@@ -2216,14 +2248,43 @@ int main(int argc, char** argv)
     };
 
     auto drawResignConfirmationPopup = [&]() {
+        std::string heading = "Resign Match?";
+        std::string firstLine = "Are you sure you want to resign";
+        std::string secondLine = "this game?";
+        std::string confirmation = "Resign";
+        if (gameConfirmationAction == GameConfirmationAction::ExitStory)
+        {
+            heading = "Exit to Missions?";
+            firstLine = "Completed missions and unlocks stay saved.";
+            secondLine = "This unfinished attempt will reset.";
+            confirmation = "Exit";
+        }
+        else if (gameConfirmationAction == GameConfirmationAction::RestartStory)
+        {
+            heading = "Restart This Attempt?";
+            firstLine = "Only the current mission attempt will reset.";
+            secondLine = "Completed missions and unlocks stay saved.";
+            confirmation = "Restart";
+        }
+        confirmResignButton.setLabel(confirmation);
+        confirmResignButton.setVariant(ButtonVariant::Danger);
         sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
         overlay.setPosition({ui_canvas::Left, 0.0f});
         overlay.setFillColor(sf::Color(0, 0, 0, 182));
         window.draw(overlay);
         drawPanel(window, {ResignDialogX, ResignDialogY}, {ResignDialogWidth, ResignDialogHeight});
-        drawText(window, font, "Resign Match?", 28, {266.0f, 218.0f}, sf::Color(248, 224, 172), 270.0f);
-        drawText(window, font, "Are you sure you want to resign", 16, {260.0f, 276.0f}, sf::Color(220, 224, 230), 280.0f);
-        drawText(window, font, "this game?", 16, {350.0f, 302.0f}, sf::Color(220, 224, 230), 120.0f);
+        drawCenteredText(
+            window, font, heading, 28,
+            {ResignDialogX + ResignDialogWidth * 0.5f, 236.0f},
+            sf::Color(248, 224, 172));
+        drawCenteredText(
+            window, font, firstLine, 16,
+            {ResignDialogX + ResignDialogWidth * 0.5f, 286.0f},
+            sf::Color(220, 224, 230));
+        drawCenteredText(
+            window, font, secondLine, 16,
+            {ResignDialogX + ResignDialogWidth * 0.5f, 312.0f},
+            sf::Color(220, 224, 230));
         cancelResignButton.draw(window);
         confirmResignButton.draw(window);
     };
@@ -2672,6 +2733,7 @@ int main(int argc, char** argv)
         exitDesktopPopupVisible = false;
         deckUnsavedChangesPopupVisible = false;
         resignConfirmPopupVisible = false;
+        gameConfirmationAction = GameConfirmationAction::Resign;
         adminUserDeleteTarget.clear();
         adminSearchInput.clear();
         adminGoldInput.clear();
@@ -3191,9 +3253,11 @@ int main(int argc, char** argv)
         abilityButton.setPosition({GameActionButtonX, GameAbilityButtonY});
         endTurnButton.setLabel("End Turn");
         leaveGameButton.setLabel(isConquestBattle ? "Map" : "Resign");
+        leaveGameButton.setLabelSize(type::Body);
         leaveGameButton.setPosition({GameActionButtonX, GameLeaveButtonY});
         leaveGameButton.setSize({GameLeaveButtonWidth, GameActionButtonHeight});
         resignConfirmPopupVisible = false;
+        gameConfirmationAction = GameConfirmationAction::Resign;
         title.setString("");
         centerText(title, 400.0f);
         setMessage(messageText, "", sf::Color::Red);
@@ -4835,6 +4899,11 @@ int main(int argc, char** argv)
         storyCampaign = campaign;
         storyCompletedCount = loadStoryCompletedCount(loggedInUsername, storyCampaign);
         storyCampaignProgress[storyProgressIndex(storyCampaign)] = storyCompletedCount;
+        const int missionCount = static_cast<int>(storyMissions(storyCampaign).size());
+        const int currentMission = missionCount > 0
+            ? std::min(storyCompletedCount, missionCount - 1)
+            : 0;
+        storyMissionPage = currentMission / StoryMissionPageSize;
         currentState = GameState::StoryMissionSelect;
         title.setString("");
         centerText(title, 400.0f);
@@ -4857,6 +4926,183 @@ int main(int argc, char** argv)
         clearFocus();
     };
 
+    const auto activeStoryMission = [&]() -> const StoryMission& {
+        return storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
+    };
+
+    const auto storyMissionIndexById = [&](StoryCampaign campaign, std::string_view id) {
+        const std::span<const StoryMission> missions = storyMissions(campaign);
+        const auto found = std::find_if(
+            missions.begin(), missions.end(),
+            [&](const StoryMission& mission) { return mission.id == id; });
+        return found == missions.end()
+            ? 0
+            : static_cast<int>(std::distance(missions.begin(), found));
+    };
+
+    const auto storyTacticalMissionIndex = [&](StoryCampaign campaign, int ordinal) {
+        const std::span<const StoryMission> missions = storyMissions(campaign);
+        int tactical = 0;
+        for (std::size_t index = 0; index < missions.size(); ++index)
+        {
+            if (missions[index].objectiveSpec.kind == StoryObjectiveKind::StoryOnly)
+            {
+                continue;
+            }
+            if (tactical == std::max(0, ordinal))
+            {
+                return static_cast<int>(index);
+            }
+            ++tactical;
+        }
+        return missions.empty() ? 0 : static_cast<int>(missions.size()) - 1;
+    };
+
+    auto completeStoryMission = [&](game_data::Snapshot& snapshot) {
+        if (storyStage == StoryStage::Complete)
+        {
+            return;
+        }
+        storyStage = StoryStage::Complete;
+        storyTargetRow = -1;
+        storyTargetColumn = -1;
+        storyAiPending = false;
+        storyCompletedCount = std::max(storyCompletedCount, storyMissionIndex + 1);
+        saveStoryCompletedCount(loggedInUsername, storyCampaign, storyCompletedCount);
+        storyCampaignProgress[storyProgressIndex(storyCampaign)] = storyCompletedCount;
+        snapshot.status = storyMissionIndex + 1 < static_cast<int>(storyMissions(storyCampaign).size())
+            ? "Chapter complete. Continue when you are ready."
+            : std::string(storyCampaignName(storyCampaign)) +
+                " story complete. This faction is ready for a full match.";
+        endTurnButton.setLabel(
+            storyMissionIndex + 1 < static_cast<int>(storyMissions(storyCampaign).size())
+                ? "Continue Story"
+                : "Finish Story");
+    };
+
+    auto completeStoryChronicle = [&]() {
+        storyCompletedCount = std::max(storyCompletedCount, storyMissionIndex + 1);
+        saveStoryCompletedCount(loggedInUsername, storyCampaign, storyCompletedCount);
+        storyCampaignProgress[storyProgressIndex(storyCampaign)] = storyCompletedCount;
+        const bool hasNext =
+            storyMissionIndex + 1 < static_cast<int>(storyMissions(storyCampaign).size());
+        if (hasNext)
+        {
+            showStoryIntro(storyMissionIndex + 1);
+        }
+        else
+        {
+            showStoryMissionSelect(storyCampaign);
+        }
+    };
+
+    const auto storyPieceIdForRole = [&](std::string_view role) {
+        const auto found = std::find_if(
+            storyRolePieceIds.begin(),
+            storyRolePieceIds.end(),
+            [&](const auto& entry) { return entry.first == role; });
+        return found == storyRolePieceIds.end() ? 0 : found->second;
+    };
+
+    auto queueStoryPanels = [&](const std::vector<StoryPanel>& panels, bool completeAfter) {
+        storyPopupPanels = panels;
+        storyPopupPage = 0;
+        storyCompleteAfterPopup = completeAfter && !storyPopupPanels.empty();
+        selectedPieceId.reset();
+        selectedHandIndex.reset();
+        inspectedPieceId.reset();
+        inspectedHandIndex.reset();
+    };
+
+    auto enterStoryScriptStep = [&]() {
+        storyTargetRow = -1;
+        storyTargetColumn = -1;
+        const StoryMission& mission = activeStoryMission();
+        if (storyMissionStep < 0 ||
+            storyMissionStep >= static_cast<int>(mission.script.size()))
+        {
+            return;
+        }
+        const StoryScriptAction& step = mission.script[static_cast<std::size_t>(storyMissionStep)];
+        storyTargetRow = step.targetRow;
+        storyTargetColumn = step.targetColumn;
+        if (!step.panelsBefore.empty())
+        {
+            queueStoryPanels(step.panelsBefore, false);
+        }
+        storyScriptActionAt = animationTime + 0.65f;
+    };
+
+    auto advanceStoryScript = [&]() {
+        const StoryMission& mission = activeStoryMission();
+        ++storyMissionStep;
+        if (storyMissionStep < static_cast<int>(mission.script.size()))
+        {
+            enterStoryScriptStep();
+            return false;
+        }
+        storyTargetRow = -1;
+        storyTargetColumn = -1;
+        if (!mission.aftermath.empty())
+        {
+            queueStoryPanels(mission.aftermath, true);
+            return false;
+        }
+        return true;
+    };
+
+    auto storyActionAllowed = [&](StoryActionKind kind,
+                                  int owner,
+                                  int actorId,
+                                  int targetRow,
+                                  int targetColumn,
+                                  std::string_view cardTitle = {}) {
+        if (!storyMode)
+        {
+            return true;
+        }
+        const StoryMission& mission = activeStoryMission();
+        if (mission.script.empty())
+        {
+            return storyPopupPanels.empty();
+        }
+        if (!storyPopupPanels.empty() || storyMissionStep < 0 ||
+            storyMissionStep >= static_cast<int>(mission.script.size()))
+        {
+            return false;
+        }
+        const StoryScriptAction& expected =
+            mission.script[static_cast<std::size_t>(storyMissionStep)];
+        bool allowed = expected.kind == kind && expected.owner == owner;
+        if (allowed && !expected.actorRole.empty())
+        {
+            allowed = actorId != 0 && actorId == storyPieceIdForRole(expected.actorRole);
+        }
+        if (allowed && !expected.targetRole.empty())
+        {
+            const int targetId = storyPieceIdForRole(expected.targetRole);
+            const game_data::Piece* target = gamePieceById(targetId);
+            allowed = target != nullptr && target->row == targetRow &&
+                target->column == targetColumn;
+        }
+        if (allowed && expected.targetRow >= 0)
+        {
+            allowed = expected.targetRow == targetRow &&
+                expected.targetColumn == targetColumn;
+        }
+        if (allowed && !expected.cardTitle.empty())
+        {
+            allowed = expected.cardTitle == cardTitle;
+        }
+        if (!allowed && haveSnapshot)
+        {
+            gameSnapshot.status = expected.correction.empty()
+                ? std::string("Follow the highlighted lesson step first.")
+                : std::string(expected.correction);
+        }
+        return allowed;
+    };
+
     auto storyCardNamed = [&](const std::string& cardTitle) {
         const auto findCard = [&](const std::vector<card_data::Card>& library)
             -> const card_data::Card* {
@@ -4867,57 +5113,30 @@ int main(int argc, char** argv)
             return found == library.end() ? nullptr : &*found;
         };
 
-        if (const card_data::Card* card = findCard(allCardLibrary))
+        // The UI-capture library is deliberately fabricated screen-design data.
+        // Never let it override Story Mode rules. In a real session, prefer the
+        // live authoritative catalog; offline captures use the reviewed package.
+        if (!captureRequest)
         {
-            return game_data::toGameCard(*card);
+            if (const card_data::Card* card = findCard(allCardLibrary))
+            {
+                return game_data::toGameCard(*card);
+            }
+            if (const card_data::Card* card = findCard(cardLibrary))
+            {
+                return game_data::toGameCard(*card);
+            }
         }
-        if (const card_data::Card* card = findCard(cardLibrary))
+        if (std::optional<game_data::GameCard> card = packagedStoryCard(cardTitle))
         {
-            return game_data::toGameCard(*card);
-        }
-        const std::vector<card_data::Card> samples = ui_capture::sampleCardLibrary();
-        if (const card_data::Card* card = findCard(samples))
-        {
-            return game_data::toGameCard(*card);
+            return *card;
         }
 
-        // The UI-capture catalogue intentionally contains only a cross-section.
-        // A small complete fallback keeps Story Mode playable without services.
+        // Fail visibly instead of silently teaching a fabricated card rule.
         game_data::GameCard card;
-        card.title = cardTitle;
-        card.type = "Unit";
-        if (cardTitle == "Bull Gator")
-        {
-            card.imagePath = "cards/bullGator.png";
-            card.tokenPath = "characters/bullGator.png";
-        }
-        else if (cardTitle == "Resistance Smuggler")
-        {
-            card.imagePath = "cards/resistanceSmuggler.png";
-            card.tokenPath = "characters/resistanceSmuggler.png";
-        }
-        card.health = 4;
-        card.attack = 2;
-        card.attackRange = 1;
-        card.movePattern = static_cast<std::uint8_t>(game_data::MovePattern::Omni);
-        card.moveRange = 1;
-        game_data::ActionProfile move;
-        move.name = "Advance";
-        move.pattern = card.movePattern;
-        move.minRange = 1;
-        move.maxRange = 1;
-        move.canMove = true;
-        card.actions.push_back(move);
-        game_data::ActionProfile attack;
-        attack.name = "Strike";
-        attack.kind = static_cast<std::uint8_t>(game_data::ActionKind::Ranged);
-        attack.pattern = card.movePattern;
-        attack.minRange = 1;
-        attack.maxRange = 1;
-        attack.damage = card.attack;
-        attack.canMove = false;
-        attack.canAttack = true;
-        card.actions.push_back(attack);
+        card.title = "Missing Story Card: " + cardTitle;
+        card.type = "Story Error";
+        card.health = 1;
         return card;
     };
 
@@ -4927,9 +5146,12 @@ int main(int argc, char** argv)
         storyMode = true;
         storyAiPending = false;
         resignConfirmPopupVisible = false;
-        leaveGameButton.setLabel("Back");
+        gameConfirmationAction = GameConfirmationAction::Resign;
+        leaveGameButton.setLabel("Exit - Keep Unlocks");
+        leaveGameButton.setLabelSize(type::Caption);
         leaveGameButton.setPosition({GamePlayerBannerLeftX + 12.0f, 158.0f});
         leaveGameButton.setSize({156.0f, 32.0f});
+        storyRestartButton.setLabel("Restart This Attempt");
         endTurnButton.setLabel("End Turn");
         abilityButton.setPosition({GameActionButtonX, GameAbilityButtonY});
         storyStage = StoryStage::Objective;
@@ -4937,6 +5159,10 @@ int main(int argc, char** argv)
         storyUsedAim = false;
         storyUsedHide = false;
         storyUsedSummon = false;
+        storyRolePieceIds.clear();
+        storyPopupPanels.clear();
+        storyPopupPage = 0;
+        storyCompleteAfterPopup = false;
         storyTargetRow = -1;
         storyTargetColumn = -1;
         sandboxPlacementPlayer = 1;
@@ -4976,7 +5202,9 @@ int main(int argc, char** argv)
         pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
 
-        std::vector<card_data::Card> engineLibrary = allCardLibrary;
+        std::vector<card_data::Card> engineLibrary = captureRequest
+            ? std::vector<card_data::Card>{}
+            : allCardLibrary;
         const auto appendMissingCards = [&](const std::vector<card_data::Card>& source) {
             for (const card_data::Card& card : source)
             {
@@ -4990,212 +5218,116 @@ int main(int argc, char** argv)
                 }
             }
         };
-        appendMissingCards(cardLibrary);
-        appendMissingCards(ui_capture::sampleCardLibrary());
+        if (!captureRequest)
+        {
+            appendMissingCards(cardLibrary);
+        }
         storyEngine = std::make_unique<GameEngine>(
             0x474c4f4fu + static_cast<unsigned int>(storyMissionIndex),
             engineLibrary);
+        for (std::string_view dependentTitle : {
+                 "Sapling",
+                 "Blackthorn Lumberjack",
+                 "Swamp Tracker Unmounted"})
+        {
+            storyEngine->registerScenarioCard(
+                storyCardNamed(std::string(dependentTitle)));
+        }
 
         std::vector<GameEngine::ScenarioPiece> scenarioPieces;
         std::vector<game_data::GameCard> playerHand;
         std::vector<game_data::GameCard> enemyHand;
+        std::vector<game_data::GameCard> playerDrawPile;
+        std::vector<game_data::GameCard> enemyDrawPile;
         std::string scenarioStatus;
         const auto spawnStoryPiece = [&](int owner,
                                          const std::string& cardTitle,
                                          int row,
                                          int column,
-                                         bool isHero) {
-            scenarioPieces.push_back({owner, storyCardNamed(cardTitle), row, column, isHero});
+                                         bool isHero,
+                                         int initialHealth = -1) {
+            scenarioPieces.push_back(
+                {owner, storyCardNamed(cardTitle), row, column, isHero, initialHealth});
         };
 
-        if (storyCampaign == StoryCampaign::Blackthorn)
+        const StoryMission& authoredMission = activeStoryMission();
+        const bool hasAuthoredSetup = !authoredMission.pieces.empty();
+        if (hasAuthoredSetup)
         {
-            switch (storyMissionIndex)
+            for (const StoryPiecePlacement& piece : authoredMission.pieces)
             {
-            case 0:
-                spawnStoryPiece(1, "Braun Stonefist", 5, 0, true);
-                spawnStoryPiece(2, "Reed Baelstone", 0, 7, true);
-                storyTargetRow = 4;
-                storyTargetColumn = 1;
-                scenarioStatus = "Move Braun to the first marked crossing.";
-                break;
-            case 1:
-                spawnStoryPiece(1, "Braun Stonefist", 4, 0, true);
-                spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
-                playerHand.push_back(storyCardNamed("Blackthorn Debt Collector"));
-                storyTargetRow = 3;
-                storyTargetColumn = 0;
-                scenarioStatus = "Deploy the Debt Collector on the marked controlled square.";
-                break;
-            case 2:
-                spawnStoryPiece(1, "Braun Stonefist", 6, 0, true);
-                spawnStoryPiece(1, "Blackthorn Foreman", 4, 0, false);
-                spawnStoryPiece(1, "Goblin Ambusher", 3, 1, false);
-                spawnStoryPiece(1, "Blackthorn Lumberjack", 5, 1, false);
-                spawnStoryPiece(2, "Mirewatch Informant", 2, 5, false);
-                spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
-                playerHand.push_back(storyCardNamed("Blackthorn Lumberjack"));
-                scenarioStatus = "Hide the Ambusher, create a Lumberjack, and control fourteen squares.";
-                break;
-            case 3:
-                spawnStoryPiece(1, "Braun Stonefist", 6, 0, true);
-                spawnStoryPiece(1, "Goblin Sharpshooter", 5, 1, false);
-                spawnStoryPiece(2, "Mirewatch Informant", 5, 4, false);
-                spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
-                storyTargetRow = 5;
-                storyTargetColumn = 4;
-                scenarioStatus = "Aim the Sharpshooter, then stop the Informant.";
-                break;
-            case 4:
-                spawnStoryPiece(1, "Braun Stonefist", 5, 0, true);
-                spawnStoryPiece(1, "Goblin Ambusher", 4, 1, false);
-                spawnStoryPiece(1, "Goblin Sharpshooter", 6, 1, false);
-                spawnStoryPiece(2, "Mirewatch Informant", 3, 5, false);
-                spawnStoryPiece(2, "Bog Spearman", 5, 5, false);
-                spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
-                playerHand.push_back(storyCardNamed("Blackthorn Lumberjack"));
-                enemyHand.push_back(storyCardNamed("Swamp Tracker"));
-                scenarioStatus = "Defeat both Mirewatch defenders while the resistance answers each action.";
-                break;
-            case 5:
-                spawnStoryPiece(1, "Braun Stonefist", 5, 0, true);
-                spawnStoryPiece(1, "Blackthorn Lumberjack", 4, 1, false);
-                spawnStoryPiece(1, "Blackthorn Alchemist", 5, 2, false);
-                spawnStoryPiece(2, "Marshland Veteran", 3, 5, false);
-                spawnStoryPiece(2, "Bog Spearman", 5, 5, false);
-                spawnStoryPiece(2, "Donella of the Marsh", 4, 6, false);
-                spawnStoryPiece(2, "Reed Baelstone", 1, 7, true);
-                storyTargetRow = 4;
-                storyTargetColumn = 6;
-                scenarioStatus = "Break the escort, then concentrate attacks on Donella.";
-                break;
-            case 6:
-                spawnStoryPiece(1, "Victor Greyshard", 6, 0, true);
-                spawnStoryPiece(1, "Braun Stonefist", 4, 1, false);
-                spawnStoryPiece(1, "Grask", 5, 1, false);
-                spawnStoryPiece(2, "Donella of the Marsh", 4, 6, false);
-                spawnStoryPiece(2, "Vanya Bluewater", 5, 6, false);
-                spawnStoryPiece(2, "Reed Baelstone", 3, 7, true);
-                storyTargetRow = 3;
-                storyTargetColumn = 7;
-                scenarioStatus = "Screen Victor and defeat Reed before the Company line collapses.";
-                break;
-            default:
-                spawnStoryPiece(1, "Victor Greyshard", 6, 0, true);
-                spawnStoryPiece(1, "Grask", 4, 1, false);
-                spawnStoryPiece(1, "Blackthorn Foreman", 3, 1, false);
-                spawnStoryPiece(1, "Goblin Sharpshooter", 5, 1, false);
-                spawnStoryPiece(2, "Reed Baelstone", 3, 6, true);
-                spawnStoryPiece(2, "Donella of the Marsh", 4, 6, false);
-                spawnStoryPiece(2, "Vanya Bluewater", 5, 6, false);
-                spawnStoryPiece(2, "Marshland Veteran", 6, 6, false);
-                playerHand.push_back(storyCardNamed("Blackthorn Alchemist"));
-                enemyHand.push_back(storyCardNamed("Bog Spearman"));
-                storyTargetRow = 3;
-                storyTargetColumn = 6;
-                scenarioStatus = "Protect Victor and defeat every remaining resistance unit.";
-                break;
+                spawnStoryPiece(
+                    piece.owner,
+                    std::string(piece.cardTitle),
+                    piece.row,
+                    piece.column,
+                    piece.isHero,
+                    piece.initialHealth);
             }
+            for (std::string_view cardTitle : authoredMission.playerHand)
+            {
+                playerHand.push_back(storyCardNamed(std::string(cardTitle)));
+            }
+            for (std::string_view cardTitle : authoredMission.enemyHand)
+            {
+                enemyHand.push_back(storyCardNamed(std::string(cardTitle)));
+            }
+            for (std::string_view cardTitle : authoredMission.playerDrawPile)
+            {
+                playerDrawPile.push_back(storyCardNamed(std::string(cardTitle)));
+            }
+            for (std::string_view cardTitle : authoredMission.enemyDrawPile)
+            {
+                enemyDrawPile.push_back(storyCardNamed(std::string(cardTitle)));
+            }
+            scenarioStatus = std::string(authoredMission.objective);
         }
         else
         {
-            switch (storyMissionIndex)
-            {
-            case 0:
-                spawnStoryPiece(1, "Reed Baelstone", 5, 0, true);
-                spawnStoryPiece(2, "Braun Stonefist", 0, 7, true);
-                storyTargetRow = 4;
-                storyTargetColumn = 1;
-                scenarioStatus = "Move Reed to the first marked crossing.";
-                break;
-            case 1:
-                spawnStoryPiece(1, "Reed Baelstone", 6, 0, true);
-                spawnStoryPiece(1, "Bog Spearman", 4, 2, false);
-                spawnStoryPiece(2, "Blackthorn Debt Collector", 4, 4, false);
-                spawnStoryPiece(2, "Braun Stonefist", 1, 7, true);
-                storyTargetRow = 4;
-                storyTargetColumn = 4;
-                scenarioStatus = "Use the Bog Spearman's reach to remove the Debt Collector.";
-                break;
-            case 2:
-                spawnStoryPiece(1, "Reed Baelstone", 4, 0, true);
-                spawnStoryPiece(2, "Braun Stonefist", 1, 7, true);
-                playerHand.push_back(storyCardNamed("Mirewatch Informant"));
-                storyTargetRow = 3;
-                storyTargetColumn = 0;
-                scenarioStatus = "Deploy the Informant on the marked controlled square.";
-                break;
-            case 3:
-                spawnStoryPiece(1, "Maggie Mudroot", 6, 0, true);
-                spawnStoryPiece(1, "Donella of the Marsh", 4, 1, false);
-                spawnStoryPiece(1, "Marshland Veteran", 5, 1, false);
-                spawnStoryPiece(2, "Goblin Ambusher", 3, 5, false);
-                spawnStoryPiece(2, "Blackthorn Debt Collector", 5, 5, false);
-                spawnStoryPiece(2, "Braun Stonefist", 1, 7, true);
-                scenarioStatus = "Keep the formation together and defeat both Company units.";
-                break;
-            case 4:
-                spawnStoryPiece(1, "Reed Baelstone", 5, 0, true);
-                spawnStoryPiece(1, "Vanya Bluewater", 4, 1, false);
-                spawnStoryPiece(1, "Swamp Tracker", 6, 1, false);
-                spawnStoryPiece(2, "Goblin Sharpshooter", 4, 5, false);
-                spawnStoryPiece(2, "Blackthorn Lumberjack", 5, 5, false);
-                spawnStoryPiece(2, "Braun Stonefist", 1, 7, true);
-                storyTargetRow = 4;
-                storyTargetColumn = 5;
-                scenarioStatus = "Break the escort and deny the Sharpshooter a clear firing rank.";
-                break;
-            case 5:
-                spawnStoryPiece(1, "Reed Baelstone", 5, 0, true);
-                spawnStoryPiece(1, "Mirewatch Informant", 3, 1, false);
-                spawnStoryPiece(1, "Swamp Tracker", 4, 1, false);
-                spawnStoryPiece(1, "Bog Spearman", 6, 1, false);
-                spawnStoryPiece(2, "Blackthorn Foreman", 3, 6, false);
-                spawnStoryPiece(2, "Blackthorn Debt Collector", 5, 6, false);
-                spawnStoryPiece(2, "Braun Stonefist", 1, 7, true);
-                enemyHand.push_back(storyCardNamed("Blackthorn Lumberjack"));
-                scenarioStatus = "Open both exits by defeating the Foreman and Debt Collector.";
-                break;
-            case 6:
-                spawnStoryPiece(1, "Reed Baelstone", 5, 0, true);
-                spawnStoryPiece(1, "Donella of the Marsh", 4, 1, false);
-                spawnStoryPiece(1, "Vanya Bluewater", 6, 1, false);
-                spawnStoryPiece(2, "Braun Stonefist", 4, 6, false);
-                spawnStoryPiece(2, "Grask", 5, 6, false);
-                spawnStoryPiece(2, "Victor Greyshard", 1, 7, true);
-                storyTargetRow = 4;
-                storyTargetColumn = 6;
-                scenarioStatus = "Keep Reed behind the line and defeat Braun.";
-                break;
-            default:
-                spawnStoryPiece(1, "Reed Baelstone", 5, 0, true);
-                spawnStoryPiece(1, "Donella of the Marsh", 3, 1, false);
-                spawnStoryPiece(1, "Vanya Bluewater", 4, 1, false);
-                spawnStoryPiece(1, "Marshland Veteran", 5, 1, false);
-                spawnStoryPiece(1, "Bog Spearman", 6, 1, false);
-                spawnStoryPiece(2, "Victor Greyshard", 3, 7, true);
-                spawnStoryPiece(2, "Grask", 4, 6, false);
-                spawnStoryPiece(2, "Blackthorn Foreman", 5, 6, false);
-                spawnStoryPiece(2, "Goblin Sharpshooter", 6, 6, false);
-                playerHand.push_back(storyCardNamed("Mirewatch Informant"));
-                enemyHand.push_back(storyCardNamed("Blackthorn Alchemist"));
-                storyTargetRow = 3;
-                storyTargetColumn = 7;
-                scenarioStatus = "Protect Reed and defeat every remaining Company unit.";
-                break;
-            }
+            scenarioStatus = "Story mission data error: authored setup is missing.";
         }
 
         storyEngine->loadScenario(
             scenarioPieces,
             std::move(playerHand),
             std::move(enemyHand),
-            12,
-            12,
-            1,
-            std::move(scenarioStatus));
+            hasAuthoredSetup ? authoredMission.playerResources : 12,
+            hasAuthoredSetup ? authoredMission.enemyResources : 12,
+            hasAuthoredSetup ? authoredMission.firstPlayer : 1,
+            std::move(scenarioStatus),
+            false,
+            std::move(playerDrawPile),
+            std::move(enemyDrawPile));
         haveSnapshot = false;
         commitLocalSnapshot(storyEngine->snapshotFor(1));
+        if (hasAuthoredSetup)
+        {
+            for (const StoryPiecePlacement& placement : authoredMission.pieces)
+            {
+                const auto found = std::find_if(
+                    gameSnapshot.pieces.begin(),
+                    gameSnapshot.pieces.end(),
+                    [&](const game_data::Piece& piece) {
+                        return piece.owner == placement.owner &&
+                            piece.name == placement.cardTitle &&
+                            piece.row == placement.row &&
+                            piece.column == placement.column;
+                    });
+                if (found != gameSnapshot.pieces.end())
+                {
+                    storyRolePieceIds.emplace_back(placement.role, found->id);
+                }
+            }
+            if (!authoredMission.script.empty())
+            {
+                enterStoryScriptStep();
+            }
+            else
+            {
+                storyTargetRow = authoredMission.objectiveSpec.targetRow;
+                storyTargetColumn = authoredMission.objectiveSpec.targetColumn;
+            }
+        }
     };
 
     auto beginSandbox = [&](std::vector<card_data::Card> cards) {
@@ -5204,7 +5336,9 @@ int main(int argc, char** argv)
         storyEngine.reset();
         storyAiPending = false;
         resignConfirmPopupVisible = false;
+        gameConfirmationAction = GameConfirmationAction::Resign;
         leaveGameButton.setLabel("Leave");
+        leaveGameButton.setLabelSize(type::Body);
         leaveGameButton.setPosition({GameActionButtonX, GameLeaveButtonY});
         leaveGameButton.setSize({GameLeaveButtonWidth, GameActionButtonHeight});
         endTurnButton.setLabel("End Turn");
@@ -5991,50 +6125,39 @@ int main(int argc, char** argv)
             return;
         }
 
-        const auto playerHasPiece = [&](const std::string& name) {
-            return std::any_of(snapshot.pieces.begin(), snapshot.pieces.end(), [&](const game_data::Piece& piece) {
-                return piece.owner == 1 && piece.name == name;
-            });
-        };
-        const auto opponentHasPiece = [&](const std::string& name) {
-            return std::any_of(snapshot.pieces.begin(), snapshot.pieces.end(), [&](const game_data::Piece& piece) {
-                return piece.owner == 2 && piece.name == name;
-            });
-        };
         const auto opponentCount = [&]() {
             return static_cast<int>(std::count_if(
-                snapshot.pieces.begin(), snapshot.pieces.end(), [](const game_data::Piece& piece) {
+                storyEngine->boardPieces().begin(), storyEngine->boardPieces().end(),
+                [](const game_data::Piece& piece) {
                     return piece.owner == 2;
                 }));
         };
         const int playerPieceCount = static_cast<int>(std::count_if(
-            snapshot.pieces.begin(), snapshot.pieces.end(), [](const game_data::Piece& piece) {
+            storyEngine->boardPieces().begin(), storyEngine->boardPieces().end(),
+            [](const game_data::Piece& piece) {
                 return piece.owner == 1;
             }));
-        const int playerHeroCount = static_cast<int>(std::count_if(
-            snapshot.pieces.begin(), snapshot.pieces.end(), [](const game_data::Piece& piece) {
-                return piece.owner == 1 && piece.isHero;
-            }));
-        const auto pieceAtObjective = [&](const std::string& name) {
-            return std::any_of(snapshot.pieces.begin(), snapshot.pieces.end(), [&](const game_data::Piece& piece) {
-                return piece.owner == 1 && piece.name == name &&
-                    piece.row == storyTargetRow && piece.column == storyTargetColumn;
+        const StoryMission& mission = activeStoryMission();
+        const bool requiredSurvivorMissing = std::any_of(
+            mission.requiredSurvivorRoles.begin(),
+            mission.requiredSurvivorRoles.end(),
+            [&](std::string_view role) {
+                const int requiredId = storyPieceIdForRole(role);
+                return requiredId == 0 || std::none_of(
+                    storyEngine->boardPieces().begin(),
+                    storyEngine->boardPieces().end(),
+                    [&](const game_data::Piece& piece) { return piece.id == requiredId; });
             });
-        };
-
         const bool engineDefeat =
             static_cast<game_data::Phase>(snapshot.phase) == game_data::Phase::GameOver &&
             snapshot.winner == 2;
-        const bool heroMustSurvive = storyMissionIndex >= 1;
-        if (engineDefeat || playerPieceCount == 0 || (heroMustSurvive && playerHeroCount == 0))
+        if (engineDefeat || playerPieceCount == 0 || requiredSurvivorMissing)
         {
             storyStage = StoryStage::Failed;
             storyTargetRow = -1;
             storyTargetColumn = -1;
-            snapshot.status = heroMustSurvive && playerHeroCount == 0
-                ? storyCampaign == StoryCampaign::Blackthorn
-                    ? "Mission failed: the Company hero fell before the objective was secured."
-                    : "Mission failed: your Mirewatch hero fell before the objective was secured."
+            snapshot.status = requiredSurvivorMissing
+                ? "Mission failed: a required story character fell before the objective was secured."
                 : storyCampaign == StoryCampaign::Blackthorn
                     ? "Mission failed: the Blackthorn force was defeated."
                     : "Mission failed: the Mirewatch force was defeated.";
@@ -6043,127 +6166,63 @@ int main(int argc, char** argv)
         }
 
         bool completed = false;
-        if (storyCampaign == StoryCampaign::Blackthorn)
+        switch (mission.objectiveSpec.kind)
         {
-            switch (storyMissionIndex)
-            {
-            case 0:
-                if (pieceAtObjective("Braun Stonefist"))
-                {
-                    if (storyMissionStep == 0)
-                    {
-                        storyMissionStep = 1;
-                        storyTargetRow = 3;
-                        storyTargetColumn = 2;
-                        snapshot.status =
-                            "Braun reached the first crossing. Mirewatch answers before his next move.";
-                    }
-                    else
-                    {
-                        completed = true;
-                    }
-                }
-                break;
-            case 1:
-                completed = playerHasPiece("Blackthorn Debt Collector");
-                break;
-            case 2:
-                completed = storyUsedHide && storyUsedSummon &&
-                    controlledCountInSnapshot(snapshot, 1) >= 14;
-                break;
-            case 3:
-                completed = storyUsedAim && !opponentHasPiece("Mirewatch Informant");
-                break;
-            case 4:
-                completed = !opponentHasPiece("Mirewatch Informant") &&
-                    !opponentHasPiece("Bog Spearman");
-                break;
-            case 5:
-                completed = !opponentHasPiece("Donella of the Marsh");
-                break;
-            case 6:
-                completed = !opponentHasPiece("Reed Baelstone");
-                break;
-            default:
-                completed =
-                    (static_cast<game_data::Phase>(snapshot.phase) == game_data::Phase::GameOver &&
-                     snapshot.winner == 1) ||
-                    opponentCount() == 0;
-                break;
-            }
-        }
-        else
+        case StoryObjectiveKind::Scripted:
+        case StoryObjectiveKind::StoryOnly:
+        case StoryObjectiveKind::Legacy:
+            break;
+        case StoryObjectiveKind::DefeatAllEnemies:
+            completed = opponentCount() == 0;
+            break;
+        case StoryObjectiveKind::DefeatRole:
         {
-            switch (storyMissionIndex)
-            {
-            case 0:
-                if (pieceAtObjective("Reed Baelstone"))
-                {
-                    if (storyMissionStep == 0)
-                    {
-                        storyMissionStep = 1;
-                        storyTargetRow = 3;
-                        storyTargetColumn = 2;
-                        snapshot.status =
-                            "Reed reached the first crossing. Blackthorn answers before his next move.";
-                    }
-                    else
-                    {
-                        completed = true;
-                    }
-                }
-                break;
-            case 1:
-                completed = !opponentHasPiece("Blackthorn Debt Collector");
-                break;
-            case 2:
-                completed = playerHasPiece("Mirewatch Informant");
-                break;
-            case 3:
-                completed = !opponentHasPiece("Goblin Ambusher") &&
-                    !opponentHasPiece("Blackthorn Debt Collector");
-                break;
-            case 4:
-                completed = !opponentHasPiece("Goblin Sharpshooter");
-                break;
-            case 5:
-                completed = !opponentHasPiece("Blackthorn Foreman") &&
-                    !opponentHasPiece("Blackthorn Debt Collector");
-                break;
-            case 6:
-                completed = !opponentHasPiece("Braun Stonefist");
-                break;
-            default:
-                completed =
-                    (static_cast<game_data::Phase>(snapshot.phase) == game_data::Phase::GameOver &&
-                     snapshot.winner == 1) ||
-                    opponentCount() == 0;
-                break;
-            }
+            const int targetId = storyPieceIdForRole(mission.objectiveSpec.targetRole);
+            completed = targetId != 0 && std::none_of(
+                snapshot.pieces.begin(),
+                snapshot.pieces.end(),
+                [&](const game_data::Piece& piece) { return piece.id == targetId; });
+            break;
         }
-
-        if (static_cast<game_data::Phase>(snapshot.phase) == game_data::Phase::GameOver &&
-            snapshot.winner == 1)
+        case StoryObjectiveKind::ReachSquare:
         {
-            completed = true;
+            const int targetId = storyPieceIdForRole(mission.objectiveSpec.targetRole);
+            completed = std::any_of(
+                snapshot.pieces.begin(),
+                snapshot.pieces.end(),
+                [&](const game_data::Piece& piece) {
+                    return piece.id == targetId &&
+                        piece.row == mission.objectiveSpec.targetRow &&
+                        piece.column == mission.objectiveSpec.targetColumn;
+                });
+            break;
         }
-
+        case StoryObjectiveKind::DeployCard:
+            completed = std::any_of(
+                snapshot.pieces.begin(),
+                snapshot.pieces.end(),
+                [&](const game_data::Piece& piece) {
+                    const bool correctSquare = mission.objectiveSpec.targetRow < 0 ||
+                        (piece.row == mission.objectiveSpec.targetRow &&
+                         piece.column == mission.objectiveSpec.targetColumn);
+                    return piece.owner == 1 &&
+                        piece.name == mission.objectiveSpec.cardTitle && correctSquare;
+                });
+            break;
+        case StoryObjectiveKind::ControlSquares:
+            completed = controlledCountInSnapshot(snapshot, 1) >= mission.objectiveSpec.amount;
+            break;
+        }
         if (completed)
         {
-            storyStage = StoryStage::Complete;
-            storyTargetRow = -1;
-            storyTargetColumn = -1;
-            storyCompletedCount = std::max(storyCompletedCount, storyMissionIndex + 1);
-            saveStoryCompletedCount(loggedInUsername, storyCampaign, storyCompletedCount);
-            storyCampaignProgress[storyProgressIndex(storyCampaign)] = storyCompletedCount;
-            snapshot.status = storyMissionIndex + 1 < static_cast<int>(storyMissions(storyCampaign).size())
-                ? "Mission complete. Continue to the next chapter."
-                : std::string(storyCampaignName(storyCampaign)) +
-                    " story complete. This faction is ready for a full match.";
-            endTurnButton.setLabel(
-                storyMissionIndex + 1 < static_cast<int>(storyMissions(storyCampaign).size())
-                    ? "Continue Story"
-                    : "Finish Story");
+            if (!mission.aftermath.empty() && storyPopupPanels.empty())
+            {
+                queueStoryPanels(mission.aftermath, true);
+            }
+            else if (mission.aftermath.empty())
+            {
+                completeStoryMission(snapshot);
+            }
         }
     };
 
@@ -6920,9 +6979,10 @@ int main(int argc, char** argv)
         game_data::Snapshot next = storyEngine->snapshotFor(1);
         updateStoryAfterAction(next);
         commitLocalSnapshot(std::move(next));
+        const bool scriptedMission = !activeStoryMission().script.empty();
         storyAiPending = storyStage == StoryStage::Objective &&
             storyEngine->phase() == game_data::Phase::Playing &&
-            storyEngine->currentPlayer() == 2;
+            storyEngine->currentPlayer() == 2 && !scriptedMission;
         if (storyAiPending)
         {
             storyAiActionAt = animationTime + 0.65f;
@@ -6930,6 +6990,83 @@ int main(int argc, char** argv)
     };
 
     auto updateStoryAi = [&]() {
+        if (storyMode && storyEngine && storyStage == StoryStage::Objective &&
+            !activeStoryMission().script.empty() && storyPopupPanels.empty() &&
+            storyMissionStep >= 0 &&
+            storyMissionStep < static_cast<int>(activeStoryMission().script.size()))
+        {
+            const StoryScriptAction& step =
+                activeStoryMission().script[static_cast<std::size_t>(storyMissionStep)];
+            if (step.owner == 2 && animationTime >= storyScriptActionAt)
+            {
+                const int actorId = step.actorRole.empty()
+                    ? 0
+                    : storyPieceIdForRole(step.actorRole);
+                int targetRow = step.targetRow;
+                int targetColumn = step.targetColumn;
+                if (!step.targetRole.empty())
+                {
+                    const int targetId = storyPieceIdForRole(step.targetRole);
+                    const auto target = std::find_if(
+                        storyEngine->boardPieces().begin(),
+                        storyEngine->boardPieces().end(),
+                        [&](const game_data::Piece& piece) { return piece.id == targetId; });
+                    if (target != storyEngine->boardPieces().end())
+                    {
+                        targetRow = target->row;
+                        targetColumn = target->column;
+                    }
+                }
+
+                bool accepted = false;
+                switch (step.kind)
+                {
+                case StoryActionKind::Move:
+                    accepted = storyEngine->movePiece(2, actorId, targetRow, targetColumn);
+                    break;
+                case StoryActionKind::Attack:
+                    accepted = storyEngine->attackPiece(2, actorId, targetRow, targetColumn);
+                    break;
+                case StoryActionKind::UseAbility:
+                    accepted = storyEngine->useAbility(2, actorId);
+                    break;
+                case StoryActionKind::DrawCard:
+                    accepted = storyEngine->drawCard(2);
+                    break;
+                case StoryActionKind::ChooseForesight:
+                {
+                    const auto& choices = storyEngine->playerState(2).foresightChoices;
+                    const auto found = std::find_if(
+                        choices.begin(), choices.end(), [&](const game_data::GameCard& card) {
+                            return card.title == step.cardTitle;
+                        });
+                    accepted = found != choices.end() && storyEngine->chooseForesightCard(
+                        2, static_cast<int>(std::distance(choices.begin(), found)));
+                    break;
+                }
+                case StoryActionKind::EndTurn:
+                    accepted = storyEngine->endTurn(2);
+                    break;
+                default:
+                    break;
+                }
+
+                if (!accepted)
+                {
+                    storyStage = StoryStage::Failed;
+                    gameSnapshot.status = "Mission data error: a scripted opponent action was no longer legal.";
+                    endTurnButton.setLabel("Retry Mission");
+                    return;
+                }
+                const bool completeNow = advanceStoryScript();
+                syncStoryEngine();
+                if (completeNow)
+                {
+                    completeStoryMission(gameSnapshot);
+                }
+                return;
+            }
+        }
         if (storyMode && storyEngine && storyAiPending &&
             storyEngine->hasPendingForesightChoice(2))
         {
@@ -6993,6 +7130,38 @@ int main(int argc, char** argv)
         }
     };
 
+    auto settleStoryAction = [&](bool accepted) {
+        bool completeNow = false;
+        if (accepted && !activeStoryMission().script.empty())
+        {
+            const StoryScriptAction& completedStep = activeStoryMission().script[
+                static_cast<std::size_t>(storyMissionStep)];
+            if (completedStep.kind == StoryActionKind::PlayCard &&
+                !completedStep.effectRole.empty())
+            {
+                const auto spawned = std::find_if(
+                    storyEngine->boardPieces().begin(),
+                    storyEngine->boardPieces().end(),
+                    [&](const game_data::Piece& piece) {
+                        return piece.owner == completedStep.owner &&
+                            piece.name == completedStep.cardTitle &&
+                            piece.row == completedStep.targetRow &&
+                            piece.column == completedStep.targetColumn;
+                    });
+                if (spawned != storyEngine->boardPieces().end())
+                {
+                    storyRolePieceIds.emplace_back(completedStep.effectRole, spawned->id);
+                }
+            }
+            completeNow = advanceStoryScript();
+        }
+        syncStoryEngine();
+        if (completeNow)
+        {
+            completeStoryMission(gameSnapshot);
+        }
+    };
+
     auto sendPlaceHero = [&](int heroIndex, int row, int column) {
         if (sandboxMode)
         {
@@ -7007,8 +7176,16 @@ int main(int argc, char** argv)
     auto sendPlayCard = [&](int handIndex, int row, int column) {
         if (storyMode && storyEngine)
         {
-            storyEngine->playCard(1, handIndex, row, column);
-            syncStoryEngine();
+            const std::string cardTitle = handIndex >= 0 &&
+                    handIndex < static_cast<int>(gameSnapshot.hand.size())
+                ? gameSnapshot.hand[static_cast<std::size_t>(handIndex)].title
+                : std::string();
+            if (!storyActionAllowed(
+                    StoryActionKind::PlayCard, 1, 0, row, column, cardTitle))
+            {
+                return;
+            }
+            settleStoryAction(storyEngine->playCard(1, handIndex, row, column));
             return;
         }
         if (sandboxMode)
@@ -7024,8 +7201,11 @@ int main(int argc, char** argv)
     auto sendMovePiece = [&](int pieceId, int row, int column) {
         if (storyMode && storyEngine)
         {
-            storyEngine->movePiece(1, pieceId, row, column);
-            syncStoryEngine();
+            if (!storyActionAllowed(StoryActionKind::Move, 1, pieceId, row, column))
+            {
+                return;
+            }
+            settleStoryAction(storyEngine->movePiece(1, pieceId, row, column));
             return;
         }
         if (sandboxMode)
@@ -7042,8 +7222,11 @@ int main(int argc, char** argv)
     auto sendAttackPiece = [&](int attackerId, int row, int column) {
         if (storyMode && storyEngine)
         {
-            storyEngine->attackPiece(1, attackerId, row, column);
-            syncStoryEngine();
+            if (!storyActionAllowed(StoryActionKind::Attack, 1, attackerId, row, column))
+            {
+                return;
+            }
+            settleStoryAction(storyEngine->attackPiece(1, attackerId, row, column));
             return;
         }
         if (sandboxMode)
@@ -7077,12 +7260,23 @@ int main(int argc, char** argv)
         {
             return;
         }
-        sendMovePiece(pieceId, row, column);
+        if (outcome.action.attacks)
+        {
+            sendAttackPiece(pieceId, row, column);
+        }
+        else
+        {
+            sendMovePiece(pieceId, row, column);
+        }
     };
 
     auto sendUseAbility = [&](int pieceId) {
         if (storyMode && storyEngine)
         {
+            if (!storyActionAllowed(StoryActionKind::UseAbility, 1, pieceId, -1, -1))
+            {
+                return;
+            }
             const auto found = std::find_if(
                 storyEngine->boardPieces().begin(),
                 storyEngine->boardPieces().end(),
@@ -7093,7 +7287,8 @@ int main(int argc, char** argv)
             const std::string ability = found == storyEngine->boardPieces().end()
                 ? std::string()
                 : found->ability;
-            if (storyEngine->useAbility(1, pieceId))
+            const bool accepted = storyEngine->useAbility(1, pieceId);
+            if (accepted)
             {
                 storyUsedAim = storyUsedAim ||
                     (pieceName == "Goblin Sharpshooter" && ability == "transform");
@@ -7102,7 +7297,7 @@ int main(int argc, char** argv)
                 storyUsedSummon = storyUsedSummon ||
                     (pieceName == "Blackthorn Foreman" && ability == "summon");
             }
-            syncStoryEngine();
+            settleStoryAction(accepted);
             return;
         }
         if (sandboxMode)
@@ -7118,8 +7313,16 @@ int main(int argc, char** argv)
     auto sendChooseForesightCard = [&](int choiceIndex) {
         if (storyMode && storyEngine)
         {
-            storyEngine->chooseForesightCard(1, choiceIndex);
-            syncStoryEngine();
+            const std::string cardTitle = choiceIndex >= 0 &&
+                    choiceIndex < static_cast<int>(gameSnapshot.foresightChoices.size())
+                ? gameSnapshot.foresightChoices[static_cast<std::size_t>(choiceIndex)].title
+                : std::string();
+            if (!storyActionAllowed(
+                    StoryActionKind::ChooseForesight, 1, 0, -1, -1, cardTitle))
+            {
+                return;
+            }
+            settleStoryAction(storyEngine->chooseForesightCard(1, choiceIndex));
             return;
         }
         if (sandboxMode)
@@ -7133,8 +7336,11 @@ int main(int argc, char** argv)
     auto sendDrawCard = [&]() {
         if (storyMode && storyEngine)
         {
-            storyEngine->drawCard(1);
-            syncStoryEngine();
+            if (!storyActionAllowed(StoryActionKind::DrawCard, 1, 0, -1, -1))
+            {
+                return;
+            }
+            settleStoryAction(storyEngine->drawCard(1));
             return;
         }
         if (sandboxMode)
@@ -7148,8 +7354,11 @@ int main(int argc, char** argv)
     auto sendEndTurn = [&]() {
         if (storyMode && storyEngine)
         {
-            storyEngine->endTurn(1);
-            syncStoryEngine();
+            if (!storyActionAllowed(StoryActionKind::EndTurn, 1, 0, -1, -1))
+            {
+                return;
+            }
+            settleStoryAction(storyEngine->endTurn(1));
             return;
         }
         if (sandboxMode)
@@ -7165,8 +7374,16 @@ int main(int argc, char** argv)
     auto sendDiscardCard = [&](int handIndex) {
         if (storyMode && storyEngine)
         {
-            storyEngine->discardCard(1, handIndex);
-            syncStoryEngine();
+            const std::string cardTitle = handIndex >= 0 &&
+                    handIndex < static_cast<int>(gameSnapshot.hand.size())
+                ? gameSnapshot.hand[static_cast<std::size_t>(handIndex)].title
+                : std::string();
+            if (!storyActionAllowed(
+                    StoryActionKind::DiscardCard, 1, 0, -1, -1, cardTitle))
+            {
+                return;
+            }
+            settleStoryAction(storyEngine->discardCard(1, handIndex));
             return;
         }
         if (sandboxMode)
@@ -7607,9 +7824,11 @@ int main(int argc, char** argv)
         }
         conquestBattleMode = false;
         leaveGameButton.setLabel("Leave");
+        leaveGameButton.setLabelSize(type::Body);
         leaveGameButton.setPosition({GameActionButtonX, GameLeaveButtonY});
         leaveGameButton.setSize({GameLeaveButtonWidth, GameActionButtonHeight});
         resignConfirmPopupVisible = false;
+        gameConfirmationAction = GameConfirmationAction::Resign;
         haveSnapshot = false;
         gameSnapshot = {};
         clockWarningTracker.reset();
@@ -8069,6 +8288,7 @@ int main(int argc, char** argv)
         exitDesktopPopupVisible = false;
         deckUnsavedChangesPopupVisible = false;
         resignConfirmPopupVisible = false;
+        gameConfirmationAction = GameConfirmationAction::Resign;
         passwordChangedPopupVisible = false;
         addCardPopupVisible = false;
         giveStarterDeckPopupVisible = false;
@@ -8283,23 +8503,39 @@ int main(int argc, char** argv)
         else if (screen == "story-select")
         {
             showStorySelect();
+            // A first-run capture begins at each path's first playable mission.
+            storyCampaignProgress[storyProgressIndex(StoryCampaign::Blackthorn)] = 0;
+            storyCampaignProgress[storyProgressIndex(StoryCampaign::Mirewatch)] = 0;
         }
-        else if (screen == "story-mission-select" || screen == "story-mirewatch-mission-select")
+        else if (screen == "story-mission-select" ||
+                 screen == "story-mirewatch-mission-select")
         {
             showStoryMissionSelect(
-                screen == "story-mirewatch-mission-select"
+                screen.rfind("story-mirewatch-", 0) == 0
                     ? StoryCampaign::Mirewatch
                     : StoryCampaign::Blackthorn);
-            storyCompletedCount = 5;
+            storyCompletedCount = 0;
             storyCampaignProgress[storyProgressIndex(storyCampaign)] = storyCompletedCount;
         }
-        else if (screen == "story-briefing" || screen == "story-mirewatch-briefing")
+        else if (screen == "story-briefing" ||
+                 screen == "story-briefing-actions" ||
+                 screen == "story-briefing-control" ||
+                 screen == "story-mirewatch-briefing" ||
+                 screen == "story-mirewatch-briefing-actions" ||
+                 screen == "story-mirewatch-briefing-control")
         {
-            storyCampaign = screen == "story-mirewatch-briefing"
+            storyCampaign = screen.rfind("story-mirewatch-", 0) == 0
                 ? StoryCampaign::Mirewatch
                 : StoryCampaign::Blackthorn;
-            storyMissionIndex = 0;
-            storyComicPage = 1;
+            storyMissionIndex = storyTacticalMissionIndex(storyCampaign, 0);
+            storyComicPage =
+                screen == "story-briefing-actions" ||
+                    screen == "story-mirewatch-briefing-actions"
+                ? 2
+                : screen == "story-briefing-control" ||
+                      screen == "story-mirewatch-briefing-control"
+                    ? 3
+                    : 0;
             currentState = GameState::StoryIntro;
             title.setString("");
             centerText(title, 400.0f);
@@ -8307,13 +8543,15 @@ int main(int argc, char** argv)
         else if (screen == "story-deployment")
         {
             storyCampaign = StoryCampaign::Blackthorn;
-            storyMissionIndex = 1;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign, "bt03_sanctuary_debt");
             beginStory();
         }
         else if (screen == "story-sharpshooter-aimed")
         {
             storyCampaign = StoryCampaign::Blackthorn;
-            storyMissionIndex = 3;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign, "bt02_customs_bell");
             beginStory();
             const auto sharpshooter = std::find_if(
                 storyEngine->boardPieces().begin(),
@@ -8333,7 +8571,8 @@ int main(int argc, char** argv)
         else if (screen == "story-powers-used")
         {
             storyCampaign = StoryCampaign::Blackthorn;
-            storyMissionIndex = 2;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign, "bt13_feyward_transit");
             beginStory();
             const auto useStoryPower = [&](const std::string& pieceName) {
                 const auto piece = std::find_if(
@@ -8350,13 +8589,13 @@ int main(int argc, char** argv)
                 storyAiActionAt = animationTime;
                 updateStoryAi();
             };
-            useStoryPower("Goblin Ambusher");
             useStoryPower("Blackthorn Foreman");
         }
         else if (screen == "story-ai-turn")
         {
             storyCampaign = StoryCampaign::Blackthorn;
-            storyMissionIndex = 4;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign, "bt05_freight_office");
             beginStory();
             sendEndTurn();
             storyAiActionAt = animationTime;
@@ -8365,7 +8604,8 @@ int main(int argc, char** argv)
         else if (screen == "story-ai-attack")
         {
             storyCampaign = StoryCampaign::Blackthorn;
-            storyMissionIndex = 4;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign, "bt05_freight_office");
             beginStory();
             for (int exchange = 0; exchange < 3; ++exchange)
             {
@@ -8374,37 +8614,61 @@ int main(int argc, char** argv)
                 updateStoryAi();
             }
         }
+        else if (screen == "story-mirewatch-exit-confirmation" ||
+                 screen == "story-mirewatch-restart-confirmation")
+        {
+            storyCampaign = StoryCampaign::Mirewatch;
+            storyMissionIndex = storyTacticalMissionIndex(storyCampaign, 0);
+            beginStory();
+            gameConfirmationAction =
+                screen == "story-mirewatch-exit-confirmation"
+                    ? GameConfirmationAction::ExitStory
+                    : GameConfirmationAction::RestartStory;
+            resignConfirmPopupVisible = true;
+        }
         else if (screen.rfind("story-game-", 0) == 0)
         {
             storyCampaign = StoryCampaign::Blackthorn;
             try
             {
-                storyMissionIndex = std::clamp(
-                    std::stoi(screen.substr(std::string("story-game-").size())) - 1,
-                    0,
-                    static_cast<int>(storyMissions(storyCampaign).size()) - 1);
+                storyMissionIndex = storyTacticalMissionIndex(
+                    storyCampaign,
+                    std::stoi(screen.substr(std::string("story-game-").size())) - 1);
             }
             catch (const std::exception&)
             {
                 storyMissionIndex = 0;
             }
             beginStory();
+            if (screen.size() >= 6 &&
+                screen.compare(screen.size() - 6, 6, "-board") == 0)
+            {
+                storyPopupPanels.clear();
+                storyPopupPage = 0;
+                storyCompleteAfterPopup = false;
+            }
         }
         else if (screen.rfind("story-mirewatch-game-", 0) == 0)
         {
             storyCampaign = StoryCampaign::Mirewatch;
             try
             {
-                storyMissionIndex = std::clamp(
-                    std::stoi(screen.substr(std::string("story-mirewatch-game-").size())) - 1,
-                    0,
-                    static_cast<int>(storyMissions(storyCampaign).size()) - 1);
+                storyMissionIndex = storyTacticalMissionIndex(
+                    storyCampaign,
+                    std::stoi(screen.substr(std::string("story-mirewatch-game-").size())) - 1);
             }
             catch (const std::exception&)
             {
                 storyMissionIndex = 0;
             }
             beginStory();
+            if (screen.size() >= 6 &&
+                screen.compare(screen.size() - 6, 6, "-board") == 0)
+            {
+                storyPopupPanels.clear();
+                storyPopupPage = 0;
+                storyCompleteAfterPopup = false;
+            }
         }
         else if (screen == "game")
         {
@@ -9307,14 +9571,24 @@ int main(int argc, char** argv)
                 {
                     if (confirmResignButton.isClicked(clickPos))
                     {
+                        const GameConfirmationAction confirmedAction = gameConfirmationAction;
                         resignConfirmPopupVisible = false;
-                        leaveGame();
+                        gameConfirmationAction = GameConfirmationAction::Resign;
+                        if (confirmedAction == GameConfirmationAction::RestartStory)
+                        {
+                            beginStory();
+                        }
+                        else
+                        {
+                            leaveGame();
+                        }
                     }
                     else if (cancelResignButton.isClicked(clickPos) ||
                              !isInsideRect(clickPos, ResignDialogX, ResignDialogY,
                                           ResignDialogWidth, ResignDialogHeight))
                     {
                         resignConfirmPopupVisible = false;
+                        gameConfirmationAction = GameConfirmationAction::Resign;
                     }
                     continue;
                 }
@@ -9409,7 +9683,23 @@ int main(int argc, char** argv)
                     }
                     else if (storyRestartCampaignButton.isClicked(clickPos))
                     {
-                        showStoryIntro(0);
+                        const int missionCount =
+                            static_cast<int>(storyMissions(storyCampaign).size());
+                        const int completed =
+                            storyCampaignProgress[storyProgressIndex(storyCampaign)];
+                        showStoryIntro(std::min(completed, missionCount - 1));
+                    }
+                    else if (storyMissionPreviousPageButton.isClicked(clickPos))
+                    {
+                        storyMissionPage = std::max(0, storyMissionPage - 1);
+                    }
+                    else if (storyMissionNextPageButton.isClicked(clickPos))
+                    {
+                        const int missionCount =
+                            static_cast<int>(storyMissions(storyCampaign).size());
+                        const int lastPage =
+                            std::max(0, (missionCount - 1) / StoryMissionPageSize);
+                        storyMissionPage = std::min(lastPage, storyMissionPage + 1);
                     }
                     else
                     {
@@ -9419,9 +9709,14 @@ int main(int argc, char** argv)
                             static_cast<int>(storyMissions(storyCampaign).size());
                         const int unlockedCount =
                             std::min(missionCount, completed + (completed < missionCount ? 1 : 0));
-                        for (int index = 0; index < unlockedCount; ++index)
+                        for (int slot = 0; slot < StoryMissionPageSize; ++slot)
                         {
-                            if (storyMissionButtons[static_cast<std::size_t>(index)].isClicked(clickPos))
+                            const int index = storyMissionPage * StoryMissionPageSize + slot;
+                            if (index >= unlockedCount || index >= missionCount)
+                            {
+                                continue;
+                            }
+                            if (storyMissionButtons[static_cast<std::size_t>(slot)].isClicked(clickPos))
                             {
                                 showStoryIntro(index);
                                 break;
@@ -9433,11 +9728,29 @@ int main(int argc, char** argv)
                 {
                     if (storyBackButton.isClicked(clickPos))
                     {
-                        showStoryMissionSelect(storyCampaign);
+                        if (storyComicPage > 0)
+                        {
+                            --storyComicPage;
+                        }
+                        else
+                        {
+                            showStoryMissionSelect(storyCampaign);
+                        }
                     }
-                    else if (storyContinueButton.isClicked(clickPos) && storyComicPage + 1 >= 3)
+                    else if (storyContinueButton.isClicked(clickPos) &&
+                        storyComicPage + 1 >= static_cast<int>(
+                            storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)]
+                                .briefing.size()))
                     {
-                        beginStory();
+                        if (activeStoryMission().objectiveSpec.kind ==
+                            StoryObjectiveKind::StoryOnly)
+                        {
+                            completeStoryChronicle();
+                        }
+                        else
+                        {
+                            beginStory();
+                        }
                     }
                     else if (storyContinueButton.isClicked(clickPos))
                     {
@@ -9911,7 +10224,34 @@ int main(int argc, char** argv)
                 }
                 else if (currentState == GameState::Game)
                 {
-                    if (inspectedPieceId || inspectedHandIndex)
+                    if (storyMode && !storyPopupPanels.empty())
+                    {
+                        if (storyPopupPage > 0 &&
+                            storyPopupPreviousButton.isClicked(clickPos))
+                        {
+                            --storyPopupPage;
+                        }
+                        else if (storyPopupContinueButton.isClicked(clickPos))
+                        {
+                            if (storyPopupPage + 1 < storyPopupPanels.size())
+                            {
+                                ++storyPopupPage;
+                            }
+                            else
+                            {
+                                const bool completeAfter = storyCompleteAfterPopup;
+                                storyPopupPanels.clear();
+                                storyPopupPage = 0;
+                                storyCompleteAfterPopup = false;
+                                storyScriptActionAt = animationTime + 0.35f;
+                                if (completeAfter)
+                                {
+                                    completeStoryMission(gameSnapshot);
+                                }
+                            }
+                        }
+                    }
+                    else if (inspectedPieceId || inspectedHandIndex)
                     {
                         if (canDiscardInspectedHandCard() && discardCardButton.isClicked(clickPos))
                         {
@@ -9938,8 +10278,14 @@ int main(int argc, char** argv)
                         resetGameDrag();
                         const bool matchIsOver = haveSnapshot &&
                             static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::GameOver;
-                        if (!sandboxMode && !storyMode && !conquestBattleMode && !matchIsOver)
+                        if (storyMode)
                         {
+                            gameConfirmationAction = GameConfirmationAction::ExitStory;
+                            resignConfirmPopupVisible = true;
+                        }
+                        else if (!sandboxMode && !conquestBattleMode && !matchIsOver)
+                        {
+                            gameConfirmationAction = GameConfirmationAction::Resign;
                             resignConfirmPopupVisible = true;
                         }
                         else
@@ -9951,7 +10297,8 @@ int main(int argc, char** argv)
                     {
                         pendingHandClickIndex.reset();
                         resetGameDrag();
-                        beginStory();
+                        gameConfirmationAction = GameConfirmationAction::RestartStory;
+                        resignConfirmPopupVisible = true;
                     }
                     else if (storyMode && endTurnButton.isClicked(clickPos))
                     {
@@ -10595,11 +10942,21 @@ int main(int argc, char** argv)
                     if (keyPressed->code == sf::Keyboard::Key::Escape)
                     {
                         resignConfirmPopupVisible = false;
+                        gameConfirmationAction = GameConfirmationAction::Resign;
                     }
                     else if (keyPressed->code == sf::Keyboard::Key::Enter)
                     {
+                        const GameConfirmationAction confirmedAction = gameConfirmationAction;
                         resignConfirmPopupVisible = false;
-                        leaveGame();
+                        gameConfirmationAction = GameConfirmationAction::Resign;
+                        if (confirmedAction == GameConfirmationAction::RestartStory)
+                        {
+                            beginStory();
+                        }
+                        else
+                        {
+                            leaveGame();
+                        }
                     }
                     continue;
                 }
@@ -10925,6 +11282,8 @@ int main(int argc, char** argv)
             {
                 button.update(mousePos);
             }
+            storyMissionPreviousPageButton.update(mousePos);
+            storyMissionNextPageButton.update(mousePos);
             storyRestartCampaignButton.update(mousePos);
             storyMissionSelectBackButton.update(mousePos);
         }
@@ -11168,6 +11527,14 @@ int main(int argc, char** argv)
             {
                 cancelResignButton.update(mousePos);
                 confirmResignButton.update(mousePos);
+            }
+            else if (storyMode && !storyPopupPanels.empty())
+            {
+                if (storyPopupPage > 0)
+                {
+                    storyPopupPreviousButton.update(mousePos);
+                }
+                storyPopupContinueButton.update(mousePos);
             }
             else if (inspectedPieceId || inspectedHandIndex)
             {

@@ -51,6 +51,7 @@ public:
         int row = 0;
         int column = 0;
         bool isHero = false;
+        int initialHealth = -1;
     };
 
     GameEngine(unsigned int seed, const std::vector<card_data::Card>& cardLibrary)
@@ -93,11 +94,15 @@ public:
         int playerOneResources = 0,
         int playerTwoResources = 0,
         int firstPlayer = 1,
-        std::string scenarioStatus = "Story encounter started.")
+        std::string scenarioStatus = "Story encounter started.",
+        bool heroEliminationVictory = true,
+        std::vector<GameCard> playerOneDrawPile = {},
+        std::vector<GameCard> playerTwoDrawPile = {})
     {
         phaseValue = Phase::Playing;
         activePlayer = std::clamp(firstPlayer, 1, 2);
         winnerValue = 0;
+        heroEliminationVictoryEnabled = heroEliminationVictory;
         control.fill(0);
         holes.fill(0);
         pieces.clear();
@@ -112,7 +117,9 @@ public:
         {
             EnginePlayer& player = playerRef(playerNumber);
             player.number = playerNumber;
-            player.drawPile.clear();
+            player.drawPile = playerNumber == 1
+                ? std::move(playerOneDrawPile)
+                : std::move(playerTwoDrawPile);
             player.foresightChoices.clear();
             player.hand = playerNumber == 1
                 ? std::move(playerOneHand)
@@ -125,6 +132,10 @@ public:
             player.pieceActionUsedThisTurn = false;
             player.deckSubmitted = true;
             for (const GameCard& card : player.hand)
+            {
+                rememberSummonCard(card);
+            }
+            for (const GameCard& card : player.drawPile)
             {
                 rememberSummonCard(card);
             }
@@ -144,6 +155,13 @@ public:
                 scenarioPiece.row,
                 scenarioPiece.column,
                 scenarioPiece.isHero);
+            if (scenarioPiece.initialHealth > 0)
+            {
+                pieces.back().health = std::clamp(
+                    scenarioPiece.initialHealth,
+                    1,
+                    pieces.back().maxHealth);
+            }
         }
         recomputeControl();
         for (Piece& piece : pieces)
@@ -154,6 +172,13 @@ public:
             }
         }
         status = std::move(scenarioStatus);
+    }
+
+    // Story scenarios can depend on cards that are not initially in either
+    // hand or on the board (Summon, Trail, and Rebirth destinations).
+    void registerScenarioCard(const GameCard& card)
+    {
+        rememberSummonCard(card);
     }
 
     void enableTimers()
@@ -977,6 +1002,7 @@ private:
     int commandingPieceId = 0;
     int relentlessPieceId = 0;
     bool relentlessActionKeepsTurn = false;
+    bool heroEliminationVictoryEnabled = true;
     bool timersEnabled = false;
     std::array<std::int64_t, 2> playerClockRemainingMs{RegularClockMs, RegularClockMs};
     std::array<std::size_t, 2> movesWithIncrement{};
@@ -1957,7 +1983,7 @@ private:
 
     void checkForWinner(int victimOwner)
     {
-        if (heroesAlive(victimOwner) == 0)
+        if (heroEliminationVictoryEnabled && heroesAlive(victimOwner) == 0)
         {
             winnerValue = victimOwner == 1 ? 2 : 1;
             phaseValue = Phase::GameOver;

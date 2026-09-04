@@ -105,6 +105,8 @@ if(BAYOU_BUILD_CLIENTS)
             src/client/client_display.cpp
             src/client/client_sandbox.cpp
             src/client/client_story.cpp
+            src/client/client_story_catalog.cpp
+            src/client/client_story_cards.cpp
             src/client/client_string.cpp
             src/client/client_textures.cpp
             src/client/client_ui.cpp
@@ -145,6 +147,15 @@ if(BAYOU_BUILD_CLIENTS)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/deploy/ca/isrg-root-x1.pem"
             "$<TARGET_FILE_DIR:client>/bayou-ca.pem")
+
+    add_executable(storymodetest
+        src/storymodetest/main.cpp
+        src/client/client_story.cpp
+        src/client/client_story_catalog.cpp
+        src/client/client_story_cards.cpp
+    )
+    target_link_libraries(storymodetest PRIVATE fmt::fmt SFML::System SFML::Network)
+    target_compile_definitions(storymodetest PRIVATE BAYOU_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
 
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)

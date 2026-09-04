@@ -3,7 +3,7 @@
         drawCenteredText(
             window,
             font,
-            "Two sides of Mirewatch's struggle. Progress is saved separately.",
+            "Switch anytime; completed missions and unlocks are saved separately for each path.",
             type::Body,
             {400.0f, 94.0f},
             palette::InkMuted);
@@ -21,7 +21,7 @@
                 panelSize,
                 sf::Color(20, 29, 29, 246),
                 accent,
-                false,
+                campaign == StoryCampaign::Mirewatch,
                 8.0f);
 
             if (sf::Texture* art = textures.load(std::string(artPath)))
@@ -46,10 +46,39 @@
                 font,
                 std::string(summary),
                 14,
-                position + sf::Vector2f(148.0f, 104.0f),
+                position + sf::Vector2f(148.0f, 116.0f),
                 palette::InkMuted,
                 158.0f,
                 4.0f);
+            if (campaign == StoryCampaign::Mirewatch)
+            {
+                drawBeveledPlate(
+                    window,
+                    position + sf::Vector2f(140.0f, 82.0f),
+                    {174.0f, 27.0f},
+                    sf::Color(18, 54, 45, 248),
+                    accent,
+                    true,
+                    6.0f);
+                drawCenteredText(
+                    window,
+                    font,
+                    "START HERE - RECOMMENDED",
+                    11,
+                    position + sf::Vector2f(227.0f, 95.5f),
+                    sf::Color(225, 255, 238));
+            }
+            else
+            {
+                drawText(
+                    window,
+                    font,
+                    "TACTICAL - TRAPS AND DAMAGE",
+                    10,
+                    position + sf::Vector2f(148.0f, 92.0f),
+                    palette::InkMuted,
+                    162.0f);
+            }
 
             drawSeparatorRule(
                 window,
@@ -62,8 +91,10 @@
             const std::string progress = completed >= missionCount
                 ? "Campaign complete"
                 : completed == 0
-                    ? "Chapter 1 ready"
-                    : "Chapter " + std::to_string(completed + 1) + " ready";
+                    ? (campaign == StoryCampaign::Mirewatch
+                        ? "River Teeth ready - gator attack"
+                        : "First playable mission ready")
+                    : "Entry " + std::to_string(completed + 1) + " ready";
             drawText(
                 window,
                 font,
@@ -81,7 +112,9 @@
                 palette::InkMuted,
                 panelSize.x - 44.0f);
 
-            button.setLabel(completed == 0 ? "Choose Chapter" : "View Chapters");
+            button.setLabel(campaign == StoryCampaign::Blackthorn
+                ? "Play Blackthorn's Path"
+                : "Play Mirewatch Path");
             button.draw(window, animationTime);
         };
 
@@ -90,14 +123,14 @@
             {56.0f, 124.0f},
             sf::Color(207, 151, 69),
             "cards/victorGreyshard.png",
-            "The Company's pursuit, from the east-gate ledger to Victor's final stand.",
+            "Lead Victor's Company crew. Recover the stolen ledger with traps, marks, and hard-hitting allies.",
             storyBlackthornButton);
         drawCampaign(
             StoryCampaign::Mirewatch,
             {416.0f, 124.0f},
             sf::Color(103, 188, 153),
             "cards/reedBaelstone.png",
-            "Reed's coalition, from the stolen cage to a town that owns itself.",
+            "Lead Reed's resistance. Win Mirewatch's freedom through healing, movement, and teamwork.",
             storyMirewatchButton);
 
         storySelectBackButton.draw(window, animationTime);
