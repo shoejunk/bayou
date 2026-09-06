@@ -1397,16 +1397,25 @@ private:
                 }
                 else
                 {
-                    damagedTargetNames.push_back(targetName);
-                    if (actionHasInfest && !target->isHero)
+                    const DamageResolution damageResolution =
+                        resolveDamageWithBodyguardsAndIntercepts(
+                            pieces, targetId, attackDamage, action.statusTurns, rng, true);
+                    const int effectiveTargetId = damageResolution.effectiveTargetId;
+                    const Piece* effectiveTarget = pieceById(effectiveTargetId);
+                    const std::string effectiveTargetName = effectiveTarget == nullptr
+                        ? targetName
+                        : (effectiveTarget->hidden ? "a hidden " : "") + effectiveTarget->name;
+                    damagedTargetNames.push_back(effectiveTargetName);
+                    if (actionHasInfest && effectiveTarget != nullptr && !effectiveTarget->isHero)
                     {
-                        target->infestationTitle = infestationTitle;
-                        target->infestationOwner = attackerOwner;
+                        Piece* infestTarget = pieceById(effectiveTargetId);
+                        if (infestTarget != nullptr)
+                        {
+                            infestTarget->infestationTitle = infestationTitle;
+                            infestTarget->infestationOwner = attackerOwner;
+                        }
                     }
-                    const std::vector<DamageAssignment> damageAssignments =
-                        applyDamageWithBodyguards(
-                            pieces, targetId, attackDamage, action.statusTurns, rng);
-                    for (const DamageAssignment& assignment : damageAssignments)
+                    for (const DamageAssignment& assignment : damageResolution.assignments)
                     {
                         Piece* damagedPiece = pieceById(assignment.pieceId);
                         if (damagedPiece != nullptr && damagedPiece->health <= 0)
@@ -1421,13 +1430,13 @@ private:
                     }
                     const PushResult pushResult = applyActionPush(
                         pieces,
-                        targetId,
+                        effectiveTargetId,
                         action.stagingRow,
                         action.stagingColumn,
                         action.push);
                     pushedSquares += pushResult.movedSquares;
                     pushCollisionDamage += pushResult.preventedSquares;
-                    if (Piece* pushedTarget = pieceById(targetId);
+                    if (Piece* pushedTarget = pieceById(effectiveTargetId);
                         pushedTarget != nullptr && pushedTarget->health <= 0)
                     {
                         defeatedOwners.push_back(pieceOriginalOwner(*pushedTarget));
@@ -1439,7 +1448,7 @@ private:
                     }
                     if (action.control > 0)
                     {
-                        if (Piece* controllableTarget = pieceById(targetId);
+                        if (Piece* controllableTarget = pieceById(effectiveTargetId);
                             controllableTarget != nullptr && controllableTarget->health > 0)
                         {
                             applyPieceControl(*controllableTarget, attackerOwner, action.control);

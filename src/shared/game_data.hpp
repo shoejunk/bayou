@@ -710,6 +710,7 @@ struct Piece
     bool hidden = false;
     bool isHero = false;
     bool hasActed = false;
+    bool interceptUsedThisTurn = false;
 };
 
 inline bool pieceUsesState1Token(const Piece& piece)
@@ -843,6 +844,7 @@ inline void updatePieceControlAtTurnStart(std::vector<Piece>& pieces, int player
 inline void beginPieceTurn(Piece& piece)
 {
     piece.hasActed = false;
+    piece.interceptUsedThisTurn = false;
     if (piece.growTurnsRemaining > 0)
     {
         --piece.growTurnsRemaining;
@@ -1040,7 +1042,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
             << piece.actionState << piece.repeatActionIndex << piece.repeatActionState << piece.repeatActionUses
             << piece.ability << piece.summonTitle << piece.rebirthTitle << piece.abilityUses << piece.hidden
             << piece.isHero << piece.hasActed << piece.controlTurnsRemaining
-            << piece.infestationTitle << piece.infestationOwner;
+            << piece.infestationTitle << piece.infestationOwner << piece.interceptUsedThisTurn;
     packet << static_cast<std::uint32_t>(piece.actions.size());
     for (const ActionProfile& action : piece.actions)
     {
@@ -1075,7 +1077,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
            >> piece.actionState >> piece.repeatActionIndex >> piece.repeatActionState >> piece.repeatActionUses
            >> piece.ability >> piece.summonTitle >> piece.rebirthTitle >> piece.abilityUses >> piece.hidden
            >> piece.isHero >> piece.hasActed >> piece.controlTurnsRemaining
-           >> piece.infestationTitle >> piece.infestationOwner;
+           >> piece.infestationTitle >> piece.infestationOwner >> piece.interceptUsedThisTurn;
     std::uint32_t actionCount = 0;
     packet >> actionCount;
     piece.actions.clear();

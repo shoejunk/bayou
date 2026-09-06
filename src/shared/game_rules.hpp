@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <random>
 #include <string>
 #include <utility>
 #include <vector>
@@ -1052,35 +1053,46 @@ struct DamageAssignment
     int damage = 0;
 };
 
-// Applies positive action damage, redirecting it from a non-Bodyguard
-// piece to its adjacent friendly Bodyguards. Every protector receives the same
-// base amount; only the indivisible remainder is assigned randomly.
+struct DamageResolution
+{
+    std::vector<DamageAssignment> assignments;
+    int effectiveTargetId = 0;
+    bool intercepted = false;
+};
+
+// Applies damage using the protection priority shared by the authoritative
+// server and local client sandbox. Bodyguard redirection takes precedence over
+// Intercept. Intercept is opt-in here because it applies to enemy piece
+// attacks, not to damage spells.
 template <typename RandomEngine>
-inline std::vector<DamageAssignment> applyDamageWithBodyguards(
+inline DamageResolution resolveDamageWithBodyguardsAndIntercepts(
     std::vector<Piece>& pieces,
     int targetId,
     int damage,
     int statusTurns,
-    RandomEngine& randomEngine)
+    RandomEngine& randomEngine,
+    bool allowIntercept)
 {
+    DamageResolution result;
+    result.effectiveTargetId = targetId;
     const auto targetIt = std::find_if(
         pieces.begin(),
         pieces.end(),
         [targetId](const Piece& piece) { return piece.id == targetId; });
     if (targetIt == pieces.end())
     {
-        return {};
+        return result;
     }
 
-    std::vector<DamageAssignment> assignments;
+    const Piece& target = *targetIt;
     if (damage > 0 && !hasKeyword(targetIt->keywords, "bodyguard"))
     {
         std::vector<int> bodyguardIds;
         for (const Piece& candidate : pieces)
         {
-            if (candidate.id != targetIt->id && candidate.owner == targetIt->owner &&
+            if (candidate.id != target.id && candidate.owner == target.owner &&
                 hasKeyword(candidate.keywords, "bodyguard") &&
-                piecesAreAdjacent(*targetIt, candidate))
+                piecesAreAdjacent(target, candidate))
             {
                 bodyguardIds.push_back(candidate.id);
             }
@@ -1100,18 +1112,61 @@ inline std::vector<DamageAssignment> applyDamageWithBodyguards(
                     (static_cast<int>(index) < remainder ? 1 : 0);
                 if (assignedDamage > 0)
                 {
-                    assignments.push_back({bodyguardIds[index], assignedDamage});
+                    result.assignments.push_back({bodyguardIds[index], assignedDamage});
+                }
+            }
+        }
+        else if (allowIntercept &&
+                 !hasKeyword(target.keywords, "intercept"))
+        {
+            std::vector<int> interceptIds;
+            for (const Piece& candidate : pieces)
+            {
+                if (candidate.id != target.id && candidate.owner == target.owner &&
+                    !candidate.interceptUsedThisTurn &&
+                    hasKeyword(candidate.keywords, "intercept") &&
+                    piecesAreAdjacent(target, candidate))
+                {
+                    interceptIds.push_back(candidate.id);
+                }
+            }
+
+            if (!interceptIds.empty())
+            {
+                std::uniform_int_distribution<std::size_t> distribution(
+                    0, interceptIds.size() - 1);
+                const int interceptId = interceptIds[distribution(randomEngine)];
+                Piece* interceptor = nullptr;
+                for (Piece& candidate : pieces)
+                {
+                    if (candidate.id == interceptId)
+                    {
+                        interceptor = &candidate;
+                        break;
+                    }
+                }
+                if (interceptor != nullptr)
+                {
+                    const int targetRow = target.row;
+                    const int targetColumn = target.column;
+                    targetIt->row = interceptor->row;
+                    targetIt->column = interceptor->column;
+                    interceptor->row = targetRow;
+                    interceptor->column = targetColumn;
+                    interceptor->interceptUsedThisTurn = true;
+                    result.effectiveTargetId = interceptor->id;
+                    result.intercepted = true;
                 }
             }
         }
     }
 
-    if (assignments.empty())
+    if (result.assignments.empty())
     {
-        assignments.push_back({targetId, damage});
+        result.assignments.push_back({result.effectiveTargetId, damage});
     }
 
-    for (const DamageAssignment& assignment : assignments)
+    for (const DamageAssignment& assignment : result.assignments)
     {
         const auto recipient = std::find_if(
             pieces.begin(),
@@ -1122,7 +1177,21 @@ inline std::vector<DamageAssignment> applyDamageWithBodyguards(
             applyActionDamage(*recipient, assignment.damage, statusTurns);
         }
     }
-    return assignments;
+    return result;
+}
+
+// Damage spells retain Bodyguard redirection but do not trigger Intercept.
+template <typename RandomEngine>
+inline std::vector<DamageAssignment> applyDamageWithBodyguards(
+    std::vector<Piece>& pieces,
+    int targetId,
+    int damage,
+    int statusTurns,
+    RandomEngine& randomEngine)
+{
+    return resolveDamageWithBodyguardsAndIntercepts(
+               pieces, targetId, damage, statusTurns, randomEngine, false)
+        .assignments;
 }
 
 inline bool pieceCanReceiveCommand(const Piece& commander, const Piece& target)

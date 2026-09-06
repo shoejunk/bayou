@@ -6563,20 +6563,32 @@ int main(int argc, char** argv)
                 }
                 else
                 {
-                    damagedTargetNames.push_back(targetName);
-                    if (actionHasInfest && !target->isHero)
-                    {
-                        target->infestationTitle = infestationTitle;
-                        target->infestationOwner = attackerOwner;
-                    }
-                    const std::vector<game_data::DamageAssignment> damageAssignments =
-                        game_data::applyDamageWithBodyguards(
+                    const game_data::DamageResolution damageResolution =
+                        game_data::resolveDamageWithBodyguardsAndIntercepts(
                             next.pieces,
                             targetId,
                             attackDamage,
                             action.statusTurns,
-                            sandboxDamageRandomEngine);
-                    for (const game_data::DamageAssignment& assignment : damageAssignments)
+                            sandboxDamageRandomEngine,
+                            true);
+                    const int effectiveTargetId = damageResolution.effectiveTargetId;
+                    const game_data::Piece* effectiveTarget =
+                        pieceByIdInSnapshot(next, effectiveTargetId);
+                    const std::string effectiveTargetName = effectiveTarget == nullptr
+                        ? targetName
+                        : (effectiveTarget->hidden ? "a hidden " : "") + effectiveTarget->name;
+                    damagedTargetNames.push_back(effectiveTargetName);
+                    if (actionHasInfest && effectiveTarget != nullptr && !effectiveTarget->isHero)
+                    {
+                        game_data::Piece* infestTarget =
+                            pieceByIdInSnapshotMutable(next, effectiveTargetId);
+                        if (infestTarget != nullptr)
+                        {
+                            infestTarget->infestationTitle = infestationTitle;
+                            infestTarget->infestationOwner = attackerOwner;
+                        }
+                    }
+                    for (const game_data::DamageAssignment& assignment : damageResolution.assignments)
                     {
                         game_data::Piece* damagedPiece =
                             pieceByIdInSnapshotMutable(next, assignment.pieceId);
@@ -6591,14 +6603,14 @@ int main(int argc, char** argv)
                     }
                     const game_data::PushResult pushResult = game_data::applyActionPush(
                         next.pieces,
-                        targetId,
+                        effectiveTargetId,
                         action.stagingRow,
                         action.stagingColumn,
                         action.push);
                     pushedSquares += pushResult.movedSquares;
                     pushCollisionDamage += pushResult.preventedSquares;
                     if (game_data::Piece* pushedTarget =
-                            pieceByIdInSnapshotMutable(next, targetId);
+                            pieceByIdInSnapshotMutable(next, effectiveTargetId);
                         pushedTarget && pushedTarget->health <= 0)
                     {
                         const PieceDestructionResult destruction = destroySandboxPiece(next, pushedTarget->id);
@@ -6610,7 +6622,7 @@ int main(int argc, char** argv)
                     if (action.control > 0)
                     {
                         if (game_data::Piece* controllableTarget =
-                                pieceByIdInSnapshotMutable(next, targetId);
+                                pieceByIdInSnapshotMutable(next, effectiveTargetId);
                             controllableTarget != nullptr && controllableTarget->health > 0)
                         {
                             game_data::applyPieceControl(*controllableTarget, attackerOwner, action.control);

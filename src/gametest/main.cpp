@@ -1293,6 +1293,162 @@ int main(int argc, char** argv)
               bodyguardPieces[3].health == healthBeforeBodyguardHit[2],
           "damage dealt to a Bodyguard is not redirected to adjacent Bodyguards");
 
+    auto makeIntercept = [](int id, int owner, int row, int column) {
+        Piece interceptor;
+        interceptor.id = id;
+        interceptor.owner = owner;
+        interceptor.row = row;
+        interceptor.column = column;
+        interceptor.health = 10;
+        interceptor.maxHealth = 10;
+        interceptor.keywords = {"InTeRcEpT"};
+        return interceptor;
+    };
+    Piece interceptTarget = protectedPiece;
+    interceptTarget.id = 40;
+    Piece interceptA = makeIntercept(41, 2, 3, 2);
+    Piece interceptB = makeIntercept(42, 2, 2, 3);
+    std::vector<Piece> interceptPieces = {interceptTarget, interceptA, interceptB};
+    std::mt19937 interceptRandom(31);
+    const DamageResolution interceptResolution =
+        resolveDamageWithBodyguardsAndIntercepts(
+            interceptPieces, interceptTarget.id, 5, 0, interceptRandom, true);
+    const auto chosenIntercept = std::find_if(
+        interceptPieces.begin(),
+        interceptPieces.end(),
+        [&](const Piece& piece) { return piece.id == interceptResolution.effectiveTargetId; });
+    const auto swappedTarget = std::find_if(
+        interceptPieces.begin(),
+        interceptPieces.end(),
+        [&](const Piece& piece) { return piece.id == interceptTarget.id; });
+    check(interceptResolution.intercepted && interceptResolution.assignments.size() == 1 &&
+              chosenIntercept != interceptPieces.end() && swappedTarget != interceptPieces.end() &&
+              chosenIntercept->health == 5 && chosenIntercept->interceptUsedThisTurn &&
+              swappedTarget->health == 10 && chosenIntercept->row == interceptTarget.row &&
+              chosenIntercept->column == interceptTarget.column &&
+              swappedTarget->row == (chosenIntercept->id == interceptA.id ? interceptA.row : interceptB.row) &&
+              swappedTarget->column == (chosenIntercept->id == interceptA.id ? interceptA.column : interceptB.column),
+          "Intercept randomly swaps with the attacked piece and takes its damage");
+    const int unusedIntercepts = static_cast<int>(std::count_if(
+        interceptPieces.begin(),
+        interceptPieces.end(),
+        [](const Piece& piece) {
+            return hasKeyword(piece.keywords, "intercept") && !piece.interceptUsedThisTurn;
+        }));
+    check(unusedIntercepts == 1,
+          "only the chosen Intercept unit is spent for the turn");
+
+    Piece exhaustedTarget = protectedPiece;
+    exhaustedTarget.id = 43;
+    Piece exhaustedIntercept = makeIntercept(44, 2, 3, 2);
+    exhaustedIntercept.interceptUsedThisTurn = true;
+    std::vector<Piece> exhaustedPieces = {exhaustedTarget, exhaustedIntercept};
+    std::mt19937 exhaustedRandom(32);
+    const DamageResolution exhaustedResolution =
+        resolveDamageWithBodyguardsAndIntercepts(
+            exhaustedPieces, exhaustedTarget.id, 5, 0, exhaustedRandom, true);
+    check(!exhaustedResolution.intercepted &&
+              exhaustedPieces[0].health == 5 && exhaustedPieces[1].health == 10 &&
+              exhaustedPieces[1].row == 3 && exhaustedPieces[1].column == 2,
+          "an Intercept unit cannot intercept twice in one turn");
+    beginPieceTurn(exhaustedPieces[1]);
+    check(!exhaustedPieces[1].interceptUsedThisTurn,
+          "Intercept becomes available again at the unit owner's next turn");
+
+    Piece priorityTarget = protectedPiece;
+    priorityTarget.id = 45;
+    Piece priorityBodyguard = makeBodyguard(46, 2, 3, 2);
+    Piece priorityIntercept = makeIntercept(47, 2, 2, 3);
+    std::vector<Piece> priorityPieces = {
+        priorityTarget,
+        priorityBodyguard,
+        priorityIntercept};
+    std::mt19937 priorityRandom(33);
+    const DamageResolution priorityResolution =
+        resolveDamageWithBodyguardsAndIntercepts(
+            priorityPieces, priorityTarget.id, 5, 0, priorityRandom, true);
+    check(!priorityResolution.intercepted && priorityPieces[0].health == 10 &&
+              priorityPieces[1].health == 5 && priorityPieces[2].health == 10 &&
+              !priorityPieces[2].interceptUsedThisTurn &&
+              priorityPieces[2].row == 2 && priorityPieces[2].column == 3,
+          "Bodyguard protection takes priority over Intercept");
+
+    for (const std::string& blockedKeyword : {std::string("bodyguard"), std::string("intercept")})
+    {
+        Piece blockedTarget = protectedPiece;
+        blockedTarget.id = blockedKeyword == "bodyguard" ? 48 : 50;
+        blockedTarget.keywords = {blockedKeyword};
+        Piece blockedIntercept = makeIntercept(blockedTarget.id + 1, 2, 3, 2);
+        std::vector<Piece> blockedPieces = {blockedTarget, blockedIntercept};
+        std::mt19937 blockedRandom(34);
+        const DamageResolution blockedResolution =
+            resolveDamageWithBodyguardsAndIntercepts(
+                blockedPieces, blockedTarget.id, 5, 0, blockedRandom, true);
+        check(!blockedResolution.intercepted && blockedPieces[0].health == 5 &&
+                  !blockedPieces[1].interceptUsedThisTurn && blockedPieces[1].row == 3 &&
+                  blockedPieces[1].column == 2,
+              blockedKeyword + " targets cannot be intercepted");
+    }
+
+    card_data::Card interceptAttackerCard;
+    interceptAttackerCard.title = "Intercept Test Attacker";
+    interceptAttackerCard.type = "Unit";
+    interceptAttackerCard.integerValues = {{"health", 5}};
+    card_data::Action interceptAttack;
+    interceptAttack.name = "Intercept Test Attack";
+    interceptAttack.kind = "ranged";
+    interceptAttack.pattern = "omni";
+    interceptAttack.minRange = 1;
+    interceptAttack.maxRange = 1;
+    interceptAttack.damage = 3;
+    interceptAttack.canAttack = true;
+    interceptAttack.lineOfSight = true;
+    interceptAttackerCard.actions = {interceptAttack};
+    card_data::Card interceptVictimCard;
+    interceptVictimCard.title = "Intercept Test Victim";
+    interceptVictimCard.type = "Unit";
+    interceptVictimCard.integerValues = {{"health", 10}};
+    card_data::Card interceptDefenderCard;
+    interceptDefenderCard.title = "Intercept Test Defender";
+    interceptDefenderCard.type = "Unit";
+    interceptDefenderCard.keywords = {"INTERCEPT"};
+    interceptDefenderCard.integerValues = {{"health", 10}};
+    GameEngine interceptEngine(35, {});
+    interceptEngine.loadScenario(
+        {{1, toGameCard(interceptAttackerCard), 3, 3, false},
+         {2, toGameCard(interceptVictimCard), 3, 4, false},
+         {2, toGameCard(interceptDefenderCard), 2, 4, false}},
+        {},
+        {},
+        0,
+        0,
+        1,
+        "Intercept attack test");
+    const auto interceptEnginePieceByName = [&](const std::string& name) -> const Piece* {
+        const auto found = std::find_if(
+            interceptEngine.boardPieces().begin(),
+            interceptEngine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == name; });
+        return found == interceptEngine.boardPieces().end() ? nullptr : &*found;
+    };
+    const Piece* interceptEngineAttacker =
+        interceptEnginePieceByName("Intercept Test Attacker");
+    check(
+        interceptEngineAttacker != nullptr &&
+            interceptEngine.attackPiece(1, interceptEngineAttacker->id, 3, 4),
+        "the authoritative engine accepts an attack that can be intercepted");
+    const Piece* interceptEngineVictim =
+        interceptEnginePieceByName("Intercept Test Victim");
+    const Piece* interceptEngineDefender =
+        interceptEnginePieceByName("Intercept Test Defender");
+    check(
+        interceptEngineVictim != nullptr && interceptEngineDefender != nullptr &&
+            interceptEngineVictim->health == 10 && interceptEngineVictim->row == 2 &&
+            interceptEngineVictim->column == 4 && interceptEngineDefender->health == 7 &&
+            interceptEngineDefender->row == 3 && interceptEngineDefender->column == 4 &&
+            interceptEngineDefender->interceptUsedThisTurn,
+        "the authoritative attack damages the swapped-in Intercept unit");
+
     card_data::Card encodedCard;
     encodedCard.title = "Encoded";
     encodedCard.type = "Unit";
@@ -1576,6 +1732,7 @@ int main(int argc, char** argv)
     serializedPiece.controlTurnsRemaining = 2;
     serializedPiece.infestationTitle = "Serialized Infestation";
     serializedPiece.infestationOwner = 1;
+    serializedPiece.interceptUsedThisTurn = true;
     serializedPiece.repeatActionIndex = 0;
     serializedPiece.repeatActionState = 3;
     serializedPiece.repeatActionUses = 1;
@@ -1631,6 +1788,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.controlTurnsRemaining == 2 &&
               roundTrippedPiece.infestationTitle == "Serialized Infestation" &&
               roundTrippedPiece.infestationOwner == 1 &&
+              roundTrippedPiece.interceptUsedThisTurn &&
               roundTrippedPiece.repeatActionIndex == 0 &&
               roundTrippedPiece.repeatActionState == 3 &&
               roundTrippedPiece.repeatActionUses == 1,
