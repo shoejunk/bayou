@@ -65,8 +65,9 @@ constexpr float PreviewPanelY = 100.0f;
 constexpr float PreviewPanelWidth = 400.0f;
 constexpr float ActionEditorPanelWidth = PreviewPanelX + PreviewPanelWidth - EditorPanelX;
 constexpr float ListRowStartY = 176.0f;
+constexpr float CardListRowStartY = 214.0f;
 constexpr float ListRowHeight = 56.0f;
-constexpr std::size_t VisibleCardRows = 8;
+constexpr std::size_t VisibleCardRows = 7;
 constexpr std::size_t VisibleActionRows = 8;
 constexpr std::size_t VisibleActionDropdownRows = 5;
 constexpr std::size_t VisibleTargetFilterRows = 10;
@@ -418,6 +419,7 @@ public:
 
         cards = library;
         sortCardLibrary(cards);
+        applyCardSearchFilter();
         listOffset = 0;
 
         if (key == "card-editor-loaded" && !cards.empty())
@@ -518,11 +520,13 @@ public:
             return shouldClose;
         }
 
+        std::string previousCardSearch;
         std::optional<std::size_t> activeActionReference;
         std::optional<std::size_t> activeRarityValueIndex;
         std::string previousActionReferenceValue;
         if (!focusOrder.empty())
         {
+            previousCardSearch = cardSearchField.getValue();
             const std::string previousImagePath = imageField.getValue();
             if (editorMode == EditorMode::Cards)
             {
@@ -545,6 +549,10 @@ public:
                 actionRefFields[*activeActionReference].getValue() != previousActionReferenceValue)
             {
                 openActionDropdown(*activeActionReference, true);
+            }
+            if (editorMode == EditorMode::Cards && cardSearchField.getValue() != previousCardSearch)
+            {
+                applyCardSearchFilter();
             }
         }
 
@@ -614,7 +622,8 @@ public:
                 moveFocus(keyEvent->shift ? -1 : 1);
                 ensureActiveFieldVisible();
             }
-            else if (!handledDropdownKey && keyEvent->code == sf::Keyboard::Key::Enter)
+            else if (!handledDropdownKey && keyEvent->code == sf::Keyboard::Key::Enter &&
+                     !(editorMode == EditorMode::Cards && cardSearchField.isActive()))
             {
                 if (editorMode == EditorMode::Cards)
                 {
@@ -901,6 +910,7 @@ private:
     CardEditorEndpoint endpoint;
     EditorMode editorMode = EditorMode::Cards;
     std::vector<card_data::Card> cards;
+    std::vector<std::size_t> visibleCardIndices;
     std::optional<std::size_t> selectedCard;
     std::optional<std::size_t> hoveredCard;
     std::size_t listOffset = 0;
@@ -933,6 +943,7 @@ private:
     InputBox titleField;
     InputBox imageField;
     InputBox typeField;
+    InputBox cardSearchField;
     std::vector<InputBox> traitFields;
     std::vector<InputBox> keywordFields;
     std::vector<InputBox> intKeyFields;
@@ -1357,6 +1368,8 @@ private:
         titleField = InputBox(font, "Title", {340.0f, 168.0f}, {470.0f, 42.0f});
         imageField = InputBox(font, "Image Path", {340.0f, 238.0f}, {470.0f, 42.0f});
         typeField = InputBox(font, "Type", {340.0f, 308.0f}, {470.0f, 42.0f});
+        cardSearchField = InputBox(font, "Search", {42.0f, 164.0f}, {230.0f, 36.0f});
+        cardSearchField.setPlaceholder("Filter by title");
         actionNameField = InputBox(font, "Name", {340.0f, 168.0f}, {470.0f, 42.0f});
         actionStateField = makeCompactField("0", {210.0f, 32.0f});
         actionNextStateField = makeCompactField("0", {210.0f, 32.0f});
@@ -1505,6 +1518,7 @@ private:
             focusIndex = std::min(focusIndex, focusOrder.size() - 1);
             return;
         }
+        focusOrder.push_back(&cardSearchField);
         focusOrder.push_back(&titleField);
         focusOrder.push_back(&imageField);
         focusOrder.push_back(&typeField);
@@ -1552,6 +1566,10 @@ private:
             return;
         }
 
+        if (target != &cardSearchField)
+        {
+            cardSearchField.setActive(false);
+        }
         for (std::size_t i = 0; i < focusOrder.size(); ++i)
         {
             const bool active = focusOrder[i] == target;
@@ -2194,12 +2212,28 @@ private:
         }
     }
 
+    void applyCardSearchFilter()
+    {
+        visibleCardIndices.clear();
+        const std::string searchTerm = lowerKey(trim(cardSearchField.getValue()));
+        for (std::size_t i = 0; i < cards.size(); ++i)
+        {
+            if (searchTerm.empty() || lowerKey(cards[i].title).find(searchTerm) != std::string::npos)
+            {
+                visibleCardIndices.push_back(i);
+            }
+        }
+        listOffset = 0;
+        hoveredCard.reset();
+    }
+
     void loadCards()
     {
         const CardListResult result = fetchCardsFromServer();
         if (!result.success)
         {
             cards.clear();
+            applyCardSearchFilter();
             selectedCard.reset();
             listOffset = 0;
             setStatus(result.message, Warn);
@@ -2208,6 +2242,7 @@ private:
 
         cards = result.cards;
         sortCardLibrary(cards);
+        applyCardSearchFilter();
         listOffset = 0;
         if (!cards.empty())
         {
@@ -2659,6 +2694,7 @@ private:
         {
             cards = listResult.cards;
             sortCardLibrary(cards);
+            applyCardSearchFilter();
             const auto found = std::find_if(cards.begin(), cards.end(), [&](const card_data::Card& item) {
                 return item.title == card.title;
             });
@@ -2717,6 +2753,7 @@ private:
 
         cards = listResult.cards;
         sortCardLibrary(cards);
+        applyCardSearchFilter();
         const auto found = std::find_if(cards.begin(), cards.end(), [&](const card_data::Card& item) {
             return item.title == card.title;
         });
@@ -2748,6 +2785,7 @@ private:
         if (!listResult.success)
         {
             cards.clear();
+            applyCardSearchFilter();
             selectedCard.reset();
             createNewCard();
             setStatus(listResult.message, Warn);
@@ -2756,6 +2794,7 @@ private:
 
         cards = listResult.cards;
         sortCardLibrary(cards);
+        applyCardSearchFilter();
         if (cards.empty())
         {
             listOffset = 0;
@@ -2779,24 +2818,30 @@ private:
 
     void ensureCardVisible(std::size_t index)
     {
-        if (index < listOffset)
+        const auto visible = std::find(visibleCardIndices.begin(), visibleCardIndices.end(), index);
+        if (visible == visibleCardIndices.end())
         {
-            listOffset = index;
+            return;
         }
-        else if (index >= listOffset + VisibleCardRows)
+        const std::size_t visibleIndex = static_cast<std::size_t>(visible - visibleCardIndices.begin());
+        if (visibleIndex < listOffset)
         {
-            listOffset = index - VisibleCardRows + 1;
+            listOffset = visibleIndex;
+        }
+        else if (visibleIndex >= listOffset + VisibleCardRows)
+        {
+            listOffset = visibleIndex - VisibleCardRows + 1;
         }
     }
 
     void scrollCardList(int rows)
     {
-        if (cards.size() <= VisibleCardRows)
+        if (visibleCardIndices.size() <= VisibleCardRows)
         {
             listOffset = 0;
             return;
         }
-        const int maxOffset = static_cast<int>(cards.size() - VisibleCardRows);
+        const int maxOffset = static_cast<int>(visibleCardIndices.size() - VisibleCardRows);
         const int next = std::clamp(static_cast<int>(listOffset) + rows, 0, maxOffset);
         listOffset = static_cast<std::size_t>(next);
     }
@@ -3685,6 +3730,15 @@ private:
             }
         }
 
+        if (cardSearchField.contains(mouse))
+        {
+            closeActionDropdown();
+            activateField(&cardSearchField);
+            cardSearchField.beginMouseSelection(mouse, sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
+                                                       sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift));
+            return false;
+        }
+
         const std::optional<std::size_t> listIndex = cardIndexAt(mouse);
         if (listIndex)
         {
@@ -3743,15 +3797,15 @@ private:
 
     std::optional<std::size_t> cardIndexAt(sf::Vector2f mouse) const
     {
-        if (mouse.x < 42.0f || mouse.x > 272.0f || mouse.y < ListRowStartY)
+        if (mouse.x < 42.0f || mouse.x > 272.0f || mouse.y < CardListRowStartY)
         {
             return std::nullopt;
         }
-        const std::size_t visibleIndex = static_cast<std::size_t>((mouse.y - ListRowStartY) / ListRowHeight);
+        const std::size_t visibleIndex = static_cast<std::size_t>((mouse.y - CardListRowStartY) / ListRowHeight);
         const std::size_t index = listOffset + visibleIndex;
-        if (visibleIndex < VisibleCardRows && index < cards.size())
+        if (visibleIndex < VisibleCardRows && index < visibleCardIndices.size())
         {
-            return index;
+            return visibleCardIndices[index];
         }
         return std::nullopt;
     }
@@ -4005,7 +4059,7 @@ private:
     void drawListPanel(sf::RenderWindow& window)
     {
         drawRoundedPanel(window, {ListPanelX, ListPanelY}, {ListPanelWidth, PanelHeight}, Panel);
-        drawText(window, font, "Library", 22, {42.0f, 124.0f}, Ink);
+        drawText(window, font, "Library", 22, {42.0f, editorMode == EditorMode::Cards ? 116.0f : 124.0f}, Ink);
         if (editorMode == EditorMode::Actions)
         {
             drawText(window, font, fmt::format("{} actions", actions.size()), 14, {200.0f, 131.0f}, Muted);
@@ -4043,20 +4097,32 @@ private:
             return;
         }
 
-        drawText(window, font, fmt::format("{} cards", cards.size()), 14, {218.0f, 131.0f}, Muted);
+        const std::size_t visibleCardCount = visibleCardIndices.size();
+        const bool hasCardSearch = !trim(cardSearchField.getValue()).empty();
+        const std::string cardCount = !hasCardSearch
+            ? fmt::format("{} cards", cards.size())
+            : fmt::format("{} of {} cards", visibleCardCount, cards.size());
+        drawText(window, font, cardCount, 14, {178.0f, 123.0f}, Muted, 94.0f);
+        cardSearchField.draw(window);
         if (cards.empty())
         {
             drawText(window, font, "No cards loaded", 18, {66.0f, 254.0f}, Ink, 186.0f);
             drawText(window, font, "Use New to make a draft,", 13, {66.0f, 286.0f}, Muted);
             drawText(window, font, "or Refresh to retry.", 13, {66.0f, 304.0f}, Muted);
         }
+        else if (visibleCardIndices.empty())
+        {
+            drawText(window, font, "No matching cards", 18, {66.0f, 254.0f}, Ink, 186.0f);
+            drawText(window, font, "Try a different search.", 13, {66.0f, 286.0f}, Muted, 186.0f);
+        }
 
-        const std::size_t lastVisible = std::min(cards.size(), listOffset + VisibleCardRows);
+        const std::size_t lastVisible = std::min(visibleCardIndices.size(), listOffset + VisibleCardRows);
         for (std::size_t i = listOffset; i < lastVisible; ++i)
         {
-            const float y = ListRowStartY + static_cast<float>(i - listOffset) * ListRowHeight;
-            const bool selected = selectedCard && *selectedCard == i;
-            const bool hovered = hoveredCard && *hoveredCard == i;
+            const std::size_t cardIndex = visibleCardIndices[i];
+            const float y = CardListRowStartY + static_cast<float>(i - listOffset) * ListRowHeight;
+            const bool selected = selectedCard && *selectedCard == cardIndex;
+            const bool hovered = hoveredCard && *hoveredCard == cardIndex;
             bayou::client::drawBeveledPlate(
                 window,
                 {42.0f, y},
@@ -4065,13 +4131,13 @@ private:
                 selected ? Accent : hovered ? sf::Color(154, 112, 62) : sf::Color(91, 64, 37),
                 selected || hovered,
                 6.0f);
-            bayou::client::drawStud(window, {54.0f, y + 24.0f}, 4.0f, cardRarityColor(cards[i]));
-            drawText(window, font, cards[i].title, 16, {66.0f, y + 6.0f}, Ink, 186.0f);
-            drawText(window, font, cardLibraryMeta(cards[i]), 12, {66.0f, y + 29.0f}, cardRarityColor(cards[i]), 186.0f);
+            bayou::client::drawStud(window, {54.0f, y + 24.0f}, 4.0f, cardRarityColor(cards[cardIndex]));
+            drawText(window, font, cards[cardIndex].title, 16, {66.0f, y + 6.0f}, Ink, 186.0f);
+            drawText(window, font, cardLibraryMeta(cards[cardIndex]), 12, {66.0f, y + 29.0f}, cardRarityColor(cards[cardIndex]), 186.0f);
         }
-        if (cards.size() > VisibleCardRows)
+        if (visibleCardIndices.size() > VisibleCardRows)
         {
-            drawText(window, font, fmt::format("{}-{} of {}  mouse wheel", listOffset + 1, lastVisible, cards.size()), 12, {46.0f, 624.0f}, Muted, 220.0f);
+            drawText(window, font, fmt::format("{}-{} of {}  mouse wheel", listOffset + 1, lastVisible, visibleCardIndices.size()), 12, {46.0f, 624.0f}, Muted, 220.0f);
         }
         copyButton.draw(window);
         newButton.draw(window);
