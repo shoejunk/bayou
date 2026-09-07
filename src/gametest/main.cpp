@@ -1088,6 +1088,32 @@ int main(int argc, char** argv)
               edgePushPieces[0].health == 7,
           "board edge prevents the remaining push distance and converts it to damage");
 
+    Piece pullAttacker;
+    pullAttacker.id = 16;
+    pullAttacker.owner = 1;
+    pullAttacker.row = 3;
+    pullAttacker.column = 2;
+    Piece pullTarget;
+    pullTarget.id = 17;
+    pullTarget.owner = 2;
+    pullTarget.row = 3;
+    pullTarget.column = 7;
+    std::vector<Piece> pullPieces = {pullAttacker, pullTarget};
+    const PullResult pullResult = applyActionPull(
+        pullPieces,
+        pullTarget.id,
+        pullAttacker.id);
+    check(pullResult.movedSquares == 4 &&
+              pullPieces[1].row == 3 && pullPieces[1].column == 3 &&
+              piecesAreAdjacent(pullPieces[0], pullPieces[1]),
+          "pull draws a surviving target toward the attacker until adjacent");
+
+    ActionProfile nonRangedPull = horizontal;
+    nonRangedPull.pull = true;
+    profilePiece.actions = {nonRangedPull};
+    check(!resolvePieceAction({profilePiece}, holes, profilePiece, 3, 4).pull,
+          "pull is only active on ranged actions");
+
     ActionProfile stateOne = horizontal;
     stateOne.state = 1;
     profilePiece.actions = {stateOne};
@@ -1483,6 +1509,7 @@ int main(int argc, char** argv)
     encodedCard.actions[0].targetFilter = {"corrupt", "armored"};
     encodedCard.actions[0].repeat = 2;
     encodedCard.actions[0].infest = "Infesting Unit";
+    encodedCard.actions[0].pull = true;
     const GameCard decodedCard = toGameCard(encodedCard);
     check(decodedCard.actions.size() == 1 &&
               decodedCard.traits == encodedCard.traits &&
@@ -1494,6 +1521,7 @@ int main(int argc, char** argv)
               decodedCard.actions[0].push == 3 &&
               decodedCard.actions[0].repeat == 2 &&
               decodedCard.actions[0].infest == encodedCard.actions[0].infest &&
+              decodedCard.actions[0].pull &&
               decodedCard.actions[0].targetFilter == encodedCard.actions[0].targetFilter &&
               decodedCard.actions[0].canMove &&
               decodedCard.actions[0].canAttack &&
@@ -1540,6 +1568,7 @@ int main(int argc, char** argv)
               roundTrippedAction.control == 3 &&
               roundTrippedAction.repeat == 2 &&
               roundTrippedAction.infest == encodedHealingAction.infest &&
+              roundTrippedAction.pull == encodedHealingAction.pull &&
               roundTrippedAction.targetFilter == encodedHealingAction.targetFilter,
           "card-server action serialization keeps healing, push, repeat, target-filter, and infest data");
 
@@ -1572,6 +1601,7 @@ int main(int argc, char** argv)
     bool currentActionsIncludeControl = false;
     bool currentActionsIncludeRepeat = false;
     bool currentActionsIncludeInfest = false;
+    bool currentActionsIncludePull = false;
     check(card_data::readCardListHeader(
               currentCardListHeader,
               currentCardCount,
@@ -1579,10 +1609,11 @@ int main(int argc, char** argv)
               &currentActionsIncludeNextState,
               &currentActionsIncludeControl,
               &currentActionsIncludeRepeat,
-              &currentActionsIncludeInfest) &&
+              &currentActionsIncludeInfest,
+              &currentActionsIncludePull) &&
               currentCardCount == 3 && !currentCardFormatIsLegacy &&
               currentActionsIncludeNextState && currentActionsIncludeControl && currentActionsIncludeRepeat &&
-              currentActionsIncludeInfest,
+              currentActionsIncludeInfest && currentActionsIncludePull,
           "versioned card-list headers select the traits-and-keywords format");
 
     sf::Packet previousCardListHeader;
@@ -1594,6 +1625,7 @@ int main(int argc, char** argv)
     bool previousActionsIncludeControl = true;
     bool previousActionsIncludeRepeat = true;
     bool previousActionsIncludeInfest = true;
+    bool previousActionsIncludePull = true;
     check(card_data::readCardListHeader(
               previousCardListHeader,
               previousCardCount,
@@ -1601,10 +1633,11 @@ int main(int argc, char** argv)
               &previousActionsIncludeNextState,
               &previousActionsIncludeControl,
               &previousActionsIncludeRepeat,
-              &previousActionsIncludeInfest) &&
+              &previousActionsIncludeInfest,
+              &previousActionsIncludePull) &&
               previousCardCount == 0 && !previousCardFormatIsLegacy &&
               !previousActionsIncludeNextState && !previousActionsIncludeControl && !previousActionsIncludeRepeat &&
-              !previousActionsIncludeInfest,
+              !previousActionsIncludeInfest && !previousActionsIncludePull,
           "schema-six card lists remain readable with next state defaulting to state");
 
     card_data::Card limitedUnit;
@@ -1660,6 +1693,7 @@ int main(int argc, char** argv)
     serializedCard.actions[0].heal = 3;
     serializedCard.actions[0].nextState = 4;
     serializedCard.actions[0].control = 3;
+    serializedCard.actions[0].pull = true;
     sf::Packet cardPacket;
     writeGameCard(cardPacket, serializedCard);
     GameCard roundTrippedCard;
@@ -1671,6 +1705,7 @@ int main(int argc, char** argv)
               roundTrippedCard.actions[0].nextState == 4 &&
               roundTrippedCard.actions[0].push == 3 &&
               roundTrippedCard.actions[0].control == 3 &&
+              roundTrippedCard.actions[0].pull &&
               roundTrippedCard.actions[0].infest == serializedCard.actions[0].infest &&
               roundTrippedCard.actions[0].targetFilter == serializedCard.actions[0].targetFilter &&
               roundTrippedCard.traits == encodedCard.traits &&
@@ -1743,6 +1778,7 @@ int main(int argc, char** argv)
         serializedPiece.actions[0].push = 3;
         serializedPiece.actions[0].nextState = 5;
         serializedPiece.actions[0].control = 4;
+        serializedPiece.actions[0].pull = true;
         serializedPiece.actions[0].infest = "Serialized Action Infest";
         serializedPiece.actions[0].targetFilter = {"fey", "warded"};
     }
@@ -1756,6 +1792,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.actions[0].push == 3 &&
               roundTrippedPiece.actions[0].nextState == 5 &&
               roundTrippedPiece.actions[0].control == 4 &&
+              roundTrippedPiece.actions[0].pull &&
               roundTrippedPiece.actions[0].infest == serializedPiece.actions[0].infest &&
               roundTrippedPiece.actions[0].targetFilter == serializedPiece.actions[0].targetFilter &&
               roundTrippedPiece.traits == serializedPiece.traits &&
@@ -2670,6 +2707,51 @@ int main(int argc, char** argv)
               pushedVictim->column == pushVictimHome.second &&
               pushEngine.snapshotFor(1).status.find("3 extra collision damage") != std::string::npos,
           "authoritative attacks apply blocked push damage after their base damage");
+
+    card_data::Card pullHeroCard;
+    pullHeroCard.title = "Pull Hero";
+    pullHeroCard.type = "Hero";
+    pullHeroCard.integerValues = {{"health", 10}};
+    card_data::Action pullShot;
+    pullShot.name = "Grappling Shot";
+    pullShot.kind = "ranged";
+    pullShot.pattern = "none";
+    pullShot.minRange = 1;
+    pullShot.maxRange = 7;
+    pullShot.damage = 1;
+    pullShot.canMove = false;
+    pullShot.canAttack = true;
+    pullShot.pull = true;
+    pullHeroCard.actions = {pullShot};
+    card_data::Card pullVictimCard = pullHeroCard;
+    pullVictimCard.title = "Pull Victim";
+    pullVictimCard.actions.clear();
+
+    GameEngine pullEngine(33, {pullHeroCard, pullVictimCard});
+    pullEngine.submitDeck(1, {pullHeroCard});
+    pullEngine.submitDeck(2, {pullVictimCard});
+    const auto pullAttackerHome = homeSquares(1)[0];
+    const auto pullVictimHome = homeSquares(2)[0];
+    pullEngine.placeHero(1, 0, pullAttackerHome.first, pullAttackerHome.second);
+    pullEngine.placeHero(2, 0, pullVictimHome.first, pullVictimHome.second);
+    const int pullAttackerId = pullEngine.boardPieces().front().id;
+    check(pullEngine.attackPiece(
+              1,
+              pullAttackerId,
+              pullVictimHome.first,
+              pullVictimHome.second),
+          "authoritative ranged pull attack is accepted");
+    const auto pulledVictim = std::find_if(
+        pullEngine.boardPieces().begin(),
+        pullEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Pull Victim"; });
+    check(pulledVictim != pullEngine.boardPieces().end() &&
+              pulledVictim->health == 9 &&
+              pulledVictim->row == pullAttackerHome.first &&
+              pulledVictim->column == pullAttackerHome.second + 1 &&
+              piecesAreAdjacent(pullEngine.boardPieces().front(), *pulledVictim) &&
+              pullEngine.snapshotFor(1).status.find("pulled targets 6 square(s)") != std::string::npos,
+          "authoritative ranged pull places the surviving enemy adjacent to its attacker");
 
     card_data::Card controlHeroCard;
     controlHeroCard.title = "Control Hero";

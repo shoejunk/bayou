@@ -34,6 +34,7 @@ constexpr int ActionHealValue = 3;
 constexpr int ActionStatusValue = 3;
 constexpr int ActionControlValue = 6;
 constexpr int ActionPushValue = 2;
+constexpr int ActionPullValue = 4;
 constexpr int ActionReachValue = 2;
 constexpr int ControlledSquareValue = 7;
 constexpr int HiddenPieceValue = 25;
@@ -157,7 +158,7 @@ int pieceActionPower(const Piece& piece)
         }
         int power = action.damage * ActionDamageValue + action.heal * ActionHealValue +
             action.statusTurns * ActionStatusValue + action.control * ActionControlValue +
-            action.push * ActionPushValue;
+            action.push * ActionPushValue + (action.pull ? ActionPullValue : 0);
         if (action.canMove)
         {
             power += std::min(action.maxRange, 4) * ActionReachValue;
@@ -556,7 +557,7 @@ std::vector<AiCandidate> generateCandidates(
                 {
                     order = 200 + resolution.damage * 12 + resolution.heal * 8 +
                         resolution.statusTurns * 10 + resolution.control * 30 +
-                        resolution.push * 6;
+                        resolution.push * 6 + (resolution.pull ? 12 : 0);
                     for (int targetId : resolution.targetIds)
                     {
                         const Piece* target = pieceById(targetId);

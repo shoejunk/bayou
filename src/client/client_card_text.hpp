@@ -27,6 +27,7 @@ struct ActionDescription
     int cooldown = 0;
     int control = 0;
     int repeat = 0;
+    bool pull = false;
     std::string infest;
 };
 

@@ -235,6 +235,7 @@ struct ActionResolution
     int cooldownTurns = 0;
     int control = 0;
     int push = 0;
+    bool pull = false;
     int repeat = 0;
     int stagingRow = 0;
     int stagingColumn = 0;
@@ -472,6 +473,7 @@ inline ActionResolution resolvePieceAction(
         {
             continue;
         }
+        const ActionKind kind = static_cast<ActionKind>(action.kind);
 
         ActionResolution candidate;
         candidate.actionIndex = static_cast<int>(index);
@@ -482,11 +484,11 @@ inline ActionResolution resolvePieceAction(
         candidate.cooldownTurns = action.cooldownTurns;
         candidate.control = action.control;
         candidate.push = action.push;
+        candidate.pull = action.pull && kind == ActionKind::Ranged;
         candidate.repeat = action.repeat;
         candidate.stagingRow = piece.row;
         candidate.stagingColumn = piece.column;
 
-        const ActionKind kind = static_cast<ActionKind>(action.kind);
         if (kind == ActionKind::Teleport)
         {
             if (action.canMove && destination == nullptr && (deltaRow != 0 || deltaColumn != 0))
@@ -672,10 +674,12 @@ inline ActionResolution resolvePieceAction(
         }
 
         const int candidateImpact = candidate.attacks
-            ? std::max(candidate.damage, candidate.heal) + candidate.statusTurns + candidate.control + candidate.push
+            ? std::max(candidate.damage, candidate.heal) + candidate.statusTurns + candidate.control + candidate.push +
+                (candidate.pull ? 1 : 0)
             : 0;
         const int bestImpact = best.attacks
-            ? std::max(best.damage, best.heal) + best.statusTurns + best.control + best.push
+            ? std::max(best.damage, best.heal) + best.statusTurns + best.control + best.push +
+                (best.pull ? 1 : 0)
             : 0;
         if (!best.legal || candidateImpact > bestImpact)
         {
@@ -925,6 +929,67 @@ inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
         std::max(second.column - (first.column + first.width - 1),
                  first.column - (second.column + second.width - 1)));
     return std::max(rowGap, columnGap) == 1;
+}
+
+struct PullResult
+{
+    int movedSquares = 0;
+};
+
+// Pulls a surviving target toward the attacker until their footprints are
+// adjacent. The target follows the nearest eight-way direction and stops
+// early if another piece blocks that route.
+inline PullResult applyActionPull(
+    std::vector<Piece>& pieces,
+    int targetId,
+    int attackerId)
+{
+    PullResult result;
+    const auto attackerIt = std::find_if(
+        pieces.begin(),
+        pieces.end(),
+        [attackerId](const Piece& piece) { return piece.id == attackerId; });
+    const auto targetIt = std::find_if(
+        pieces.begin(),
+        pieces.end(),
+        [targetId](const Piece& piece) { return piece.id == targetId; });
+    if (attackerIt == pieces.end() || targetIt == pieces.end() || attackerIt == targetIt)
+    {
+        return result;
+    }
+
+    const Piece& attacker = *attackerIt;
+    Piece& target = *targetIt;
+    while (!piecesAreAdjacent(attacker, target))
+    {
+        const int nearestAttackerRow = std::clamp(
+            target.row, attacker.row, attacker.row + attacker.height - 1);
+        const int nearestAttackerColumn = std::clamp(
+            target.column, attacker.column, attacker.column + attacker.width - 1);
+        const int nearestTargetRow = std::clamp(
+            nearestAttackerRow, target.row, target.row + target.height - 1);
+        const int nearestTargetColumn = std::clamp(
+            nearestAttackerColumn, target.column, target.column + target.width - 1);
+        const int stepRow = (nearestAttackerRow > nearestTargetRow) -
+            (nearestAttackerRow < nearestTargetRow);
+        const int stepColumn = (nearestAttackerColumn > nearestTargetColumn) -
+            (nearestAttackerColumn < nearestTargetColumn);
+        if (stepRow == 0 && stepColumn == 0)
+        {
+            break;
+        }
+
+        const int nextRow = target.row + stepRow;
+        const int nextColumn = target.column + stepColumn;
+        if (!pieceFootprintFree(pieces, target, nextRow, nextColumn))
+        {
+            break;
+        }
+        target.row = nextRow;
+        target.column = nextColumn;
+        ++result.movedSquares;
+    }
+    return result;
 }
 
 // Reveal is a passive keyword: at the end of its owner's turn, every adjacent

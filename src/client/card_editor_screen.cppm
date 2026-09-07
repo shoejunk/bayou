@@ -983,6 +983,7 @@ private:
     InputBox actionPushField;
     InputBox actionControlField;
     InputBox actionRepeatField;
+    InputBox actionPullField;
     InputBox actionInfestField;
     std::vector<InputBox> actionTargetFilterFields;
     EditorButton backButton;
@@ -1102,6 +1103,7 @@ private:
         bool actionIncludesControl = false;
         bool actionIncludesRepeat = false;
         bool actionIncludesInfest = false;
+        bool actionIncludesPull = false;
         if (!card_data::readCardListHeader(
                 response,
                 count,
@@ -1109,7 +1111,8 @@ private:
                 &actionIncludesNextState,
                 &actionIncludesControl,
                 &actionIncludesRepeat,
-                &actionIncludesInfest))
+                &actionIncludesInfest,
+                &actionIncludesPull))
         {
             socket.disconnect();
             return {false, "Unsupported card list payload"};
@@ -1127,7 +1130,8 @@ private:
                     actionIncludesNextState,
                     actionIncludesControl,
                     actionIncludesRepeat,
-                    actionIncludesInfest))
+                    actionIncludesInfest,
+                    actionIncludesPull))
             {
                 socket.disconnect();
                 return {false, "Invalid card list payload"};
@@ -1385,9 +1389,10 @@ private:
         actionLineOfSightField = makeCompactField("0", {210.0f, 32.0f});
         actionStatusTurnsField = makeCompactField("0", {210.0f, 32.0f});
         actionCooldownTurnsField = makeCompactField("0", {210.0f, 32.0f});
-        actionPushField = makeCompactField("0", {140.0f, 32.0f});
-        actionControlField = makeCompactField("0", {140.0f, 32.0f});
-        actionRepeatField = makeCompactField("0", {140.0f, 32.0f});
+        actionPushField = makeCompactField("0", {110.0f, 32.0f});
+        actionControlField = makeCompactField("0", {110.0f, 32.0f});
+        actionRepeatField = makeCompactField("0", {110.0f, 32.0f});
+        actionPullField = makeCompactField("0", {110.0f, 32.0f});
         actionInfestField = makeCompactField("", {294.0f, 32.0f});
         if (const std::optional<std::filesystem::path> path = resolveAssetImagePath("ui/action-link.png"))
         {
@@ -1509,6 +1514,7 @@ private:
                 &actionPushField,
                 &actionControlField,
                 &actionRepeatField,
+                &actionPullField,
                 &actionInfestField,
             };
             for (InputBox& field : actionTargetFilterFields)
@@ -2016,6 +2022,7 @@ private:
             &actionPushField,
             &actionControlField,
             &actionRepeatField,
+            &actionPullField,
             &actionInfestField,
         };
         for (const InputBox* field : fields)
@@ -2322,6 +2329,7 @@ private:
         action.control = std::max(0, formInt(actionControlField, 0));
         action.repeat = std::max(0, formInt(actionRepeatField, 0));
         action.infest = trim(actionInfestField.getValue());
+        action.pull = formBool(actionPullField);
         for (const InputBox& field : actionTargetFilterFields)
         {
             const std::string value = trim(field.getValue());
@@ -2355,6 +2363,7 @@ private:
         actionPushField.setValue("0");
         actionControlField.setValue("0");
         actionRepeatField.setValue("0");
+        actionPullField.setValue("0");
         actionInfestField.setValue("");
         actionTargetFilterFields.clear();
         actionTargetFilterOffset = 0;
@@ -2393,6 +2402,7 @@ private:
         actionPushField.setValue(std::to_string(action.push));
         actionControlField.setValue(std::to_string(action.control));
         actionRepeatField.setValue(std::to_string(action.repeat));
+        actionPullField.setValue(action.pull ? "1" : "0");
         actionInfestField.setValue(action.infest);
         actionTargetFilterFields.clear();
         for (const std::string& value : action.targetFilter)
@@ -3984,6 +3994,7 @@ private:
         y = drawInstructionBullet(window, "Can move lets the action target an empty destination. With Can attack enabled, positive Damage targets and hurts enemies, while positive Heal targets and restores friendlies up to maximum health. Damage and Heal must not be negative.", y);
         y = drawInstructionBullet(window, "Target filter entries restrict attacks, healing, and status effects. A target must match every listed string across its Traits and Keywords; an empty filter accepts any otherwise-valid target.", y);
         y = drawInstructionBullet(window, "Push moves each surviving enemy target up to that many squares directly away from the attack's staging square. Blocked push distance becomes 1 extra damage per prevented square.", y);
+        y = drawInstructionBullet(window, "Pull on a ranged attack draws each surviving enemy target toward the attacker until it is adjacent. The pull flag is ignored on other action kinds.", y);
         y = drawInstructionBullet(window, "Control temporarily changes an attacked enemy piece to the attacking player for that many later turns of the attacking player. The attack turn is not counted; the original controller regains it on their following turn.", y);
         y = drawInstructionBullet(window, "Minimum and maximum range are per action, so a card can mix short moves, long moves, ranged attacks, and state-specific actions.", y);
         y = drawInstructionParagraph(window, "For blocking slide and capture actions, every square along the path must be empty. Pass-through ignores blockers. Line of sight applies blocker checks to ranged attacks.", y + 5.0f, sf::Color(198, 210, 224));
@@ -4524,8 +4535,9 @@ private:
         actionStatusTurnsField.setPosition({340.0f, 580.0f});
         actionCooldownTurnsField.setPosition({600.0f, 580.0f});
         actionPushField.setPosition({340.0f, 638.0f});
-        actionControlField.setPosition({500.0f, 638.0f});
-        actionRepeatField.setPosition({660.0f, 638.0f});
+        actionControlField.setPosition({460.0f, 638.0f});
+        actionRepeatField.setPosition({580.0f, 638.0f});
+        actionPullField.setPosition({700.0f, 638.0f});
         actionInfestField.setPosition({870.0f, InfestFieldTop});
         layoutActionTargetFilterControls();
     }
@@ -4553,8 +4565,9 @@ private:
             {"Status turns", {340.0f, 556.0f}},
             {"Cooldown turns", {600.0f, 556.0f}},
             {"Push", {340.0f, 614.0f}},
-            {"Control", {500.0f, 614.0f}},
-            {"Repeat", {660.0f, 614.0f}},
+            {"Control", {460.0f, 614.0f}},
+            {"Repeat", {580.0f, 614.0f}},
+            {"Pull", {700.0f, 614.0f}},
         };
         for (const auto& [label, position] : labels)
         {

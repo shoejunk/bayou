@@ -255,6 +255,7 @@ struct ActionProfile
     int push = 0;
     std::vector<std::string> targetFilter;
     std::string infest;
+    bool pull = false;
 };
 
 inline int actionNextState(const ActionProfile& action)
@@ -497,6 +498,7 @@ inline GameCard toGameCard(const card_data::Card& card)
         action.push = std::max(0, definition.push);
         action.targetFilter = definition.targetFilter;
         action.infest = definition.infest;
+        action.pull = definition.pull;
         g.actions.push_back(action);
         if (actionLooksLikeAttackingMove(definition))
         {
@@ -966,7 +968,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
                << action.damage << action.heal << action.statusTurns << action.cooldownTurns << action.control
                << action.repeat << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
         card_data::writeStringVector(packet, action.targetFilter);
-        packet << action.infest;
+        packet << action.infest << action.pull;
     }
     packet << card.ability << card.summonTitle << card.rebirthTitle;
     card_data::writeStringVector(packet, card.abilityLabels);
@@ -1007,7 +1009,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
         {
             return false;
         }
-        packet >> action.infest;
+        packet >> action.infest >> action.pull;
         if (!packet)
         {
             return false;
@@ -1050,7 +1052,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
                << action.damage << action.heal << action.statusTurns << action.cooldownTurns << action.control
                << action.repeat << action.canMove << action.canAttack << action.passThrough << action.lineOfSight << action.push;
         card_data::writeStringVector(packet, action.targetFilter);
-        packet << action.infest;
+        packet << action.infest << action.pull;
     }
     card_data::writeStringVector(packet, piece.abilityLabels);
 }
@@ -1092,7 +1094,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
         {
             return false;
         }
-        packet >> action.infest;
+        packet >> action.infest >> action.pull;
         if (!packet)
         {
             return false;

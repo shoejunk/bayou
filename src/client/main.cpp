@@ -5879,6 +5879,12 @@ int main(int argc, char** argv)
                 drawText(window, font, repeatLabel, 13, {x, y + 1.0f}, row.color);
                 x += measuredTextWidth(repeatLabel, 13);
             }
+            if (action.pull)
+            {
+                x += 8.0f;
+                drawText(window, font, "Pull", 13, {x, y + 1.0f}, row.color);
+                x += measuredTextWidth("Pull", 13);
+            }
             if (!action.infest.empty())
             {
                 x += 8.0f;
@@ -6532,6 +6538,7 @@ int main(int argc, char** argv)
         bool anyTargetWasHidden = false;
         int pushedSquares = 0;
         int pushCollisionDamage = 0;
+        int pulledSquares = 0;
         const int attackDamage = action.damage +
             game_data::pieceEnchantmentDamageBonus(next.enchantments, attackerId);
         const std::string infestationTitle = action.actionIndex >= 0 &&
@@ -6618,6 +6625,14 @@ int main(int argc, char** argv)
                         anyTargetInfestationSpawned =
                             anyTargetInfestationSpawned || destruction.wasInfestation;
                         anyTargetDestroyed = anyTargetDestroyed || !destruction.replacementSpawned;
+                    }
+                    if (action.pull)
+                    {
+                        const game_data::PullResult pullResult = game_data::applyActionPull(
+                            next.pieces,
+                            effectiveTargetId,
+                            attackerId);
+                        pulledSquares += pullResult.movedSquares;
                     }
                     if (action.control > 0)
                     {
@@ -6740,6 +6755,9 @@ int main(int argc, char** argv)
             if (pushCollisionDamage > 0)
                 next.status += " and dealt " + std::to_string(pushCollisionDamage) +
                     " extra collision damage";
+            if (pulledSquares > 0)
+                next.status += " and pulled targets " + std::to_string(pulledSquares) +
+                    " square(s)";
             if (effectiveDisabledTurns > 0)
             {
                 next.status += " and disabled surviving targets for " +

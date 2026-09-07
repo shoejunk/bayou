@@ -1366,6 +1366,7 @@ private:
         bool anyTargetWasHidden = false;
         int pushedSquares = 0;
         int pushCollisionDamage = 0;
+        int pulledSquares = 0;
         const int attackDamage = action.damage +
             pieceEnchantmentDamageBonus(enchantments, attackerId);
         const std::string infestationTitle = action.actionIndex >= 0 &&
@@ -1445,6 +1446,14 @@ private:
                         anyTargetInfestationSpawned =
                             anyTargetInfestationSpawned || destruction.wasInfestation;
                         anyTargetDestroyed = anyTargetDestroyed || !destruction.replacementSpawned;
+                    }
+                    if (action.pull)
+                    {
+                        const PullResult pullResult = applyActionPull(
+                            pieces,
+                            effectiveTargetId,
+                            attackerId);
+                        pulledSquares += pullResult.movedSquares;
                     }
                     if (action.control > 0)
                     {
@@ -1601,6 +1610,10 @@ private:
                 result += fmt::format(
                     " and dealt {} extra collision damage",
                     pushCollisionDamage);
+            }
+            if (pulledSquares > 0)
+            {
+                result += fmt::format(" and pulled targets {} square(s)", pulledSquares);
             }
             if (effectiveDisabledTurns > 0)
             {
