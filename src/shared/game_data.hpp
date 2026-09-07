@@ -332,7 +332,7 @@ inline std::vector<std::string> cardList(const card_data::Card& card, const std:
 
 inline std::uint8_t parseActionKind(const std::string& value)
 {
-    if (value == "ranged" || value == "range")
+    if (value == "ranged")
     {
         return static_cast<std::uint8_t>(ActionKind::Ranged);
     }

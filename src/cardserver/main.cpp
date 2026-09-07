@@ -295,6 +295,9 @@ private:
         {
             database->exec("ALTER TABLE actions ADD COLUMN pull INTEGER NOT NULL DEFAULT 0");
         }
+        // The old editor accepted "range" as a spelling for ranged actions.
+        // Canonicalize existing rows before the parser stops accepting it.
+        database->exec("UPDATE actions SET kind = 'ranged' WHERE kind = 'range'");
         database->exec(
             "UPDATE actions SET heal = MAX(heal, -damage), damage = 0 WHERE damage < 0");
         database->exec(

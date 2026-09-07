@@ -1114,17 +1114,16 @@ int main(int argc, char** argv)
     check(!resolvePieceAction({profilePiece}, holes, profilePiece, 3, 4).pull,
           "pull is only active on ranged actions");
 
-    card_data::Card rangeAliasCard;
-    card_data::Action rangeAliasAction;
-    rangeAliasAction.kind = "range";
-    rangeAliasAction.canAttack = true;
-    rangeAliasAction.pull = true;
-    rangeAliasCard.actions = {rangeAliasAction};
-    const GameCard rangeAliasGameCard = toGameCard(rangeAliasCard);
-    check(rangeAliasGameCard.actions.size() == 1 &&
-              rangeAliasGameCard.actions[0].kind == static_cast<std::uint8_t>(ActionKind::Ranged) &&
-              rangeAliasGameCard.actions[0].pull,
-          "range action kinds resolve as ranged actions and retain pull");
+    card_data::Card invalidRangeCard;
+    card_data::Action invalidRangeAction;
+    invalidRangeAction.kind = "range";
+    invalidRangeAction.canAttack = true;
+    invalidRangeAction.pull = true;
+    invalidRangeCard.actions = {invalidRangeAction};
+    const GameCard invalidRangeGameCard = toGameCard(invalidRangeCard);
+    check(invalidRangeGameCard.actions.size() == 1 &&
+              invalidRangeGameCard.actions[0].kind == static_cast<std::uint8_t>(ActionKind::Slide),
+          "range action kinds are no longer treated as ranged actions");
 
     ActionProfile stateOne = horizontal;
     stateOne.state = 1;
