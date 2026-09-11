@@ -54,6 +54,54 @@ public:
         int initialHealth = -1;
     };
 
+    enum class ScenarioObjectiveKind : std::uint8_t
+    {
+        None,
+        DefeatOriginalOwner,
+        DefeatPiece,
+        ReachSquare,
+        ControlSquares
+    };
+
+    enum class ScenarioObjectiveFailure : std::uint8_t
+    {
+        None,
+        RequiredPieceMissing,
+        ObjectivePieceMissing,
+        ForceEliminated
+    };
+
+    // Optional terminal rules for authored or generated scenarios. These are
+    // deliberately expressed in engine terms rather than campaign terms so
+    // any local scenario can use the same authoritative adjudication.
+    struct ScenarioObjective
+    {
+        ScenarioObjectiveKind kind = ScenarioObjectiveKind::None;
+        int successPlayer = 1;
+        int opposingOriginalOwner = 2;
+        int targetPieceId = 0;
+        int targetRow = -1;
+        int targetColumn = -1;
+        int controlAmount = 0;
+        // Zero disables whole-force defeat. Otherwise the scenario is lost
+        // when no piece with this original owner remains.
+        int requiredForceOriginalOwner = 0;
+        std::vector<int> requiredSurvivorPieceIds;
+    };
+
+    struct ScenarioObjectiveProgress
+    {
+        bool configured = false;
+        bool valid = false;
+        bool complete = false;
+        bool failed = false;
+        int current = 0;
+        int required = 0;
+        int remaining = 0;
+        int failedPieceId = 0;
+        ScenarioObjectiveFailure failure = ScenarioObjectiveFailure::None;
+    };
+
     GameEngine(unsigned int seed, const std::vector<card_data::Card>& cardLibrary)
         : rng(seed)
     {
@@ -73,6 +121,14 @@ public:
     int currentPlayer() const { return activePlayer; }
     int commandingPiece() const { return commandingPieceId; }
     int relentlessPiece() const { return relentlessPieceId; }
+    const ScenarioObjectiveProgress& scenarioObjectiveProgress() const
+    {
+        return scenarioObjectiveProgressValue;
+    }
+    const ScenarioObjective& scenarioObjective() const
+    {
+        return scenarioObjectiveValue;
+    }
     const std::vector<Piece>& boardPieces() const { return pieces; }
     const std::vector<Enchantment>& boardEnchantments() const { return enchantments; }
     const std::array<std::uint8_t, BoardSquares>& boardControl() const { return control; }
@@ -87,7 +143,7 @@ public:
     // Seeds an authored board while preserving the ordinary match rules for
     // every action taken after setup. This is used by Story Mode and by tests;
     // multiplayer setup continues through submitDeck/placeHero/beginPlay.
-    void loadScenario(
+    bool loadScenario(
         const std::vector<ScenarioPiece>& scenarioPieces,
         std::vector<GameCard> playerOneHand = {},
         std::vector<GameCard> playerTwoHand = {},
@@ -99,6 +155,41 @@ public:
         std::vector<GameCard> playerOneDrawPile = {},
         std::vector<GameCard> playerTwoDrawPile = {})
     {
+        // Validate the complete authored geometry before mutating any engine
+        // state. Silently dropping an off-board or overlapping piece can turn
+        // a broken Story setup into a different, falsely playable mission.
+        std::array<bool, BoardSquares> occupied{};
+        for (const ScenarioPiece& scenarioPiece : scenarioPieces)
+        {
+            const GameCard& card = scenarioPiece.card;
+            if (scenarioPiece.owner < 1 || scenarioPiece.owner > 2 ||
+                card.width < 1 || card.height < 1 ||
+                card.width > BoardSize || card.height > BoardSize ||
+                scenarioPiece.row < 0 || scenarioPiece.column < 0 ||
+                scenarioPiece.row > BoardSize - card.height ||
+                scenarioPiece.column > BoardSize - card.width)
+            {
+                return false;
+            }
+            for (int row = scenarioPiece.row;
+                 row < scenarioPiece.row + card.height;
+                 ++row)
+            {
+                for (int column = scenarioPiece.column;
+                     column < scenarioPiece.column + card.width;
+                     ++column)
+                {
+                    bool& squareOccupied =
+                        occupied[static_cast<std::size_t>(squareIndex(row, column))];
+                    if (squareOccupied)
+                    {
+                        return false;
+                    }
+                    squareOccupied = true;
+                }
+            }
+        }
+
         phaseValue = Phase::Playing;
         activePlayer = std::clamp(firstPlayer, 1, 2);
         winnerValue = 0;
@@ -112,6 +203,8 @@ public:
         commandingPieceId = 0;
         relentlessPieceId = 0;
         relentlessActionKeepsTurn = false;
+        scenarioObjectiveValue = {};
+        scenarioObjectiveProgressValue = {};
 
         for (int playerNumber = 1; playerNumber <= 2; ++playerNumber)
         {
@@ -143,11 +236,6 @@ public:
 
         for (const ScenarioPiece& scenarioPiece : scenarioPieces)
         {
-            if (scenarioPiece.owner < 1 || scenarioPiece.owner > 2 ||
-                !inBounds(scenarioPiece.row, scenarioPiece.column))
-            {
-                continue;
-            }
             rememberSummonCard(scenarioPiece.card);
             spawnPiece(
                 scenarioPiece.owner,
@@ -172,6 +260,7 @@ public:
             }
         }
         status = std::move(scenarioStatus);
+        return true;
     }
 
     // Story scenarios can depend on cards that are not initially in either
@@ -179,6 +268,80 @@ public:
     void registerScenarioCard(const GameCard& card)
     {
         rememberSummonCard(card);
+    }
+
+    bool configureScenarioObjective(ScenarioObjective objective)
+    {
+        scenarioObjectiveValue = std::move(objective);
+        scenarioObjectiveProgressValue = {};
+        scenarioObjectiveProgressValue.configured = true;
+
+        const auto validPlayer = [](int player) {
+            return player == 1 || player == 2;
+        };
+        const auto liveIdentity = [&](int pieceId) {
+            return pieceId > 0 && std::any_of(
+                pieces.begin(), pieces.end(),
+                [&](const Piece& piece) { return piece.id == pieceId; });
+        };
+
+        bool valid = phaseValue == Phase::Playing &&
+            validPlayer(scenarioObjectiveValue.successPlayer) &&
+            (scenarioObjectiveValue.requiredForceOriginalOwner == 0 ||
+             validPlayer(scenarioObjectiveValue.requiredForceOriginalOwner));
+        for (int pieceId : scenarioObjectiveValue.requiredSurvivorPieceIds)
+        {
+            valid = valid && liveIdentity(pieceId);
+        }
+        if (scenarioObjectiveValue.requiredForceOriginalOwner != 0)
+        {
+            valid = valid && std::any_of(
+                pieces.begin(), pieces.end(), [&](const Piece& piece) {
+                    return pieceOriginalOwner(piece) ==
+                        scenarioObjectiveValue.requiredForceOriginalOwner;
+                });
+        }
+
+        switch (scenarioObjectiveValue.kind)
+        {
+        case ScenarioObjectiveKind::None:
+            break;
+        case ScenarioObjectiveKind::DefeatOriginalOwner:
+            valid = valid && validPlayer(scenarioObjectiveValue.opposingOriginalOwner) &&
+                scenarioObjectiveValue.opposingOriginalOwner !=
+                    scenarioObjectiveValue.successPlayer &&
+                std::any_of(pieces.begin(), pieces.end(), [&](const Piece& piece) {
+                    return pieceOriginalOwner(piece) ==
+                        scenarioObjectiveValue.opposingOriginalOwner;
+                });
+            break;
+        case ScenarioObjectiveKind::DefeatPiece:
+            valid = valid && liveIdentity(scenarioObjectiveValue.targetPieceId);
+            break;
+        case ScenarioObjectiveKind::ReachSquare:
+            valid = valid && liveIdentity(scenarioObjectiveValue.targetPieceId) &&
+                inBounds(
+                    scenarioObjectiveValue.targetRow,
+                    scenarioObjectiveValue.targetColumn);
+            break;
+        case ScenarioObjectiveKind::ControlSquares:
+            valid = valid && scenarioObjectiveValue.controlAmount > 0 &&
+                scenarioObjectiveValue.controlAmount <= BoardSquares;
+            break;
+        }
+
+        scenarioObjectiveProgressValue.valid = valid;
+        if (!valid)
+        {
+            if (narrationEnabled)
+            {
+                status = "Scenario objective configuration is invalid.";
+            }
+            return false;
+        }
+
+        evaluateScenarioObjective();
+        return true;
     }
 
     void enableTimers()
@@ -292,6 +455,7 @@ public:
                 advanceTurn(fmt::format(
                     "Player {}'s turn timer expired.",
                     timedOutPlayer));
+                evaluateScenarioObjective();
                 transitioned = true;
             }
         }
@@ -320,28 +484,30 @@ public:
         }
     }
 
-    // Splits a submitted deck into a shuffled draw pile and a hero roster.
-    void submitDeck(int playerNumber, const std::vector<card_data::Card>& cards)
+    // Splits already-resolved cards into the same shuffled draw pile and hero
+    // roster used by ordinary multiplayer setup. Story capture fixtures call
+    // this entry point only after their reviewed definitions pass the same deck
+    // contract; connected matches continue to submit authoritative Card rows.
+    void submitResolvedDeck(int playerNumber, std::vector<GameCard> cards)
     {
         EnginePlayer& player = playerRef(playerNumber);
         player.drawPile.clear();
         player.foresightChoices.clear();
         player.heroesToPlace.clear();
 
-        for (const card_data::Card& card : cards)
+        for (GameCard& resolved : cards)
         {
-            GameCard resolved = toGameCard(card);
             rememberSummonCard(resolved);
-            if (isHeroCard(card))
+            if (resolved.type == "Hero")
             {
                 if (static_cast<int>(player.heroesToPlace.size()) < MaxHeroes)
                 {
-                    player.heroesToPlace.push_back(resolved);
+                    player.heroesToPlace.push_back(std::move(resolved));
                 }
             }
             else
             {
-                player.drawPile.push_back(resolved);
+                player.drawPile.push_back(std::move(resolved));
             }
         }
 
@@ -357,6 +523,19 @@ public:
             }
             status = "Place your heroes on your starting squares.";
         }
+    }
+
+    // Splits an authoritative submitted deck into a shuffled draw pile and a
+    // hero roster.
+    void submitDeck(int playerNumber, const std::vector<card_data::Card>& cards)
+    {
+        std::vector<GameCard> resolved;
+        resolved.reserve(cards.size());
+        for (const card_data::Card& card : cards)
+        {
+            resolved.push_back(toGameCard(card));
+        }
+        submitResolvedDeck(playerNumber, std::move(resolved));
     }
 
     bool placeHero(int playerNumber, int heroIndex, int row, int column)
@@ -422,6 +601,11 @@ public:
             setStatusFor(playerNumber, "The Relentless piece must act again or you must pass.");
             return false;
         }
+        if (commandingPieceId != 0)
+        {
+            setStatusFor(playerNumber, "Resolve Command with an adjacent piece or pass before playing a card.");
+            return false;
+        }
 
         EnginePlayer& player = playerRef(playerNumber);
         if (handIndex < 0 || handIndex >= static_cast<int>(player.hand.size()))
@@ -430,6 +614,16 @@ public:
         }
 
         const GameCard card = player.hand[static_cast<std::size_t>(handIndex)];
+        // Treat an incomplete catalog row as unplayable card data before
+        // affordability or targeting. This gives the same truthful reason at
+        // every resource total and guarantees no cost can ever be charged.
+        if (card.type == "Spell" && !isSupportedSpellEffect(card))
+        {
+            setStatusFor(
+                playerNumber,
+                "This spell has no defined game effect and cannot be played.");
+            return false;
+        }
         if (card.cost > player.resources)
         {
             setStatusFor(playerNumber, "Not enough Resources to play that card.");
@@ -455,8 +649,87 @@ public:
         {
             if (!footprintCanDeploy(playerNumber, card, targetRow, targetColumn, false))
             {
-                setStatusFor(playerNumber, "Units deploy onto an empty square you control.");
-                return false;
+                // The client correctly treats opposing hidden pieces as absent.
+                // If every otherwise-valid blocker is hidden, accept this as a
+                // real collision: the attempted card is spent and every blocker
+                // materializes stunned, matching ordinary movement collisions.
+                bool validControlledFootprint =
+                    targetRow >= 0 && targetColumn >= 0 &&
+                    targetRow + card.height <= BoardSize &&
+                    targetColumn + card.width <= BoardSize;
+                std::vector<int> hiddenBlockerIds;
+                for (int row = targetRow;
+                     validControlledFootprint && row < targetRow + card.height;
+                     ++row)
+                {
+                    for (int column = targetColumn;
+                         column < targetColumn + card.width;
+                         ++column)
+                    {
+                        if (control[static_cast<std::size_t>(squareIndex(row, column))] !=
+                            playerNumber)
+                        {
+                            validControlledFootprint = false;
+                            break;
+                        }
+                        const Piece* blocker = pieceAt(row, column);
+                        if (blocker == nullptr)
+                        {
+                            continue;
+                        }
+                        if (!blocker->hidden || blocker->owner == playerNumber)
+                        {
+                            validControlledFootprint = false;
+                            break;
+                        }
+                        if (std::find(
+                                hiddenBlockerIds.begin(),
+                                hiddenBlockerIds.end(),
+                                blocker->id) == hiddenBlockerIds.end())
+                        {
+                            hiddenBlockerIds.push_back(blocker->id);
+                        }
+                    }
+                }
+                if (!validControlledFootprint || hiddenBlockerIds.empty())
+                {
+                    setStatusFor(playerNumber, "Units deploy onto an empty square you control.");
+                    return false;
+                }
+
+                std::vector<std::string> hiddenBlockerNames;
+                for (int blockerId : hiddenBlockerIds)
+                {
+                    if (Piece* blocker = pieceById(blockerId))
+                    {
+                        hiddenBlockerNames.push_back(blocker->name);
+                        materializeRevealedPiece(*blocker);
+                    }
+                }
+                player.resources -= card.cost;
+                player.hand.erase(player.hand.begin() + handIndex);
+                recordPlayerMove(playerNumber);
+                recomputeControl();
+                if (narrationEnabled)
+                {
+                    std::string names;
+                    for (std::size_t index = 0; index < hiddenBlockerNames.size(); ++index)
+                    {
+                        if (index > 0)
+                        {
+                            names += index + 1 == hiddenBlockerNames.size() ? " and " : ", ";
+                        }
+                        names += hiddenBlockerNames[index];
+                    }
+                    status = fmt::format(
+                        "{} tried to deploy, but collided with hidden {}. The hidden piece{} materialized and became Disabled for {} next owner-turn activation; the card and its Resources were spent.",
+                        card.title,
+                        names,
+                        hiddenBlockerNames.size() == 1 ? "" : "s",
+                        hiddenBlockerNames.size() == 1 ? "its" : "their");
+                }
+                evaluateScenarioObjective();
+                return true;
             }
 
             spawnPiece(playerNumber, card, targetRow, targetColumn, false);
@@ -486,6 +759,7 @@ public:
         {
             status = fmt::format("Player {} played {}.", playerNumber, card.title);
         }
+        evaluateScenarioObjective();
         return true;
     }
 
@@ -500,9 +774,19 @@ public:
         {
             return false;
         }
-        if (relentlessPieceId != 0 && pendingRepeatPiece(playerNumber) == nullptr)
+        if (pendingRepeatPiece(playerNumber) != nullptr)
+        {
+            setStatusFor(playerNumber, "Finish the repeatable action or pass before discarding.");
+            return false;
+        }
+        if (relentlessPieceId != 0)
         {
             setStatusFor(playerNumber, "The Relentless piece must act again or you must pass.");
+            return false;
+        }
+        if (commandingPieceId != 0)
+        {
+            setStatusFor(playerNumber, "Resolve Command with an adjacent piece or pass before discarding.");
             return false;
         }
 
@@ -531,12 +815,19 @@ public:
         return true;
     }
 
-    bool movePiece(int playerNumber, int pieceId, int toRow, int toColumn)
+    bool movePiece(
+        int playerNumber,
+        int pieceId,
+        int toRow,
+        int toColumn,
+        int selectedActionIndex = -1)
     {
-        const bool accepted = performPieceAction(playerNumber, pieceId, toRow, toColumn);
+        const bool accepted = performPieceAction(
+            playerNumber, pieceId, toRow, toColumn, selectedActionIndex);
         if (accepted)
         {
             recordPlayerMove(playerNumber);
+            evaluateScenarioObjective();
         }
         return accepted;
     }
@@ -545,13 +836,15 @@ public:
         int playerNumber,
         int attackerId,
         int targetRow,
-        int targetColumn)
+        int targetColumn,
+        int selectedActionIndex = -1)
     {
         const bool accepted = performPieceAction(
-            playerNumber, attackerId, targetRow, targetColumn);
+            playerNumber, attackerId, targetRow, targetColumn, selectedActionIndex);
         if (accepted)
         {
             recordPlayerMove(playerNumber);
+            evaluateScenarioObjective();
         }
         return accepted;
     }
@@ -562,6 +855,7 @@ public:
         if (accepted)
         {
             recordPlayerMove(playerNumber);
+            evaluateScenarioObjective();
         }
         return accepted;
     }
@@ -579,8 +873,20 @@ private:
         }
 
         Piece* piece = pieceById(pieceId);
+        bool hiddenSummonCollision = false;
+        if (piece != nullptr && piece->owner == playerNumber &&
+            !piece->hasActed && pieceAbilityAvailable(*piece) &&
+            normalizedAbility(piece->ability) == "summon")
+        {
+            const auto [summonRow, summonColumn] = summonDestination(*piece);
+            const Piece* blocker = inBounds(summonRow, summonColumn)
+                ? pieceAt(summonRow, summonColumn)
+                : nullptr;
+            hiddenSummonCollision = blocker != nullptr && blocker->hidden &&
+                blocker->owner != playerNumber;
+        }
         if (piece == nullptr || piece->owner != playerNumber || piece->hasActed ||
-            !pieceAbilityAvailable(pieces, *piece))
+            (!pieceAbilityAvailable(pieces, *piece) && !hiddenSummonCollision))
         {
             return false;
         }
@@ -614,6 +920,7 @@ private:
         const std::string actingPieceName = piece->name;
         const int actingPieceId = piece->id;
         const std::string commanderName = commandedAction ? commander->name : std::string();
+        std::string hiddenAbilityCollisionName;
         if (piece->ability == "dig")
         {
             if (piece->abilityUses == 0)
@@ -646,13 +953,23 @@ private:
                 return false;
             }
             const auto [row, column] = summonDestination(*piece);
-            if (!pieceSummonDestinationFree(pieces, *piece))
+            Piece* summonBlocker = inBounds(row, column) ? pieceAt(row, column) : nullptr;
+            if (summonBlocker != nullptr && summonBlocker->hidden &&
+                summonBlocker->owner != playerNumber)
+            {
+                hiddenAbilityCollisionName = summonBlocker->name;
+                materializeRevealedPiece(*summonBlocker);
+            }
+            else if (!pieceSummonDestinationFree(pieces, *piece))
             {
                 setStatusFor(playerNumber, "That summon needs an empty space in front.");
                 return false;
             }
-            spawnPiece(playerNumber, *summonCard, row, column, false);
-            pieces.back().hasActed = true;
+            if (hiddenAbilityCollisionName.empty())
+            {
+                spawnPiece(playerNumber, *summonCard, row, column, false);
+                pieces.back().hasActed = true;
+            }
         }
         else if (piece->ability == "command")
         {
@@ -694,11 +1011,18 @@ private:
             recomputeControl();
             if (narrationEnabled)
             {
-                status = fmt::format(
-                    "{} commanded {} to use {}.",
-                    commanderName,
-                    actingPieceName,
-                    abilityLabel);
+                status = hiddenAbilityCollisionName.empty()
+                    ? fmt::format(
+                          "{} commanded {} to use {}.",
+                          commanderName,
+                          actingPieceName,
+                          abilityLabel)
+                    : fmt::format(
+                          "{} commanded {} to use {}, but it collided with hidden {}. The hidden piece materialized and became Disabled for its next owner-turn activation; no unit was summoned.",
+                          commanderName,
+                          actingPieceName,
+                          abilityLabel,
+                          hiddenAbilityCollisionName);
             }
         }
         else
@@ -706,7 +1030,13 @@ private:
             recomputeControl();
             if (narrationEnabled)
             {
-                status = fmt::format("{} used {}.", actingPieceName, abilityLabel);
+                status = hiddenAbilityCollisionName.empty()
+                    ? fmt::format("{} used {}.", actingPieceName, abilityLabel)
+                    : fmt::format(
+                          "{} tried to use {}, but collided with hidden {}. The hidden piece materialized and became Disabled for its next owner-turn activation; no unit was summoned.",
+                          actingPieceName,
+                          abilityLabel,
+                          hiddenAbilityCollisionName);
             }
         }
         return true;
@@ -750,6 +1080,21 @@ public:
         {
             return false;
         }
+        if (pendingRepeatPiece(playerNumber) != nullptr)
+        {
+            setStatusFor(playerNumber, "Finish the repeatable action or pass before drawing.");
+            return false;
+        }
+        if (relentlessPieceId != 0)
+        {
+            setStatusFor(playerNumber, "The Relentless piece must act again or you must pass before drawing.");
+            return false;
+        }
+        if (commandingPieceId != 0)
+        {
+            setStatusFor(playerNumber, "Resolve Command with an adjacent piece or pass before drawing.");
+            return false;
+        }
 
         EnginePlayer& player = playerRef(playerNumber);
         if (static_cast<int>(player.hand.size()) >= MaxHandSize)
@@ -771,10 +1116,10 @@ public:
         }
 
         player.resources -= DrawCardResourceCost;
-        const int foresightUnits = foresightUnitCount(playerNumber);
-        if (foresightUnits > 0)
+        const int foresightPieces = foresightPieceCount(playerNumber);
+        if (foresightPieces > 0)
         {
-            prepareForesightDraw(player, foresightUnits);
+            prepareForesightDraw(player, foresightPieces);
             if (narrationEnabled)
             {
                 status = fmt::format(
@@ -812,6 +1157,7 @@ public:
         recordPlayerMove(playerNumber);
         advanceTurn(
             narrationEnabled ? fmt::format("Player {} passed.", playerNumber) : std::string());
+        evaluateScenarioObjective();
         return true;
     }
 
@@ -946,6 +1292,10 @@ public:
         {
             stripPresentation(piece);
         }
+        // This copy no longer owns a complete board, so it must never produce
+        // an authoritative scenario result from redacted information.
+        scenarioObjectiveValue = {};
+        scenarioObjectiveProgressValue = {};
         EnginePlayer& planner = playerRef(playerNumber);
         // A player knows what is in their deck but not what order it is in, so
         // the planner gets one plausible ordering instead of the real one. It
@@ -1003,6 +1353,8 @@ private:
     int relentlessPieceId = 0;
     bool relentlessActionKeepsTurn = false;
     bool heroEliminationVictoryEnabled = true;
+    ScenarioObjective scenarioObjectiveValue;
+    ScenarioObjectiveProgress scenarioObjectiveProgressValue;
     bool timersEnabled = false;
     std::array<std::int64_t, 2> playerClockRemainingMs{RegularClockMs, RegularClockMs};
     std::array<std::size_t, 2> movesWithIncrement{};
@@ -1157,7 +1509,9 @@ private:
             cardFootprintFree(pieces, replacementCard, original.row, original.column))
         {
             spawnPiece(
-                replacementIsInfestation ? original.infestationOwner : original.owner,
+                replacementIsInfestation
+                    ? original.infestationOwner
+                    : pieceOriginalOwner(original),
                 replacementCard,
                 original.row,
                 original.column,
@@ -1169,6 +1523,10 @@ private:
 
         if (replacementPieceId != 0)
         {
+            if (!replacementIsInfestation)
+            {
+                remapScenarioPieceIdentity(id, replacementPieceId);
+            }
             for (Enchantment& enchantment : enchantments)
             {
                 if (enchantment.target == static_cast<std::uint8_t>(EnchantmentTarget::Piece) &&
@@ -1268,7 +1626,8 @@ private:
         int playerNumber,
         int pieceId,
         int toRow,
-        int toColumn)
+        int toColumn,
+        int selectedActionIndex)
     {
         if (hasPendingForesightChoice(playerNumber))
         {
@@ -1284,6 +1643,12 @@ private:
         {
             return false;
         }
+        if (selectedActionIndex < -1 ||
+            selectedActionIndex >= static_cast<int>(piece->actions.size()))
+        {
+            setStatusFor(playerNumber, "That printed action does not exist on this piece.");
+            return false;
+        }
         const Piece* repeatingPiece = pendingRepeatPiece(playerNumber);
         if (repeatingPiece != nullptr && repeatingPiece->id != piece->id)
         {
@@ -1291,7 +1656,9 @@ private:
             return false;
         }
         const bool continuingRepeat = piece->repeatActionIndex >= 0;
-        const int requiredActionIndex = continuingRepeat ? piece->repeatActionIndex : -1;
+        const int requiredActionIndex = continuingRepeat
+            ? piece->repeatActionIndex
+            : selectedActionIndex;
         if (piece->hasActed && !continuingRepeat)
         {
             return false;
@@ -1305,6 +1672,11 @@ private:
                 piece->repeatActionState = 0;
                 piece->repeatActionUses = 0;
                 piece->hasActed = true;
+                return false;
+            }
+            if (selectedActionIndex >= 0 && selectedActionIndex != requiredActionIndex)
+            {
+                setStatusFor(playerNumber, "Finish the same repeatable printed action or pass.");
                 return false;
             }
             // A repeat continues the original action even when that action's
@@ -1367,6 +1739,17 @@ private:
         int pushedSquares = 0;
         int pushCollisionDamage = 0;
         int pulledSquares = 0;
+        std::vector<int> revealedPieceIds = outcome.revealedPieceIds;
+        const auto rememberRevealedPieces = [&](const std::vector<int>& ids) {
+            for (int id : ids)
+            {
+                if (std::find(revealedPieceIds.begin(), revealedPieceIds.end(), id) ==
+                    revealedPieceIds.end())
+                {
+                    revealedPieceIds.push_back(id);
+                }
+            }
+        };
         const int attackDamage = action.damage +
             pieceEnchantmentDamageBonus(enchantments, attackerId);
         const std::string infestationTitle = action.actionIndex >= 0 &&
@@ -1437,6 +1820,7 @@ private:
                         action.push);
                     pushedSquares += pushResult.movedSquares;
                     pushCollisionDamage += pushResult.preventedSquares;
+                    rememberRevealedPieces(pushResult.revealedPieceIds);
                     if (Piece* pushedTarget = pieceById(effectiveTargetId);
                         pushedTarget != nullptr && pushedTarget->health <= 0)
                     {
@@ -1454,6 +1838,7 @@ private:
                             effectiveTargetId,
                             attackerId);
                         pulledSquares += pullResult.movedSquares;
+                        rememberRevealedPieces(pullResult.revealedPieceIds);
                     }
                     if (action.control > 0)
                     {
@@ -1472,13 +1857,14 @@ private:
             if (damagedTargetNames.empty() && healedTargetNames.empty()) return false;
         }
 
-        // A hidden piece that was struck or bumped into materializes stunned.
-        std::string revealedName;
-        if (outcome.revealedPieceId != 0)
+        // Hidden pieces struck or bumped into by the mover's footprint
+        // or by a forced-movement footprint materialize stunned.
+        std::vector<std::string> revealedNames;
+        for (int revealedPieceId : revealedPieceIds)
         {
-            if (Piece* revealed = pieceById(outcome.revealedPieceId))
+            if (Piece* revealed = pieceById(revealedPieceId))
             {
-                revealedName = revealed->name;
+                revealedNames.push_back(revealed->name);
                 materializeRevealedPiece(*revealed);
             }
         }
@@ -1635,17 +2021,30 @@ private:
             {
                 result += " Infestation spawned a unit!";
             }
-            if (anyTargetWasHidden)
+            if (!revealedNames.empty())
+            {
+                result += fmt::format(
+                    " Hidden {} materialized. Each is Disabled for its next owner-turn activation.",
+                    joinTargets(revealedNames));
+            }
+            else if (anyTargetWasHidden)
             {
                 result += " It materialized!";
             }
         }
-        else if (narrationEnabled && !revealedName.empty())
+        else if (narrationEnabled && !revealedNames.empty())
         {
+            std::string revealedList;
+            for (std::size_t index = 0; index < revealedNames.size(); ++index)
+            {
+                if (index > 0)
+                    revealedList += index + 1 == revealedNames.size() ? " and " : ", ";
+                revealedList += revealedNames[index];
+            }
             result = fmt::format(
-                "{} bumped into a hidden {}! It materialized, stunned.",
+                "{} bumped into hidden {}! Collision materialized each hidden piece and made it Disabled for its next owner-turn activation.",
                 attackerName,
-                revealedName);
+                revealedList);
         }
         else if (narrationEnabled)
         {
@@ -1722,13 +2121,12 @@ private:
         return count;
     }
 
-    int foresightUnitCount(int playerNumber) const
+    int foresightPieceCount(int playerNumber) const
     {
         int count = 0;
         for (const Piece& piece : pieces)
         {
-            if (piece.owner == playerNumber && !piece.isHero &&
-                hasKeyword(piece.keywords, "foresight"))
+            if (piece.owner == playerNumber && hasKeyword(piece.keywords, "foresight"))
             {
                 ++count;
             }
@@ -1778,6 +2176,10 @@ private:
         player.discardsThisTurn = 0;
         player.pieceActionUsedThisTurn = false;
         updatePieceControlAtTurnStart(pieces, playerNumber);
+        // A controlled piece can return to its original owner at the start of
+        // this turn.  Control-derived income must use that restored ownership,
+        // not the board-control snapshot from the preceding end turn.
+        recomputeControl();
         const int controlledIncome = controlledCount(playerNumber);
         player.resources += controlledIncome;
 
@@ -1838,14 +2240,14 @@ private:
         player.drawPile.pop_back();
     }
 
-    void prepareForesightDraw(EnginePlayer& player, int foresightUnits)
+    void prepareForesightDraw(EnginePlayer& player, int foresightPieces)
     {
         player.foresightChoices.clear();
         if (player.drawPile.empty() || static_cast<int>(player.hand.size()) >= MaxHandSize)
         {
             return;
         }
-        const int choiceCount = std::max(0, foresightUnits) + 1;
+        const int choiceCount = std::max(0, foresightPieces) + 1;
         for (int i = 0; i < choiceCount && !player.drawPile.empty(); ++i)
         {
             player.foresightChoices.push_back(player.drawPile.back());
@@ -1894,6 +2296,14 @@ private:
 
     bool resolveSpell(int playerNumber, const GameCard& card, int targetRow, int targetColumn)
     {
+        if (!isSupportedSpellEffect(card))
+        {
+            setStatusFor(
+                playerNumber,
+                "This spell has no defined game effect and cannot be played.");
+            return false;
+        }
+
         if (isResourcesEffect(card))
         {
             playerRef(playerNumber).resources += card.power;
@@ -1941,7 +2351,10 @@ private:
             return true;
         }
 
-        return true;
+        // Kept defensive even though isSupportedSpellEffect above makes every
+        // currently accepted effect return from one of the branches.
+        setStatusFor(playerNumber, "This spell effect is not supported.");
+        return false;
     }
 
     bool resolveEnchantment(int playerNumber, const GameCard& card, int targetRow, int targetColumn)
@@ -2013,6 +2426,177 @@ private:
         }
     }
 
+    bool hasOriginalOwnerPiece(int playerNumber) const
+    {
+        return std::any_of(
+            pieces.begin(), pieces.end(), [&](const Piece& piece) {
+                return pieceOriginalOwner(piece) == playerNumber;
+            });
+    }
+
+    void remapScenarioPieceIdentity(int oldPieceId, int replacementPieceId)
+    {
+        if (!scenarioObjectiveProgressValue.configured ||
+            oldPieceId <= 0 || replacementPieceId <= 0)
+        {
+            return;
+        }
+        if (scenarioObjectiveValue.targetPieceId == oldPieceId)
+        {
+            scenarioObjectiveValue.targetPieceId = replacementPieceId;
+        }
+        for (int& pieceId : scenarioObjectiveValue.requiredSurvivorPieceIds)
+        {
+            if (pieceId == oldPieceId)
+            {
+                pieceId = replacementPieceId;
+            }
+        }
+    }
+
+    bool hasPieceIdentity(int pieceId) const
+    {
+        return pieceId > 0 && std::any_of(
+            pieces.begin(), pieces.end(),
+            [&](const Piece& piece) { return piece.id == pieceId; });
+    }
+
+    void failScenarioObjective(ScenarioObjectiveFailure failure, int pieceId = 0)
+    {
+        scenarioObjectiveProgressValue.failed = true;
+        scenarioObjectiveProgressValue.failure = failure;
+        scenarioObjectiveProgressValue.failedPieceId = pieceId;
+        winnerValue = scenarioObjectiveValue.successPlayer == 1 ? 2 : 1;
+        phaseValue = Phase::GameOver;
+        if (narrationEnabled)
+        {
+            if (failure == ScenarioObjectiveFailure::RequiredPieceMissing)
+            {
+                status = fmt::format(
+                    "A required scenario piece (#{}) was defeated. Player {} wins!",
+                    pieceId,
+                    winnerValue);
+            }
+            else if (failure == ScenarioObjectiveFailure::ObjectivePieceMissing)
+            {
+                status = fmt::format(
+                    "The piece required to reach the objective was defeated. Player {} wins!",
+                    winnerValue);
+            }
+            else
+            {
+                status = fmt::format(
+                    "Player {} has no surviving scenario force. Player {} wins!",
+                    scenarioObjectiveValue.successPlayer,
+                    winnerValue);
+            }
+        }
+    }
+
+    void completeScenarioObjective()
+    {
+        scenarioObjectiveProgressValue.complete = true;
+        winnerValue = scenarioObjectiveValue.successPlayer;
+        phaseValue = Phase::GameOver;
+        if (narrationEnabled)
+        {
+            status = fmt::format(
+                "Scenario objective secured. Player {} wins!",
+                winnerValue);
+        }
+    }
+
+    void evaluateScenarioObjective()
+    {
+        if (!scenarioObjectiveProgressValue.configured ||
+            !scenarioObjectiveProgressValue.valid ||
+            scenarioObjectiveProgressValue.complete ||
+            scenarioObjectiveProgressValue.failed ||
+            phaseValue != Phase::Playing)
+        {
+            return;
+        }
+
+        for (int pieceId : scenarioObjectiveValue.requiredSurvivorPieceIds)
+        {
+            if (!hasPieceIdentity(pieceId))
+            {
+                failScenarioObjective(
+                    ScenarioObjectiveFailure::RequiredPieceMissing,
+                    pieceId);
+                return;
+            }
+        }
+        if (scenarioObjectiveValue.requiredForceOriginalOwner != 0 &&
+            !hasOriginalOwnerPiece(
+                scenarioObjectiveValue.requiredForceOriginalOwner))
+        {
+            failScenarioObjective(ScenarioObjectiveFailure::ForceEliminated);
+            return;
+        }
+
+        auto& progress = scenarioObjectiveProgressValue;
+        switch (scenarioObjectiveValue.kind)
+        {
+        case ScenarioObjectiveKind::None:
+            return;
+        case ScenarioObjectiveKind::DefeatOriginalOwner:
+            progress.remaining = static_cast<int>(std::count_if(
+                pieces.begin(), pieces.end(), [&](const Piece& piece) {
+                    return pieceOriginalOwner(piece) ==
+                        scenarioObjectiveValue.opposingOriginalOwner;
+                }));
+            progress.current = 0;
+            progress.required = 0;
+            if (progress.remaining == 0)
+            {
+                completeScenarioObjective();
+            }
+            return;
+        case ScenarioObjectiveKind::DefeatPiece:
+            progress.required = 1;
+            progress.remaining = hasPieceIdentity(
+                scenarioObjectiveValue.targetPieceId) ? 1 : 0;
+            progress.current = 1 - progress.remaining;
+            if (progress.remaining == 0)
+            {
+                completeScenarioObjective();
+            }
+            return;
+        case ScenarioObjectiveKind::ReachSquare:
+        {
+            progress.required = 1;
+            const auto target = std::find_if(
+                pieces.begin(), pieces.end(), [&](const Piece& piece) {
+                    return piece.id == scenarioObjectiveValue.targetPieceId;
+                });
+            if (target == pieces.end())
+            {
+                failScenarioObjective(ScenarioObjectiveFailure::ObjectivePieceMissing);
+                return;
+            }
+            progress.current =
+                target->row == scenarioObjectiveValue.targetRow &&
+                target->column == scenarioObjectiveValue.targetColumn ? 1 : 0;
+            progress.remaining = 1 - progress.current;
+            if (progress.current == 1)
+            {
+                completeScenarioObjective();
+            }
+            return;
+        }
+        case ScenarioObjectiveKind::ControlSquares:
+            progress.required = scenarioObjectiveValue.controlAmount;
+            progress.current = controlledCount(scenarioObjectiveValue.successPlayer);
+            progress.remaining = std::max(0, progress.required - progress.current);
+            if (progress.current >= progress.required)
+            {
+                completeScenarioObjective();
+            }
+            return;
+        }
+    }
+
     void setStatusFor(int playerNumber, const std::string& message)
     {
         if (narrationEnabled)
@@ -2022,68 +2606,8 @@ private:
         (void)playerNumber;
     }
 
-    // Recomputes whole-board control: occupied squares belong to the occupant;
-    // empty squares go to whoever has more adjacent pieces; ties hold.
     void recomputeControl()
     {
-        std::array<std::uint8_t, BoardSquares> next = control;
-        for (int row = 0; row < BoardSize; ++row)
-        {
-            for (int column = 0; column < BoardSize; ++column)
-            {
-                const std::size_t index = static_cast<std::size_t>(squareIndex(row, column));
-                if (const Piece* occupant = pieceAt(row, column))
-                {
-                    if (pieceExertsControl(*occupant))
-                    {
-                        next[index] = static_cast<std::uint8_t>(occupant->owner);
-                    }
-                    continue;
-                }
-
-                int influence1 = 0;
-                int influence2 = 0;
-                for (int dr = -1; dr <= 1; ++dr)
-                {
-                    for (int dc = -1; dc <= 1; ++dc)
-                    {
-                        if (dr == 0 && dc == 0)
-                        {
-                            continue;
-                        }
-                        const Piece* neighbor = inBounds(row + dr, column + dc)
-                            ? pieceAt(row + dr, column + dc)
-                            : nullptr;
-                        if (neighbor == nullptr)
-                        {
-                            continue;
-                        }
-                        if (!pieceExertsControl(*neighbor))
-                        {
-                            continue;
-                        }
-                        if (neighbor->owner == 1)
-                        {
-                            ++influence1;
-                        }
-                        else if (neighbor->owner == 2)
-                        {
-                            ++influence2;
-                        }
-                    }
-                }
-
-                if (influence1 > influence2)
-                {
-                    next[index] = 1;
-                }
-                else if (influence2 > influence1)
-                {
-                    next[index] = 2;
-                }
-                // tie: keep existing controller (already copied into next)
-            }
-        }
-        control = next;
+        control = recomputeBoardControl(control, pieces);
     }
 };

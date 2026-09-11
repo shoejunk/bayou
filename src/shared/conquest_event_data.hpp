@@ -134,9 +134,11 @@ struct MoveOrder
 };
 
 // The durable action representation is intentionally limited to the tactical
-// protocol's current three integer operands. It is sufficient to replay every
-// action accepted by GameEngine while avoiding persistence of client-supplied
-// card data.
+// protocol's integer operands. For MovePiece and AttackPiece, argumentFour is
+// the action-profile selection defined in network_messages.inc: zero preserves
+// legacy automatic resolution and index + 1 records an explicit printed
+// action. This is sufficient to replay every action accepted by GameEngine
+// while avoiding persistence of client-supplied card data.
 struct BattleAction
 {
     std::uint32_t sequence = 0;

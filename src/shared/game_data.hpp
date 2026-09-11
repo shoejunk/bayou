@@ -137,6 +137,12 @@ inline int cardDeckLimit(const card_data::Card& card)
     return std::max(0, limit);
 }
 
+inline bool isSupportedSpellEffectName(std::string_view effect)
+{
+    return effect == "resources" || effect == "steam" ||
+        effect == "damage" || effect == "heal";
+}
+
 inline std::optional<std::string> deckRulesError(const std::vector<card_data::Card>& cards)
 {
     int cardCount = 0;
@@ -153,6 +159,25 @@ inline std::optional<std::string> deckRulesError(const std::vector<card_data::Ca
         if (isTokenCard(card))
         {
             return "Token card cannot be in a deck: " + card.title;
+        }
+        std::string spellEffect;
+        if (card.type == "Spell")
+        {
+            const auto effect = std::find_if(
+                card.stringValues.begin(), card.stringValues.end(),
+                [](const card_data::KeyStringPair& value) {
+                    return value.key == "effect";
+                });
+            if (effect != card.stringValues.end())
+            {
+                spellEffect = effect->value;
+            }
+        }
+        if (card.type == "Spell" &&
+            !isSupportedSpellEffectName(spellEffect))
+        {
+            return "Spell has no defined game effect and cannot be in a deck: " +
+                card.title;
         }
 
         const bool isHero = card.type == "Hero";
@@ -564,6 +589,14 @@ inline bool isResourcesEffect(const GameCard& card)
     return card.effect == "resources" || card.effect == "steam";
 }
 
+// Spell resolution is intentionally a closed set. A catalog row with a Spell
+// type but no implemented effect must remain unplayable instead of charging
+// its cost and silently doing nothing.
+inline bool isSupportedSpellEffect(const GameCard& card)
+{
+    return isSupportedSpellEffectName(card.effect);
+}
+
 inline bool isEnchantmentCard(const GameCard& card)
 {
     return card.type == "Enchantment";
@@ -812,7 +845,18 @@ inline void applyPieceControl(Piece& target, int controllingPlayer, int turns)
         return;
     }
 
-    target.originalOwner = target.owner;
+    const int stableOriginalOwner = pieceOriginalOwner(target);
+    if (controllingPlayer == stableOriginalOwner)
+    {
+        // The printed owner has taken the piece back from a temporary
+        // controller. That is a restoration, not another temporary layer.
+        target.owner = stableOriginalOwner;
+        target.originalOwner = 0;
+        target.controlTurnsRemaining = 0;
+        return;
+    }
+
+    target.originalOwner = stableOriginalOwner;
     target.owner = controllingPlayer;
     target.controlTurnsRemaining = positiveTurns;
 }

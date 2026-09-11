@@ -1,8 +1,8 @@
 # Gloomthorn Book One Story Mode Expansion Blueprint
 
-Status: implemented strict-rule campaign baseline; deterministic validation green
+Status: legacy detailed dossier; superseded where it conflicts with `GLOOMTHORN_TRILOGY_STORY_MODE_STRUCTURE.md`
 
-Canon source: `Gloomthorn - Book One - Literary Edition.docx` (Prologue, Chapters 1-30, Epilogue)
+Canon source: `Gloomthorn - Book One - Revised Opus 2026-09-05.docx` (Chapters 1-30, Epilogue). Books Two and Three are reserved for later court campaigns; see the canonical trilogy structure document.
 Current game sources audited: `src/client/client_story.*`, Story Mode code in `src/client/main.cpp`, `src/shared/game_data.hpp`, `src/shared/game_rules.hpp`, `src/gameserver/game_engine.hpp`, `src/shared/starter_decks.hpp`, `design/card-list.txt`, `design/cards.txt`, and `design/GT Card Abilities.docx`
 
 ## 1. Executive decision
@@ -11,12 +11,12 @@ Replace the two eight-level tutorials with one chronological Book One story spin
 
 | Campaign | Canon scene dossiers | Runtime nodes | Tactical missions | Expected first clear | Purpose |
 |---|---:|---:|---:|---:|---|
-| Mirewatch Resistance | 24 | 30 | 8 | 4-6 hours | The primary, canon-forward telling. It follows Reed, Donella, Erevan, and the community; its playable lessons use only authoritative cards and ordinary match actions. |
-| The Blackthorns | 17 | 23 | 7 | 3-4 hours | An opposition dossier. It teaches every Blackthorn starter card while revealing how the Company records, predicts, and weaponizes the same events. Canonical Blackthorn defeats are objective-based withdrawals, delays, evidence destruction, or fail-forward endings rather than false victories. |
+| Mirewatch Resistance | revised route | 30 | 12 | 4-6 hours | The primary, canon-forward telling. It follows Reed, Donella, Erevan, and the community; its playable lessons use only authoritative cards and ordinary match actions. |
+| The Blackthorns | 18 | 27 | 10 | 3-4 hours | An opposition dossier. Six guided boards and one early open check form seven skippable practice levels. The full-roster synthesis is required only after a skipped drill; a required open 4v4 tests independent tactics, and a recommended optional ordinary match teaches decks, hidden Hero placement, economy, clocks, and victory by opposing-Hero elimination or opposing match-clock expiry. A dedicated five-beat scene performs Victor's canonical surrender, breach, and death after training. |
 
-The implemented runtime is 53 chronological nodes: 30 on the Mirewatch route and 23 on the Blackthorn route. Fifteen are replayable tactical missions (8 Mirewatch, 7 Blackthorn); 38 are authored StoryOnly chapters that preserve dialogue, votes, investigations, travel, aftermath, and fixed character choices without inventing a fight or a mechanic. The 41 detailed dossiers below remain a canon sourcebook, not authority to create gameplay verbs. Any older dossier phrase that suggests clicking a prop, recording evidence on the board, or performing a scenario interaction is delivered through story panels unless an authoritative card and ordinary engine action support it.
+The implemented Book One runtime is 57 chronological nodes: 30 on the Mirewatch route and 27 on the Blackthorn route. Twenty-two are replayable tactical missions (12 Mirewatch and 10 Blackthorn); 35 are authored StoryOnly chapters that preserve dialogue, votes, investigations, travel, aftermath, and fixed character choices without inventing a fight or a mechanic. The detailed dossiers below are historical design notes, not authority for chapter order or gameplay verbs. The canonical route, revised-chapter mapping, and Book Two/Three spoiler gates live in `GLOOMTHORN_TRILOGY_STORY_MODE_STRUCTURE.md`.
 
-### Local implementation and verification snapshot (2026-09-03)
+### Local implementation and verification snapshot (2026-09-10)
 
 - Both dynamic campaign catalogs, the paged mission selector, StoryOnly progression, in-mission panels, authored scenarios, scripted opponent responses, objectives, explicit exit/restart confirmations, and persistent mission identity are implemented in the client.
 - All 25 distinct starter titles receive active guided use. There are no Rule Lab cards, attackable Story props, or Story-only interaction verbs; cross-faction and non-starter pieces appear only as real catalog cards.
@@ -233,27 +233,25 @@ These nodes appear in both campaigns. Blackthorn players receive one optional do
 
 - **Story sequence:** Panels compare Hollis's claims with corroboration, record Erevan placing the fishbone key in Vanya's custody, and preserve Rowan's authority decision.
 - **Panels/art:** `shared/s02/01_hollis.png` — Hollis: “I brought names and routes. I also brought fear. Check both.” `02_key_confession.png` — Erevan: “I took the pearl with the hand he told me to keep empty.” `03_vanya.png` — Vanya: “You do not inherit forgiveness from the person who was forced to give it.” `04_elliot_portfolio.png` — Rowan: “Elliot is dead. The work survives him; it does not belong to whoever kept the news.”
-- **Canon record:** Twenty debtor names; Pellan/Seli's father Lio still arrested; Hollis seeks escape; Elliot drowned; Sylvara portrait/tune; paired wound; Reed's temptation to contact Thaeron.
+- **Canon record:** Twenty debtor names; Tench/Seli's father Lio still arrested; Hollis seeks escape; Elliot drowned; Sylvara portrait/tune; paired wound; Reed's temptation to contact Thaeron.
 
 ### S03 — The Mystery Was Published (Chapter 14; after MW11/BT09)
 
-- **Story sequence:** Panels compare the five scraps and distinguish Remy the broker from Lash the architect; the codex records Erevan's unauthorized release of Remy.
-- **Panels/art:** `shared/s03/01_juniper_funeral.png` — Narrator: “Juniper's work was divided among people. It was not inherited by the loudest mourner.” `02_remy_escape.png` — Vanya: “A good theory does not grant a private arrest, a private runner, or a private risk.” `03_watermark.png` — Joni: “Five invitations, one damaged moth wing. The mystery was manufactured.” `04_lash_name.png` — Maggie: “LeGrim. Baalzepub. He once sent Nibsy home in pieces.”
-- **Canon record:** Lash reveal unlocked; Thaeron paid Remy but did not know the lower room's true owner; Hara/Hollis/Remy remain unresolved.
+- **Story sequence:** Panels preserve Juniper's burial and the three missing captives, compare the surviving paper evidence, distinguish Remy the broker from Lash the architect, record Erevan's unauthorized private tail and Remy's escape, and carry Briar's theft of the Mirror and Root Key.
+- **Canon record:** Lash reveal unlocked; Thaeron paid Remy but did not know the lower room's true owner; Mangletooth's refusal holds; Hara/Hollis/Remy remain unresolved.
 
-### S04 — Wounds That Vote (Chapters 16-17 opening; after MW12/BT10)
+### S04 — Wounds That Vote (Chapter 15; Mirewatch only, after S03)
 
-- **Story sequence:** Panels give the fever-bark to Minnow, conduct the 43-person vote, ratify the Society rules, and record every dissent.
-- **Panels/art:** `shared/s04/01_clinic.png` — Birdie: “The child gets the whole course. We do not turn usefulness into body weight.” `02_rowan_apology.png` — Rowan: “I made Reed large and Minnow small. That was my error.” `03_vote.png` — Mara: “Twenty-two for public action. Dissent stays in the minutes.” `04_society_seal.png` — Joni: “Officers hold records, not people. Food is never conditional.”
-- **Canon record:** Society officers/rules, five charter duties, Birdie/Rowan renegotiation, Telos's medicine and contract books.
+- **Story sequence:** Panels give the full fever-bark course to Minnow, preserve Delphine's unauthorized risk and Noll's hearing loss, conduct the 43-person vote, and record every dissent.
+- **Canon record:** Twenty-two choose public action; four Society rules and five charter duties remain distinct. Blackthorn receives this material inside BT10 rather than a duplicate S04 node.
 
-### S05 — The Memory That Contradicts (Chapter 22; after MW17/BT13)
+### S05 — The Memory That Contradicts (Chapter 21; after MW17/BT13)
 
 - **Story sequence:** Panels show Reed's private memory, Donella's separate witness, and the decision to address the active grove harm. An optional codex hypothetical may discuss the Mirror without becoming a gameplay branch.
 - **Panels/art:** `shared/s05/01_moonfruit.png` — Reed: “I can ask what he chose. I cannot choose which part of my mother pays.” `02_contract_memory.png` — Donella: “Thaeron arranged the deaths, preserved Reed, and bought a boundary that could be moved.” `03_lash_cuff.png` — Narrator: “Behind the bargain waited a cuff, a cane, and the shape of a third account.” `04_two_roads.png` — Vesper: “The Mirror may name the past. The grove is being hurt now.”
 - **Canon record:** Thaeron's murder order and Vespara contract proven; Reed's last sensory memory of his mother is gone; Vesper chooses temporary company.
 
-### S06 — A Town That Owns Itself / The Pearl Answers (Chapter 30 and Epilogue; after MW24/BT17)
+### S06 — A Town That Owns Itself / The Pearl Answers (Chapter 30 and Epilogue; after MW25/BT18)
 
 - **Story sequence:** Panels reconcile the roster and permanent injuries, review three weeks of self-government, record Reed's narrow granary authority, follow each companion's next road, and show the Baalzepub coda.
 - **Panels/art:** `shared/s06/01_return_road.png` — Rowan: “The road recognizes the bodies that came back, not the bodies anyone wishes had returned.” `02_town_working.png` — Vanya: “Ferries, burials, wages, shortages: the town did not wait to be rescued.” `03_granary_vote.png` — Reed: “Granary only. No lien, sale, ferry claim, appointment, or second act.” `04_parting_roads.png` — Donella: “Fourteen days to Emberhaven. Then we ask again.” `05_baalzepub.png` — Fizzlewick: “Mirewatch won. The measurement survived.” `06_pearl_crack.png` — The old thief's voice: “No one alone.”
@@ -268,7 +266,7 @@ These nodes appear in both campaigns. Blackthorn players receive one optional do
 - **Gold path/script:** Move Reed D6-C6, give the gator its normal turn, then move Reed C6-B6. Donella uses printed **Spark** on the gator at D5; Erevan uses printed **Shadow Blade** on the gator at D4. Telos uses printed **Travel** B4-A5, which opens Reed's B6-to-B3 line; after the turn cycle, Reed uses printed **Bow** to defeat the final gator. No prompt names cargo or asks the player to interact with it.
 - **Teaches:** Board orientation, legal highlights, one-square movement, one-normal-activation cadence, End Turn, ranged line blocking, attacking movement, Health, and destruction.
 - **Win/fail/result:** Win when the three gators are defeated through the three printed attacks and all four travelers survive. The test suite proves Reed's Bow is illegal before Travel and legal after it. Canonical debrief uses the requested three-kill dramatization.
-- **Panels/art:** `mw/mw01/01_surrounded.png` — Narrator: “Three harnessed gators close around Telos's freight skiff.” `02_two_squares.png` — the Coach explains Reed's two separate Step actions. `03_drop_cargo.png` — Telos gets the skiff clear while the Coach explains that his printed Travel opens Reed's Bow line. `04_after.png` — Erevan: “Someone taught those mouths what Blackthorn cargo smells like.”
+- **Panels/art:** `mw/mw01/01_gator_ambush_v2.png` — Narrator: “Three harnessed gators close around Telos's freight skiff.” `02_reed_retreat_v2.png` — the Coach explains Reed's two separate Step actions. `03_telos_travel_v2.png` — Telos moves himself one square and opens Reed's Bow line; no cargo or rigging is manipulated. `04_harness_aftermath_v2.png` — Erevan: “Someone taught those mouths what Blackthorn cargo smells like.”
 
 ### MW02 — The Gilded Hold
 
@@ -291,7 +289,7 @@ These nodes appear in both campaigns. Blackthorn players receive one optional do
 ### MW04 — What the Watcher Protects
 
 - **Source/length:** Chapter 3; 8-10 minutes.
-- **Setup:** Erevan B4, Juniper B5; eight refugee tokens C2-C7 including Pellan/Seli; chain props D3/D6; watcher F4 (neutral); Blackthorn observers H3/H5, bait timber E3/E5, exit A2-A7. Reed/Donella remain off-map treating Reed's leg.
+- **Setup:** Erevan B4, Juniper B5; eight refugee tokens C2-C7 including Tench/Seli; chain props D3/D6; watcher F4 (neutral); Blackthorn observers H3/H5, bait timber E3/E5, exit A2-A7. Reed/Donella remain off-map treating Reed's leg.
 - **Gold path/script:** Use Juniper's orthogonal range to break one chain from safety; use Erevan to free the second. Escort six people west while observers bait the watcher. When it shields the children, objective changes from “escape” to “escape while watcher lives”; destroy the lantern/recording prop, not the watcher. The watcher autonomously throws black root to Erevan before leaving south.
 - **Teaches:** Min/max range, multiple escorts, neutral units, changing objectives, target priority, non-kill success, story items, enemy observation behavior.
 - **Win/fail/result:** Eight refugees exit, children and watcher survive, at least one observer's recording is destroyed. A refugee death restarts checkpoint; killing watcher is a clear mission failure, not an alternate reward.
@@ -301,8 +299,8 @@ These nodes appear in both campaigns. Blackthorn players receive one optional do
 
 - **Source/length:** Chapter 6; 10-12 minutes.
 - **Setup:** Reed B4, Donella B5, Erevan B3, Mirewatch Informant C5. Hara Dole F4 (neutral). Victor H4; Grask G3, Mog G5, Fizzlewick/Clockwork Guardian G4; false black ledger E2, authentic freight chits E6, alarm 0/3; exits A3/A5. Role cards define Reed/audit, Donella/route, Erevan/inside, Informant/lookout.
-- **Gold path/script:** Dematerialize Erevan, cross through occupied sight lanes, learn that hidden pieces exert no control, and let a deliberate near-collision demonstrate reveal/stun at a safe checkpoint. Reed invokes seal to delay Victor; Informant holds the route; player chooses abort or chits. Canon choice takes authentic chits, raises alarm, and Hara autonomously closes the hatch/stays to keep dye away.
-- **Teaches:** Dematerialize action state, hidden visibility/control, pass-through, Hidden Shove, collision reveal, and stun through real card actions.
+- **Gold path/script:** Dematerialize Erevan, cross through occupied sight lanes, learn that hidden pieces exert no control, and let a deliberate near-collision demonstrate collision materialization and one-activation Disable at a safe checkpoint. Reed invokes seal to delay Victor; Informant holds the route; player chooses abort or chits. Canon choice takes authentic chits, raises alarm, and Hara autonomously closes the hatch/stays to keep dye away.
+- **Teaches:** Dematerialize action state, hidden visibility/control, pass-through, Hidden Shove, collision materialization, and Disable through real card actions.
 - **Win/fail/result:** Authentic chits and three named characters exit; false ledger alone is insufficient. Hara cannot be player-moved. Alarm 3 creates costly success, not instant failure; named character death retries.
 - **Panels/art:** `mw/mw05/01_rehearsal.png` — Donella: “Use my name before you move me. A plan is not permission.” `02_hara.png` — Hara: “Warn my mother. I keep the dye here.” `03_chits.png` — Erevan: “Nine hundred twenty pounds received. Three hundred ninety-six extracted. These are the numbers they hid.”
 
@@ -373,8 +371,8 @@ These nodes appear in both campaigns. Blackthorn players receive one optional do
 
 - **Source/length:** Chapter 17 reconnaissance; 9-12 minutes.
 - **Setup:** Erevan B3 starts hidden, Donella B4, Scooter B6, Swamp Tracker B7; courthouse G3-G6; Gearjaw E5 neutral, hidden Goblin Ambusher F3, Fizzlewick H4, blue trace token E4. Interview portraits of Mog and Braun precede play and require separate corroboration slots.
-- **Gold path/script:** Interview Mog and Braun separately; tag motive and corroborated fact without converting either into an ally. On board, let Scooter tap Gearjaw's eight-tooth rhythm, move Tracker by knight jump, then end turn adjacent to hidden Ambusher to demonstrate Reveal without collision stun. Erevan demonstrates the alternate collision-reveal case. Blue trace passes on contact from cog to Scooter to route; wash action fails, so player burns one compromised relay and evacuates.
-- **Teaches:** Information reliability, dematerialize versus Reveal, end-turn reveal versus collision stun, knight jump/pass-through, contact-spread status, repeated dash, neutral relationship.
+- **Gold path/script:** Interview Mog and Braun separately; tag motive and corroborated fact without converting either into an ally. On board, let Scooter tap Gearjaw's eight-tooth rhythm, move Tracker by knight jump, then end turn adjacent to hidden Ambusher to demonstrate Reveal without Disable. Erevan demonstrates the alternate collision-materialization case. Blue trace passes on contact from cog to Scooter to route; wash action fails, so player burns one compromised relay and evacuates.
+- **Teaches:** Information reliability, dematerialize versus Reveal, end-turn reveal versus collision Disable, knight jump/pass-through, contact-spread status, repeated dash, neutral relationship.
 - **Win/fail/result:** Record two corroborated facts, reveal Ambusher two different ways, observe Gearjaw twice, and burn infected relay before trace reaches exit. Gearjaw must survive; killing it fails.
 - **Panels/art:** `mw/mw13/01_mog_braun.png` — Erevan: “Mog wants a road for Grask. Braun wants his pension. Motive is not corroboration.” `02_gearjaw.png` — Scooter: “It is answering the game, not the order.” `03_trace.png` — Donella: “It crossed clean water. Burn this route before it learns the kitchen.”
 
@@ -515,7 +513,7 @@ This route is an opposition dossier, not an endorsement fantasy and not an alter
 
 - **Source/length:** Chapter 3 boatyard watcher trap; 8-10 minutes.
 - **Setup:** Goblin Ambusher B3, Alchemist B5, two Observer NPCs C4/C6; bait timber E3/E5; watcher F4 neutral; refugees/children D2-D7; Erevan/Juniper G3/G6; recorder lantern C5; east extraction A3/A6.
-- **Gold path/script:** Dematerialize Ambusher, cross a long occupied lane using pass-through, and place bait without exposing position. Alchemist disables watcher but cannot be allowed to kill it. Record two protection decisions as watcher shields children. Erevan destroys one lantern; preserve the second record and withdraw observers west. An attempted hidden collision demonstrates reveal/stun; free choice then resumes.
+- **Gold path/script:** Dematerialize Ambusher, cross a long occupied lane using pass-through, and place bait without exposing position. Alchemist disables watcher but cannot be allowed to kill it. Record two protection decisions as watcher shields children. Erevan destroys one lantern; preserve the second record and withdraw observers west. An attempted hidden collision demonstrates materialization plus one-activation Disable; free choice then resumes.
 - **Teaches:** Dematerialize, hidden loss of control, pass-through, collision reveal, target restraint, disable duration, evidence extraction.
 - **Win/fail/result:** Two responses recorded and one Observer exits with record; children/watcher must live. Erevan's black root and refugee escape occur in debrief.
 - **Panels/art:** `bt/bt04/01_blank_route.png` — Observer: “The blank question drew Lio. The marked timber will draw what protects him.” `02_watcher_shields.png` — Narrator: “The watcher chooses chain and children over the people hurting it.” `03_broken_lantern.png` — Erevan: “If you came to learn what it loves, learn what your record costs.”
@@ -628,18 +626,16 @@ This route is an opposition dossier, not an endorsement fantasy and not an alter
 - **Win/fail/result:** Fizzlewick exits with at least two measurement records; Sylvara is restored but not cured; every recorded refusal remains respected. Killing Birdie/Scooter/Nettle or auto-enrolling a refuser fails. Gearjaw is destroyed and cannot return in later Book One play.
 - **Panels/art:** `bt/bt16/01_clean_shot.png` — Birdie: “There is one line that hurts the machine more than the people holding it.” `02_gearjaw.png` — Gearjaw: “CORE ROUTE ACCEPTED. SMALL BODY ROUTE DENIED.” `03_consent.png` — Sylvara: “Ask each root. A forest made from forced answers is only another engine.” `04_not_cured.png` — Narrator: “Restored is not the same word as cured.”
 
-### BT17 — Natural Order
+### BT17 — Natural Order training sequence
 
-- **Source/length:** Chapter 29 plus the antagonist half of the epilogue; full-deck capstone, 16-20 minutes.
-- **Setup:** Player builds the exact twenty-card Blackthorn starter deck and chooses Thaeron and/or Ashenfang within the hero-cost cap for a separate mastery preflight; story board then locks canon actors: Victor Hero B4, Grask B3, Mog C2 in custody, Fizzlewick C6, surviving Company units C3-C5, collapsing cages E2/E4/E6, prisoners F2-F7, Reed/Donella/Erevan/Birdie/Maggie/Pavo G2-G7, Baelstone gate H4, register H6. North-fragment and measurement tokens start on Fizzlewick. Lash is epilogue-only.
-- **Gold path/script:** Demonstrate deck validation, concealed hero pre-placement, opening reveal, income/deploy cycle, one normal activation plus affordable plays, and discard/paid draw. During the battle, Grask's cage collapses and kills him; collective Baelstone action opens the gate. Victor surrenders, then attacks when the register burns, and Pavo kills him autonomously. The Company tactical objective is narrower: use control, Tax, Transform, hidden movement, Trail, Summon, healing/disable, and evacuation screens so Fizzlewick carries the north fragment and partial measurement off A6. Mog remains in custody.
-- **Teaches:** Complete Blackthorn roster exam; deck/hero legality, pre-placement concealment, hand/economy cadence, control, every starter action family, hero-loss rule, simultaneous story and operational outcomes.
-- **Win/fail/result:** Fizzlewick exits with both records; at least twelve prisoners and all named protagonists survive; Victor/Grask die, Mog remains, register burns, gate opens. Any ending that crowns Victor, kills Pavo, frees Mog without his choice, or prevents the Baelstone collective action fails. After S06, epilogue panels show Fizzlewick delivering measurements to Lash, the concordance glass, the cracking pearl, and the unresolved maxim “No one alone.”
-- **Panels/art:** `bt/bt17/01_grask_cage.png` — Narrator: “The cage keeps the promise it was built to make.” `02_gate_opens.png` — Reed: “Not my blood. Our hands.” `03_victor_falls.png` — Pavo: “Natural order is the name you gave your appetite.” `04_fizzlewick_lash.png` — Lash: “A failed machine can still leave an accurate measurement.” `05_pearl_cracks.png` — Narrator: “Far away, the pearl answers with a fracture.”
+- **BT17 guided synthesis:** A required, explicitly non-canon board uses only printed actions to combine Victor's optional Relentless activation, Thaeron's Command, the Foreman's Summon, Grask's Capture, the Grove Sister's Trail, and the Alchemist's friendly heal. It grants mastery only after the exact script replays through the ordinary engine.
+- **BT17A open bridge:** A required unscripted 4v4 depth-two `DefeatAllEnemies` position removes the glowing action order. Thaeron must survive; no narrative event or choice is simulated.
+- **BT17B ordinary-match exam:** This recommended optional exam can be skipped before any clock starts, with no mastery award. Two legal decks each contain 20 non-Hero cards plus Thaeron/Ashenfang or Maggie/Joni. The player performs hidden Hero placement under its separate non-resetting two-minute deadline, receives a four-card hand, then manages territory income, plays/draws/discards under the ordinary action economy, two-minute turn timer, and 15-minute match clock. Ordinary victory is awarded by eliminating the opposing starting Heroes or by the opponent's match clock expiring. No fixed survivor rule replaces normal victory.
+- **Canonical boundary:** All three training stages end before Birdie's clean shot and the dedicated five-panel Victor reckoning. Grask's death, Victor's surrender/testimony/breach/death, the register, Pavo's defense, and Thaeron's later public deed remain story facts rather than tutorial inputs.
 
 ## 10. Canonical play order and pacing gates
 
-Shared nodes S01-S06 are required on a first playthrough and instantly replayable afterward. They contain panels and narrative records but no tactical win state. The runtime advertises **8 tactical + 22 StoryOnly nodes** for Mirewatch and **7 tactical + 16 StoryOnly nodes** for Blackthorn. A new player receives every legal guided action in tactical nodes; StoryOnly nodes never auto-resolve or simulate a game rule.
+Shared narrative beats remain instantly replayable, but `s02_no_one_alone` now keeps its full canonical panel sequence and adds a clearly separated, skippable, mastery-free 3v3 open check on both Book One routes. The runtime advertises **12 tactical + 18 StoryOnly nodes** for Mirewatch and **10 tactical + 17 StoryOnly nodes** for Blackthorn. Blackthorn's seven practice levels are recommended and skippable; the guided synthesis independently proves the exact 12-card starter roster only when one of those drills lacks play evidence, while completing all seven unlocks a direct Continue path and leaves synthesis as an optional replay. A required open 4v4 then tests independent play. The complete ordinary timed match remains a recommended optional exam that can be skipped before any clock starts. The uninterrupted canonical World Tree climax follows either choice. StoryOnly nodes never auto-resolve or simulate a game rule.
 
 | Act | Novel span | Mirewatch sequence | Blackthorn sequence | Narrative/tutorial gate |
 |---|---|---|---|---|
@@ -648,23 +644,22 @@ Shared nodes S01-S06 are required on a first playthrough and instantly replayabl
 | Interlude | Ch. 4-5 | S01 | S01 | Consent vocabulary, Maggie/Nibsy/Mangletooth, Birdie/Scooter/Vanya, Bluewater routes. |
 | II: Evidence has a cost | Ch. 6-8 | MW05-MW06, S02 | BT05-BT06, S02 | Stealth, rescue, surveillance, Hollis, Erevan's confession, Rowan/Elliot. |
 | III: The beautiful plan | Ch. 9-14 | MW07-MW11, S03 | BT07-BT09, S03 | Prison/mill, Thaeron trap, Vault, five crises, Juniper's death, Lash reveal. |
-| IV: Who owns the work | Ch. 15-17 | MW12, S04, MW13 | BT10, S04 | Artifact theft, Remy consequences, medicine, vote/Society rules, investigation. |
-| V: Public authority | Ch. 18-19 | MW14-MW15 | BT11-BT12 | Public lie, charter, Vanya surrender, town assault, Braun/Mog choices, fugitives. |
-| VI: The Feyward road | Ch. 20-22 | MW16-MW17, S05 | BT13, S05 | Poison/factory/dream, Vesper, moonfruit memory, contract proof, chosen destination. |
-| VII: Boundaries and rules | Ch. 23-28 | MW18-MW23 | BT14-BT16 | Pavo/Nettle/Zippy, refugees, Rowan stays, Ashenfang, loss clocks, clean shot, consent. |
-| VIII: Agent, not heir | Ch. 29-30 + Epilogue | MW24, S06 | BT17, S06 | Gate, register, Victor/Grask, Fizzlewick escape, town governance, divergent roads, pearl. |
+| IV: Society and public authority | Ch. 15-18 | S04, MW13-MW15 | BT10-BT12 | Clinic ethics, vote, Society rules, public lie, charter ruling, bombing, Braun/Mog choices, and Feyward abduction. |
+| V: The Feyward road | Ch. 19-23 | MW16-MW19, S05 | BT13-BT14, S05 | Poisoned bayou, factory/dream, moonfruit memory, bounded allies, writ, refugees, and Rowan's chosen road. |
+| VI: Grove reckoning | Ch. 24-28 | MW20-MW24 | BT15-BT17 | Ashenfang/Sylvara, four losses, clean shot, consent, chosen restoration, Grask, and Victor. |
+| VII: Public custody and coda | Ch. 29-30 + Epilogue | MW25, S06 | BT18, S06 | Thaeron's witnessed deed, town governance, divergent roads, Fizzlewick's report, and the pearl. |
 
 ### First-play sequence strings
 
-- **Mirewatch:** `MW01 → MW02 → MW03 → MW04 → S01 → MW05 → MW06 → S02 → MW07 → MW08 → MW09 → MW10 → MW11 → S03 → MW12 → S04 → MW13 → MW14 → MW15 → MW16 → MW17 → S05 → MW18 → MW19 → MW20 → MW21 → MW22 → MW23 → MW24 → S06`.
-- **Blackthorn:** `BT01 → BT02 → BT03 → BT04 → S01 → BT05 → BT06 → S02 → BT07 → BT08 → BT09 → S03 → BT10 → S04 → BT11 → BT12 → BT13 → S05 → BT14 → BT15 → BT16 → BT17 → S06`.
-- **Unlock rule:** Clearing a tactical mission unlocks only its next node; failing never removes codex entries already viewed. Completing either campaign unlocks cross-campaign chapter select. Spoiler labels hide the Blackthorn operational view until the equivalent Mirewatch act is cleared unless the player explicitly disables protection.
+- **Mirewatch:** `MW01 → MW02 → MW03 → MW04 → S01 → MW05 → MW06 → S02 → MW07 → MW08 → MW09 → MW10 → MW11 → S03 → S04 → MW13 → MW14 → MW15 → MW16 → MW17 → S05 → MW18 → MW19 → MW20 → MW21 → MW22 → MW23 → MW24 → MW25 → S06`.
+- **Blackthorn:** `BT01 → BT02 → BT03 → BT04 → S01 → BT05 → BT06 → S02 → BT07 → BT08 → BT09 → S03 → BT10 → BT11 → BT12 → BT13 → S05 → BT14 → BT15 → BT17 → BT17A → BT17B → BT16 → BT17C → BT18 → S06`. The tutorial rehearsals and open exams occur before the uninterrupted Clean Shot/Victor reckoning climax.
+- **Unlock rule:** All three campaign selectors are available from Story Mode. Within a selected campaign, completing the current entry unlocks its next entry; failure never removes already-viewed codex entries. The selector recommends Mirewatch first, but the runtime does not pretend to enforce a cross-campaign spoiler system it does not implement.
 
 ## 11. Complete game-rule curriculum
 
 ### 11.1 Catalog/content prerequisites
 
-The engine supports more rules than the live 97-card schema-v9 catalog currently exposes. The strict tutorial gate is therefore: **a playable lesson exists only when an authoritative card exposes the mechanic and the ordinary engine can execute it.** There are no tutorial-only Rule Lab cards and no fake props standing in for cards. Unsupported mechanics remain StoryOnly context and award no mastery.
+The engine supports more rules than the live 97-card schema-v11 catalog currently exposes. The strict tutorial gate is therefore: **a playable lesson exists only when an authoritative card exposes the mechanic and the ordinary engine can execute it.** There are no tutorial-only Rule Lab cards and no fake props standing in for cards. Unsupported mechanics remain StoryOnly context and award no mastery.
 
 Before a “100% Rules Learned” badge can ship, content owners must publish an ordinary catalog card for each missing capability, synchronize the packaged snapshot, and add a legal replay plus rejection tests. Until then, the badge remains unavailable rather than presenting substitute gameplay:
 
@@ -703,11 +698,11 @@ A missing authoritative definition is a build/test failure. A sample-library fal
 | Repeat: same action again or pass | MW02 Smuggler; MW06 Scooter | MW09 Vanya; MW21 | No different action may replace the repeat; Pass is visibly available. |
 | Relentless extra activation after a real kill | BT17 Victor | BT17 second Debt Collector | It triggers only on destruction and locks the next action to that piece or pass. |
 | Command adjacent ready unit | BT03 Thaeron | BT08/BT11 | Command is separate from, and does not consume, the normal activation as implemented. |
-| Bodyguard damage split | Deferred active lesson | Deferred | Use real Rowan Leafbound if this returns; never fabricate a witness or damage source. |
+| Bodyguard damage/target boundary | SE02 Broken Bridge | Later open Seelie battles | The real Starbloom Knight receives redirected positive damage and its Disable; zero-damage Disable, Push, Pull, Infest, and Control remain on the selected target. A live-card matrix verifies Dewbell, Widowroot, Spearman, Nyxara, Erevan, and Pavo. |
 | Temporary unit Control and expiry | Deferred active lesson | Deferred | Use a real catalog control action; Heroes cannot be controlled and expiry is counted on controller turns. |
 | Target filters and multi-target resolution | Deferred active lesson | Deferred | A real card must expose the filter/multi-target fields; story “marked targets” do not count. |
 | Dematerialize/hidden, loss of control, pass-through | MW05 Erevan; BT04 Ambusher | MW13; BT10 | Hidden units neither control nor are normally targetable. |
-| Reveal by adjacency/end turn; collision reveal/stun | MW13 Tracker; BT10 collision lesson | MW21/BT16 | Reveal itself does not stun; only hidden collision does. |
+| Reveal by adjacency/end turn; collision materialization/Disable | MW13 Tracker; BT10 collision lesson | MW21/BT16 | Reveal itself does not apply Disable; only hidden collision does. |
 | Transform and state-specific actions | BT02 Sharpshooter | BT07/BT12 | Raised/lowered action sets and state persistence come from the card. |
 | Summon, front square, and blocked failure | BT03 Foreman | BT12/BT17 | Failed placement consumes neither power nor turn; summoned card is a valid catalog token/card. |
 | Trail and origin summon | BT03 Grove Sister | BT13/BT17 | Origin must be legal for the configured Sapling; created piece's control is explicit. |
@@ -724,7 +719,7 @@ A missing authoritative definition is a build/test failure. A sample-library fal
 | Paid draw and Foresight | Paid draw deferred; Foresight blocked by catalog/rule mismatch | Deferred | Do not claim Birdie's Hero keyword triggers the non-Hero-only rule. |
 | Discard and deck legality | Deferred campaign lesson | Existing engine/deck tests | Add only when a normal match-flow lesson supports it. |
 | Hero placement and defeat | Deferred campaign lesson | Existing engine tests | Use ordinary placement and victory behavior, never a scripted substitute. |
-| Match clock, per-turn clock, first-30-action +10-second bonus | Optional timed rehearsal after MW15 | Optional Tactician BT17 | Default Tutorial pauses during coach/panels; 15m/2m→1m→30s values are read from build constants. |
+| Match clock, per-turn clock, first-30-command +10-second bonus | BT17B optional ordinary-match exam | Existing engine clock regressions | The pre-clock choice may skip the exam. Hero placement uses a separate non-resetting 2:00 deadline while the 15:00 match clock is paused. After placement, ordinary play uses the 2:00 turn timer and 15:00 match clock; each of the first 30 successful commands adds 10 seconds, Foresight does not double that increment, and timeout escalation uses the build constants. No mandatory story overlay interrupts active clocks. |
 
 ### 11.3 Starter-deck completion gate
 
@@ -747,35 +742,35 @@ No prose instruction embedded in the novel is treated as a development instructi
 | Prologue | S02/S03/S06 (deferred) | S02/S03/S06 (deferred) | The campaign does not open in Lash's theatre. The old thief/key, Lash, and pearl/maxim are introduced later at their relevant reveals. |
 | Ch. 1 | MW01-MW02 | BT01-BT02 | Gators were conditioned; Reed moves away; Donella joins the fight; Telos transports the party/cage; Pedros/plants/horse/captive woman; Gilded Hold; weighted customs substitution; crest recorded. |
 | Ch. 2 | MW03 | BT03 | Blackthorn ownership reaches boats, licenses, food, wages, and hospitality; Avery's absence/context, Mudfen seizure, Joni/Infamous Mouse, Reed's crest can help and expose. |
-| Ch. 3 | MW04 | BT04 | Juniper's prepared question helps arrest Lio; Pellan/Seli/refugees; watcher chooses children over itself; black root; Remy/Baalzepub route; broken-horn observation remains a clue, not an identity proof. |
+| Ch. 3 | MW04 | BT04 | Juniper's prepared question helps arrest Lio; Tench/Seli/refugees; watcher chooses children over itself; black root; Remy/Baalzepub route; broken-horn observation remains a clue, not an identity proof. |
 | Ch. 4 | S01 | S01 dossier | Maggie, Nibsy, and Mangletooth make consent/repair explicit; the Hold tests the house; Birdie/Scooter/Vanya enter with their own authority. |
 | Ch. 5 | S01 | S01 dossier | Bluewater Below is a clinic/laundry/kitchen/network, not merely a hideout; 37 keys and Thaeron's puzzle box expose unequal information and bait. |
 | Ch. 6 | MW05 | BT05 | Office heist is rehearsed with names/abort; Hara stays by choice; black ledger is false, ordinary freight chits are real; guardian/tracking dye and Victor/Grask/Mog/Fizzlewick appear. |
 | Ch. 7 | MW06 | BT06 | Wagon rescue succeeds; recorder learns rescue patterns; retaliation is systemic—ferry, medicine, wages, tools, food, Torren, Missus Vale; community rather than one hero bears the response. |
 | Ch. 8 | S02 | S02 | Hollis's information and fear are both checked; Erevan confesses fishbone key/mentor/pearl; Vanya rejects inherited forgiveness; Rowan confronts Elliot's death and limits Birdie's force authority. |
-| Ch. 9 | MW07 | BT07 | Twenty debtors, Tommy's informed injury, Garrett's protection of Little Fen/death, 17-3 prisoner vote, mill flood/fire, ledger and stored value sacrificed. |
+| Ch. 9 | MW07 | BT07 | Twenty debtors, Tommy's informed injury, Garrett's protection of Little Fen/death, 16-3 prisoner vote, mill flood/fire, ledger and stored value sacrificed; twenty cross, nineteen alive. |
 | Ch. 10 | MW08 | BT08 | Thaeron built both Reed's care and his need; Reed refuses unsealed terms; flare reveals Bluewater; Missus Vale dies; Bluewater Below is destroyed; Vanya withdraws route authority. |
-| Ch. 11 | MW09 | BT09 setup | Remy's basement, Sedge and under-skin tokens, three consent plates/survivors, evidence burns, Remy captured; Shrouded Vault plan assigns roles and abort limits. |
-| Ch. 12 | MW10 | BT09 | Auction converts people into euphemized lots; Nima works her own lock; pearl-veiled buyer's schedule; false raid; Mirror, paired wound, Root Key, custody and informed vote. |
+| Ch. 11 | MW09 | BT09 setup | Remy's basement, Sedge and under-skin tokens, three survivors, blood-message plates, temporary custody, and a Shrouded Vault plan with assigned roles and abort limits. |
+| Ch. 12 | MW10 | BT09 | Auction converts people into euphemized lots; Nima works her own lock; Reed rejects the buyer's schedule; volunteers choose the hidden wall; the Root Key crossing springs the trap. |
 | Ch. 13 | MW11 | BT09 | Five simultaneous crises; Reed permanently loses right-hand function; Birdie chooses people over register; Juniper dies after handing Mae the flare; 16 of 19 escape; Nima/Cal/Dessa missing. |
-| Ch. 14 | S03 | S03 | Funeral distributes Juniper's work; Erevan's unauthorized Remy release; forensic scraps expose Lash as architect; Thaeron paid Remy but did not understand the lower room's whole design. |
-| Ch. 15 | MW12 | BT10 | Maggie withheld knowledge; Nibsy demands that living people be asked; Mangletooth's no holds; Briar's care and theft coexist; Hold/Key/Mirror are separately tracked; new pursuit rules follow. |
-| Ch. 16 | S04 | S04 | Full fever-bark course goes to Minnow; Rowan owns his error; 43-person vote and recorded dissent; medicine is not allocated by usefulness. |
-| Ch. 17 | MW13 | BT10 | Society rules constrain officers; Mog and Braun are interviewed without being flattened into allies; Gearjaw's learned relationship and blue trace point to Feyward/Fizzlewick. |
-| Ch. 18 | MW14 | BT11 | Thaeron's public lie is built from selective truths and material care; Reed's alias changes authority; charter retrieved; Vanya surrenders; murder/contract proof is published rather than privately traded. |
-| Ch. 19 | MW15 | BT12 | Company voids charter and assaults town; one audited exception gets children out; Braun refuses and dies; Mog chooses terms/custody; register burns; Victor/Grask/Fizzlewick withdraw; party becomes fugitives. |
-| Ch. 20 | MW16 | BT13 | Poisoned bayou/Half-Ear brood; stopping pipe costs time; gossiping trees/white stair; Briar's promise is narrow; names and relationships open closure; Mangletooth stays. |
-| Ch. 21 | MW17 | BT13 | Factory in sky, modular rails, moth cargo; dream offers Erevan mentor/kitchen; he calls Donella; Vesper's body/history and Elliot's tune lead to chosen temporary company. |
-| Ch. 22 | S05 | BT13/S05 | Moonfruit exacts Reed's last sensory memory of his mother; Donella witnesses Thaeron/Vespara murder-and-boundary contract; Lash waits behind the bargain; party chooses active grove harm over Mirror proof. |
-| Ch. 23 | MW18 | BT14 lead-in | Counterfeit toll, detained Fey, limited captain mercy; Pavo/Nettle/Zippy negotiate separately; bridge is sustained by reclaimed name and cooperation, not ownership. |
-| Ch. 24 | MW19 | BT14 | Moving boundary and frozen refugees; captain finally uses emergency passage; revenge will not restore Reed's name; Rowan chooses the refugee road and transfers authority/items. |
-| Ch. 25 | MW20 | BT15 | Grove/Aelon factory; Ashenfang follows marks and hidden tack, spares unmarked woman, is observed rather than slain; Fen knowingly tests one case and dies; “Sylvara” is wounded into a rule. |
-| Ch. 26 | MW21 | BT15 | Four loss clocks; Guardians adapt; Scooter/Gearjaw relationship matters; Mog is stabbed protecting grass-woman and stays in custody; engine removes witness/kin/shelter/song/local memory; Donella chooses an answering place, not a cure. |
-| Ch. 27 | MW22 | BT16 | Grask hurts Scooter; Gearjaw rejects its order and sacrifices its core; Victor presents an easy throat shot; Birdie chooses cable and permanently loses shoulder function. |
-| Ch. 28 | MW23 | BT16 | Consent network asks each person; yes and no lists remain distinct; refusals carry no penalty; Sylvara inserts Key, Nettle cuts wire, Fizzlewick escapes; Sylvara is restored, not cured. |
-| Ch. 29 | MW24 | BT17 | Grask dies in cage collapse; collective Baelstone action opens gate; Victor surrenders, attacks after register burns, and Pavo kills him; victory comes from agency, not Reed inheriting rule. |
+| Ch. 14 | S03 | S03 | Burial distributes Juniper's work; Erevan's unauthorized private tail lets Remy escape; paper evidence exposes Lash; Mangletooth's refusal holds; Briar escapes with Mirror and Root Key. |
+| Ch. 15 | S04 | BT10 | Minnow receives the full fever-bark course; Delphine's unasked dilution leaves Noll with hearing loss; 43 people vote and 22 choose public action; every dissent remains recorded. |
+| Ch. 16 | MW13 | BT10 | Four Society rules constrain officers; Mog and Braun testify separately; Gearjaw's learned relationship and blue trace point to Feyward/Fizzlewick; records disperse after the kitchen route burns. |
+| Ch. 17 | MW14 | BT11 | Thaeron's public lie uses selective truths and material care; Reed's alias changes authority; Vanya surrenders herself and a dead route; Reed publishes the offer without yet rejecting inheritance. |
+| Ch. 18 | MW15 | BT12 | The magistrate voids Blackthorn's charter before Victor's staged bombing; the town evacuates; Braun refuses and dies; Mog surrenders; three harvest cases and a measurement crew are taken Feyward. |
+| Ch. 19 | MW16 | BT13 | Poisoned bayou/Half-Ear brood, gossiping trees, a bounded stair bargain, Briar's narrow promise, borrowed relationship voices, and Mangletooth's choice to stay. |
+| Ch. 20 | MW17 | BT13 | Modular sky factory, ambient-yield moths, false kitchen, Erevan calling Donella, harvester destruction, and Vesper's release without force. |
+| Ch. 21 | S05 | S05 | Moonfruit costs Reed his last sensory memory of his mother; memory proves Thaeron's murders and bargain; Mirror proof is deferred for active grove harm; Vesper chooses temporary company. |
+| Ch. 22 | MW18 | BT14 | Counterfeit toll rescue; bounded mercy; Pavo, Nettle, and Zippy negotiate separate terms; Pavo spends his chosen name to sustain the bridge. |
+| Ch. 23 | MW19 | BT14 | Moving boundary, refugee labor, delivered writ, Reed's revenge admission, and Rowan's free choice to remain with the refugees and the returning bone. |
+| Ch. 24 | MW20 | BT15 | Grove/Aelon revealed; Ashenfang is Sylvara wounded into a rule; she spares the unmarked grass-woman; a hidden tack changes Fen's crossing and he dies. |
+| Ch. 25 | MW21 | BT16 | Four simultaneous losses; Guardians adapt; Scooter/Gearjaw relationship becomes choice; Mog protects a former captive; the engine removes witness, kin, shelter, song, and local memory. |
+| Ch. 26 | MW22 | BT16 | Gearjaw destroys its own core to save Scooter; Birdie rejects the easy target, cuts the real cable, and permanently loses right-arm function. |
+| Ch. 27 | MW23 | BT16 | Every living road opts in separately; absence is not assent; Nettle cuts Lash's wire; Pavo loses his singing voice; Sylvara restores herself rather than being cured; Fizzlewick escapes. |
+| Ch. 28 | MW24 | BT17 | Prisoners collapse cages and Grask dies; the Society writ opens the gate collectively; Victor accepts custody, burns the register, attacks Nettle, and Pavo kills him. |
+| Ch. 29 | MW25 | BT18 | Thaeron offers 600 conditional grain sacks; Reed brings the deed to Mara and Adie rather than deciding alone; inheritance remains locked; Thaeron admits care without repentance. |
 | Ch. 30 | S06 | S06 | Three Mirewatch weeks of governance precede the return; injuries/deaths remain; ferries, burials, wages, shortages matter; Reed's granary-only authority passes by three; roads diverge after fourteen-day promise. |
-| Epilogue | S06 | BT17/S06 | Fizzlewick reaches Lash with measurements despite Mirewatch's win; concordance glass/northern account remain; old pearl cracks; “No one alone” remains promise and threat. |
+| Epilogue | S06 | S06 | Fizzlewick reaches Lash with measurements despite Mirewatch's win; concordance glass/northern account remain; old pearl cracks; “No one alone” remains promise and threat. |
 
 ### 12.2 Character development, drives, and protected choices
 
@@ -843,11 +838,11 @@ Every `Panels/art` entry above is a required asset-manifest row, not a suggestio
 
 - **Panel rhythm:** opening place/drive, mid-mission change or cost, closing accounting. Four or five panels are used only when a mission has multiple irreversible beats. Never interrupt between target selection and confirmation.
 - **Copy budget:** speaker label at most 32 characters; spoken line target 8-24 words; narrator line target 12-32 words; optional “More” paragraph at most 65 words. The story log retains the full sequence and can replay it with current objective context.
-- **Image frame:** author at 16:9, keep faces/hands and story object inside a central 70% safe area, provide 1920×1080 master plus generated 1280×720/960×540 variants. Story text is rendered by the client, not baked into art.
+- **Image frame:** author an exact 1024x1536 portrait master, keep faces, hands, and the story object inside a central 70% safe area, and verify the live 800x600 and 1920x1080 crops. Story text is rendered by the client, not baked into art.
 - **Continuity:** a visual bible locks injuries and possessions by node: Reed's right hand after MW11; Birdie's shoulder after MW22; Gearjaw active/inert/destroyed; fishbone key, Hold, Mirror, Root Key, marks, tack, and pearl all have distinct silhouettes/colors. Do not show Juniper, Garrett, Missus Vale, Fen, Braun, Grask, Victor, or Gearjaw alive after their fixed endpoint except in an explicitly labeled memory.
 - **Agency composition:** autonomous choices show the chooser acting in foreground; Reed/the player cannot occupy the heroic center of someone else's refusal, surrender, sacrifice, vote, or kill.
 - **Spoiler safety:** selector thumbnails show locations/objects, never later deaths or Lash's face/name before S03. Blackthorn dossier art obeys the cross-campaign spoiler gate.
-- **Accessibility:** every panel gets literal alt text plus a separate mood note; critical clues are named in copy and represented by shape/icon, not color alone. Auto-advance defaults off; narration pauses every gameplay clock.
+- **Accessibility:** every panel gets literal alt text plus a separate mood note; critical clues are named in copy and represented by shape/icon, not color alone. Auto-advance defaults off. Guided-board narration pauses its clock. The optional ordinary-match exam explains its timing before the player commits: placement has its own paused-match 2:00 deadline, and no mandatory story overlay interrupts the live play clocks afterward.
 - **Review contact sheet:** generate one chronological contact sheet per campaign and one object-continuity strip. Story director signs those before individual beauty polish so visual contradictions are caught cheaply.
 
 ## 14. Practical implementation program
@@ -857,7 +852,7 @@ Every `Panels/art` entry above is a required asset-manifest row, not a suggestio
 1. Replace the two compile-time `std::array<StoryMission, 8>` catalogs and numeric switches with versioned data loaded by stable campaign/mission ID.
 2. Add scenario-state seeding for resources, hands/decks, health, statuses, hidden/state/transform values, holes, enchantments, control, large footprints, autonomous actors, objective meters, clocks, and phase checkpoints.
 3. Add trigger/action/choice/objective types from Section 4, including canonical fail-forward events and protected/autonomous-unit policies.
-4. Package a schema-v9 card manifest with stable IDs and definition hashes. Validate every coordinate/action against it in CI; never balance against `ui_capture::sampleCardLibrary()` or silently replace a missing title.
+4. Package a schema-v11 card manifest with stable IDs and definition hashes. Validate every coordinate/action against it in CI; never balance against `ui_capture::sampleCardLibrary()` or silently replace a missing title.
 5. Fix catalog inconsistencies and publish ordinary cards for deferred capabilities. Until then, affected chapters remain StoryOnly and cannot award rule mastery; never create a tutorial-only substitute card.
 6. Make the selector data-driven and scrollable/paged beyond eight missions; generate prerequisites, campaign percentage, card mastery, rule mastery, chapter labels, difficulty, medals, and spoiler protection from metadata.
 7. Add special AI controllers only when they submit ordinary legal actions for authoritative cards. Narrative witnesses remain panel-only; objective code may never grant an action a filter absent from its live card.
@@ -890,7 +885,9 @@ This is the smallest safe parallel tranche under the authored mission boundaries
 |---|---|
 | **MW08, MW12, MW14, MW17, MW21** | StoryOnly until ordinary authoritative cards expose the previously proposed mechanics. These nodes advance the novel and award no rule mastery. |
 | **MW15 — Title Follows Burden** | Mirewatch real-card exam: deployment, repeat, ranged attacks, and directional attacking movement. |
-| **BT17 — Natural Order** | Blackthorn/supporting real-card exam: Relentless, Command, Summon, Capture, Trail, and friendly healing. |
+| **BT17 — Natural Order** | Required guided Blackthorn/supporting real-card synthesis: Relentless, Command, Summon, Capture, Trail, and friendly healing. |
+| **BT17A — Field Judgment** | Required unscripted 4v4 bridge: defeat the opposing force while preserving Thaeron and choosing every move independently. |
+| **BT17B — Blackthorn Match Mastery** | Required depth-three ordinary match: legal 20-card decks, hidden Hero placement, opening hands, income, card flow, active clocks, and starting-Hero elimination. |
 
 **Tranche exit:** all 25 distinct starter titles receive a legal guided use; every active script replays deterministically through normal engine commands; the strict validator rejects fabricated card prefixes and narrative-only mastery. Deferred rules stay visibly incomplete until a real server-authoritative definition supports them.
 
@@ -908,7 +905,7 @@ The story director alone owns shared chronology flags, object custody, injuries/
 
 ### 14.4 Optional post-release expansion waves
 
-- **Wave C, Mirewatch connective story:** MW07, MW09, MW11, MW13, MW16, MW18-MW20, MW22-MW24 and S01-S06.
+- **Wave C, Mirewatch connective story:** MW02, MW07-MW09, MW11, MW13-MW14, MW16-MW25 and S01-S06.
 - **Wave D, Blackthorn connective story:** BT06-BT14, BT16 and the Blackthorn variants/dossiers for S01-S06.
 - **Wave E, balance/accessibility/localization:** all missions on three difficulties, controller/input variants, narration/alt text, text expansion at +35%, and low-motion/color-independent review.
 - **Wave F, blind critique and polish:** Section 16 protocol, revision, new blind panel, final acceptance.
@@ -974,12 +971,12 @@ Critics submit independent severity-tagged findings: `BLOCKER`, `RULE`, `CANON`,
 
 The expanded mode is ready only when all of the following are true:
 
-- All 53 runtime nodes load in canonical order, beginning with playable missions and including 15 authored tactical missions plus 38 StoryOnly narrative chapters, with no numeric story switch remaining.
+- All 57 Book One runtime nodes load in canonical order, beginning with playable missions and including 22 authored tactical missions plus 35 StoryOnly narrative chapters, with no numeric story switch remaining.
 - The exact live starter roster and every implemented rule pass Sections 6 and 11; every RL prerequisite has a functioning authoritative card definition or the badge is not shippable.
 - Gold-path and deviation replays prove every phase, fail, checkpoint, save/load, difficulty, and accessibility path; no generic kill-all condition can override authored objectives.
 - A canon test validates every fixed death/injury, autonomous choice, vote count, custody transition, artifact distinction, reveal boundary, and unresolved thread in Section 12.
 - All required panels exist, render without clipping at supported sizes and +35% text expansion, have alt text/story-log entries, and pass the chronological contact-sheet review.
-- Campaign clocks pause for instruction/accessibility; hint layers never perform a choice for the player; Story Pace skips only already mastered mechanics.
+- Guided campaign clocks pause for instruction/accessibility; the explicitly labeled ordinary-match capstone keeps its real clock active from Hero placement onward. Hint layers never perform a choice for the player, and Story Pace skips only optional lessons without awarding mastery.
 - Both full-deck capstones pass against the packaged definition hashes and again against the current authoritative server catalog.
 - The blind panel meets every Section 16 threshold, all `BLOCKER`, `RULE`, `CANON`, and `ACCESS` findings are closed, and a new blind regression panel finds no reopened critical issue.
 

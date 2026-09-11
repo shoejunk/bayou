@@ -70,6 +70,20 @@ inline bool decodePayload(
         case network::MessageType::MovePiece:
         case network::MessageType::AttackPiece:
             packet >> action.argumentOne >> action.argumentTwo >> action.argumentThree;
+            if (packet && !packet.endOfPacket())
+            {
+                packet >> action.argumentFour;
+            }
+            if (!packet || !packet.endOfPacket())
+            {
+                error = "Malformed tactical piece action";
+                return false;
+            }
+            if (!network::validActionProfileSelection(action.argumentFour))
+            {
+                error = "Invalid action-profile selection";
+                return false;
+            }
             break;
         case network::MessageType::UseAbility:
         case network::MessageType::DiscardCard:
@@ -132,7 +146,33 @@ inline bool apply(
         return false;
     }
 
+    const std::string statusBefore = error != nullptr
+        ? engine.snapshotFor(action.playerNumber).status
+        : std::string();
+
     const auto type = static_cast<network::MessageType>(action.actionType);
+    const bool selectsActionProfile =
+        type == network::MessageType::MovePiece ||
+        type == network::MessageType::AttackPiece;
+    if (selectsActionProfile &&
+        !network::validActionProfileSelection(action.argumentFour))
+    {
+        if (error != nullptr)
+        {
+            *error = "Invalid action-profile selection";
+        }
+        return false;
+    }
+    if (!selectsActionProfile &&
+        action.argumentFour != network::AutomaticActionProfileSelection)
+    {
+        if (error != nullptr)
+        {
+            *error = "Unexpected action-profile selection";
+        }
+        return false;
+    }
+
     bool accepted = false;
     switch (type)
     {
@@ -155,14 +195,16 @@ inline bool apply(
                 action.playerNumber,
                 action.argumentOne,
                 action.argumentTwo,
-                action.argumentThree);
+                action.argumentThree,
+                network::decodeActionProfileSelection(action.argumentFour));
             break;
         case network::MessageType::AttackPiece:
             accepted = engine.attackPiece(
                 action.playerNumber,
                 action.argumentOne,
                 action.argumentTwo,
-                action.argumentThree);
+                action.argumentThree,
+                network::decodeActionProfileSelection(action.argumentFour));
             break;
         case network::MessageType::UseAbility:
             accepted = engine.useAbility(action.playerNumber, action.argumentOne);
@@ -191,7 +233,11 @@ inline bool apply(
     {
         if (error != nullptr)
         {
-            *error = "Tactical action was not accepted in the current state";
+            const std::string rejectionStatus =
+                engine.snapshotFor(action.playerNumber).status;
+            *error = !rejectionStatus.empty() && rejectionStatus != statusBefore
+                ? rejectionStatus
+                : "Tactical action was not accepted in the current state";
         }
         return false;
     }

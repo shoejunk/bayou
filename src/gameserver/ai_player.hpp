@@ -20,6 +20,10 @@ struct AiAction
     int handIndex = 0;
     int row = 0;
     int column = 0;
+    // Raw zero-based index into the acting piece's printed action profiles.
+    // -1 is retained only for legacy callers that intentionally request the
+    // resolver's automatic choice.
+    int actionIndex = -1;
 };
 
 // How many whole turns the planner looks ahead by default: its own turn and

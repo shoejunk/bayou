@@ -27,7 +27,11 @@ struct ActionDescription
     int cooldown = 0;
     int control = 0;
     int repeat = 0;
+    int push = 0;
+    bool passThrough = false;
+    bool clearPath = false;
     bool pull = false;
+    std::vector<std::string> targetFilter;
     std::string infest;
 };
 

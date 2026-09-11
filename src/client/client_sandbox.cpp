@@ -190,60 +190,7 @@ void refreshSandboxPlayerSnapshots(game_data::Snapshot& snapshot)
 
 void recomputeSandboxControl(game_data::Snapshot& snapshot)
 {
-    std::array<std::uint8_t, game_data::BoardSquares> next = snapshot.control;
-    for (int row = 0; row < game_data::BoardSize; ++row)
-    {
-        for (int column = 0; column < game_data::BoardSize; ++column)
-        {
-            const std::size_t index = static_cast<std::size_t>(game_data::squareIndex(row, column));
-            if (const game_data::Piece* occupant = pieceAtInSnapshot(snapshot, row, column))
-            {
-                if (game_data::pieceExertsControl(*occupant))
-                {
-                    next[index] = static_cast<std::uint8_t>(occupant->owner);
-                }
-                continue;
-            }
-
-            int influence1 = 0;
-            int influence2 = 0;
-            for (int dr = -1; dr <= 1; ++dr)
-            {
-                for (int dc = -1; dc <= 1; ++dc)
-                {
-                    if (dr == 0 && dc == 0)
-                    {
-                        continue;
-                    }
-                    const game_data::Piece* neighbor = game_data::inBounds(row + dr, column + dc)
-                        ? pieceAtInSnapshot(snapshot, row + dr, column + dc)
-                        : nullptr;
-                    if (!neighbor || !game_data::pieceExertsControl(*neighbor))
-                    {
-                        continue;
-                    }
-                    if (neighbor->owner == 1)
-                    {
-                        ++influence1;
-                    }
-                    else if (neighbor->owner == 2)
-                    {
-                        ++influence2;
-                    }
-                }
-            }
-
-            if (influence1 > influence2)
-            {
-                next[index] = 1;
-            }
-            else if (influence2 > influence1)
-            {
-                next[index] = 2;
-            }
-        }
-    }
-    snapshot.control = next;
+    snapshot.control = game_data::recomputeBoardControl(snapshot.control, snapshot.pieces);
 }
 
 void spawnSandboxPiece(

@@ -86,6 +86,68 @@ inline bool pieceFootprintFree(
     return true;
 }
 
+inline bool pieceFootprintsOverlap(
+    const Piece& first,
+    int firstRow,
+    int firstColumn,
+    const Piece& second,
+    int secondRow,
+    int secondColumn)
+{
+    return firstRow < secondRow + second.height &&
+        secondRow < firstRow + first.height &&
+        firstColumn < secondColumn + second.width &&
+        secondColumn < firstColumn + first.width;
+}
+
+// Intercept exchanges the two pieces' anchor squares while preserving each
+// piece's own footprint. A swap is legal only when both resulting footprints
+// fit on the board, do not overlap each other, and do not overlap a third
+// piece. Authoritative board pieces have unique nonzero ids.
+inline bool pieceFootprintsCanSwap(
+    const std::vector<Piece>& pieces, const Piece& first, const Piece& second)
+{
+    if (first.id == second.id ||
+        !pieceFootprintInBounds(first, second.row, second.column) ||
+        !pieceFootprintInBounds(second, first.row, first.column) ||
+        pieceFootprintsOverlap(
+            first,
+            second.row,
+            second.column,
+            second,
+            first.row,
+            first.column))
+    {
+        return false;
+    }
+
+    for (const Piece& other : pieces)
+    {
+        if (other.id == first.id || other.id == second.id)
+        {
+            continue;
+        }
+        if (pieceFootprintsOverlap(
+                first,
+                second.row,
+                second.column,
+                other,
+                other.row,
+                other.column) ||
+            pieceFootprintsOverlap(
+                second,
+                first.row,
+                first.column,
+                other,
+                other.row,
+                other.column))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 inline bool cardFootprintFree(
     const std::vector<Piece>& pieces, const GameCard& card, int row, int column)
 {
@@ -253,6 +315,26 @@ inline void addActionTarget(ActionResolution& action, const Piece& target)
     }
 }
 
+// The schema-11 KingHealConstruct2 action predates "Mechanical" becoming the
+// canonical card taxonomy and still stores its target filter as "construct".
+// Treat that legacy filter spelling as Mechanical without creating the reverse
+// alias: an arbitrary Construct keyword does not make a non-Mechanical target
+// repairable.
+inline std::string canonicalActionTargetFilter(std::string value)
+{
+    value = normalizedTrait(std::move(value));
+    return value == "construct" ? "mechanical" : value;
+}
+
+inline bool pieceMatchesActionTargetFilter(
+    const Piece& target,
+    const std::string& required)
+{
+    const std::string canonicalRequired = canonicalActionTargetFilter(required);
+    return hasKeyword(target.traits, canonicalRequired) ||
+        hasKeyword(target.keywords, canonicalRequired);
+}
+
 inline bool actionCanTarget(
     const Piece& piece,
     const Piece& target,
@@ -265,7 +347,7 @@ inline bool actionCanTarget(
         targetFilter.begin(),
         targetFilter.end(),
         [&](const std::string& required) {
-            return hasKeyword(target.traits, required) || hasKeyword(target.keywords, required);
+            return pieceMatchesActionTargetFilter(target, required);
         });
     if (!matchesFilter)
     {
@@ -453,7 +535,9 @@ inline ActionResolution resolvePieceAction(
     int requiredActionIndex = -1)
 {
     ActionResolution best;
-    if (!inBounds(toRow, toColumn) || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
+    if (requiredActionIndex < -1 ||
+        requiredActionIndex >= static_cast<int>(piece.actions.size()) ||
+        !inBounds(toRow, toColumn) || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
     {
         return best;
     }
@@ -724,6 +808,72 @@ inline bool pieceExertsControl(const Piece& piece)
     return piece.canControl && !piece.hidden;
 }
 
+// Recomputes whole-board control from information that is allowed to affect
+// the public board. A hidden occupant is treated exactly like an empty square:
+// it neither claims nor freezes the square beneath it. Adjacent influence is
+// counted once per piece, not once per covered cell of a large footprint.
+inline std::array<std::uint8_t, BoardSquares> recomputeBoardControl(
+    const std::array<std::uint8_t, BoardSquares>& current,
+    const std::vector<Piece>& pieces)
+{
+    std::array<std::uint8_t, BoardSquares> next = current;
+    for (int row = 0; row < BoardSize; ++row)
+    {
+        for (int column = 0; column < BoardSize; ++column)
+        {
+            const std::size_t index = static_cast<std::size_t>(squareIndex(row, column));
+            const Piece* occupant = findPieceAt(pieces, row, column);
+            if (occupant != nullptr && pieceExertsControl(*occupant))
+            {
+                next[index] = static_cast<std::uint8_t>(occupant->owner);
+                continue;
+            }
+
+            int influence1 = 0;
+            int influence2 = 0;
+            std::vector<int> countedPieceIds;
+            for (int dr = -1; dr <= 1; ++dr)
+            {
+                for (int dc = -1; dc <= 1; ++dc)
+                {
+                    if ((dr == 0 && dc == 0) || !inBounds(row + dr, column + dc))
+                    {
+                        continue;
+                    }
+                    const Piece* neighbor = findPieceAt(pieces, row + dr, column + dc);
+                    if (neighbor == nullptr || !pieceExertsControl(*neighbor) ||
+                        std::find(
+                            countedPieceIds.begin(), countedPieceIds.end(), neighbor->id) !=
+                            countedPieceIds.end())
+                    {
+                        continue;
+                    }
+                    countedPieceIds.push_back(neighbor->id);
+                    if (neighbor->owner == 1)
+                    {
+                        ++influence1;
+                    }
+                    else if (neighbor->owner == 2)
+                    {
+                        ++influence2;
+                    }
+                }
+            }
+
+            if (influence1 > influence2)
+            {
+                next[index] = 1;
+            }
+            else if (influence2 > influence1)
+            {
+                next[index] = 2;
+            }
+            // A tie retains the current controller.
+        }
+    }
+    return next;
+}
+
 // The board as one player sees it: opposing dematerialized pieces are absent.
 inline std::vector<Piece> piecesVisibleTo(const std::vector<Piece>& pieces, int playerNumber)
 {
@@ -744,14 +894,15 @@ inline std::vector<Piece> piecesVisibleTo(const std::vector<Piece>& pieces, int 
 //  - an attacking move that reaches the hidden piece strikes it instead,
 //  - any other movement halts short of it without dealing damage,
 //  - a hop whose landing square is occupied fails entirely (no pivot damage).
-// In every collision the hidden piece is identified so the caller can
-// materialize and stun it.
+// In every collision all hidden pieces overlapped by the mover's footprint at
+// the first collision anchor are identified so the caller can materialize and
+// stun them.
 struct PieceActionOutcome
 {
     ActionResolution action;
     int destinationRow = 0;
     int destinationColumn = 0;
-    int revealedPieceId = 0;  // hidden piece struck or bumped into (0 = none)
+    std::vector<int> revealedPieceIds;
 };
 
 inline PieceActionOutcome resolvePieceActionThroughHidden(
@@ -774,11 +925,23 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
         return outcome;
     }
 
-    auto hiddenEnemyAt = [&](int row, int column) -> const Piece* {
-        const Piece* occupant = findPieceAt(pieces, row, column);
-        return occupant != nullptr && occupant->hidden && occupant->owner != piece.owner
-            ? occupant
-            : nullptr;
+    auto hiddenEnemiesOverlappingFootprint = [&](int anchorRow, int anchorColumn) {
+        std::vector<const Piece*> hidden;
+        for (int row = anchorRow; row < anchorRow + piece.height; ++row)
+        {
+            for (int column = anchorColumn; column < anchorColumn + piece.width; ++column)
+            {
+                const Piece* occupant = findOtherPieceAt(pieces, piece, row, column);
+                if (occupant == nullptr || !occupant->hidden ||
+                    occupant->owner == piece.owner ||
+                    std::find(hidden.begin(), hidden.end(), occupant) != hidden.end())
+                {
+                    continue;
+                }
+                hidden.push_back(occupant);
+            }
+        }
+        return hidden;
     };
 
     const ActionProfile& profile =
@@ -788,7 +951,9 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
     const bool walksPath = (kind == ActionKind::Slide || kind == ActionKind::Capture) &&
         !jumping && !profile.passThrough;
 
-    const Piece* hiddenBlocker = nullptr;
+    std::vector<const Piece*> hiddenBlockers;
+    int collisionRow = toRow;
+    int collisionColumn = toColumn;
     int stopRow = piece.row;
     int stopColumn = piece.column;
     if (walksPath)
@@ -803,9 +968,11 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
         {
             row += stepRow;
             column += stepColumn;
-            hiddenBlocker = hiddenEnemyAt(row, column);
-            if (hiddenBlocker != nullptr)
+            hiddenBlockers = hiddenEnemiesOverlappingFootprint(row, column);
+            if (!hiddenBlockers.empty())
             {
+                collisionRow = row;
+                collisionColumn = column;
                 break;
             }
             stopRow = row;
@@ -815,27 +982,43 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
     else
     {
         // Jumps, hops, teleports, tunnels, and pass-through moves only collide
-        // at the destination square; a failed one leaves the piece in place.
-        hiddenBlocker = hiddenEnemyAt(toRow, toColumn);
+        // at the destination footprint; a failed one leaves the piece in place.
+        hiddenBlockers = hiddenEnemiesOverlappingFootprint(toRow, toColumn);
     }
 
-    if (hiddenBlocker == nullptr)
+    if (hiddenBlockers.empty())
     {
         return outcome;
     }
 
-    outcome.revealedPieceId = hiddenBlocker->id;
+    for (const Piece* hiddenBlocker : hiddenBlockers)
+    {
+        outcome.revealedPieceIds.push_back(hiddenBlocker->id);
+    }
 
-    // An attacking move that can reach the hidden square strikes the piece as
-    // if it had been visible (damage, staging, and status apply normally).
+    // Re-resolve at the first mover anchor whose footprint collides. Resolving
+    // at a hidden unit's own anchor can overshoot a multi-square mover beyond
+    // the square the player chose. Normal footprint targeting then includes
+    // every hidden enemy overlapped at this anchor.
     const ActionResolution strike = resolvePieceAction(
-        pieces, holes, piece, hiddenBlocker->row, hiddenBlocker->column, true);
+        pieces, holes, piece, collisionRow, collisionColumn, true, requiredActionIndex);
+    const auto strikeIncludes = [&](int pieceId) {
+        if (!strike.targetIds.empty())
+        {
+            return std::find(strike.targetIds.begin(), strike.targetIds.end(), pieceId) !=
+                strike.targetIds.end();
+        }
+        return strike.targetId == pieceId;
+    };
     if (strike.legal && strike.attacks && strike.moves &&
-        strike.targetId == hiddenBlocker->id)
+        std::all_of(
+            outcome.revealedPieceIds.begin(),
+            outcome.revealedPieceIds.end(),
+            strikeIncludes))
     {
         outcome.action = strike;
-        outcome.destinationRow = hiddenBlocker->row;
-        outcome.destinationColumn = hiddenBlocker->column;
+        outcome.destinationRow = collisionRow;
+        outcome.destinationColumn = collisionColumn;
         return outcome;
     }
 
@@ -934,6 +1117,7 @@ inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
 struct PullResult
 {
     int movedSquares = 0;
+    std::vector<int> revealedPieceIds;
 };
 
 // Pulls a surviving target toward the attacker until their footprints are
@@ -983,6 +1167,18 @@ inline PullResult applyActionPull(
         const int nextColumn = target.column + stepColumn;
         if (!pieceFootprintFree(pieces, target, nextRow, nextColumn))
         {
+            for (const Piece* blocker :
+                 piecesOverlappingFootprint(pieces, target, nextRow, nextColumn))
+            {
+                if (blocker->hidden &&
+                    std::find(
+                        result.revealedPieceIds.begin(),
+                        result.revealedPieceIds.end(),
+                        blocker->id) == result.revealedPieceIds.end())
+                {
+                    result.revealedPieceIds.push_back(blocker->id);
+                }
+            }
             break;
         }
         target.row = nextRow;
@@ -1045,6 +1241,7 @@ struct PushResult
 {
     int movedSquares = 0;
     int preventedSquares = 0;
+    std::vector<int> revealedPieceIds;
 };
 
 // Pushes a surviving enemy directly away from the attack's staging square.
@@ -1097,6 +1294,18 @@ inline PushResult applyActionPush(
         const int nextColumn = target.column + stepColumn;
         if (!pieceFootprintFree(pieces, target, nextRow, nextColumn))
         {
+            for (const Piece* blocker :
+                 piecesOverlappingFootprint(pieces, target, nextRow, nextColumn))
+            {
+                if (blocker->hidden &&
+                    std::find(
+                        result.revealedPieceIds.begin(),
+                        result.revealedPieceIds.end(),
+                        blocker->id) == result.revealedPieceIds.end())
+                {
+                    result.revealedPieceIds.push_back(blocker->id);
+                }
+            }
             break;
         }
         target.row = nextRow;
@@ -1121,6 +1330,9 @@ struct DamageAssignment
 struct DamageResolution
 {
     std::vector<DamageAssignment> assignments;
+    // Bodyguard changes assignments only, leaving this as the selected target
+    // so Push, Pull, Infest, and Control stay there. Intercept swaps pieces and
+    // changes this id because the Interceptor takes the whole attack.
     int effectiveTargetId = 0;
     bool intercepted = false;
 };
@@ -1190,7 +1402,8 @@ inline DamageResolution resolveDamageWithBodyguardsAndIntercepts(
                 if (candidate.id != target.id && candidate.owner == target.owner &&
                     !candidate.interceptUsedThisTurn &&
                     hasKeyword(candidate.keywords, "intercept") &&
-                    piecesAreAdjacent(target, candidate))
+                    piecesAreAdjacent(target, candidate) &&
+                    pieceFootprintsCanSwap(pieces, target, candidate))
                 {
                     interceptIds.push_back(candidate.id);
                 }

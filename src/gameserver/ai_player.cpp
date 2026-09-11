@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <limits>
 #include <utility>
 #include <vector>
@@ -37,6 +38,13 @@ constexpr int ActionPushValue = 2;
 constexpr int ActionPullValue = 4;
 constexpr int ActionReachValue = 2;
 constexpr int ControlledSquareValue = 7;
+constexpr int ObjectiveUnitValue = 1200;
+constexpr int ObjectiveForceHealthValue = 220;
+constexpr int ObjectiveHealthValue = 600;
+constexpr int ObjectiveSquareValue = 500;
+constexpr int ObjectiveControlValue = 120;
+constexpr int ObjectiveSurvivorHealthValue = 180;
+constexpr int ObjectiveCompletionValue = 500000;
 constexpr int HiddenPieceValue = 25;
 constexpr int ImpairedTurnPenalty = 20;
 constexpr int UnitAdvanceValue = 4;
@@ -90,9 +98,230 @@ struct AiContext
     // Opposing heroes the redaction removed. Their existence is public even
     // though their squares are not, so the score has to keep counting them.
     int concealedOpponentHeroes = 0;
+    // Scenario rules are public, but the engine copy below must discard their
+    // adjudicator after hidden pieces are redacted. Keep only a read-only
+    // projection here: search can value the public goal without letting an
+    // incomplete board declare a winner.
+    GameEngine::ScenarioObjective objective;
+    bool hasObjective = false;
+    std::vector<int> concealedObjectivePieceIds;
+    std::vector<std::pair<int, int>> concealedOriginalOwnerCounts;
+    std::vector<std::pair<int, int>> concealedOriginalOwnerHealth;
+    int concealedTargetHealth = 0;
     long long nodes = 0;
     long long nodeBudget = 0;
 };
+
+struct ObjectiveProjection
+{
+    bool complete = false;
+    bool failed = false;
+    int current = 0;
+    int required = 0;
+    int remaining = 0;
+    int targetHealth = 0;
+    int targetDistance = 0;
+    int survivorHealth = 0;
+};
+
+int pieceBestDamage(const Piece& piece);
+
+bool containsId(const std::vector<int>& ids, int id)
+{
+    return std::find(ids.begin(), ids.end(), id) != ids.end();
+}
+
+int concealedOriginalOwnerCount(const AiContext& context, int owner)
+{
+    const auto found = std::find_if(
+        context.concealedOriginalOwnerCounts.begin(),
+        context.concealedOriginalOwnerCounts.end(),
+        [owner](const auto& entry) { return entry.first == owner; });
+    return found == context.concealedOriginalOwnerCounts.end() ? 0 : found->second;
+}
+
+int concealedOriginalOwnerHealth(const AiContext& context, int owner)
+{
+    const auto found = std::find_if(
+        context.concealedOriginalOwnerHealth.begin(),
+        context.concealedOriginalOwnerHealth.end(),
+        [owner](const auto& entry) { return entry.first == owner; });
+    return found == context.concealedOriginalOwnerHealth.end() ? 0 : found->second;
+}
+
+// Computes scenario progress from a planning position without changing that
+// position. Initially concealed enemy identities count as alive, but their
+// coordinates never enter the projection. Pieces that conceal themselves in
+// a simulated reply likewise remain alive without leaking their square into a
+// later decision by the other side.
+ObjectiveProjection projectObjective(const GameEngine& engine, const AiContext& context)
+{
+    ObjectiveProjection projected;
+    if (!context.hasObjective)
+    {
+        return projected;
+    }
+
+    const GameEngine::ScenarioObjective& objective = context.objective;
+    const auto pieceById = [&](int id) -> const Piece* {
+        const auto found = std::find_if(
+            engine.boardPieces().begin(), engine.boardPieces().end(),
+            [id](const Piece& piece) { return piece.id == id; });
+        return found == engine.boardPieces().end() ? nullptr : &*found;
+    };
+    const auto identityAlive = [&](int id) {
+        return pieceById(id) != nullptr || containsId(context.concealedObjectivePieceIds, id);
+    };
+
+    for (int pieceId : objective.requiredSurvivorPieceIds)
+    {
+        if (!identityAlive(pieceId))
+        {
+            projected.failed = true;
+            return projected;
+        }
+        if (const Piece* survivor = pieceById(pieceId))
+        {
+            projected.survivorHealth += std::max(0, survivor->health);
+        }
+    }
+
+    if (objective.requiredForceOriginalOwner != 0)
+    {
+        int remainingForce = concealedOriginalOwnerCount(
+            context, objective.requiredForceOriginalOwner);
+        remainingForce += static_cast<int>(std::count_if(
+            engine.boardPieces().begin(), engine.boardPieces().end(),
+            [&](const Piece& piece) {
+                return pieceOriginalOwner(piece) == objective.requiredForceOriginalOwner;
+            }));
+        if (remainingForce == 0)
+        {
+            projected.failed = true;
+            return projected;
+        }
+    }
+
+    switch (objective.kind)
+    {
+        case GameEngine::ScenarioObjectiveKind::None:
+            return projected;
+        case GameEngine::ScenarioObjectiveKind::DefeatOriginalOwner:
+            projected.remaining = concealedOriginalOwnerCount(
+                context, objective.opposingOriginalOwner);
+            projected.targetHealth = concealedOriginalOwnerHealth(
+                context, objective.opposingOriginalOwner);
+            projected.remaining += static_cast<int>(std::count_if(
+                engine.boardPieces().begin(), engine.boardPieces().end(),
+                [&](const Piece& piece) {
+                    return pieceOriginalOwner(piece) == objective.opposingOriginalOwner;
+                }));
+            for (const Piece& piece : engine.boardPieces())
+            {
+                if (pieceOriginalOwner(piece) == objective.opposingOriginalOwner)
+                {
+                    projected.targetHealth += std::max(0, piece.health);
+                }
+            }
+            {
+                int nearest = BoardSize * 2;
+                bool foundPair = false;
+                for (const Piece& attacker : engine.boardPieces())
+                {
+                    if (attacker.owner != objective.successPlayer ||
+                        pieceOriginalOwner(attacker) == objective.opposingOriginalOwner ||
+                        pieceBestDamage(attacker) <= 0)
+                    {
+                        continue;
+                    }
+                    for (const Piece& target : engine.boardPieces())
+                    {
+                        if (pieceOriginalOwner(target) != objective.opposingOriginalOwner ||
+                            (target.hidden && target.owner != context.aiPlayer))
+                        {
+                            continue;
+                        }
+                        nearest = std::min(
+                            nearest,
+                            chebyshev(attacker.row, attacker.column, target.row, target.column));
+                        foundPair = true;
+                    }
+                }
+                projected.targetDistance = foundPair ? nearest : 0;
+            }
+            projected.complete = projected.remaining == 0;
+            return projected;
+        case GameEngine::ScenarioObjectiveKind::DefeatPiece:
+        {
+            projected.required = 1;
+            const Piece* target = pieceById(objective.targetPieceId);
+            const bool concealed = containsId(
+                context.concealedObjectivePieceIds, objective.targetPieceId);
+            projected.remaining = target != nullptr || concealed ? 1 : 0;
+            projected.current = 1 - projected.remaining;
+            projected.complete = projected.remaining == 0;
+            projected.targetHealth = target != nullptr
+                ? std::max(0, target->health)
+                : (concealed ? context.concealedTargetHealth : 0);
+            return projected;
+        }
+        case GameEngine::ScenarioObjectiveKind::ReachSquare:
+        {
+            projected.required = 1;
+            const Piece* target = pieceById(objective.targetPieceId);
+            if (target == nullptr)
+            {
+                // A target removed by redaction remains alive, but no hidden
+                // coordinate is used for distance or completion.
+                if (!containsId(context.concealedObjectivePieceIds, objective.targetPieceId))
+                {
+                    projected.failed = true;
+                }
+                projected.remaining = 1;
+                return projected;
+            }
+            if (target->hidden && target->owner != context.aiPlayer)
+            {
+                projected.remaining = 1;
+                return projected;
+            }
+            projected.targetDistance = std::max(
+                std::abs(target->row - objective.targetRow),
+                std::abs(target->column - objective.targetColumn));
+            projected.current = projected.targetDistance == 0 ? 1 : 0;
+            projected.remaining = 1 - projected.current;
+            projected.complete = projected.current == 1;
+            return projected;
+        }
+        case GameEngine::ScenarioObjectiveKind::ControlSquares:
+            projected.required = objective.controlAmount;
+            projected.current = engine.controlledSquares(objective.successPlayer);
+            projected.remaining = std::max(0, projected.required - projected.current);
+            projected.complete = projected.remaining == 0;
+            return projected;
+    }
+    return projected;
+}
+
+int objectiveTerminalScore(const GameEngine& engine, const AiContext& context, bool& terminal)
+{
+    terminal = false;
+    if (!context.hasObjective)
+    {
+        return 0;
+    }
+    const ObjectiveProjection projected = projectObjective(engine, context);
+    if (!projected.complete && !projected.failed)
+    {
+        return 0;
+    }
+    terminal = true;
+    const bool successSideWins = projected.complete;
+    const bool aiWins = successSideWins
+        ? context.objective.successPlayer == context.aiPlayer
+        : context.objective.successPlayer != context.aiPlayer;
+    return aiWins ? ObjectiveCompletionValue : -ObjectiveCompletionValue;
+}
 
 bool budgetExhausted(const AiContext& context)
 {
@@ -265,7 +494,17 @@ int quickEvaluate(const GameEngine& engine, const AiContext& context)
     for (const Piece& piece : engine.boardPieces())
     {
         const int worth = pieceWorth(piece) + piecePlacementValue(piece);
-        score += piece.owner == context.aiPlayer ? worth : -worth;
+        int appraisalOwner = piece.owner;
+        if (context.hasObjective &&
+            context.objective.kind == GameEngine::ScenarioObjectiveKind::DefeatOriginalOwner &&
+            pieceOriginalOwner(piece) == context.objective.opposingOriginalOwner)
+        {
+            // Temporary Control never satisfies defeat-all. Appraise the unit
+            // for its stable objective allegiance so zero-damage Control does
+            // not look like a substitute for defeating it.
+            appraisalOwner = context.objective.opposingOriginalOwner;
+        }
+        score += appraisalOwner == context.aiPlayer ? worth : -worth;
     }
     // Heroes the planner cannot see still hold the match open for the opponent.
     score -= context.concealedOpponentHeroes * (HeroAliveValue + 10 * HeroHealthValue);
@@ -277,6 +516,48 @@ int quickEvaluate(const GameEngine& engine, const AiContext& context)
         resourceValue(engine.playerState(context.opponent).resources);
     // The opponent's hand is redacted away, so only this side's is appraised.
     score += handValue(engine, context.aiPlayer);
+
+    // Scenario play has a public win condition that can differ from ordinary
+    // Hero elimination. This projection is deliberately outside the redacted
+    // engine: the incomplete planning copy cannot adjudicate a win, while the
+    // evaluator can still pursue or defend the declared objective.
+    if (context.hasObjective)
+    {
+        const GameEngine::ScenarioObjective& objective = context.objective;
+        const ObjectiveProjection progress = projectObjective(engine, context);
+        const int objectiveDirection =
+            objective.successPlayer == context.aiPlayer ? 1 : -1;
+        int objectiveValue = 0;
+        switch (objective.kind)
+        {
+        case GameEngine::ScenarioObjectiveKind::None:
+            break;
+        case GameEngine::ScenarioObjectiveKind::DefeatOriginalOwner:
+            objectiveValue = -progress.remaining * ObjectiveUnitValue -
+                progress.targetHealth * ObjectiveForceHealthValue -
+                progress.targetDistance * ObjectiveSquareValue;
+            break;
+        case GameEngine::ScenarioObjectiveKind::DefeatPiece:
+            objectiveValue = -progress.targetHealth * ObjectiveHealthValue;
+            break;
+        case GameEngine::ScenarioObjectiveKind::ReachSquare:
+            objectiveValue = -progress.targetDistance * ObjectiveSquareValue;
+            break;
+        case GameEngine::ScenarioObjectiveKind::ControlSquares:
+            objectiveValue = progress.current * ObjectiveControlValue;
+            break;
+        }
+        objectiveValue += progress.survivorHealth * ObjectiveSurvivorHealthValue;
+        if (progress.complete)
+        {
+            objectiveValue += ObjectiveCompletionValue;
+        }
+        if (progress.failed)
+        {
+            objectiveValue -= ObjectiveCompletionValue;
+        }
+        score += objectiveDirection * objectiveValue;
+    }
     return score;
 }
 
@@ -476,8 +757,155 @@ int abilityOrderBonus(const Piece& piece)
     return 30;
 }
 
+int objectiveCandidateBonus(
+    const GameEngine& engine,
+    const AiContext& context,
+    int playerNumber,
+    const Piece& piece,
+    const ActionResolution& resolution,
+    int row,
+    int column)
+{
+    if (!context.hasObjective)
+    {
+        return 0;
+    }
+
+    const GameEngine::ScenarioObjective& objective = context.objective;
+    const bool pursuing = playerNumber == objective.successPlayer;
+    const auto pieceById = [&](int id) -> const Piece* {
+        const auto found = std::find_if(
+            engine.boardPieces().begin(), engine.boardPieces().end(),
+            [id](const Piece& candidate) { return candidate.id == id; });
+        return found == engine.boardPieces().end() ? nullptr : &*found;
+    };
+    const auto targetsId = [&](int id) {
+        return std::find(resolution.targetIds.begin(), resolution.targetIds.end(), id) !=
+            resolution.targetIds.end();
+    };
+
+    int bonus = 0;
+    for (int survivorId : objective.requiredSurvivorPieceIds)
+    {
+        if (targetsId(survivorId))
+        {
+            // The success side prioritizes a printed heal; its opponent
+            // prioritizes a legal attack on a required survivor.
+            bonus += pursuing
+                ? (resolution.heal > 0 ? 18000 : 0)
+                : (resolution.damage > 0 ? 18000 : 0);
+        }
+    }
+
+    switch (objective.kind)
+    {
+        case GameEngine::ScenarioObjectiveKind::None:
+            break;
+        case GameEngine::ScenarioObjectiveKind::DefeatOriginalOwner:
+            if (pursuing)
+            {
+                for (int targetId : resolution.targetIds)
+                {
+                    const Piece* target = pieceById(targetId);
+                    if (target != nullptr &&
+                        pieceOriginalOwner(*target) == objective.opposingOriginalOwner)
+                    {
+                        bonus += resolution.damage > 0 ? 5000 : 0;
+                        if (resolution.control > 0 && resolution.damage == 0)
+                        {
+                            bonus -= 18000;
+                        }
+                    }
+                }
+                if (resolution.moves && !resolution.attacks)
+                {
+                    int before = BoardSize * 2;
+                    int after = BoardSize * 2;
+                    for (const Piece& target : engine.boardPieces())
+                    {
+                        if (pieceOriginalOwner(target) != objective.opposingOriginalOwner ||
+                            (target.hidden && target.owner != playerNumber))
+                        {
+                            continue;
+                        }
+                        before = std::min(
+                            before,
+                            chebyshev(piece.row, piece.column, target.row, target.column));
+                        after = std::min(
+                            after,
+                            chebyshev(row, column, target.row, target.column));
+                    }
+                    if (before < BoardSize * 2 && after < BoardSize * 2)
+                    {
+                        bonus += (before - after) * 6500;
+                    }
+                }
+            }
+            break;
+        case GameEngine::ScenarioObjectiveKind::DefeatPiece:
+            if (pursuing && targetsId(objective.targetPieceId) && resolution.damage > 0)
+            {
+                bonus += 22000;
+            }
+            else if (pursuing && targetsId(objective.targetPieceId) &&
+                resolution.control > 0)
+            {
+                bonus -= 18000;
+            }
+            break;
+        case GameEngine::ScenarioObjectiveKind::ReachSquare:
+            if (pursuing && piece.id == objective.targetPieceId && resolution.moves &&
+                !resolution.attacks)
+            {
+                const int before = std::max(
+                    std::abs(piece.row - objective.targetRow),
+                    std::abs(piece.column - objective.targetColumn));
+                const int after = std::max(
+                    std::abs(row - objective.targetRow),
+                    std::abs(column - objective.targetColumn));
+                bonus += (before - after) * 8000;
+                if (after == 0)
+                {
+                    bonus += 24000;
+                }
+            }
+            else if (!pursuing)
+            {
+                if (targetsId(objective.targetPieceId) && resolution.damage > 0)
+                {
+                    bonus += 22000;
+                }
+                if (resolution.moves && !resolution.attacks &&
+                    row == objective.targetRow && column == objective.targetColumn)
+                {
+                    bonus += 8000;
+                }
+            }
+            break;
+        case GameEngine::ScenarioObjectiveKind::ControlSquares:
+            if (resolution.moves && !resolution.attacks)
+            {
+                const std::size_t destination =
+                    static_cast<std::size_t>(squareIndex(row, column));
+                const int wantedOwner = pursuing
+                    ? objective.successPlayer
+                    : (objective.successPlayer == 1 ? 2 : 1);
+                if (engine.boardControl()[destination] != wantedOwner)
+                {
+                    bonus += 3500;
+                }
+            }
+            break;
+    }
+    return bonus;
+}
+
 std::vector<AiCandidate> generateCandidates(
-    const GameEngine& engine, int playerNumber, bool allowCards, int maxCandidates)
+    const GameEngine& engine,
+    int playerNumber,
+    const AiContext& context,
+    bool allowCards,
+    int maxCandidates)
 {
     std::vector<AiCandidate> candidates;
     if (engine.phase() != Phase::Playing || engine.currentPlayer() != playerNumber)
@@ -545,50 +973,64 @@ std::vector<AiCandidate> generateCandidates(
         {
             for (int column = firstColumn; column <= lastColumn; ++column)
             {
-                const ActionResolution resolution = resolvePieceAction(
-                    visiblePieces, holes, piece, row, column, false, piece.repeatActionIndex);
-                if (!resolution.legal)
+                const int firstActionIndex = piece.repeatActionIndex >= 0
+                    ? piece.repeatActionIndex
+                    : 0;
+                const int lastActionIndex = piece.repeatActionIndex >= 0
+                    ? piece.repeatActionIndex + 1
+                    : static_cast<int>(piece.actions.size());
+                for (int actionIndex = firstActionIndex;
+                     actionIndex < lastActionIndex;
+                     ++actionIndex)
                 {
-                    continue;
-                }
-
-                int order = 0;
-                if (resolution.attacks)
-                {
-                    order = 200 + resolution.damage * 12 + resolution.heal * 8 +
-                        resolution.statusTurns * 10 + resolution.control * 30 +
-                        resolution.push * 6 + (resolution.pull ? 12 : 0);
-                    for (int targetId : resolution.targetIds)
+                    const ActionResolution resolution = resolvePieceAction(
+                        visiblePieces, holes, piece, row, column, false, actionIndex);
+                    if (!resolution.legal)
                     {
-                        const Piece* target = pieceById(targetId);
-                        if (target == nullptr || target->owner == playerNumber)
+                        continue;
+                    }
+
+                    int order = 0;
+                    if (resolution.attacks)
+                    {
+                        order = 200 + resolution.damage * 12 + resolution.heal * 8 +
+                            resolution.statusTurns * 10 + resolution.control * 30 +
+                            resolution.push * 6 + (resolution.pull ? 12 : 0);
+                        for (int targetId : resolution.targetIds)
                         {
-                            continue;
-                        }
-                        if (resolution.damage >= target->health)
-                        {
-                            order += target->isHero ? 4000 : 600;
-                        }
-                        else if (target->isHero)
-                        {
-                            order += 250;
+                            const Piece* target = pieceById(targetId);
+                            if (target == nullptr || target->owner == playerNumber)
+                            {
+                                continue;
+                            }
+                            if (resolution.damage >= target->health)
+                            {
+                                order += target->isHero ? 4000 : 600;
+                            }
+                            else if (target->isHero)
+                            {
+                                order += 250;
+                            }
                         }
                     }
+                    else
+                    {
+                        Piece moved = piece;
+                        moved.row = row;
+                        moved.column = column;
+                        order = piecePlacementValue(moved) - piecePlacementValue(piece);
+                    }
+                    order += objectiveCandidateBonus(
+                        engine, context, playerNumber, piece, resolution, row, column);
+                    candidates.push_back(
+                        {{resolution.attacks ? AiActionKind::AttackPiece : AiActionKind::MovePiece,
+                          piece.id,
+                          0,
+                          row,
+                          column,
+                          resolution.actionIndex},
+                         order});
                 }
-                else
-                {
-                    Piece moved = piece;
-                    moved.row = row;
-                    moved.column = column;
-                    order = piecePlacementValue(moved) - piecePlacementValue(piece);
-                }
-                candidates.push_back(
-                    {{resolution.attacks ? AiActionKind::AttackPiece : AiActionKind::MovePiece,
-                      piece.id,
-                      0,
-                      row,
-                      column},
-                     order});
             }
         }
     }
@@ -749,6 +1191,9 @@ struct TurnPlan
     AiAction firstAction;
     GameEngine after;
     int quick = 0;
+    // Non-zero when the read-only scenario projection reached a terminal
+    // result during this turn. The redacted engine itself remains nonterminal.
+    int projectedResult = 0;
 };
 
 struct BeamState
@@ -789,7 +1234,8 @@ std::vector<TurnPlan> expandTurn(
                 break;
             }
             const std::vector<AiCandidate> candidates =
-                generateCandidates(state.engine, player, allowCards, profile.maxCandidates);
+                generateCandidates(
+                    state.engine, player, context, allowCards, profile.maxCandidates);
             for (const AiCandidate& candidate : candidates)
             {
                 if (budgetExhausted(context))
@@ -803,12 +1249,16 @@ std::vector<TurnPlan> expandTurn(
                 }
                 ++context.nodes;
                 const AiAction first = state.started ? state.firstAction : candidate.action;
+                bool objectiveTerminal = false;
+                const int projectedResult =
+                    objectiveTerminalScore(child, context, objectiveTerminal);
                 const bool turnOver =
                     child.phase() != Phase::Playing || child.currentPlayer() != player;
                 const int quick = quickEvaluate(child, context);
-                if (turnOver)
+                if (objectiveTerminal || turnOver)
                 {
-                    plans.push_back({first, std::move(child), quick});
+                    plans.push_back(
+                        {first, std::move(child), quick, projectedResult});
                 }
                 else
                 {
@@ -846,7 +1296,7 @@ std::vector<TurnPlan> expandTurn(
             continue;
         }
         const int quick = quickEvaluate(child, context);
-        plans.push_back({state.firstAction, std::move(child), quick});
+        plans.push_back({state.firstAction, std::move(child), quick, 0});
     }
 
     std::stable_sort(plans.begin(), plans.end(), [sign](const TurnPlan& left, const TurnPlan& right) {
@@ -863,6 +1313,13 @@ std::vector<TurnPlan> expandTurn(
 int searchFromTurn(
     const GameEngine& engine, int turnsLeft, int alpha, int beta, AiContext& context)
 {
+    bool projectedTerminal = false;
+    const int projectedResult =
+        objectiveTerminalScore(engine, context, projectedTerminal);
+    if (projectedTerminal)
+    {
+        return projectedResult;
+    }
     if (turnsLeft <= 0 || engine.phase() != Phase::Playing || budgetExhausted(context))
     {
         return evaluate(engine, context);
@@ -884,7 +1341,9 @@ int searchFromTurn(
     int best = maximizing ? WorstScore : BestScore;
     for (const TurnPlan& plan : plans)
     {
-        const int score = searchFromTurn(plan.after, turnsLeft - 1, alpha, beta, context);
+        const int score = plan.projectedResult != 0
+            ? plan.projectedResult
+            : searchFromTurn(plan.after, turnsLeft - 1, alpha, beta, context);
         if (maximizing)
         {
             best = std::max(best, score);
@@ -924,9 +1383,11 @@ bool applyAiAction(GameEngine& engine, int playerNumber, const AiAction& action)
     switch (action.kind)
     {
         case AiActionKind::MovePiece:
-            return engine.movePiece(playerNumber, action.pieceId, action.row, action.column);
+            return engine.movePiece(
+                playerNumber, action.pieceId, action.row, action.column, action.actionIndex);
         case AiActionKind::AttackPiece:
-            return engine.attackPiece(playerNumber, action.pieceId, action.row, action.column);
+            return engine.attackPiece(
+                playerNumber, action.pieceId, action.row, action.column, action.actionIndex);
         case AiActionKind::UseAbility:
             return engine.useAbility(playerNumber, action.pieceId);
         case AiActionKind::PlayCard:
@@ -983,6 +1444,59 @@ AiAction chooseAiAction(const GameEngine& engine, int aiPlayer, int searchTurns)
     context.aiPlayer = aiPlayer;
     context.opponent = aiPlayer == 1 ? 2 : 1;
 
+    const GameEngine::ScenarioObjectiveProgress& liveProgress =
+        engine.scenarioObjectiveProgress();
+    if (liveProgress.configured && liveProgress.valid &&
+        engine.scenarioObjective().kind != GameEngine::ScenarioObjectiveKind::None)
+    {
+        context.objective = engine.scenarioObjective();
+        context.hasObjective = true;
+        for (const Piece& piece : engine.boardPieces())
+        {
+            if (!piece.hidden || piece.owner == aiPlayer)
+            {
+                continue;
+            }
+            context.concealedObjectivePieceIds.push_back(piece.id);
+            const int originalOwner = pieceOriginalOwner(piece);
+            const auto existing = std::find_if(
+                context.concealedOriginalOwnerCounts.begin(),
+                context.concealedOriginalOwnerCounts.end(),
+                [originalOwner](const auto& entry) {
+                    return entry.first == originalOwner;
+                });
+            if (existing == context.concealedOriginalOwnerCounts.end())
+            {
+                context.concealedOriginalOwnerCounts.emplace_back(originalOwner, 1);
+            }
+            else
+            {
+                ++existing->second;
+            }
+            const auto healthEntry = std::find_if(
+                context.concealedOriginalOwnerHealth.begin(),
+                context.concealedOriginalOwnerHealth.end(),
+                [originalOwner](const auto& entry) {
+                    return entry.first == originalOwner;
+                });
+            if (healthEntry == context.concealedOriginalOwnerHealth.end())
+            {
+                context.concealedOriginalOwnerHealth.emplace_back(
+                    originalOwner, std::max(0, piece.health));
+            }
+            else
+            {
+                healthEntry->second += std::max(0, piece.health);
+            }
+            if (piece.id == context.objective.targetPieceId)
+            {
+                // Health is already public from the last visible state; only
+                // the concealed coordinate is excluded from planning.
+                context.concealedTargetHealth = std::max(0, piece.health);
+            }
+        }
+    }
+
     // Everything from here on reasons about the redacted board, so the planner
     // cannot see - or accidentally exploit - an opposing dematerialized piece.
     GameEngine planning = engine;
@@ -1006,7 +1520,9 @@ AiAction chooseAiAction(const GameEngine& engine, int aiPlayer, int searchTurns)
     int alpha = WorstScore;
     for (const TurnPlan& plan : plans)
     {
-        const int score = searchFromTurn(plan.after, turns - 1, alpha, BestScore, context);
+        const int score = plan.projectedResult != 0
+            ? plan.projectedResult
+            : searchFromTurn(plan.after, turns - 1, alpha, BestScore, context);
         alpha = std::max(alpha, score);
         ranked.emplace_back(score, plan.firstAction);
     }

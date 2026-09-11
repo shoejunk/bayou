@@ -78,7 +78,8 @@
                                const game_data::GameCard& card,
                                bool selected,
                                bool affordable,
-                               float readableWidth) {
+                               float readableWidth,
+                               unsigned int minimumNameSize = 0) {
         const float width = HandCardWidth;
         const float height = HandCardHeight;
         const sf::Color frame = selected
@@ -139,7 +140,8 @@
         // Name band across the art's foot. Wrapped over two lines rather than
         // elided, so a card is identifiable without hovering it.
         readableWidth = std::clamp(readableWidth, 38.0f, width);
-        const unsigned int nameSize = readableWidth < width ? 8U : 9U;
+        const unsigned int nameSize = std::max(
+            minimumNameSize, readableWidth < width ? 8U : 9U);
         const float nameWidth = readableWidth - 10.0f;
         const std::vector<std::string> nameLines =
             wrapText(font, card.title, nameSize, nameWidth);
@@ -159,8 +161,9 @@
             centerText(
                 nameText,
                 {position.x + readableWidth * 0.5f,
-                 scrimBottom - 6.0f -
-                     static_cast<float>(shownLines - 1 - line) * 10.0f});
+                  scrimBottom - 6.0f -
+                      static_cast<float>(shownLines - 1 - line) *
+                          std::max(10.0f, static_cast<float>(nameSize) + 1.0f)});
             drawCrispText(window, nameText);
         }
 
@@ -268,6 +271,234 @@
         }
     };
 
+    auto appendKeywordRuleDescriptions = [&](DetailRows& descriptions,
+                                             const std::vector<std::string>& keywords,
+                                             const std::string& summonTitle) {
+        const sf::Color keywordColor(146, 206, 226);
+        if (game_data::hasKeyword(keywords, "relentless"))
+        {
+            descriptions.push_back({
+                "Relentless: after this piece destroys a piece, only it may take one immediate extra action. Card plays, draws, discards, other pieces, and other abilities wait; another destruction can chain, or End Turn may stop the chain.",
+                keywordColor});
+        }
+        if (game_data::hasKeyword(keywords, "bodyguard"))
+        {
+            descriptions.push_back({
+                "Bodyguard: positive damage aimed at an adjacent friendly non-Bodyguard is redirected among all adjacent friendly Bodyguards and split as evenly as possible. Each Bodyguard assigned damage also takes that action's Disable; zero-damage Disable, Push, Pull, Infest, and Control still affect the originally selected unit. Indivisible leftover damage is assigned randomly. Bodyguard resolves before Intercept.",
+                keywordColor});
+        }
+        if (game_data::hasKeyword(keywords, "intercept"))
+        {
+            descriptions.push_back({
+                "Intercept: when a positive-damage enemy piece attack targets an adjacent friendly piece, this piece automatically swaps in and takes that attack if it has not intercepted since its last owner-turn start. If several legal Interceptors qualify, one is chosen uniformly at random. Both full footprints must exchange legally; otherwise the original target is hit. Acting, Disable, Sleep, and Growth do not prevent Intercept. It cannot protect a Bodyguard or another Intercept, and zero-damage attacks and spells do not trigger it.",
+                keywordColor});
+        }
+        if (game_data::hasKeyword(keywords, "trail"))
+        {
+            descriptions.push_back({
+                summonTitle.empty()
+                    ? "Trail unavailable: this live card does not name the Unit its Trail would create."
+                    : "Trail: after this piece moves, create " + summonTitle +
+                        " where it started. The new Unit cannot act until its owner's next turn.",
+                summonTitle.empty() ? sf::Color(225, 170, 150) : keywordColor});
+        }
+        if (game_data::hasKeyword(keywords, "foresight"))
+        {
+            descriptions.push_back({
+                "Foresight: every paid 50-Resource draw reveals up to one plus the number of your Foresight pieces, limited by the cards left in your deck. Keep one; put the rest on the bottom. Choosing completes that same paid draw; it is not a second command.",
+                keywordColor});
+        }
+        if (game_data::hasKeyword(keywords, "reveal"))
+        {
+            descriptions.push_back({
+                "Reveal: at the end of this piece's owner's turn, every adjacent enemy in Dematerialize state 1 returns directly to visible state 0. This passive reveal does not apply Disable.",
+                keywordColor});
+        }
+        if (game_data::hasKeyword(keywords, "dematerialize"))
+        {
+            descriptions.push_back({
+                "Dematerialize: while in a nonzero action state, opponents cannot see this piece and it exerts no square control. Movement, Push, Pull, Unit deployment, or Summon collisions materialize it and make it Disabled for its next owner-turn activation; Reveal returns state 1 directly to state 0 without applying Disable.",
+                keywordColor});
+        }
+    };
+
+    auto appendAbilityRuleDescription = [&](DetailRows& descriptions,
+                                            const std::string& abilityValue,
+                                            const std::string& summonTitle,
+                                            const std::vector<std::string>& labels,
+                                            int state,
+                                            int abilityUses) {
+        const std::string ability = game_data::normalizedAbility(abilityValue);
+        if (ability.empty())
+        {
+            return;
+        }
+        std::string label = "Use Ability";
+        if (!labels.empty())
+        {
+            label = labels[static_cast<std::size_t>(
+                std::max(0, state) % static_cast<int>(labels.size()))];
+        }
+        else if (ability == "dig") label = "Dig";
+        else if (ability == "summon") label = "Summon";
+        else if (ability == "command") label = "Command";
+        else if (ability == "transform") label = "Transform";
+        else if (ability == "dematerialize")
+            label = state == 0 ? "Dematerialize" : "Materialize";
+
+        std::string rule;
+        sf::Color color(210, 216, 228);
+        if (ability == "dig")
+        {
+            rule = "marks this piece's square as a hole; Tunnel actions travel between marked holes";
+        }
+        else if (ability == "summon")
+        {
+            if (summonTitle.empty())
+            {
+                descriptions.push_back({
+                    "Ability unavailable: this live card names Summon but defines no Unit to create.",
+                    sf::Color(225, 170, 150)});
+                return;
+            }
+            rule = "creates " + summonTitle +
+                " in the square directly in front (right for Player 1, left for Player 2); the new Unit cannot act until its owner's next turn. If an opposing hidden piece is there, Summon instead spends this action, creates no Unit, and materializes that piece Disabled for its next owner-turn activation";
+        }
+        else if (ability == "command")
+        {
+            rule = "spends this piece's action, then lets one ready adjacent friendly piece take an immediate action; card plays, draws, and discards wait until it resolves, End Turn may decline it, and the turn's normal piece action remains available afterward";
+        }
+        else if (ability == "transform")
+        {
+            rule = "cycles this piece to its next action state";
+        }
+        else if (ability == "dematerialize")
+        {
+            rule = "cycles action state; every nonzero state is hidden from the opponent and exerts no control";
+        }
+        else
+        {
+            rule = "uses this card's live ability";
+        }
+        std::string uses;
+        if (ability == "dig")
+        {
+            uses = abilityUses < 0
+                ? " Uses are unlimited."
+                : " Uses remaining: " + std::to_string(std::max(0, abilityUses)) + ".";
+        }
+        descriptions.push_back({
+            "Ability - " + label + ": " + rule +
+                ". This counts as a piece action." + uses,
+            color});
+    };
+
+    auto appendPassiveRuleDescriptions = [&](DetailRows& descriptions,
+                                             int tax,
+                                             int gatherResources,
+                                             int healingAura,
+                                             bool canControl,
+                                             int growTurns,
+                                             const std::string& rebirthTitle) {
+        if (tax > 0)
+        {
+            descriptions.push_back({
+                "Tax: at the start of this piece's owner's turn, transfer up to " +
+                    std::to_string(tax) + " Resources from the opponent.",
+                sf::Color(190, 198, 214)});
+        }
+        if (gatherResources > 0)
+        {
+            descriptions.push_back({
+                "Gather: gain " + std::to_string(gatherResources) +
+                    " Resources at the start of this piece's owner's turn.",
+                sf::Color(190, 198, 214)});
+        }
+        if (healingAura > 0)
+        {
+            descriptions.push_back({
+                "Healing aura: restore " + std::to_string(healingAura) +
+                    " health to every other adjacent piece at this piece's owner's turn end, regardless of side.",
+                sf::Color(190, 198, 214)});
+        }
+        if (!canControl)
+        {
+            descriptions.push_back({
+                "No control: this piece neither controls its occupied squares nor influences adjacent territory.",
+                sf::Color(225, 170, 150)});
+        }
+        if (growTurns > 0)
+        {
+            descriptions.push_back({
+                "Growth: enters play unable to act for " + std::to_string(growTurns) +
+                    " turn(s), then becomes ready at the start of its following turn.",
+                sf::Color(210, 180, 105)});
+        }
+        if (!rebirthTitle.empty())
+        {
+            descriptions.push_back({
+                "Rebirth: when destroyed, this piece is replaced on the same square by " +
+                    rebirthTitle +
+                    " for its original side and cannot act until its next turn. A successful Rebirth is not a kill, stops attack movement before its square, and carries attachments to the replacement.",
+                sf::Color(194, 150, 235)});
+        }
+    };
+
+    const auto actionStateReachable = [](
+                                          const std::vector<game_data::ActionProfile>& actions,
+                                          std::string_view ability,
+                                          int startState,
+                                          int targetState) {
+        if (startState == targetState)
+        {
+            return true;
+        }
+        int stateCount = std::max(startState, targetState) + 1;
+        for (const game_data::ActionProfile& action : actions)
+        {
+            stateCount = std::max(stateCount, action.state + 1);
+            stateCount = std::max(
+                stateCount, game_data::actionNextState(action) + 1);
+        }
+        const std::string normalized = game_data::normalizedAbility(
+            std::string(ability));
+        if ((normalized == "transform" || normalized == "dematerialize") &&
+            targetState >= 0 && targetState < stateCount)
+        {
+            return true;
+        }
+
+        std::vector<bool> reached(static_cast<std::size_t>(stateCount), false);
+        if (startState < 0 || startState >= stateCount ||
+            targetState < 0 || targetState >= stateCount)
+        {
+            return false;
+        }
+        reached[static_cast<std::size_t>(startState)] = true;
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            for (const game_data::ActionProfile& action : actions)
+            {
+                if (action.state < 0 || action.state >= stateCount ||
+                    !reached[static_cast<std::size_t>(action.state)])
+                {
+                    continue;
+                }
+                const int nextState = game_data::actionNextState(action);
+                if (nextState >= 0 && nextState < stateCount &&
+                    !reached[static_cast<std::size_t>(nextState)])
+                {
+                    reached[static_cast<std::size_t>(nextState)] = true;
+                    changed = true;
+                }
+            }
+        }
+        return static_cast<bool>(
+            reached[static_cast<std::size_t>(targetState)]);
+    };
+
     auto piecePopupActionDescriptions = [&](const game_data::Piece& piece) {
         DetailRows descriptions;
         if (piece.growTurnsRemaining > 0)
@@ -282,12 +513,16 @@
         }
         if (piece.sleepTurnsRemaining > 0)
         {
-            descriptions.push_back({"Sleeping: " + std::to_string(piece.sleepTurnsRemaining) + " turns",
+            descriptions.push_back({"Sleeping: " + std::to_string(piece.sleepTurnsRemaining) +
+                                        " owner turn(s) - movement is blocked, but a stationary attack remains legal if this piece can otherwise act",
                                     sf::Color(120, 190, 230)});
         }
-        if (piece.controlTurnsRemaining > 0)
+        if (piece.originalOwner != 0)
         {
-            descriptions.push_back({"Under control: " + std::to_string(piece.controlTurnsRemaining) + " turns",
+            descriptions.push_back({piece.controlTurnsRemaining > 0
+                                        ? "Under control: " +
+                                              std::to_string(piece.controlTurnsRemaining) + " turns"
+                                        : "Under control: final turn",
                                     ownerColor(piece.owner)});
         }
         if (!piece.infestationTitle.empty())
@@ -295,30 +530,13 @@
             descriptions.push_back({"Infested: " + piece.infestationTitle,
                                     sf::Color(194, 150, 235)});
         }
-        if (!piece.ability.empty())
-        {
-            descriptions.push_back({"Ability: " + game_data::pieceAbilityLabel(piece), sf::Color(210, 216, 228)});
-            if (piece.abilityUses > 0)
-            {
-                descriptions.push_back({"Ability uses: " + std::to_string(piece.abilityUses),
-                                        sf::Color(190, 198, 214)});
-            }
-            else if (piece.abilityUses < 0)
-            {
-                descriptions.push_back({"Ability uses: unlimited", sf::Color(190, 198, 214)});
-            }
-        }
-        if (piece.gatherResources > 0)
-        {
-            descriptions.push_back({"Passive: +" + std::to_string(piece.gatherResources) + " Resources each turn",
-                                    sf::Color(190, 198, 214)});
-        }
-        if (piece.healingAura > 0)
-        {
-            descriptions.push_back({"Healing aura: +" + std::to_string(piece.healingAura) +
-                                        " health to adjacent units at turn end",
-                                    sf::Color(190, 198, 214)});
-        }
+        appendAbilityRuleDescription(
+            descriptions, piece.ability, piece.summonTitle, piece.abilityLabels,
+            piece.actionState, piece.abilityUses);
+        appendKeywordRuleDescriptions(descriptions, piece.keywords, piece.summonTitle);
+        appendPassiveRuleDescriptions(
+            descriptions, piece.tax, piece.gatherResources, piece.healingAura,
+            piece.canControl, piece.growTurnsRemaining, piece.rebirthTitle);
         for (const game_data::Enchantment& enchantment : gameSnapshot.enchantments)
         {
             if (enchantment.target == static_cast<std::uint8_t>(game_data::EnchantmentTarget::Piece) &&
@@ -334,12 +552,76 @@
         {
             descriptions.push_back({"Actions: none", sf::Color(225, 170, 150)});
         }
+        const bool usesActionStates = std::any_of(
+            piece.actions.begin(), piece.actions.end(),
+            [](const game_data::ActionProfile& action) {
+                return action.state != 0 ||
+                    game_data::actionNextState(action) != action.state;
+            });
+        const auto stateName = [&](int state) {
+            const std::string ability = game_data::normalizedAbility(piece.ability);
+            if (ability == "dematerialize")
+            {
+                return state == 0
+                    ? std::string("Materialized")
+                    : std::string("Hidden");
+            }
+            if (ability == "transform" &&
+                piece.abilityLabels.size() >= 2 &&
+                piece.abilityLabels[0] == "Raise Gun" &&
+                piece.abilityLabels[1] == "Lower Gun")
+            {
+                return state == 0
+                    ? std::string("Gun lowered")
+                    : std::string("Gun raised");
+            }
+            return "State " + std::to_string(state);
+        };
+        std::vector<std::size_t> displayOrder;
+        displayOrder.reserve(piece.actions.size());
         for (std::size_t i = 0; i < piece.actions.size(); ++i)
         {
+            if (piece.actions[i].state == piece.actionState)
+            {
+                displayOrder.push_back(i);
+            }
+        }
+        for (std::size_t i = 0; i < piece.actions.size(); ++i)
+        {
+            if (piece.actions[i].state != piece.actionState)
+            {
+                displayOrder.push_back(i);
+            }
+        }
+        for (std::size_t i : displayOrder)
+        {
+            const game_data::ActionProfile& action = piece.actions[i];
+            if (usesActionStates)
+            {
+                const bool reachable = actionStateReachable(
+                    piece.actions, piece.ability, piece.actionState, action.state);
+                std::string stateRule = action.state == piece.actionState
+                    ? "AVAILABLE NOW - "
+                    : reachable
+                        ? "INACTIVE - requires "
+                        : "UNREACHABLE IN THIS CARD DEFINITION - requires ";
+                stateRule += stateName(action.state);
+                const int nextState = game_data::actionNextState(action);
+                stateRule += nextState == action.state
+                    ? "; remains in this state"
+                    : "; after use: " + stateName(nextState);
+                descriptions.push_back({
+                    std::move(stateRule),
+                    action.state == piece.actionState
+                        ? sf::Color(136, 226, 190)
+                        : reachable
+                            ? sf::Color(225, 188, 120)
+                            : sf::Color(242, 126, 112)});
+            }
             descriptions.push_back(actionDetailRow(
-                piece.actions[i],
+                action,
                 i,
-                piece.actions[i].state == piece.actionState
+                action.state == piece.actionState
                     ? sf::Color(143, 220, 205)
                     : sf::Color(190, 198, 214)));
         }
@@ -358,6 +640,11 @@
         if (card.type == "Enchantment")
         {
             return "Play: " + std::to_string(card.cost) + " Resources, attach to " + card.target;
+        }
+        if (card.type == "Spell" && !game_data::isSupportedSpellEffect(card))
+        {
+            return std::string(
+                "Unavailable: this Spell has no defined game effect and cannot be played.");
         }
         if (card.effect == "damage")
         {
@@ -379,16 +666,99 @@
 
     auto cardPopupActionDescriptions = [&](const game_data::GameCard& card) {
         DetailRows descriptions;
-        descriptions.push_back({cardPlayDescription(card), sf::Color(210, 216, 228)});
+        const bool unsupportedSpell =
+            card.type == "Spell" && !game_data::isSupportedSpellEffect(card);
+        descriptions.push_back({
+            cardPlayDescription(card),
+            unsupportedSpell
+                ? sf::Color(242, 126, 112)
+                : sf::Color(210, 216, 228)});
         if (card.type == "Unit" || card.type == "Hero")
         {
+            if (card.type == "Unit")
+            {
+                descriptions.push_back({
+                    "Deployment collision: if an apparently empty controlled footprint contains only opposing hidden pieces, the card and Resources are spent, no Unit appears, and every hidden blocker materializes Disabled for its next owner-turn activation.",
+                    sf::Color(210, 216, 228)});
+            }
+            if (card.type == "Unit" && !card.traits.empty())
+            {
+                descriptions.push_back({
+                    "Deploy traits: living friendly Heroes must collectively supply every Trait - " +
+                        joinStrings(card.traits, ", ") + ".",
+                    sf::Color(248, 214, 112)});
+            }
+            if (card.width > 1 || card.height > 1)
+            {
+                descriptions.push_back({
+                    "Footprint: every square of this " + std::to_string(card.width) +
+                        "x" + std::to_string(card.height) +
+                        " piece must satisfy placement, movement, occupancy, and control rules. Range, adjacency, and a clear ranged path use the nearest squares of both footprints. Movement checks the full footprint at every step; an attacking landing affects every legal enemy footprint it overlaps.",
+                    sf::Color(248, 214, 112)});
+            }
+            appendAbilityRuleDescription(
+                descriptions, card.ability, card.summonTitle, card.abilityLabels,
+                0, card.abilityUses);
+            appendKeywordRuleDescriptions(descriptions, card.keywords, card.summonTitle);
+            appendPassiveRuleDescriptions(
+                descriptions, card.tax, card.gatherResources, card.healingAura,
+                card.canControl, card.growTurns, card.rebirthTitle);
             if (card.actions.empty())
             {
                 descriptions.push_back({"Actions: none", sf::Color(225, 170, 150)});
             }
+            const bool usesActionStates = std::any_of(
+                card.actions.begin(), card.actions.end(),
+                [](const game_data::ActionProfile& action) {
+                    return action.state != 0 ||
+                        game_data::actionNextState(action) != action.state;
+                });
+            const auto stateName = [&](int state) {
+                const std::string ability = game_data::normalizedAbility(card.ability);
+                if (ability == "dematerialize")
+                {
+                    return state == 0
+                        ? std::string("Materialized")
+                        : std::string("Hidden");
+                }
+                if (ability == "transform" && card.abilityLabels.size() >= 2 &&
+                    card.abilityLabels[0] == "Raise Gun" &&
+                    card.abilityLabels[1] == "Lower Gun")
+                {
+                    return state == 0
+                        ? std::string("Gun lowered")
+                        : std::string("Gun raised");
+                }
+                return "State " + std::to_string(state);
+            };
+            if (usesActionStates)
+            {
+                descriptions.push_back({
+                    "Deploys in " + stateName(0) + ". Actions below state when they are available.",
+                    sf::Color(210, 216, 228)});
+            }
             for (std::size_t i = 0; i < card.actions.size(); ++i)
             {
-                descriptions.push_back(actionDetailRow(card.actions[i], i));
+                const game_data::ActionProfile& action = card.actions[i];
+                if (usesActionStates)
+                {
+                    const int nextState = game_data::actionNextState(action);
+                    const bool reachable = actionStateReachable(
+                        card.actions, card.ability, 0, action.state);
+                    descriptions.push_back({
+                        std::string(reachable ? "AVAILABLE IN " :
+                            "UNREACHABLE IN THIS CARD DEFINITION - requires ") +
+                            stateName(action.state) +
+                            (nextState == action.state
+                                ? "; remains in this state"
+                                : "; after use: " + stateName(nextState)),
+                        !reachable
+                            ? sf::Color(242, 126, 112)
+                            : action.state == 0
+                            ? sf::Color(136, 226, 190)
+                            : sf::Color(190, 198, 214)});
+                }
+                descriptions.push_back(actionDetailRow(action, i));
             }
         }
         return descriptions;
@@ -404,8 +774,9 @@
 
     // A caption under one of the bottom-bar slots.
     auto drawSlotCaption = [&](float centerX, float y, const std::string& caption, sf::Color color) {
-        sf::Text text(font, caption, 8);
-        text.setLetterSpacing(1.2f);
+        sf::Text text(font, caption, 10);
+        text.setStyle(sf::Text::Bold);
+        text.setLetterSpacing(1.05f);
         text.setFillColor(color);
         centerText(text, {centerX, y});
         drawCrispText(window, text);
@@ -434,13 +805,13 @@
         }
 
         const float faceY = GamePileY - lift;
-        sf::Text count(font, std::to_string(std::max(0, remaining)) + " LEFT", 8);
+        sf::Text count(font, std::to_string(std::max(0, remaining)) + " LEFT", 10);
         count.setLetterSpacing(1.1f);
         count.setFillColor(withAlpha(BoardParchmentMuted, remaining > 0 ? 220 : 150));
         centerText(count, {centerX, faceY + 13.0f});
         drawCrispText(window, count);
 
-        sf::Text drawLabel(font, "DRAW", 11);
+        sf::Text drawLabel(font, "DRAW", 12);
         drawLabel.setLetterSpacing(1.25f);
         drawLabel.setFillColor(available ? BoardParchment : withAlpha(BoardParchmentMuted, 170));
         centerText(drawLabel, {centerX, faceY + 34.0f});
@@ -454,7 +825,7 @@
         centerText(cost, {centerX, faceY + 57.0f});
         drawCrispText(window, cost);
 
-        sf::Text resourceLabel(font, "RESOURCES", 7);
+        sf::Text resourceLabel(font, "RESOURCES", 9);
         resourceLabel.setLetterSpacing(1.05f);
         resourceLabel.setFillColor(withAlpha(BoardParchmentMuted, available ? 220 : 145));
         centerText(resourceLabel, {centerX, faceY + 76.0f});
@@ -507,7 +878,9 @@
             centerX,
             TrashCanY + TrashCanHeight - 5.0f,
             "DISCARD",
-            withAlpha(available ? BoardParchmentMuted : sf::Color(140, 110, 98), 206));
+            available
+                ? (draggingCard ? withAlpha(accent, 255) : withAlpha(BoardParchment, 244))
+                : withAlpha(sf::Color(174, 143, 126), 220));
     };
 
     auto drawPiecePopup = [&]() {
@@ -713,6 +1086,11 @@
                 {
                     stats.push_back({"TAX", std::to_string(card->tax), BoardBrassBright});
                 }
+                if (card->gatherResources > 0)
+                {
+                    stats.push_back({
+                        "GATHER", "+" + std::to_string(card->gatherResources), BoardBrassBright});
+                }
                 if (card->healingAura > 0)
                 {
                     stats.push_back({"AURA", "+" + std::to_string(card->healingAura), BoardBrassBright});
@@ -779,13 +1157,23 @@
             }
         }
 
-        inspectedPieceScroll = std::clamp(inspectedPieceScroll, 0.0f, popupMaxScroll(actionDescriptions));
+        const float maxScroll = popupMaxScroll(actionDescriptions);
+        inspectedPieceScroll = std::clamp(inspectedPieceScroll, 0.0f, maxScroll);
 
         sf::Text detailHeading(font, piece ? "DETAILS" : "ACTIONS", 13);
         detailHeading.setLetterSpacing(1.3f);
         detailHeading.setFillColor(withAlpha(BoardParchmentMuted, 240));
         detailHeading.setPosition({PiecePopupTextX, PiecePopupActionHeadingY});
         drawCrispText(window, detailHeading);
+        if (maxScroll > 0.0f)
+        {
+            sf::Text scrollHint(font, "SCROLL: WHEEL OR UP / DOWN", 9);
+            scrollHint.setFillColor(withAlpha(sf::Color(143, 220, 205), 230));
+            scrollHint.setPosition({PiecePopupTextX + PiecePopupTextWidth -
+                                        scrollHint.getLocalBounds().size.x,
+                                    PiecePopupActionHeadingY + 2.0f});
+            drawCrispText(window, scrollHint);
+        }
         drawSeparatorRule(
             window,
             {PiecePopupTextX + 70.0f, PiecePopupActionHeadingY + 9.0f},
@@ -847,7 +1235,6 @@
 
         window.setView(previousView);
 
-        const float maxScroll = popupMaxScroll(actionDescriptions);
         if (maxScroll > 0.0f)
         {
             const float trackX = PiecePopupX + PiecePopupWidth - 22.0f;
@@ -901,15 +1288,62 @@
         title.setFillColor(BoardBrassBright);
         centerText(title, {400.0f, 82.0f});
         drawCrispText(window, title);
+        // A scripted Story choice may require one exact revealed card. Derive
+        // that requirement from the active step and only advertise it when the
+        // authored card is actually present. Ordinary Foresight stays truthful,
+        // while malformed Story data fails closed.
+        std::string requiredStoryCard;
+        if (storyMode && storyStage == StoryStage::Objective &&
+            storyMissionStep >= 0)
+        {
+            const StoryMission& mission = activeStoryMission();
+            if (storyMissionStep < static_cast<int>(mission.script.size()))
+            {
+                const StoryScriptAction& step =
+                    mission.script[static_cast<std::size_t>(storyMissionStep)];
+                const bool cardIsPresent = !step.cardTitle.empty() &&
+                    std::any_of(
+                        gameSnapshot.foresightChoices.begin(),
+                        gameSnapshot.foresightChoices.end(),
+                        [&](const game_data::GameCard& card) {
+                            return card.title == step.cardTitle;
+                        });
+                if (step.kind == StoryActionKind::ChooseForesight &&
+                    step.owner == gameSnapshot.yourPlayer && cardIsPresent)
+                {
+                    requiredStoryCard = step.cardTitle;
+                }
+            }
+        }
+
+        const bool showingStoryCorrection = storyMode &&
+            storyStage == StoryStage::Objective && !storyCorrection.empty();
+        const std::string guidance = showingStoryCorrection
+            ? "TRY AGAIN: " + storyCorrection
+            : !requiredStoryCard.empty()
+                ? "STORY STEP: " + requiredStoryCard +
+                    " is required. Keep the card marked REQUIRED; the other returns to the bottom."
+                : "Your 50-Resource draw triggered Foresight. Choose one; the rest go to the bottom.";
+        if (showingStoryCorrection)
+        {
+            drawBeveledPlate(
+                window,
+                {78.0f, 103.0f},
+                {644.0f, 45.0f},
+                sf::Color(54, 24, 22, 252),
+                sf::Color(233, 128, 106),
+                true,
+                8.0f);
+        }
         drawWrappedText(
             window,
             font,
-            "Your 50-Resource draw triggered Foresight. Choose one; the rest go to the bottom.",
-            11,
-            {92.0f, 105.0f},
-            BoardParchmentMuted,
+            guidance,
+            requiredStoryCard.empty() && !showingStoryCorrection ? 13 : 14,
+            {92.0f, showingStoryCorrection ? 112.0f : 106.0f},
+            showingStoryCorrection ? sf::Color(255, 224, 210) : BoardParchment,
             616.0f,
-            2.0f);
+            1.0f);
 
         const std::size_t totalRows =
             (gameSnapshot.foresightChoices.size() + ForesightChoiceColumns - 1) /
@@ -933,23 +1367,35 @@
                 const std::size_t index = rowStart + column;
                 const float x = startX + static_cast<float>(column) *
                     (HandCardWidth + ForesightChoiceGap);
+                const bool requiredChoice = !requiredStoryCard.empty() &&
+                    gameSnapshot.foresightChoices[index].title == requiredStoryCard;
                 drawGameCardFace(
                     {x, y},
                     gameSnapshot.foresightChoices[index],
-                    false,
+                    requiredChoice,
                     true,
-                    HandCardWidth);
+                    HandCardWidth,
+                    12);
                 drawCutPlate(
                     {x, y + HandCardHeight + 4.0f},
-                    {HandCardWidth, 19.0f},
+                    {HandCardWidth, 25.0f},
                     5.0f,
-                    sf::Color(8, 14, 15, 238),
-                    withAlpha(BoardBrassBright, 190),
-                    1.0f);
-                sf::Text choose(font, "CHOOSE", 8);
-                choose.setLetterSpacing(1.0f);
-                choose.setFillColor(BoardBrassBright);
-                centerText(choose, {x + HandCardWidth * 0.5f, y + HandCardHeight + 13.0f});
+                    requiredChoice ? sf::Color(25, 66, 58, 248)
+                                   : sf::Color(8, 14, 15, 238),
+                    requiredChoice ? sf::Color(110, 244, 205)
+                                   : withAlpha(BoardBrassBright, 190),
+                    requiredChoice ? 2.0f : 1.0f);
+                sf::Text choose(
+                    font,
+                    requiredChoice ? "REQUIRED" : "CHOOSE",
+                    requiredChoice ? 10 : 11);
+                choose.setStyle(sf::Text::Bold);
+                choose.setLetterSpacing(requiredChoice ? 0.45f : 0.8f);
+                choose.setFillColor(
+                    requiredChoice ? sf::Color(154, 255, 222) : BoardBrassBright);
+                centerText(
+                    choose,
+                    {x + HandCardWidth * 0.5f, y + HandCardHeight + 16.0f});
                 drawCrispText(window, choose);
             }
         }
@@ -1708,36 +2154,6 @@
             window.draw(rivet);
         }
 
-        if (storyMode)
-        {
-            const auto drawCoordinateLabel = [&](const std::string& label, sf::Vector2f center) {
-                sf::Text coordinate(font, label, 12);
-                coordinate.setFillColor(BoardParchment);
-                coordinate.setOutlineThickness(1.5f);
-                coordinate.setOutlineColor(sf::Color(0, 0, 0, 230));
-                centerText(coordinate, center);
-                drawCrispText(window, coordinate);
-            };
-
-            for (int column = 0; column < game_data::BoardSize; ++column)
-            {
-                const sf::Vector2f from = boardEdgePoint(game_data::BoardSize, column);
-                const sf::Vector2f to = boardEdgePoint(game_data::BoardSize, column + 1);
-                drawCoordinateLabel(
-                    std::string(1, static_cast<char>('A' + column)),
-                    {(from.x + to.x) * 0.5f, (from.y + to.y) * 0.5f + 12.0f});
-            }
-            for (int screenRow = 0; screenRow < game_data::BoardSize; ++screenRow)
-            {
-                const sf::Vector2f from = boardEdgePoint(screenRow, 0);
-                const sf::Vector2f to = boardEdgePoint(screenRow + 1, 0);
-                drawCoordinateLabel(
-                    std::to_string(
-                        rowForScreenRow(screenRow, gameSnapshot.yourPlayer) + 1),
-                    {(from.x + to.x) * 0.5f - 13.0f, (from.y + to.y) * 0.5f});
-            }
-        }
-
         // Pieces.
         std::vector<const game_data::Piece*> pieceDrawOrder;
         pieceDrawOrder.reserve(gameSnapshot.pieces.size());
@@ -1761,10 +2177,21 @@
 
         int requiredStoryActorId = 0;
         int requiredStoryTargetId = 0;
+        std::vector<int> requiredStorySurvivorIds;
         if (storyMode && storyStage == StoryStage::Objective)
         {
             const StoryMission& activeMission =
                 storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
+            requiredStorySurvivorIds.reserve(
+                activeMission.requiredSurvivorRoles.size());
+            for (std::string_view role : activeMission.requiredSurvivorRoles)
+            {
+                const int survivorId = storyPieceIdForRole(role);
+                if (survivorId != 0)
+                {
+                    requiredStorySurvivorIds.push_back(survivorId);
+                }
+            }
             if (storyMissionStep >= 0 &&
                 storyMissionStep < static_cast<int>(activeMission.script.size()))
             {
@@ -1782,6 +2209,12 @@
                 {
                     requiredStoryTargetId = storyPieceIdForRole(currentStep.effectRole);
                 }
+            }
+            else if (activeMission.objectiveSpec.kind == StoryObjectiveKind::DefeatRole &&
+                     !activeMission.objectiveSpec.targetRole.empty())
+            {
+                requiredStoryTargetId =
+                    storyPieceIdForRole(activeMission.objectiveSpec.targetRole);
             }
         }
 
@@ -2033,6 +2466,23 @@
                     requiredStoryActorId != 0 && requiredStoryActorId == piece.id;
                 const bool pieceIsRequiredStoryTarget =
                     requiredStoryTargetId != 0 && requiredStoryTargetId == piece.id;
+                const bool pieceIsRequiredStorySurvivor =
+                    std::find(
+                        requiredStorySurvivorIds.begin(),
+                        requiredStorySurvivorIds.end(),
+                        piece.id) != requiredStorySurvivorIds.end();
+                if (pieceIsRequiredStorySurvivor)
+                {
+                    const float pulse = 0.5f + 0.5f * std::sin(animationTime * 3.8f);
+                    drawPieceSelectionRing(
+                        window,
+                        baseCenter,
+                        pieceScale * 1.18f,
+                        pulse,
+                        sf::Color(255, 214, 104),
+                        footprintWidth,
+                        footprintHeight);
+                }
                 if (pieceIsRequiredStoryActor)
                 {
                     const float pulse = 0.5f + 0.5f * std::sin(animationTime * 4.6f);
@@ -2150,7 +2600,7 @@
                     piece.isHero);
             }
 
-            if (!foregroundOnly && piece.controlTurnsRemaining > 0)
+            if (!foregroundOnly && piece.originalOwner != 0)
             {
                 // Held piece: keep the violet badge opposite the health badge.
                 const float chipHeight = std::clamp(16.0f * pieceScale, 13.0f, 22.0f);
@@ -2169,7 +2619,9 @@
                 window.draw(badge);
                 sf::Text turns(
                     font,
-                    std::to_string(piece.controlTurnsRemaining),
+                    piece.controlTurnsRemaining > 0
+                        ? std::to_string(piece.controlTurnsRemaining)
+                        : std::string("F"),
                     static_cast<unsigned int>(std::clamp(11.0f * pieceScale, 9.0f, 14.0f)));
                 turns.setFillColor(BoardParchment);
                 centerText(turns, center);
@@ -2471,10 +2923,16 @@
         const int activePlayer = std::clamp(gameSnapshot.activePlayer, 1, 2);
         const bool mirewatchStory =
             storyMode && storyCampaign == StoryCampaign::Mirewatch;
+        const bool seelieStory =
+            storyMode && storyCampaign == StoryCampaign::Seelie;
         const std::string activePlayerName = storyMode
             ? (activePlayer == 1
-                ? (mirewatchStory ? "Mirewatch Resistance" : "Blackthorn Company")
-                : (mirewatchStory ? "Blackthorn Company" : "Mirewatch Resistance"))
+                ? (mirewatchStory
+                    ? "Mirewatch Resistance"
+                    : seelieStory ? "Seelie Court" : "Blackthorn Company")
+                : (mirewatchStory
+                    ? "Blackthorn Company"
+                    : seelieStory ? "Hostile Force" : "Mirewatch Resistance"))
             : (sandboxMode
             ? "Player " + std::to_string(activePlayer)
             : (activePlayer == me ? loggedInUsername : "Opponent"));
@@ -2513,7 +2971,7 @@
         const auto liveTimer = [&](std::int64_t remainingMs, bool ticking) {
             return std::max<std::int64_t>(
                 0,
-                remainingMs - (ticking ? snapshotAgeMs : 0));
+                remainingMs - (ticking && !storyMode ? snapshotAgeMs : 0));
         };
         // ---- Owner banners ---------------------------------------------------
         // The side gutters are deliberately compact. Put the identity and player
@@ -2524,8 +2982,12 @@
             if (storyMode)
             {
                 return playerNumber == 1
-                    ? (mirewatchStory ? std::string("Mirewatch") : std::string("Blackthorn"))
-                    : (mirewatchStory ? std::string("Blackthorn") : std::string("Mirewatch"));
+                    ? (mirewatchStory
+                        ? std::string("Mirewatch")
+                        : seelieStory ? std::string("Seelie") : std::string("Blackthorn"))
+                    : (mirewatchStory
+                        ? std::string("Blackthorn")
+                        : seelieStory ? std::string("Hostiles") : std::string("Mirewatch"));
             }
             if (sandboxMode)
             {
@@ -2534,28 +2996,77 @@
             return playerNumber == me ? loggedInUsername : std::string("Opponent");
         };
 
-        // A labelled figure: small muted caption over a large parchment number.
+        // A labelled figure: a high-contrast caption over a large live number.
+        // These are the only always-visible economy/progress readouts in the
+        // compact 800x600 story layout, so keep them readable at native size.
+        const bool compactGameHud = usesCompactGameHud(window);
         const auto drawBannerFigure = [&](sf::Vector2f center,
                                           const std::string& caption,
                                           const std::string& value,
                                           sf::Color valueColor) {
-            sf::Text captionText(font, caption, storyMode ? 9 : 8);
-            captionText.setFillColor(withAlpha(BoardParchmentMuted, 208));
-            centerText(captionText, {center.x, center.y - 8.0f});
+            const unsigned int captionSize = storyMode
+                ? (compactGameHud ? 9 : 10)
+                : 8;
+            const unsigned int valueSize = storyMode
+                ? (compactGameHud ? 17 : 20)
+                : (compactGameHud ? 14 : 16);
+            sf::Text captionText(font, caption, captionSize);
+            if (storyMode)
+            {
+                captionText.setStyle(sf::Text::Bold);
+                captionText.setLetterSpacing(0.94f);
+            }
+            captionText.setFillColor(
+                storyMode ? withAlpha(BoardParchment, 244)
+                          : withAlpha(BoardParchmentMuted, 208));
+            captionText.setOutlineThickness(storyMode ? 1.0f : 0.0f);
+            captionText.setOutlineColor(sf::Color(0, 0, 0, 190));
+            centerText(captionText, {center.x, center.y - (compactGameHud ? 7.0f : 9.0f)});
             drawCrispText(window, captionText);
 
-            sf::Text valueText(font, value, 16);
+            sf::Text valueText(font, value, valueSize);
+            valueText.setStyle(sf::Text::Bold);
             valueText.setFillColor(valueColor);
             valueText.setOutlineThickness(1.0f);
             valueText.setOutlineColor(sf::Color(0, 0, 0, 170));
-            centerText(valueText, {center.x, center.y + 8.0f});
+            centerText(valueText, {center.x, center.y + (compactGameHud ? 7.0f : 9.0f)});
             drawCrispText(window, valueText);
         };
 
+        const auto authoritativeStoryEnemyProgress = [&](const StoryMission& mission) {
+            if (!storyEngine)
+            {
+                return StoryEnemyProgress{};
+            }
+            return storyDefeatAllEnemiesProgress(
+                mission, storyRolePieceIds, storyEngine->boardPieces());
+        };
+        bool storyEconomyIntroduced = !storyMode;
+        if (storyMode && storyMissionIndex >= 0 &&
+            storyMissionIndex < static_cast<int>(storyMissions(storyCampaign).size()))
+        {
+            const auto& campaignMissions = storyMissions(storyCampaign);
+            const StoryMission& currentMission =
+                campaignMissions[static_cast<std::size_t>(storyMissionIndex)];
+            storyEconomyIntroduced = currentMission.script.empty();
+            for (int index = 0; index <= storyMissionIndex && !storyEconomyIntroduced; ++index)
+            {
+                const StoryMission& lesson = campaignMissions[static_cast<std::size_t>(index)];
+                storyEconomyIntroduced = std::any_of(
+                    lesson.masteryRules.begin(), lesson.masteryRules.end(),
+                    [](std::string_view rule) {
+                        return rule.find("resource") != std::string::npos ||
+                            rule.find("control") != std::string::npos ||
+                            rule.find("deployment-cost") != std::string::npos ||
+                            rule.find("draw-cost") != std::string::npos;
+                    });
+            }
+        }
         const auto drawPlayerBanner = [&](int playerNumber,
                                           const game_data::PlayerSnapshot& player) {
             const bool leftSide = playerNumber == 1;
-            const float x = leftSide ? GamePlayerBannerLeftX : GamePlayerBannerRightX;
+            const float x = gamePlayerBannerX(window, playerNumber);
+            const float bannerHeight = gamePlayerBannerHeight(window);
             const bool isActive = playerNumber == activePlayer &&
                 phase != game_data::Phase::GameOver;
             const sf::Color accent = ownerColor(playerNumber);
@@ -2571,7 +3082,7 @@
                 // so turn ownership is obvious without recolouring the type.
                 drawCutPlate(
                     {x - 3.0f, GameTopBarY - 3.0f},
-                    {GamePlayerBannerWidth + 6.0f, GamePlayerBannerHeight + 6.0f},
+                    {GamePlayerBannerWidth + 6.0f, bannerHeight + 6.0f},
                     11.0f,
                     withAlpha(accent, 40),
                     withAlpha(accent, 150),
@@ -2580,7 +3091,7 @@
             drawBeveledPlate(
                 window,
                 {x, GameTopBarY},
-                {GamePlayerBannerWidth, GamePlayerBannerHeight},
+                {GamePlayerBannerWidth, bannerHeight},
                 withAlpha(ownerColorDeep(playerNumber), 236),
                 hoveredForEnchantment ? sf::Color(223, 164, 255)
                                       : (isActive ? BoardBrassBright : BoardBrass),
@@ -2590,7 +3101,7 @@
             {
                 drawCutPlate(
                     {x + 3.0f, GameTopBarY + 3.0f},
-                    {GamePlayerBannerWidth - 6.0f, GamePlayerBannerHeight - 6.0f},
+                    {GamePlayerBannerWidth - 6.0f, bannerHeight - 6.0f},
                     7.0f,
                     withAlpha(BoardArcane, hoveredForEnchantment ? 96 : 44),
                     withAlpha(sf::Color(223, 164, 255), hoveredForEnchantment ? 235 : 150),
@@ -2606,50 +3117,72 @@
                         enchantment.targetPlayer == playerNumber;
                 }));
 
-            // Resources are unbounded in sandbox. The tutorial has no economy at all,
-            // so it drops the figures rather than printing a placeholder in them —
-            // this readout used to render the literal string "story" in both.
+            // Resources are unbounded only in the free sandbox. Story missions use
+            // the ordinary economy and control rules, so those values must stay
+            // visible whenever a lesson or open objective asks the player to use them.
             const std::string resources =
                 sandboxMode && !storyMode ? std::string("Free") : std::to_string(player.resources);
             const std::string control = std::to_string(player.controlledSquares);
+            const std::string storyUnits = std::to_string(std::count_if(
+                gameSnapshot.pieces.begin(), gameSnapshot.pieces.end(),
+                [&](const game_data::Piece& piece) { return piece.owner == playerNumber; }));
 
-            // Figures occupy their own lower row. All three columns use the same
-            // positions on both sides so the labels remain evenly separated.
-            const float figureStep = 58.0f;
-            const int figureCount = storyMode ? 1 : (enchantmentCount > 0 ? 3 : 2);
-            const float figureBlockX = x +
-                (GamePlayerBannerWidth - figureStep * static_cast<float>(figureCount)) * 0.5f;
-            const float figureY = GameTopBarY + GamePlayerBannerHeight - 21.0f;
-
-            float slot = 0.0f;
-            const auto nextFigureCenter = [&]() {
-                const float center = figureBlockX + figureStep * (slot + 0.5f);
-                slot += 1.0f;
-                return sf::Vector2f{center, figureY};
-            };
-            if (storyMode)
             {
-                drawBannerFigure(
-                    nextFigureCenter(), "CONTROLLED SQUARES", control,
-                    withAlpha(ownerColorBright(playerNumber), 255));
-            }
-            else
-            {
-                drawBannerFigure(nextFigureCenter(), "RESOURCES", resources, BoardBrassBright);
-                drawBannerFigure(
-                    nextFigureCenter(), "CONTROL", control,
-                    withAlpha(ownerColorBright(playerNumber), 255));
-                if (enchantmentCount > 0)
+                // Three separate figures remain substantially more legible than
+                // two sentence-like lines in the compact HUD. The same visual
+                // vocabulary now works at both supported capture sizes.
+                const float figureStep = storyMode && compactGameHud ? 60.0f : 58.0f;
+                const int figureCount = storyMode
+                    ? (storyEconomyIntroduced ? 3 : 1)
+                    : (enchantmentCount > 0 ? 3 : 2);
+                const float figureBlockX = x +
+                    (GamePlayerBannerWidth - figureStep * static_cast<float>(figureCount)) * 0.5f;
+                // Compact Story Mode places Exit/Restart directly beneath the
+                // friendly banner. Keep the live figures above those buttons;
+                // the opponent uses the same row for a stable comparison.
+                const float figureY = compactGameHud
+                    ? GameTopBarY + 40.0f
+                    : GameTopBarY + GamePlayerBannerHeight - 21.0f;
+                float slot = 0.0f;
+                const auto nextFigureCenter = [&]() {
+                    const float center = figureBlockX + figureStep * (slot + 0.5f);
+                    slot += 1.0f;
+                    return sf::Vector2f{center, figureY};
+                };
+                if (storyMode)
                 {
+                    if (storyEconomyIntroduced)
+                    {
+                        drawBannerFigure(
+                            nextFigureCenter(), "RESOURCES", resources, BoardBrassBright);
+                        drawBannerFigure(
+                            nextFigureCenter(), "CONTROL", control,
+                            withAlpha(ownerColorBright(playerNumber), 255));
+                    }
                     drawBannerFigure(
-                        nextFigureCenter(), "HEX", std::to_string(enchantmentCount),
-                        sf::Color(206, 162, 240));
+                        nextFigureCenter(), "UNITS", storyUnits,
+                        withAlpha(ownerColorBright(playerNumber), 255));
+                }
+                else
+                {
+                    drawBannerFigure(nextFigureCenter(), "RESOURCES", resources, BoardBrassBright);
+                    drawBannerFigure(
+                        nextFigureCenter(), "CONTROL", control,
+                        withAlpha(ownerColorBright(playerNumber), 255));
+                    if (enchantmentCount > 0)
+                    {
+                        drawBannerFigure(
+                            nextFigureCenter(), "HEX", std::to_string(enchantmentCount),
+                            sf::Color(206, 162, 240));
+                    }
                 }
             }
 
             // Name and player clock share the upper row, away from the sigil.
-            const float textLeft = x + 22.0f;
-            const float textRight = x + GamePlayerBannerWidth - 22.0f;
+            const float textLeft = x + (compactGameHud ? 9.0f : 22.0f);
+            const float textRight = x + GamePlayerBannerWidth -
+                (compactGameHud && gameSnapshot.timersEnabled ? 62.0f
+                                                              : compactGameHud ? 9.0f : 22.0f);
             const float textWidth = std::max(30.0f, textRight - textLeft);
             std::string displayName = playerDisplayName(playerNumber);
             if (storyMode && playerNumber == me)
@@ -2658,8 +3191,8 @@
             }
             sf::Text nameText(
                 font,
-                elideToWidth(font, displayName, 14, textWidth),
-                14);
+                elideToWidth(font, displayName, compactGameHud ? 13 : 14, textWidth),
+                compactGameHud ? 13 : 14);
             nameText.setFillColor(isActive ? BoardParchment : withAlpha(BoardParchmentMuted, 226));
             nameText.setPosition({
                 textLeft,
@@ -2672,17 +3205,32 @@
                     player.clockRemainingMs,
                     phase == game_data::Phase::Playing &&
                         playerNumber == gameSnapshot.activePlayer);
-                sf::Text clockText(font, timerText(clockMs), 13);
-                clockText.setFillColor(clockMs <= 30'000
+                const bool clockPaused = storyMode && storyClockPausedForReading &&
+                    playerNumber == gameSnapshot.activePlayer;
+                sf::Text clockText(
+                    font,
+                    clockPaused ? std::string("PAUSED") : timerText(clockMs),
+                    13);
+                clockText.setFillColor(!clockPaused && clockMs <= 30'000
                     ? sf::Color(233, 128, 106)
                     : withAlpha(BoardParchmentMuted, 232));
-                clockText.setPosition({textLeft, GameTopBarY + 36.0f});
+                clockText.setPosition(compactGameHud
+                    ? sf::Vector2f{x + GamePlayerBannerWidth - 55.0f, GameTopBarY + 10.0f}
+                    : sf::Vector2f{textLeft, GameTopBarY + 36.0f});
                 drawCrispText(window, clockText);
             }
         };
 
         drawPlayerBanner(1, playerOne);
         drawPlayerBanner(2, playerTwo);
+
+        // Keep a copy of the top-line readout so it can be restored after the
+        // foreground sprite pass.  Tall units on the upper board row are
+        // deliberately redrawn above the HUD, but the current turn state must
+        // remain legible over those silhouettes.
+        std::string foregroundTurnLabel;
+        unsigned int foregroundTurnLabelSize = 0;
+        sf::Vector2f foregroundTurnLabelCenter{};
 
         // ---- Active turn readout ---------------------------------------------
         {
@@ -2694,26 +3242,44 @@
             {
                 const StoryMission& mission =
                     storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
-                int totalPlayerTurns = 0;
-                int currentPlayerTurn = 0;
-                int previousOwner = 0;
-                for (int i = 0; i < static_cast<int>(mission.script.size()); ++i)
+                if (mission.script.empty())
                 {
-                    const int owner = mission.script[static_cast<std::size_t>(i)].owner;
-                    if (owner == me && previousOwner != me)
-                    {
-                        ++totalPlayerTurns;
-                        if (i <= storyMissionStep)
-                        {
-                            currentPlayerTurn = totalPlayerTurns;
-                        }
-                    }
-                    previousOwner = owner;
+                    storyTurnLabel = "YOUR TURN";
                 }
-                if (totalPlayerTurns > 1 && currentPlayerTurn > 0)
+                const bool automaticPlayerPass =
+                    storyMissionStep >= 0 &&
+                    storyMissionStep < static_cast<int>(mission.script.size()) &&
+                    mission.script[static_cast<std::size_t>(storyMissionStep)].owner == me &&
+                    storyScriptActionAutoResolves(
+                        mission,
+                        mission.script[static_cast<std::size_t>(storyMissionStep)]);
+                if (automaticPlayerPass)
                 {
-                    storyTurnLabel = "YOUR TURN " + std::to_string(currentPlayerTurn) +
-                        " OF " + std::to_string(totalPlayerTurns);
+                    storyTurnLabel = "AUTO-RESOLVING PASS";
+                }
+                else if (!mission.autoResolvePlayerEndTurns)
+                {
+                    int totalPlayerTurns = 0;
+                    int currentPlayerTurn = 0;
+                    int previousOwner = 0;
+                    for (int i = 0; i < static_cast<int>(mission.script.size()); ++i)
+                    {
+                        const int owner = mission.script[static_cast<std::size_t>(i)].owner;
+                        if (owner == me && previousOwner != me)
+                        {
+                            ++totalPlayerTurns;
+                            if (i <= storyMissionStep)
+                            {
+                                currentPlayerTurn = totalPlayerTurns;
+                            }
+                        }
+                        previousOwner = owner;
+                    }
+                    if (totalPlayerTurns > 1 && currentPlayerTurn > 0)
+                    {
+                        storyTurnLabel = "YOUR TURN " + std::to_string(currentPlayerTurn) +
+                            " OF " + std::to_string(totalPlayerTurns);
+                    }
                 }
             }
             const std::string turnLabel = phase == game_data::Phase::GameOver
@@ -2724,32 +3290,39 @@
                                  : (myTurn ? std::string("YOUR TURN")
                                            : std::string("OPPONENT'S TURN"))));
             const int turnPlayer = activePlayer == 2 ? 2 : 1;
-            const float turnX = turnPlayer == 1
-                ? GamePlayerBannerLeftX
-                : GamePlayerBannerRightX;
+            const float turnX = compactGameHud
+                ? BoardCenterX - GameTurnPlaqueWidth * 0.5f
+                : gamePlayerBannerX(window, turnPlayer);
+            const float turnY = compactGameHud ? GameTopBarY : GameTurnPlaqueY;
             const sf::Color accent = phase == game_data::Phase::GameOver
                 ? BoardBrass
                 : ownerColor(turnPlayer);
 
             drawBeveledPlate(
                 window,
-                {turnX, GameTurnPlaqueY},
+                {turnX, turnY},
                 {GameTurnPlaqueWidth, GameTurnPlaqueHeight},
                 withAlpha(BoardPlate, 238),
                 accent,
                 true,
                 12.0f);
 
-            sf::Text label(font, elideToWidth(font, turnLabel, 10, GameTurnPlaqueWidth - 16.0f), 10);
+            const unsigned int turnLabelSize = compactGameHud ? 11 : 10;
+            const std::string fittedTurnLabel =
+                elideToWidth(font, turnLabel, turnLabelSize, GameTurnPlaqueWidth - 16.0f);
+            sf::Text label(font, fittedTurnLabel, turnLabelSize);
             label.setLetterSpacing(1.05f);
             label.setFillColor(BoardParchment);
             label.setOutlineThickness(1.0f);
             label.setOutlineColor(sf::Color(0, 0, 0, 190));
             const bool showTurnClock =
                 gameSnapshot.timersEnabled && phase != game_data::Phase::GameOver;
-            centerText(
-                label, {turnX + GameTurnPlaqueWidth * 0.5f,
-                        GameTurnPlaqueY + (showTurnClock ? 14.0f : 24.0f)});
+            foregroundTurnLabel = fittedTurnLabel;
+            foregroundTurnLabelSize = turnLabelSize;
+            foregroundTurnLabelCenter = {
+                turnX + GameTurnPlaqueWidth * 0.5f,
+                turnY + (showTurnClock ? 14.0f : 24.0f)};
+            centerText(label, foregroundTurnLabelCenter);
             drawCrispText(window, label);
 
             // The turn clock is meaningless once the match is decided, so the
@@ -2760,19 +3333,23 @@
                     gameSnapshot.turnRemainingMs,
                     phase == game_data::Phase::Playing ||
                         phase == game_data::Phase::HeroPlacement);
-                const bool urgent = liveTurnRemainingMs <= 30'000;
+                const bool clockPaused = storyMode && storyClockPausedForReading;
+                const bool urgent = !clockPaused && liveTurnRemainingMs <= 30'000;
 
                 // A drain bar beside the figure, so time pressure is felt rather
                 // than only read off a clock string.
-                sf::Text turnClock(font, timerText(liveTurnRemainingMs), 13);
+                sf::Text turnClock(
+                    font,
+                    clockPaused ? std::string("PAUSED") : timerText(liveTurnRemainingMs),
+                    13);
                 turnClock.setFillColor(urgent
                     ? sf::Color(240, 152, 132)
                     : withAlpha(BoardParchmentMuted, 240));
                 const float trackX = turnX + 10.0f;
                 const float trackWidth = GameTurnPlaqueWidth - 20.0f;
-                const float rowY = GameTurnPlaqueY + 41.0f;
+                const float rowY = turnY + 41.0f;
 
-                centerText(turnClock, {turnX + GameTurnPlaqueWidth * 0.5f, GameTurnPlaqueY + 29.0f});
+                centerText(turnClock, {turnX + GameTurnPlaqueWidth * 0.5f, turnY + 29.0f});
                 drawCrispText(window, turnClock);
 
                 sf::RectangleShape track({trackWidth, 4.0f});
@@ -2836,17 +3413,309 @@
         // normal board depth and cannot cover a piece in front of them.
         drawPieceLayer(true);
 
-        // Keep the chapter identity visible after the briefing. This compact
-        // plaque occupies the open space between the two owner banners and is
-        // drawn after the foreground pieces so a tall sprite cannot erase it.
-        if (storyMode && storyMissionIndex >= 0 &&
-            storyMissionIndex < static_cast<int>(storyMissions(storyCampaign).size()))
+        if (!foregroundTurnLabel.empty())
+        {
+            sf::Text foregroundLabel(
+                font, foregroundTurnLabel, foregroundTurnLabelSize);
+            foregroundLabel.setLetterSpacing(1.05f);
+            foregroundLabel.setFillColor(BoardParchment);
+            foregroundLabel.setOutlineThickness(1.0f);
+            foregroundLabel.setOutlineColor(sf::Color(0, 0, 0, 190));
+            centerText(foregroundLabel, foregroundTurnLabelCenter);
+            drawCrispText(window, foregroundLabel);
+        }
+
+        // Foreground sprites are deliberately redrawn above the HUD to keep
+        // their silhouettes intact. Draw named survivor labels after that pass
+        // so a nearer unit can never hide who must survive; the gold base ring
+        // remains below the art as a second, shape-based cue.
+        std::vector<sf::FloatRect> storyStatusRects;
+        if (storyMode && !compactGameHud)
+        {
+            // The wide layout places the player rail beside and slightly over
+            // the board's left edge. Reserve the complete rail plus the opposing
+            // readout and turn plaque before placing any Story overlay.
+            storyStatusRects.emplace_back(
+                sf::Vector2f{GamePlayerBannerLeftX, GameTopBarY},
+                sf::Vector2f{GamePlayerBannerWidth, GameBottomBarY - GameTopBarY});
+            storyStatusRects.emplace_back(
+                sf::Vector2f{GamePlayerBannerRightX, GameTopBarY},
+                sf::Vector2f{GamePlayerBannerWidth, GamePlayerBannerHeight});
+            storyStatusRects.emplace_back(
+                sf::Vector2f{
+                    BoardCenterX - GameTurnPlaqueWidth * 0.5f,
+                    GameTurnPlaqueY},
+                sf::Vector2f{GameTurnPlaqueWidth, GameTurnPlaqueHeight});
+        }
+        for (int survivorId : requiredStorySurvivorIds)
+        {
+            const auto survivor = std::find_if(
+                gameSnapshot.pieces.begin(), gameSnapshot.pieces.end(),
+                [&](const game_data::Piece& piece) { return piece.id == survivorId; });
+            if (survivor == gameSnapshot.pieces.end())
+            {
+                continue;
+            }
+            const sf::Vector2f baseCenter = boardFootprintCenter(
+                survivor->row,
+                survivor->column,
+                survivor->width,
+                survivor->height,
+                gameSnapshot.yourPlayer);
+            const float pieceScale = boardCellMetrics(
+                survivor->row, survivor->column).depthScale;
+            const unsigned int survivorNameSize = compactGameHud ? 11u : 10u;
+            sf::Text survivorNameMeasure(font, survivor->name, survivorNameSize);
+            const sf::Vector2f protectSize{
+                std::clamp(
+                    survivorNameMeasure.getLocalBounds().size.x + 18.0f,
+                    108.0f,
+                    158.0f),
+                34.0f};
+            constexpr float storyBadgeSafeLeft = 18.0f;
+            constexpr float storyBadgeSafeRight = 782.0f;
+            constexpr float storyBadgeSafeTop = 68.0f;
+            constexpr float storyBadgeSafeBottom = GameBottomBarY - 3.0f;
+            constexpr float storyBadgeClearance = 6.0f;
+            static_assert(
+                storyBadgeSafeRight - storyBadgeSafeLeft >= 158.0f &&
+                    storyBadgeSafeBottom - storyBadgeSafeTop >= 34.0f,
+                "Story badge safe bounds must fit the largest survivor badge.");
+            const float aboveY = baseCenter.y - 27.0f * pieceScale;
+            // A far-rank unit can sit directly under the top HUD. Put its
+            // status below the anchor instead of clipping the label into that
+            // rail, and keep every badge inside the board-safe overlay band.
+            const float preferredY = aboveY < 74.0f
+                ? baseCenter.y + 17.0f * pieceScale
+                : aboveY;
+            const sf::Vector2f protectBasePosition{
+                std::clamp(
+                    baseCenter.x - protectSize.x * 0.5f,
+                    storyBadgeSafeLeft,
+                    storyBadgeSafeRight - protectSize.x),
+                std::clamp(
+                    preferredY,
+                    storyBadgeSafeTop,
+                    storyBadgeSafeBottom - protectSize.y)};
+            const auto overlapsStatus = [&](const sf::Vector2f& candidate) {
+                return std::any_of(
+                    storyStatusRects.begin(),
+                    storyStatusRects.end(),
+                    [&](const sf::FloatRect& occupied) {
+                        return candidate.x <
+                                occupied.position.x + occupied.size.x +
+                                    storyBadgeClearance &&
+                            candidate.x + protectSize.x >
+                                occupied.position.x - storyBadgeClearance &&
+                            candidate.y <
+                                occupied.position.y + occupied.size.y +
+                                    storyBadgeClearance &&
+                            candidate.y + protectSize.y >
+                                occupied.position.y - storyBadgeClearance;
+                    });
+            };
+            const auto insideBadgeSafeBounds = [&](const sf::Vector2f& candidate) {
+                return candidate.x >= storyBadgeSafeLeft &&
+                    candidate.x + protectSize.x <= storyBadgeSafeRight &&
+                    candidate.y >= storyBadgeSafeTop &&
+                    candidate.y + protectSize.y <= storyBadgeSafeBottom;
+            };
+            // Search both axes together. Whole-badge lane spacing handles dense
+            // survivor clusters, while obstacle-edge coordinates cover the
+            // remaining legal strips without resorting to a coarse pixel grid.
+            std::vector<float> protectCandidateXs;
+            std::vector<float> protectCandidateYs;
+            const auto appendCandidate = [](std::vector<float>& candidates,
+                                            float value,
+                                            float minimum,
+                                            float maximum) {
+                const float clamped = std::clamp(value, minimum, maximum);
+                const bool duplicate = std::any_of(
+                    candidates.begin(), candidates.end(),
+                    [&](float existing) {
+                        return std::abs(existing - clamped) < 0.01f;
+                    });
+                if (!duplicate)
+                {
+                    candidates.push_back(clamped);
+                }
+            };
+            const float maximumBadgeX = storyBadgeSafeRight - protectSize.x;
+            const float maximumBadgeY = storyBadgeSafeBottom - protectSize.y;
+            appendCandidate(
+                protectCandidateXs,
+                protectBasePosition.x,
+                storyBadgeSafeLeft,
+                maximumBadgeX);
+            appendCandidate(
+                protectCandidateYs,
+                protectBasePosition.y,
+                storyBadgeSafeTop,
+                maximumBadgeY);
+
+            const float horizontalLane = protectSize.x + storyBadgeClearance;
+            const float verticalLane = protectSize.y + storyBadgeClearance;
+            const int horizontalLaneCount = static_cast<int>(std::ceil(
+                (maximumBadgeX - storyBadgeSafeLeft) / horizontalLane));
+            const int verticalLaneCount = static_cast<int>(std::ceil(
+                (maximumBadgeY - storyBadgeSafeTop) / verticalLane));
+            for (int lane = 1; lane <= horizontalLaneCount; ++lane)
+            {
+                const float adjustment = static_cast<float>(lane) * horizontalLane;
+                appendCandidate(
+                    protectCandidateXs,
+                    protectBasePosition.x + adjustment,
+                    storyBadgeSafeLeft,
+                    maximumBadgeX);
+                appendCandidate(
+                    protectCandidateXs,
+                    protectBasePosition.x - adjustment,
+                    storyBadgeSafeLeft,
+                    maximumBadgeX);
+            }
+            for (int lane = 1; lane <= verticalLaneCount; ++lane)
+            {
+                const float adjustment = static_cast<float>(lane) * verticalLane;
+                appendCandidate(
+                    protectCandidateYs,
+                    protectBasePosition.y + adjustment,
+                    storyBadgeSafeTop,
+                    maximumBadgeY);
+                appendCandidate(
+                    protectCandidateYs,
+                    protectBasePosition.y - adjustment,
+                    storyBadgeSafeTop,
+                    maximumBadgeY);
+            }
+            appendCandidate(
+                protectCandidateXs,
+                storyBadgeSafeLeft,
+                storyBadgeSafeLeft,
+                maximumBadgeX);
+            appendCandidate(
+                protectCandidateXs,
+                maximumBadgeX,
+                storyBadgeSafeLeft,
+                maximumBadgeX);
+            appendCandidate(
+                protectCandidateYs,
+                storyBadgeSafeTop,
+                storyBadgeSafeTop,
+                maximumBadgeY);
+            appendCandidate(
+                protectCandidateYs,
+                maximumBadgeY,
+                storyBadgeSafeTop,
+                maximumBadgeY);
+            for (const sf::FloatRect& occupied : storyStatusRects)
+            {
+                appendCandidate(
+                    protectCandidateXs,
+                    occupied.position.x - protectSize.x - storyBadgeClearance,
+                    storyBadgeSafeLeft,
+                    maximumBadgeX);
+                appendCandidate(
+                    protectCandidateXs,
+                    occupied.position.x + occupied.size.x + storyBadgeClearance,
+                    storyBadgeSafeLeft,
+                    maximumBadgeX);
+                appendCandidate(
+                    protectCandidateYs,
+                    occupied.position.y - protectSize.y - storyBadgeClearance,
+                    storyBadgeSafeTop,
+                    maximumBadgeY);
+                appendCandidate(
+                    protectCandidateYs,
+                    occupied.position.y + occupied.size.y + storyBadgeClearance,
+                    storyBadgeSafeTop,
+                    maximumBadgeY);
+            }
+
+            sf::Vector2f protectPosition = protectBasePosition;
+            bool foundProtectPosition = false;
+            float bestDistanceSquared = std::numeric_limits<float>::max();
+            for (float candidateX : protectCandidateXs)
+            {
+                for (float candidateY : protectCandidateYs)
+                {
+                    const sf::Vector2f candidate{candidateX, candidateY};
+                    if (!insideBadgeSafeBounds(candidate) || overlapsStatus(candidate))
+                    {
+                        continue;
+                    }
+                    const float deltaX = candidate.x - protectBasePosition.x;
+                    const float deltaY = candidate.y - protectBasePosition.y;
+                    const float distanceSquared =
+                        deltaX * deltaX + deltaY * deltaY;
+                    if (!foundProtectPosition || distanceSquared < bestDistanceSquared)
+                    {
+                        protectPosition = candidate;
+                        bestDistanceSquared = distanceSquared;
+                        foundProtectPosition = true;
+                    }
+                }
+            }
+            if (captureRequest &&
+                (!foundProtectPosition || overlapsStatus(protectPosition)))
+            {
+                failCaptureValidation(
+                    "Capture layout error: required-survivor badges overlap.");
+            }
+            if (captureRequest && !insideBadgeSafeBounds(protectPosition))
+            {
+                failCaptureValidation(
+                    "Capture layout error: required-survivor badge exceeds safe bounds.");
+            }
+            drawBeveledPlate(
+                window,
+                protectPosition,
+                protectSize,
+                sf::Color(35, 31, 18, 242),
+                sf::Color(255, 214, 104),
+                false,
+                4.0f);
+            drawCenteredText(
+                window,
+                font,
+                elideToWidth(
+                    font,
+                    survivor->name,
+                    survivorNameSize,
+                    protectSize.x - 12.0f),
+                survivorNameSize,
+                {protectPosition.x + protectSize.x * 0.5f,
+                 protectPosition.y + 9.0f},
+                sf::Color(255, 246, 222));
+            drawCenteredText(
+                window,
+                font,
+                "MUST SURVIVE",
+                compactGameHud ? 10 : 9,
+                {protectPosition.x + protectSize.x * 0.5f,
+                 protectPosition.y + 24.0f},
+                sf::Color(255, 230, 151));
+            storyStatusRects.emplace_back(protectPosition, protectSize);
+        }
+
+        // Keep the chapter identity visible outside active play. During an
+        // objective the briefing and bottom instruction plaque already supply
+        // that context; omitting this overlay leaves the far rank fully visible
+        // and clickable instead of covering tall unit art.
+        if (storyMode && !compactGameHud && storyMissionIndex >= 0 &&
+            storyMissionIndex < static_cast<int>(storyMissions(storyCampaign).size()) &&
+            storyStage != StoryStage::Objective)
         {
             const StoryMission& mission =
                 storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
-            constexpr sf::Vector2f missionPlateSize{410.0f, 44.0f};
+            const std::string actName(storyActName(storyCampaign, storyMissionIndex));
+            const std::string shortActGoal(
+                storyActShortGoal(storyCampaign, storyMissionIndex));
+            const bool showActOrientation = !actName.empty() && !shortActGoal.empty();
+            const sf::Vector2f missionPlateSize{
+                410.0f, showActOrientation ? 58.0f : 44.0f};
             const sf::Vector2f missionPlatePosition{
-                BoardCenterX - missionPlateSize.x * 0.5f, 7.0f};
+                BoardCenterX - missionPlateSize.x * 0.5f,
+                showActOrientation ? 4.0f : 7.0f};
             drawBeveledPlate(
                 window,
                 missionPlatePosition,
@@ -2855,28 +3724,80 @@
                 withAlpha(ownerColorBright(me), 210),
                 false,
                 8.0f);
+            if (showActOrientation)
+            {
+                drawCenteredText(
+                    window,
+                    font,
+                    actName,
+                    11,
+                    {BoardCenterX, missionPlatePosition.y + 9.0f},
+                    sf::Color(236, 204, 132));
+                drawCenteredText(
+                    window,
+                    font,
+                    "GOAL: " + shortActGoal,
+                    11,
+                    {BoardCenterX, missionPlatePosition.y + 22.0f},
+                    sf::Color(222, 226, 218));
+            }
             drawCenteredText(
                 window,
                 font,
                 "ENTRY " + std::to_string(storyMissionIndex + 1) + " OF " +
                     std::to_string(storyMissions(storyCampaign).size()) +
                     "  -  PLAYABLE MISSION",
-                9,
-                {BoardCenterX, missionPlatePosition.y + 11.0f},
+                compactGameHud ? 12 : 9,
+                {BoardCenterX,
+                 missionPlatePosition.y + (showActOrientation ? 35.0f : 11.0f)},
                 withAlpha(ownerColorBright(me), 245));
             sf::Text missionTitle(
                 gloomthornFontLoaded ? gloomthornFont : font,
                 elideToWidth(
                     gloomthornFontLoaded ? gloomthornFont : font,
                     std::string(mission.title),
-                    16,
+                    showActOrientation ? 14 : (compactGameHud ? 17 : 16),
                     missionPlateSize.x - 28.0f),
-                16);
+                showActOrientation ? 14 : (compactGameHud ? 17 : 16));
             missionTitle.setFillColor(BoardParchment);
             centerText(
                 missionTitle,
-                {BoardCenterX, missionPlatePosition.y + 29.0f});
+                {BoardCenterX,
+                 missionPlatePosition.y + (showActOrientation ? 50.0f : 29.0f)});
             drawCrispText(window, missionTitle);
+        }
+
+        // Tutorial coordinates are an input aid. Paint them over the board and
+        // pieces first; the opaque guided-action tags below then remain intact
+        // when a tag must share the top or left coordinate band.
+        if (storyMode)
+        {
+            const auto drawCoordinateLabel = [&](const std::string& label, sf::Vector2f center) {
+                sf::Text coordinate(font, label, 12);
+                coordinate.setStyle(sf::Text::Bold);
+                coordinate.setFillColor(BoardParchment);
+                coordinate.setOutlineThickness(1.5f);
+                coordinate.setOutlineColor(sf::Color(0, 0, 0, 230));
+                centerText(coordinate, center);
+                drawCrispText(window, coordinate);
+            };
+            for (int column = 0; column < game_data::BoardSize; ++column)
+            {
+                const sf::Vector2f from = boardEdgePoint(0, column);
+                const sf::Vector2f to = boardEdgePoint(0, column + 1);
+                drawCoordinateLabel(
+                    std::string(1, static_cast<char>('A' + column)),
+                    {(from.x + to.x) * 0.5f, (from.y + to.y) * 0.5f + 10.0f});
+            }
+            for (int screenRow = 0; screenRow < game_data::BoardSize; ++screenRow)
+            {
+                const sf::Vector2f from = boardEdgePoint(screenRow, 0);
+                const sf::Vector2f to = boardEdgePoint(screenRow + 1, 0);
+                drawCoordinateLabel(
+                    std::to_string(
+                        rowForScreenRow(screenRow, gameSnapshot.yourPlayer) + 1),
+                    {(from.x + to.x) * 0.5f - 13.0f, (from.y + to.y) * 0.5f});
+            }
         }
 
         // During guided steps, label the required piece and target directly on
@@ -2884,6 +3805,9 @@
         // means actor, destination, danger, or selection.
         if (storyMode && storyStage == StoryStage::Objective)
         {
+            // Guided actor/target callouts share collision space with survivor
+            // badges so an adjacent destination can never cover a status tag.
+            std::vector<sf::FloatRect> storyTagRects = storyStatusRects;
             const auto storyPiece = [&](int id) -> const game_data::Piece* {
                 const auto found = std::find_if(
                     gameSnapshot.pieces.begin(), gameSnapshot.pieces.end(),
@@ -2892,19 +3816,134 @@
             };
             const auto drawStoryTagAt = [&](const sf::Vector2f center, const std::string& label,
                                              sf::Color accent, float verticalOffset) {
-                const std::string fitted = elideToWidth(font, label, 11, 146.0f);
-                sf::Text text(font, fitted, 11);
-                text.setFillColor(sf::Color(255, 246, 222));
+                const unsigned int tagSize = compactGameHud ? 12 : 11;
+                const float tagTextWidth = compactGameHud ? 214.0f : 198.0f;
+                std::vector<std::string> tagLines;
+                sf::Text fullMeasure(font, label, tagSize);
+                const std::size_t separator = label.find(": ");
+                if (fullMeasure.getLocalBounds().size.x > tagTextWidth &&
+                    separator != std::string::npos)
+                {
+                    tagLines.push_back(label.substr(0, separator));
+                    tagLines.push_back(label.substr(separator + 2));
+                }
+                else
+                {
+                    tagLines.push_back(label);
+                }
+                for (std::string& line : tagLines)
+                {
+                    line = elideToWidth(font, line, tagSize, tagTextWidth);
+                }
+                float widestLine = 0.0f;
+                for (const std::string& line : tagLines)
+                {
+                    sf::Text measure(font, line, tagSize);
+                    widestLine = std::max(
+                        widestLine, measure.getLocalBounds().size.x);
+                }
                 const float width = std::clamp(
-                    text.getLocalBounds().size.x + 18.0f, 62.0f, 160.0f);
-                const sf::Vector2f position{
-                    std::clamp(center.x - width * 0.5f, 18.0f, 782.0f - width),
-                    std::clamp(center.y + verticalOffset, 68.0f, 466.0f)};
+                    widestLine + 18.0f,
+                    62.0f,
+                    compactGameHud ? 230.0f : 214.0f);
+                const float tagHeight = tagLines.size() > 1 ? 36.0f : 22.0f;
+                const float boardTagLeft = BoardOriginX;
+                const float boardTagRight = BoardOriginX + BoardBottomWidth;
+                const sf::Vector2f basePosition{
+                    std::clamp(
+                        center.x - width * 0.5f,
+                        boardTagLeft,
+                        boardTagRight - width),
+                    std::clamp(
+                        center.y + verticalOffset,
+                        BoardOriginY + 2.0f,
+                        GameBottomBarY - tagHeight - 3.0f)};
+                const auto overlapsExistingTag = [&](sf::Vector2f candidate) {
+                    return std::any_of(
+                        storyTagRects.begin(), storyTagRects.end(),
+                        [&](const sf::FloatRect& occupied) {
+                            return candidate.x < occupied.position.x + occupied.size.x &&
+                                candidate.x + width > occupied.position.x &&
+                                candidate.y < occupied.position.y + occupied.size.y &&
+                                candidate.y + tagHeight > occupied.position.y;
+                        });
+                };
+                sf::Vector2f position = basePosition;
+                bool foundOpenLane = false;
+                const std::array<float, 5> horizontalAdjustments{
+                    0.0f,
+                    width + 8.0f,
+                    -width - 8.0f,
+                    width * 2.0f + 16.0f,
+                    -width * 2.0f - 16.0f};
+                const std::array<float, 9> verticalAdjustments{
+                    0.0f, -28.0f, 28.0f, -56.0f, 56.0f,
+                    -84.0f, 84.0f, -112.0f, 112.0f};
+                for (float horizontalAdjustment : horizontalAdjustments)
+                {
+                    for (float verticalAdjustment : verticalAdjustments)
+                    {
+                        const sf::Vector2f candidate{
+                            std::clamp(
+                                basePosition.x + horizontalAdjustment,
+                                boardTagLeft,
+                                boardTagRight - width),
+                            std::clamp(
+                                basePosition.y + verticalAdjustment,
+                                BoardOriginY + 2.0f,
+                                GameBottomBarY - tagHeight - 3.0f)};
+                        if (!overlapsExistingTag(candidate))
+                        {
+                            position = candidate;
+                            foundOpenLane = true;
+                            break;
+                        }
+                    }
+                    if (foundOpenLane)
+                    {
+                        break;
+                    }
+                }
+                if (captureRequest && overlapsExistingTag(position))
+                {
+                    failCaptureValidation(
+                        "Capture layout error: guided Story callouts overlap.");
+                }
+                const sf::Vector2f tagCenter{
+                    position.x + width * 0.5f,
+                    position.y + tagHeight * 0.5f};
+                if (std::abs(tagCenter.x - center.x) > width * 0.55f ||
+                    std::abs(tagCenter.y - center.y) > 70.0f)
+                {
+                    drawEdgeLine(
+                        window,
+                        center,
+                        tagCenter,
+                        1.2f,
+                        withAlpha(accent, 150));
+                }
                 drawCutPlate(
-                    position, {width, 22.0f}, 5.0f,
+                    position, {width, tagHeight}, 5.0f,
                     sf::Color(9, 14, 15, 244), withAlpha(accent, 244), 1.4f);
-                centerText(text, {position.x + width * 0.5f, position.y + 11.0f});
-                drawCrispText(window, text);
+                for (std::size_t lineIndex = 0;
+                     lineIndex < tagLines.size(); ++lineIndex)
+                {
+                    sf::Text text(font, tagLines[lineIndex], tagSize);
+                    text.setFillColor(
+                        lineIndex == 0
+                            ? sf::Color(255, 246, 222)
+                            : withAlpha(accent, 248));
+                    centerText(
+                        text,
+                        {position.x + width * 0.5f,
+                         position.y +
+                             (tagLines.size() > 1
+                                 ? 9.0f + static_cast<float>(lineIndex) * 17.0f
+                                 : 11.0f)});
+                    drawCrispText(window, text);
+                }
+                storyTagRects.push_back(
+                    sf::FloatRect(position, {width, tagHeight}));
             };
             const auto drawStoryTag = [&](int id, std::string_view role, sf::Color accent,
                                            float verticalOffset) {
@@ -2917,7 +3956,10 @@
                     piece->row, piece->column, piece->width, piece->height,
                     gameSnapshot.yourPlayer);
                 drawStoryTagAt(
-                    center, std::string(role) + ": " + piece->name, accent, verticalOffset);
+                    center,
+                    std::string(role) + ": " + piece->name,
+                    accent,
+                    verticalOffset);
             };
 
             if (requiredStoryTargetId == 0 &&
@@ -2941,7 +3983,7 @@
             if (requiredStoryActorId != 0)
             {
                 drawStoryTag(
-                    requiredStoryActorId, "ACT", sf::Color(255, 214, 104), -42.0f);
+                    requiredStoryActorId, "ACT", sf::Color(255, 214, 104), -64.0f);
             }
         }
 
@@ -3035,13 +4077,34 @@
                 }
             }
 
+            const bool statusRibbon =
+                !storyMode && title.empty() && !gameSnapshot.status.empty();
+            if (statusRibbon)
+            {
+                title = "STATUS";
+                instruction = gameSnapshot.status;
+                const std::string normalizedStatus = game_data::normalizedAbility(instruction);
+                if (normalizedStatus.find("cannot") != std::string::npos ||
+                    normalizedStatus.find("must") != std::string::npos ||
+                    normalizedStatus.find("need") != std::string::npos ||
+                    normalizedStatus.find("invalid") != std::string::npos ||
+                    normalizedStatus.find("not enough") != std::string::npos ||
+                    normalizedStatus.find("unavailable") != std::string::npos)
+                {
+                    accent = sf::Color(238, 116, 94);
+                }
+            }
             if (title.empty())
             {
                 return;
             }
 
-            constexpr sf::Vector2f ribbonSize{420.0f, 17.0f};
-            const sf::Vector2f ribbonPosition{BoardCenterX - ribbonSize.x * 0.5f, 449.0f};
+            const sf::Vector2f ribbonSize = statusRibbon
+                ? sf::Vector2f{620.0f, 20.0f}
+                : sf::Vector2f{420.0f, 17.0f};
+            const sf::Vector2f ribbonPosition{
+                BoardCenterX - ribbonSize.x * 0.5f,
+                statusRibbon ? 446.0f : 449.0f};
             drawCutPlate(
                 ribbonPosition,
                 ribbonSize,
@@ -3049,25 +4112,35 @@
                 sf::Color(7, 13, 14, 238),
                 withAlpha(accent, 210),
                 1.2f);
-            sf::Text titleText(font, elideToWidth(font, title, 9, 116.0f), 9);
+            const float titleWidth = statusRibbon ? 54.0f : 116.0f;
+            sf::Text titleText(font, elideToWidth(font, title, 9, titleWidth), 9);
             titleText.setFillColor(BoardParchment);
             titleText.setPosition({ribbonPosition.x + 11.0f, ribbonPosition.y + 4.0f});
             drawCrispText(window, titleText);
+            const float separatorX = ribbonPosition.x + (statusRibbon ? 66.0f : 136.0f);
             drawEdgeLine(
                 window,
-                {ribbonPosition.x + 136.0f, ribbonPosition.y + 4.0f},
-                {ribbonPosition.x + 136.0f, ribbonPosition.y + ribbonSize.y - 4.0f},
+                {separatorX, ribbonPosition.y + 4.0f},
+                {separatorX, ribbonPosition.y + ribbonSize.y - 4.0f},
                 1.0f,
                 withAlpha(accent, 180));
-            sf::Text instructionText(font, instruction, 8);
+            const float instructionWidth =
+                ribbonSize.x - (separatorX - ribbonPosition.x) - 20.0f;
+            sf::Text instructionText(
+                font,
+                elideToWidth(font, instruction, 8, instructionWidth),
+                8);
             instructionText.setLetterSpacing(1.08f);
             instructionText.setFillColor(withAlpha(accent, 246));
-            instructionText.setPosition({ribbonPosition.x + 147.0f, ribbonPosition.y + 5.0f});
+            instructionText.setPosition({separatorX + 11.0f, ribbonPosition.y + 5.0f});
             drawCrispText(window, instructionText);
         };
         drawCommandIntent();
 
-        const bool commandBarActive = phase == game_data::Phase::Playing && !storyMode;
+        // Story Mode teaches the same deck, draw, and discard actions as an
+        // ordinary match. Keep their real controls visible; the authored-step
+        // validator still rejects actions that are not the current lesson.
+        const bool commandBarActive = phase == game_data::Phase::Playing;
         if (commandBarActive)
         {
             const bool canDraw = playerCanDrawCard();
@@ -3151,22 +4224,46 @@
                 abilityButton.draw(window);
             }
             bool endTurnAvailable = true;
+            bool automaticStoryStep = false;
             if (storyMode)
             {
-                endTurnAvailable = storyStage != StoryStage::Objective;
                 const StoryMission& mission =
                     storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
-                if (storyStage == StoryStage::Objective && storyPopupPanels.empty() &&
+                endTurnAvailable = storyStage != StoryStage::Objective ||
+                    (mission.script.empty() && storyPopupPanels.empty());
+                if (!mission.script.empty() &&
+                    storyStage == StoryStage::Objective && storyPopupPanels.empty() &&
                     storyMissionStep >= 0 &&
                     storyMissionStep < static_cast<int>(mission.script.size()))
                 {
                     const StoryScriptAction& step =
                         mission.script[static_cast<std::size_t>(storyMissionStep)];
+                    automaticStoryStep =
+                        storyScriptActionAutoResolves(mission, step);
                     endTurnAvailable =
-                        step.owner == me && step.kind == StoryActionKind::EndTurn;
+                        storyScriptActionRequiresPlayerInput(mission, step) &&
+                        step.kind == StoryActionKind::EndTurn;
                 }
                 endTurnButton.setEnabled(endTurnAvailable);
-                endTurnButton.setLabel(endTurnAvailable ? "End Turn" : "Finish Step First");
+                if (storyStage == StoryStage::Complete)
+                {
+                    endTurnButton.setLabel(
+                        storyMissionIndex + 1 <
+                                static_cast<int>(storyMissions(storyCampaign).size())
+                            ? "Continue Story"
+                            : "Finish Story");
+                }
+                else if (storyStage == StoryStage::Failed)
+                {
+                    endTurnButton.setLabel("Retry Mission");
+                }
+                else
+                {
+                    endTurnButton.setLabel(
+                        automaticStoryStep
+                            ? "Auto Resolving"
+                            : endTurnAvailable ? "End Turn" : "Finish Step First");
+                }
             }
             else
             {
@@ -3199,81 +4296,245 @@
         if (storyMode)
         {
             storyRestartButton.draw(window);
-            const StoryMission& mission =
-                storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
-            const sf::Vector2f goalPosition{GamePlayerBannerLeftX + 12.0f, 238.0f};
-            const sf::Vector2f goalSize{156.0f, 218.0f};
-            drawBeveledPlate(
-                window,
-                goalPosition,
-                goalSize,
-                withAlpha(BoardPlate, 242),
-                withAlpha(ownerColorBright(me), 190),
-                false,
-                8.0f);
-            drawText(
-                window,
-                font,
-                "MISSION GOAL",
-                12,
-                goalPosition + sf::Vector2f(12.0f, 12.0f),
-                BoardBrassBright,
-                goalSize.x - 24.0f);
-            drawSeparatorRule(
-                window,
-                goalPosition + sf::Vector2f(12.0f, 34.0f),
-                goalSize.x - 24.0f,
-                false);
-            int totalGuidedSteps = 0;
-            int completedGuidedSteps = 0;
-            for (std::size_t index = 0; index < mission.script.size(); ++index)
+            if (!compactGameHud)
             {
-                if (mission.script[index].owner != 1)
+                const StoryMission& mission =
+                    storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
+                const std::string survivorNames = storyRequiredSurvivorNames(mission);
+                const sf::Vector2f goalPosition{GamePlayerBannerLeftX + 12.0f, 238.0f};
+                const sf::Vector2f goalSize{156.0f, 218.0f};
+                drawBeveledPlate(
+                    window,
+                    goalPosition,
+                    goalSize,
+                    withAlpha(BoardPlate, 242),
+                    withAlpha(ownerColorBright(me), 190),
+                    false,
+                    8.0f);
+                drawText(
+                    window,
+                    font,
+                    "MISSION GOAL",
+                    12,
+                    goalPosition + sf::Vector2f(12.0f, 12.0f),
+                    BoardBrassBright,
+                    goalSize.x - 24.0f);
+                drawSeparatorRule(
+                    window,
+                    goalPosition + sf::Vector2f(12.0f, 34.0f),
+                    goalSize.x - 24.0f,
+                    false);
+                const int totalGuidedSteps =
+                    storyGuidedPlayerActionCount(mission);
+                int completedGuidedSteps = 0;
+                for (std::size_t index = 0; index < mission.script.size(); ++index)
                 {
-                    continue;
+                    if (!storyScriptActionRequiresPlayerInput(
+                            mission, mission.script[index]))
+                    {
+                        continue;
+                    }
+                    if (static_cast<int>(index) < storyMissionStep)
+                    {
+                        ++completedGuidedSteps;
+                    }
                 }
-                ++totalGuidedSteps;
-                if (static_cast<int>(index) < storyMissionStep)
+                std::string objectiveProgress;
+                if (mission.standardMatch)
                 {
-                    ++completedGuidedSteps;
+                    if (static_cast<game_data::Phase>(gameSnapshot.phase) ==
+                        game_data::Phase::HeroPlacement)
+                    {
+                        objectiveProgress = "PLACE HEROES - " +
+                            std::to_string(mine.heroesToPlace) + " LEFT";
+                    }
+                    else
+                    {
+                        const auto& opponent = gameSnapshot.players[
+                            static_cast<std::size_t>((me == 1 ? 2 : 1) - 1)];
+                        objectiveProgress = "ENEMY HEROES " +
+                            std::to_string(opponent.heroesAlive);
+                    }
+                }
+                else if (!mission.script.empty())
+                {
+                    objectiveProgress = "DONE " + std::to_string(completedGuidedSteps) +
+                        " OF " + std::to_string(totalGuidedSteps);
+                }
+                else if (mission.objectiveSpec.kind == StoryObjectiveKind::ControlSquares)
+                {
+                    objectiveProgress = "CONTROL " +
+                        std::to_string(mine.controlledSquares) + " OF " +
+                        std::to_string(mission.objectiveSpec.amount);
+                }
+                else if (mission.objectiveSpec.kind == StoryObjectiveKind::DefeatAllEnemies)
+                {
+                    objectiveProgress = "ENEMIES LEFT " + std::to_string(
+                        authoritativeStoryEnemyProgress(mission).remaining);
+                }
+                else
+                {
+                    objectiveProgress = "OPEN OBJECTIVE - ACTIVE";
+                }
+                drawText(
+                    window,
+                    font,
+                    objectiveProgress,
+                    10,
+                    goalPosition + sf::Vector2f(12.0f, 43.0f),
+                    withAlpha(ownerColorBright(me), 235),
+                    goalSize.x - 24.0f);
+                float objectiveY = goalPosition.y + 64.0f;
+                if (!survivorNames.empty())
+                {
+                    objectiveY = drawWrappedText(
+                        window,
+                        font,
+                        "MUST SURVIVE: " + survivorNames,
+                        9,
+                        {goalPosition.x + 12.0f, objectiveY},
+                        sf::Color(255, 214, 104),
+                        goalSize.x - 24.0f,
+                        2.0f) + 4.0f;
+                }
+                const unsigned int objectiveTextSize =
+                    survivorNames.empty() ? 12u : 11u;
+                constexpr float objectiveLineGap = 3.0f;
+                const float objectiveTextWidth = goalSize.x - 24.0f;
+                const float goalTextLimit =
+                    goalPosition.y + goalSize.y - 8.0f;
+                std::string sideObjective(mission.objective);
+                const auto objectiveFits = [&](const std::string& text) {
+                    return objectiveY +
+                            static_cast<float>(wrapText(
+                                font, text, objectiveTextSize,
+                                objectiveTextWidth).size()) *
+                                (static_cast<float>(objectiveTextSize) +
+                                 objectiveLineGap) <=
+                        goalTextLimit;
+                };
+                if (!objectiveFits(sideObjective))
+                {
+                    if (mission.standardMatch)
+                    {
+                        sideObjective =
+                            static_cast<game_data::Phase>(gameSnapshot.phase) ==
+                                game_data::Phase::HeroPlacement
+                            ? "Place every Hero."
+                            : "Win the ordinary match.";
+                    }
+                    else if (!mission.script.empty())
+                    {
+                        sideObjective = "Complete every required action.";
+                    }
+                    else
+                    {
+                        switch (mission.objectiveSpec.kind)
+                        {
+                        case StoryObjectiveKind::DefeatAllEnemies:
+                            sideObjective = "Defeat every enemy.";
+                            break;
+                        case StoryObjectiveKind::DefeatRole:
+                            sideObjective = "Defeat the marked enemy.";
+                            break;
+                        case StoryObjectiveKind::ReachSquare:
+                            sideObjective = "Reach the glowing square.";
+                            break;
+                        case StoryObjectiveKind::DeployCard:
+                            sideObjective = "Deploy the required card.";
+                            break;
+                        case StoryObjectiveKind::ControlSquares:
+                            sideObjective = "Control " +
+                                std::to_string(mission.objectiveSpec.amount) +
+                                " squares.";
+                            break;
+                        case StoryObjectiveKind::Legacy:
+                        case StoryObjectiveKind::StoryOnly:
+                        case StoryObjectiveKind::Scripted:
+                            sideObjective = "Complete the mission.";
+                            break;
+                        }
+                    }
+                }
+                const float objectiveBottom = drawWrappedText(
+                    window,
+                    font,
+                    sideObjective,
+                    objectiveTextSize,
+                    {goalPosition.x + 12.0f, objectiveY},
+                    BoardParchmentMuted,
+                    objectiveTextWidth,
+                    objectiveLineGap);
+                if (captureRequest &&
+                    objectiveBottom > goalTextLimit)
+                {
+                    failCaptureValidation(
+                        "Capture layout error: mission goal text exceeds its panel.");
                 }
             }
-            drawText(
-                window,
-                font,
-                "ACTIONS COMPLETE " + std::to_string(completedGuidedSteps) + " / " +
-                    std::to_string(totalGuidedSteps),
-                10,
-                goalPosition + sf::Vector2f(12.0f, 43.0f),
-                withAlpha(ownerColorBright(me), 235),
-                goalSize.x - 24.0f);
-            drawWrappedText(
-                window,
-                font,
-                std::string(mission.objective),
-                12,
-                goalPosition + sf::Vector2f(12.0f, 64.0f),
-                BoardParchmentMuted,
-                goalSize.x - 24.0f,
-                3.0f);
         }
 
         if (storyMode)
         {
             const StoryMission& mission =
                 storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
+            const bool openObjective = mission.script.empty() &&
+                storyStage == StoryStage::Objective;
+            const auto controlInstructions = [](int controlled, int required) {
+                return "Control " + std::to_string(controlled) + "/" +
+                    std::to_string(required) +
+                    ". Teal is yours; red is enemy. Visible units own their square "
+                    "and influence all 8 neighbors. Higher influence wins an empty "
+                    "square; a tie keeps its owner. Move or defeat units to change it.";
+            };
             std::string stepHeading = "MISSION GOAL";
             std::string stepBody = std::string(mission.objective);
-            int stepNumber = 1;
-            int totalGuidedSteps = 0;
-            bool currentStepRequiresPlayerInput = true;
-            for (const StoryScriptAction& step : mission.script)
+            if (openObjective && mission.standardMatch)
             {
-                if (step.owner == 1)
+                if (static_cast<game_data::Phase>(gameSnapshot.phase) ==
+                    game_data::Phase::HeroPlacement)
                 {
-                    ++totalGuidedSteps;
+                stepHeading = "PLACE YOUR HEROES";
+                stepBody =
+                        "Select every Hero and place it inside your highlighted two-by-four home zone before the one-shot two-minute placement deadline. Each footprint must land on empty squares; placements do not reset this timer.";
+                }
+                else
+                {
+                    const auto& opponent = gameSnapshot.players[
+                        static_cast<std::size_t>((me == 1 ? 2 : 1) - 1)];
+                    stepHeading = "WIN THE ORDINARY MATCH";
+                    stepBody = "Destroy all " +
+                        std::to_string(opponent.heroesAlive) +
+                        " remaining enemy Heroes, or win if the opponent's 15-minute match clock expires. You lose if your Heroes fall or your own clock reaches zero.";
                 }
             }
+            else if (openObjective &&
+                mission.objectiveSpec.kind == StoryObjectiveKind::ControlSquares)
+            {
+                stepHeading = "TAKE CONTROL";
+                stepBody = controlInstructions(
+                    gameSnapshot.players[static_cast<std::size_t>(me - 1)]
+                        .controlledSquares,
+                    mission.objectiveSpec.amount);
+            }
+            else if (openObjective &&
+                     mission.objectiveSpec.kind == StoryObjectiveKind::DefeatAllEnemies)
+            {
+                stepHeading = "CHOOSE A UNIT";
+                stepBody = "Inspect a unit (double-click or focus + I), then choose one printed action. " +
+                    std::to_string(authoritativeStoryEnemyProgress(mission).remaining) +
+                    " enemies remain.";
+                const std::string required = storyRequiredSurvivorNames(mission);
+                if (!required.empty())
+                {
+                    stepBody += " Keep " + required + " alive.";
+                }
+            }
+            int stepNumber = 1;
+            const int totalGuidedSteps =
+                storyGuidedPlayerActionCount(mission);
+            bool currentStepRequiresPlayerInput = true;
+            bool currentStepIsAutomaticPass = false;
             if (!mission.script.empty() && storyMissionStep >= 0 &&
                 storyMissionStep < static_cast<int>(mission.script.size()))
             {
@@ -3285,42 +4546,71 @@
                 stepBody = scriptedStep.instruction.empty()
                     ? std::string(mission.objective)
                     : std::string(scriptedStep.instruction);
-                currentStepRequiresPlayerInput = scriptedStep.owner == 1;
-                stepNumber = 0;
-                for (int index = 0; index <= storyMissionStep; ++index)
-                {
-                    if (mission.script[static_cast<std::size_t>(index)].owner == 1)
-                    {
-                        ++stepNumber;
-                    }
-                }
+                currentStepRequiresPlayerInput =
+                    storyScriptActionRequiresPlayerInput(mission, scriptedStep);
+                currentStepIsAutomaticPass =
+                    storyScriptActionAutoResolves(mission, scriptedStep) &&
+                    scriptedStep.kind == StoryActionKind::EndTurn;
+                stepNumber = storyGuidedPlayerActionNumber(
+                    mission, storyMissionStep);
             }
             sf::Color stepAccent = BoardBrassBright;
             if (storyStage == StoryStage::Complete)
             {
                 stepHeading = "Mission Complete";
-                stepBody = storyMissionIndex + 1 < static_cast<int>(storyMissions(storyCampaign).size())
+                const std::string completionBody = storyMissionIndex + 1 <
+                        static_cast<int>(storyMissions(storyCampaign).size())
                     ? "The next mission is unlocked. Continue when you are ready."
                     : "You have completed " + std::string(storyCampaignName(storyCampaign)) +
                         " story arc.";
+                stepBody = compactGameHud
+                    ? std::string(mission.title) + " complete. " + completionBody
+                    : completionBody;
                 stepAccent = sf::Color(146, 232, 166);
             }
             else if (storyStage == StoryStage::Failed)
             {
                 stepHeading = "Mission Failed";
-                stepBody = mirewatchStory
-                    ? "The Company stopped the resistance. Retry and adapt your position and attack order."
-                    : "The resistance stopped the Company. Retry and adapt your position and attack order.";
+                const std::string failureBody = !gameSnapshot.status.empty()
+                    ? gameSnapshot.status
+                    : mirewatchStory
+                        ? "The Company stopped the resistance. Retry and adapt your position and attack order."
+                        : seelieStory
+                            ? "The Seelie defense broke. Retry with a safer formation and action order."
+                            : "The resistance stopped the Company. Retry and adapt your position and attack order.";
+                stepBody = compactGameHud
+                    ? std::string(mission.title) + ": " + failureBody
+                    : failureBody;
                 stepAccent = sf::Color(233, 128, 106);
             }
 
             const bool leavesRoomForStoryHand = !gameSnapshot.hand.empty();
+            const bool preserveStoryPiles =
+                storyStage == StoryStage::Objective && storyMissionStep >= 0 &&
+                storyMissionStep < static_cast<int>(mission.script.size()) &&
+                mission.script[static_cast<std::size_t>(storyMissionStep)].kind ==
+                    StoryActionKind::DrawCard;
+            const bool singleStoryHandCard = gameSnapshot.hand.size() == 1;
+            const bool compactStoryPlaque =
+                leavesRoomForStoryHand && !singleStoryHandCard;
             const sf::Vector2f plaquePosition{
-                leavesRoomForStoryHand ? 10.0f : GameBottomLeftX,
-                GameBottomBarY + 8.0f};
+                preserveStoryPiles
+                    ? HandStartX
+                    : leavesRoomForStoryHand
+                    ? (singleStoryHandCard
+                        ? HandStartX + HandCardWidth + 24.0f
+                        : 10.0f)
+                    : GameBottomLeftX,
+                GameBottomBarY + 4.0f};
             const sf::Vector2f plaqueSize{
-                leavesRoomForStoryHand ? 170.0f : 560.0f,
-                GameBottomBarHeight - 16.0f};
+                preserveStoryPiles
+                    ? GameActionButtonX - HandStartX - 12.0f
+                    : leavesRoomForStoryHand
+                    ? (singleStoryHandCard
+                        ? GameActionButtonX - plaquePosition.x - 12.0f
+                        : 170.0f)
+                    : 560.0f,
+                GameBottomBarHeight - 10.0f};
             drawBeveledPlate(
                 window,
                 plaquePosition,
@@ -3330,43 +4620,93 @@
                 true,
                 12.0f);
 
-            // Step medallion, so progress through the tutorial is legible.
+            // The wide plaque uses a medallion. A multi-card hand leaves a
+            // narrow plaque, so it uses a small progress badge and gives the
+            // remaining width to readable instructions.
             const sf::Vector2f medallion{
-                plaquePosition.x + (leavesRoomForStoryHand ? 25.0f : 32.0f),
+                plaquePosition.x + (compactStoryPlaque ? 25.0f : 32.0f),
                 plaquePosition.y + plaqueSize.y * 0.5f};
-            drawEllipseOutline(window, medallion, 19.0f, 19.0f, 1.4f, withAlpha(stepAccent, 150));
-            sf::CircleShape medallionFace(15.0f, 24);
-            medallionFace.setOrigin({15.0f, 15.0f});
-            medallionFace.setPosition(medallion);
-            medallionFace.setFillColor(sf::Color(22, 30, 28, 246));
-            medallionFace.setOutlineThickness(1.6f);
-            medallionFace.setOutlineColor(withAlpha(stepAccent, 235));
-            window.draw(medallionFace);
-            sf::Text stepLabel(
-                font,
-                storyStage == StoryStage::Objective
-                    ? (currentStepRequiresPlayerInput ? std::string("GUIDED ACTION") : std::string("OPPONENT"))
-                    : std::string("STATUS"),
-                10);
-            stepLabel.setFillColor(withAlpha(stepAccent, 230));
-            centerText(stepLabel, {medallion.x, plaquePosition.y + 13.0f});
-            drawCrispText(window, stepLabel);
-            sf::Text stepText(
-                font,
-                storyStage == StoryStage::Complete
+            const std::string stepProgress = storyStage == StoryStage::Complete
                     ? std::string("OK")
                     : storyStage == StoryStage::Failed
                         ? std::string("!")
+                        : openObjective
+                            ? std::string("LIVE")
                         : !currentStepRequiresPlayerInput
                             ? std::string("AUTO")
                             : std::to_string(stepNumber) + "/" +
-                                std::to_string(std::max(1, totalGuidedSteps)),
-                storyStage == StoryStage::Objective ? 14 : 17);
-            stepText.setFillColor(stepAccent);
-            centerText(stepText, medallion);
-            drawCrispText(window, stepText);
+                                std::to_string(std::max(1, totalGuidedSteps));
+            if (!compactStoryPlaque)
+            {
+                drawEllipseOutline(
+                    window, medallion, 19.0f, 19.0f, 1.4f,
+                    withAlpha(stepAccent, 150));
+                sf::CircleShape medallionFace(15.0f, 24);
+                medallionFace.setOrigin({15.0f, 15.0f});
+                medallionFace.setPosition(medallion);
+                medallionFace.setFillColor(sf::Color(22, 30, 28, 246));
+                medallionFace.setOutlineThickness(1.6f);
+                medallionFace.setOutlineColor(withAlpha(stepAccent, 235));
+                window.draw(medallionFace);
+                sf::Text stepLabel(
+                    font,
+                    storyStage == StoryStage::Objective
+                        ? (openObjective
+                            ? std::string("OPEN OBJECTIVE")
+                            : currentStepRequiresPlayerInput
+                                ? std::string("NEXT ACTION")
+                                : currentStepIsAutomaticPass
+                                    ? std::string("AUTO PASS")
+                                : std::string("OPPONENT"))
+                        : std::string("STATUS"),
+                    compactGameHud ? 12 : 11);
+                stepLabel.setFillColor(withAlpha(stepAccent, 230));
+                const float captionWidth =
+                    stepLabel.getLocalBounds().size.x + 14.0f;
+                drawCutPlate(
+                    {medallion.x - captionWidth * 0.5f,
+                     plaquePosition.y + 5.0f},
+                    {captionWidth, 18.0f},
+                    4.0f,
+                    sf::Color(22, 30, 28, 255),
+                    sf::Color::Transparent,
+                    0.0f);
+                centerText(stepLabel, {medallion.x, plaquePosition.y + 14.0f});
+                drawCrispText(window, stepLabel);
+                unsigned int stepProgressSize =
+                    storyStage == StoryStage::Objective ? 14u : 17u;
+                sf::Text stepText(font, stepProgress, stepProgressSize);
+                while (stepProgressSize > 9u &&
+                       stepText.getLocalBounds().size.x > 25.0f)
+                {
+                    stepText.setCharacterSize(--stepProgressSize);
+                }
+                stepText.setFillColor(stepAccent);
+                centerText(stepText, medallion);
+                drawCrispText(window, stepText);
+            }
+            else
+            {
+                drawCutPlate(
+                    {plaquePosition.x + plaqueSize.x - 39.0f,
+                     plaquePosition.y + 7.0f},
+                    {29.0f, 17.0f},
+                    4.0f,
+                    sf::Color(22, 30, 28, 246),
+                    withAlpha(stepAccent, 235),
+                    1.0f);
+                drawCenteredText(
+                    window,
+                    font,
+                    stepProgress,
+                    10,
+                    {plaquePosition.x + plaqueSize.x - 24.5f,
+                     plaquePosition.y + 15.5f},
+                    stepAccent);
+            }
 
-            const float textX = plaquePosition.x + (leavesRoomForStoryHand ? 48.0f : 62.0f);
+            const float textX =
+                plaquePosition.x + (compactStoryPlaque ? 12.0f : 62.0f);
             if (leavesRoomForStoryHand)
             {
                 const auto storySquareName = [](int row, int column) {
@@ -3401,17 +4741,40 @@
                     break;
                 case StoryObjectiveKind::ControlSquares:
                     stepHeading = "TAKE CONTROL";
-                    stepBody = "Control " +
-                        std::to_string(mission.objectiveSpec.amount) +
-                        " squares.";
+                    stepBody = controlInstructions(
+                        mine.controlledSquares, mission.objectiveSpec.amount);
                     break;
                 case StoryObjectiveKind::DefeatRole:
                     stepHeading = "DEFEAT THE TARGET";
                     stepBody = "Defeat the marked enemy.";
                     break;
                 case StoryObjectiveKind::DefeatAllEnemies:
-                    stepHeading = "DEFEAT THE ENEMIES";
-                    stepBody = "Defeat every enemy unit.";
+                    if (mission.standardMatch)
+                    {
+                        if (static_cast<game_data::Phase>(gameSnapshot.phase) ==
+                            game_data::Phase::HeroPlacement)
+                        {
+                            stepHeading = "PLACE HEROES - 2:00";
+                            stepBody =
+                                "Select and place both Heroes on lit squares before the shared 2:00 deadline.";
+                        }
+                        else
+                        {
+                            const auto& opponent = gameSnapshot.players[
+                                static_cast<std::size_t>((me == 1 ? 2 : 1) - 1)];
+                            stepHeading = "WIN THE MATCH";
+                            stepBody = "Defeat all " +
+                                std::to_string(opponent.heroesAlive) +
+                                " enemy Heroes or outlast their 15:00 clock. Inspect: double-click a card/piece, or focus + I.";
+                        }
+                    }
+                    else
+                    {
+                        stepHeading = "CHOOSE A UNIT";
+                        stepBody = "Inspect a unit (double-click or focus + I), then choose one printed action. " +
+                            std::to_string(authoritativeStoryEnemyProgress(mission).remaining) +
+                            " enemies remain.";
+                    }
                     break;
                 case StoryObjectiveKind::Scripted:
                     break;
@@ -3422,20 +4785,85 @@
                     break;
                 }
             }
-            sf::Text heading(font, stepHeading, leavesRoomForStoryHand ? 14 : 18);
+            const float bodyWidth =
+                plaqueSize.x - (compactStoryPlaque ? 24.0f : 78.0f);
+            unsigned int headingSize = compactStoryPlaque ? 14u : 18u;
+            sf::Text heading(font, stepHeading, headingSize);
             heading.setLetterSpacing(1.1f);
+            const float headingWidth =
+                bodyWidth - (compactStoryPlaque ? 36.0f : 0.0f);
+            while (headingSize > 10u &&
+                   heading.getLocalBounds().size.x > headingWidth)
+            {
+                heading.setCharacterSize(--headingSize);
+            }
             heading.setFillColor(BoardParchment);
-            heading.setPosition({textX, plaquePosition.y + 12.0f});
+            heading.setPosition(
+                {textX, plaquePosition.y + (compactStoryPlaque ? 8.0f : 12.0f)});
             drawCrispText(window, heading);
+            unsigned int bodySize = compactStoryPlaque
+                ? (compactGameHud ? 13u : 11u)
+                : (compactGameHud ? 16u : 14u);
+            const float bodyY =
+                plaquePosition.y + (compactStoryPlaque ? 29.0f : 37.0f);
+            const float bodyHeight =
+                std::max(
+                    20.0f,
+                    plaquePosition.y + plaqueSize.y - 8.0f - bodyY);
+            float bodyLineGap = compactGameHud ? 1.0f : 3.0f;
+            auto wrappedBodyHeight = [&]() {
+                return static_cast<float>(wrapText(font, stepBody, bodySize, bodyWidth).size()) *
+                    (static_cast<float>(bodySize) + bodyLineGap);
+            };
+            // Guided instructions are the primary task text. Keep a firm
+            // 13-point floor at the compact 800x600 layout; if authored copy
+            // cannot fit at that size, capture validation below must fail so
+            // the copy/layout is repaired instead of silently becoming tiny.
+            while (bodySize > 13u && wrappedBodyHeight() > bodyHeight)
+            {
+                --bodySize;
+                bodyLineGap = std::min(bodyLineGap, 1.0f);
+            }
+            if (captureRequest && compactGameHud &&
+                wrappedBodyHeight() > bodyHeight + 0.5f)
+            {
+                failCaptureValidation(
+                    "Capture layout error: compact Story instruction exceeds its reserved text bounds.");
+            }
             drawWrappedText(
                 window,
                 font,
                 stepBody,
-                leavesRoomForStoryHand ? 11 : 14,
-                {textX, plaquePosition.y + 37.0f},
+                bodySize,
+                {textX, bodyY},
                 withAlpha(BoardParchmentMuted, 240),
-                plaqueSize.x - (leavesRoomForStoryHand ? 56.0f : 78.0f),
-                3.0f);
+                bodyWidth,
+                bodyLineGap);
+
+            if (!storyCorrection.empty() && storyStage == StoryStage::Objective)
+            {
+                const sf::Vector2f correctionPosition{
+                    GameBottomLeftX, GameBottomBarY - (compactGameHud ? 60.0f : 46.0f)};
+                const sf::Vector2f correctionSize{
+                    560.0f, compactGameHud ? 54.0f : 40.0f};
+                drawBeveledPlate(
+                    window,
+                    correctionPosition,
+                    correctionSize,
+                    sf::Color(54, 24, 22, 248),
+                    sf::Color(233, 128, 106),
+                    true,
+                    8.0f);
+                drawWrappedText(
+                    window,
+                    font,
+                    "TRY AGAIN: " + storyCorrection,
+                    compactGameHud ? 16 : 12,
+                    correctionPosition + sf::Vector2f(12.0f, 9.0f),
+                    sf::Color(255, 224, 210),
+                    correctionSize.x - 24.0f,
+                    compactGameHud ? 1.0f : 2.0f);
+            }
         }
 
         // ---- Hand -------------------------------------------------------------
@@ -3514,7 +4942,7 @@
                 const std::size_t hidden = gameSnapshot.hand.size() - (lastHandCard - gameHandOffset);
                 if (hidden > 0)
                 {
-                    sf::Text more(font, "+" + std::to_string(hidden), 10);
+                    sf::Text more(font, std::to_string(hidden) + " MORE", 10);
                     more.setFillColor(withAlpha(BoardParchmentMuted, 226));
                     centerText(more, {handRight + 8.0f, arrowY + 18.0f});
                     drawCrispText(window, more);
@@ -3689,6 +5117,11 @@
                 window.draw(veil);
 
                 const StoryPanel& panel = storyPopupPanels[storyPopupPage];
+                const StoryMission& popupMission =
+                    storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
+                const std::string_view displayedArtPath = popupMission.scenarioArtPath.empty()
+                    ? panel.artPath
+                    : popupMission.scenarioArtPath;
                 drawBeveledPlate(
                     window,
                     {72.0f, 66.0f},
@@ -3705,28 +5138,68 @@
                     BoardBrassDim,
                     false,
                     10.0f);
-                if (sf::Texture* art = textures.load(std::string(panel.artPath)))
+                if (!displayedArtPath.empty())
                 {
-                    drawCoverSprite(window, *art, {{108.0f, 114.0f}, {198.0f, 314.0f}});
+                    if (sf::Texture* art = textures.load(std::string(displayedArtPath)))
+                    {
+                        drawCoverSprite(window, *art, {{108.0f, 114.0f}, {198.0f, 314.0f}});
+                    }
+                }
+                else
+                {
+                    drawCenteredText(
+                        window, font, "STORY SCENE", 15, {207.0f, 271.0f}, BoardBrassBright);
+                }
+                drawStorySpeakerPortraitInset(
+                    popupMission.scenarioArtPath,
+                    panel.artPath,
+                    {151.0f, 386.0f},
+                    40.0f);
+                sf::Font& popupSpeakerFont =
+                    gloomthornFontLoaded ? gloomthornFont : font;
+                const std::string popupSpeaker(panel.speaker);
+                unsigned int popupSpeakerSize = 25;
+                sf::Text popupSpeakerMeasure(
+                    popupSpeakerFont, popupSpeaker, popupSpeakerSize);
+                while (popupSpeakerSize > 15u &&
+                       popupSpeakerMeasure.getLocalBounds().size.x > 338.0f)
+                {
+                    popupSpeakerMeasure.setCharacterSize(--popupSpeakerSize);
                 }
                 drawText(
                     window,
-                    gloomthornFontLoaded ? gloomthornFont : font,
-                    std::string(panel.speaker),
-                    25,
+                    popupSpeakerFont,
+                    popupSpeaker,
+                    popupSpeakerSize,
                     {350.0f, 112.0f},
                     BoardBrassBright,
                     338.0f);
                 drawSeparatorRule(window, {350.0f, 154.0f}, 338.0f);
+                unsigned int popupBodySize = 18;
+                float popupBodyGap = 8.0f;
+                constexpr float PopupBodyWidth = 338.0f;
+                constexpr float PopupBodyHeight = 236.0f;
+                while (popupBodySize > 14)
+                {
+                    const float requiredHeight = static_cast<float>(
+                        wrapText(font, std::string(panel.text), popupBodySize, PopupBodyWidth).size()) *
+                        (static_cast<float>(popupBodySize) + popupBodyGap);
+                    if (requiredHeight <= PopupBodyHeight)
+                    {
+                        break;
+                    }
+                    --popupBodySize;
+                    popupBodyGap = std::max(4.0f, popupBodyGap - 1.0f);
+                }
                 drawWrappedText(
                     window,
                     font,
                     std::string(panel.text),
-                    18,
+                    popupBodySize,
                     {350.0f, 178.0f},
                     BoardParchment,
-                    338.0f,
-                    8.0f);
+                    PopupBodyWidth,
+                    popupBodyGap);
                 drawText(
                     window,
                     font,

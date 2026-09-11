@@ -95,6 +95,19 @@ if(BAYOU_BUILD_CLIENTS)
     # Client executable
     add_executable(client)
 
+    set(BAYOU_CLIENT_BUILD_IDENTITY_HEADER
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/client_build_identity.hpp")
+    add_custom_target(client_build_identity
+        COMMAND "${CMAKE_COMMAND}"
+            "-DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+            "-DOUTPUT_FILE=${BAYOU_CLIENT_BUILD_IDENTITY_HEADER}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateClientBuildIdentity.cmake"
+        BYPRODUCTS "${BAYOU_CLIENT_BUILD_IDENTITY_HEADER}"
+        COMMENT "Embedding client source provenance"
+        VERBATIM)
+    add_dependencies(client client_build_identity)
+    target_include_directories(client PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
     target_sources(client
         PUBLIC
             src/client/main.cpp
@@ -156,6 +169,33 @@ if(BAYOU_BUILD_CLIENTS)
     )
     target_link_libraries(storymodetest PRIVATE fmt::fmt SFML::System SFML::Network)
     target_compile_definitions(storymodetest PRIVATE BAYOU_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
+    # Network-backed drift gate for the deployed Story Mode card definitions.
+    # Keep this separate from storymodetest: the offline suite must remain
+    # deterministic and runnable when the authoritative card service is down.
+    add_executable(storylivecatalogtest
+        src/storylivecatalogtest/main.cpp
+        src/client/client_story.cpp
+        src/client/client_story_catalog.cpp
+        src/client/client_story_cards.cpp
+        src/gameserver/ai_player.cpp
+        src/shared/card_source_config.cpp
+    )
+    target_link_libraries(
+        storylivecatalogtest
+        PRIVATE fmt::fmt SFML::System SFML::Network bayou_transport)
+    target_compile_definitions(
+        storylivecatalogtest PRIVATE BAYOU_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_custom_command(TARGET storylivecatalogtest POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/client_debug.cfg"
+            "$<TARGET_FILE_DIR:storylivecatalogtest>/client_debug.cfg"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/client_release.cfg"
+            "$<TARGET_FILE_DIR:storylivecatalogtest>/client_release.cfg"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/deploy/ca/isrg-root-x1.pem"
+            "$<TARGET_FILE_DIR:storylivecatalogtest>/bayou-ca.pem")
 endif()
 
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
@@ -245,6 +285,13 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
     )
 
     target_link_libraries(gametest PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network bayou_transport)
+    # This integration driver intentionally keeps dozens of independent
+    # GameEngine fixtures alive in one function so failures can be reported in
+    # a single run. MSVC's default 1 MiB stack is too small for that Debug-only
+    # test shape as the authoritative scenario matrix grows.
+    if(MSVC)
+        target_link_options(gametest PRIVATE /STACK:8388608)
+    endif()
 endif()
 
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_CARDSERVER)

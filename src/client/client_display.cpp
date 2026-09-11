@@ -95,6 +95,8 @@ void applyLogicalView(sf::RenderWindow& window)
 
     const float windowAspect = static_cast<float>(windowSize.x) / static_cast<float>(windowSize.y);
     sf::FloatRect viewport({0.0f, 0.0f}, {1.0f, 1.0f});
+    sf::FloatRect logicalBounds(
+        {ui_canvas::Left, 0.0f}, {ui_canvas::Width, ui_canvas::Height});
     if (windowAspect > ui_canvas::Aspect + NativeAspectTolerance)
     {
         viewport.size.x = ui_canvas::Aspect / windowAspect;
@@ -102,12 +104,19 @@ void applyLogicalView(sf::RenderWindow& window)
     }
     else if (windowAspect < ui_canvas::Aspect - NativeAspectTolerance)
     {
-        viewport.size.y = windowAspect / ui_canvas::Aspect;
-        viewport.position.y = (1.0f - viewport.size.y) * 0.5f;
+        // On 4:3 and 16:10 displays, preserve the full authored 600-unit
+        // height and reveal as much centered side gutter as the window can
+        // hold. Fitting the entire 16:9 canvas here used to shrink 800x600 to
+        // an 800x450 strip, making tutorial text needlessly tiny.
+        const float responsiveWidth = std::max(
+            ui_canvas::LegacyWidth,
+            ui_canvas::Height * windowAspect);
+        logicalBounds = sf::FloatRect(
+            {(ui_canvas::LegacyWidth - responsiveWidth) * 0.5f, 0.0f},
+            {responsiveWidth, ui_canvas::Height});
     }
 
-    sf::View view(
-        sf::FloatRect({ui_canvas::Left, 0.0f}, {ui_canvas::Width, ui_canvas::Height}));
+    sf::View view(logicalBounds);
     view.setViewport(viewport);
     window.setView(view);
 }

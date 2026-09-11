@@ -141,6 +141,29 @@ enum class MessageType : std::uint8_t
     DrawCard
 };
 
+// MovePiece and AttackPiece keep their original three-int payload
+// (piece id, row, column) for compatibility. A sender may append a fourth
+// action-profile selection: zero requests the legacy automatic resolution,
+// while a zero-based printed action index is encoded as index + 1. The offset
+// lets existing packets and previously persisted Conquest actions retain their
+// original meaning while making profile zero explicitly selectable.
+inline constexpr int AutomaticActionProfileSelection = 0;
+
+inline constexpr bool validActionProfileSelection(int selection)
+{
+    return selection >= AutomaticActionProfileSelection;
+}
+
+inline constexpr int encodeActionProfileSelection(int actionIndex)
+{
+    return actionIndex + 1;
+}
+
+inline constexpr int decodeActionProfileSelection(int selection)
+{
+    return selection - 1;
+}
+
 struct CreateAccountRequest
 {
     std::string username;

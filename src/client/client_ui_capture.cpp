@@ -1,11 +1,22 @@
 #include "client_ui_capture.hpp"
+#include "client_build_identity.hpp"
+#include "client_story.hpp"
 
 #include "../shared/game_data.hpp"
 
 #include "client_config.hpp"
 
+#include <mbedtls/sha256.h>
+
 #include <algorithm>
+#include <array>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <iomanip>
+#include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 
@@ -17,6 +28,13 @@ namespace
 bool startsWith(std::string_view value, std::string_view prefix)
 {
     return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
+}
+
+std::string genericUtf8(const std::filesystem::path& path)
+{
+    const std::u8string value = path.generic_u8string();
+    return std::string(
+        reinterpret_cast<const char*>(value.data()), value.size());
 }
 
 std::vector<std::string> splitList(std::string_view value)
@@ -41,6 +59,768 @@ std::vector<std::string> splitList(std::string_view value)
         items.push_back(current);
     }
     return items;
+}
+
+std::string jsonQuoted(std::string_view value)
+{
+    std::ostringstream escaped;
+    escaped << '"';
+    for (const unsigned char ch : value)
+    {
+        switch (ch)
+        {
+        case '"': escaped << "\\\""; break;
+        case '\\': escaped << "\\\\"; break;
+        case '\b': escaped << "\\b"; break;
+        case '\f': escaped << "\\f"; break;
+        case '\n': escaped << "\\n"; break;
+        case '\r': escaped << "\\r"; break;
+        case '\t': escaped << "\\t"; break;
+        default:
+            if (ch < 0x20)
+            {
+                escaped << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+                        << static_cast<int>(ch) << std::dec;
+            }
+            else
+            {
+                escaped << static_cast<char>(ch);
+            }
+            break;
+        }
+    }
+    escaped << '"';
+    return escaped.str();
+}
+
+std::string readFirstLine(const std::filesystem::path& path)
+{
+    std::ifstream input(path);
+    std::string line;
+    if (input && std::getline(input, line) && !line.empty() && line.back() == '\r')
+    {
+        line.pop_back();
+    }
+    return line;
+}
+
+std::optional<std::filesystem::path> repositoryRootFrom(std::filesystem::path candidate)
+{
+    std::error_code error;
+    candidate = std::filesystem::absolute(candidate, error);
+    if (error)
+    {
+        return std::nullopt;
+    }
+    if (!std::filesystem::is_directory(candidate, error))
+    {
+        candidate = candidate.parent_path();
+    }
+
+    while (!candidate.empty())
+    {
+        error.clear();
+        if (std::filesystem::exists(candidate / ".git", error) && !error)
+        {
+            return candidate;
+        }
+        const std::filesystem::path parent = candidate.parent_path();
+        if (parent == candidate)
+        {
+            break;
+        }
+        candidate = parent;
+    }
+    return std::nullopt;
+}
+
+std::optional<bool> inspectWorkingTreeDirty(const std::filesystem::path& root)
+{
+#ifdef _WIN32
+    const std::string command = "git -C \"" + root.string() +
+        "\" status --porcelain=v1 --untracked-files=all --ignore-submodules=none 2>NUL";
+    FILE* pipe = _popen(command.c_str(), "r");
+#else
+    std::string quotedRoot = root.string();
+    std::size_t quote = 0;
+    while ((quote = quotedRoot.find('\'', quote)) != std::string::npos)
+    {
+        quotedRoot.replace(quote, 1, "'\\''");
+        quote += 4;
+    }
+    const std::string command = "git -C '" + quotedRoot +
+        "' status --porcelain=v1 --untracked-files=all --ignore-submodules=none 2>/dev/null";
+    FILE* pipe = popen(command.c_str(), "r");
+#endif
+    if (!pipe)
+    {
+        return std::nullopt;
+    }
+
+    bool dirty = false;
+    char buffer[4096];
+    while (std::fgets(buffer, sizeof(buffer), pipe))
+    {
+        dirty = true;
+    }
+#ifdef _WIN32
+    const int result = _pclose(pipe);
+#else
+    const int result = pclose(pipe);
+#endif
+    if (result != 0)
+    {
+        return std::nullopt;
+    }
+    return dirty;
+}
+
+CheckoutIdentity inspectGitIdentity(const std::filesystem::path& executablePath)
+{
+    std::error_code error;
+    std::optional<std::filesystem::path> root =
+        repositoryRootFrom(std::filesystem::current_path(error));
+    if (!root)
+    {
+        root = repositoryRootFrom(executablePath);
+    }
+    if (!root)
+    {
+        return {};
+    }
+
+    CheckoutIdentity identity;
+    identity.repositoryRoot = root->generic_string();
+    std::filesystem::path gitDirectory = *root / ".git";
+    if (!std::filesystem::is_directory(gitDirectory, error))
+    {
+        const std::string gitFile = readFirstLine(gitDirectory);
+        constexpr std::string_view Prefix = "gitdir: ";
+        if (!startsWith(gitFile, Prefix))
+        {
+            return identity;
+        }
+        gitDirectory = std::filesystem::path(gitFile.substr(Prefix.size()));
+        if (gitDirectory.is_relative())
+        {
+            gitDirectory = *root / gitDirectory;
+        }
+    }
+
+    std::filesystem::path commonDirectory = gitDirectory;
+    const std::string commonDirectoryText = readFirstLine(gitDirectory / "commondir");
+    if (!commonDirectoryText.empty())
+    {
+        commonDirectory = std::filesystem::path(commonDirectoryText);
+        if (commonDirectory.is_relative())
+        {
+            commonDirectory = gitDirectory / commonDirectory;
+        }
+    }
+
+    const std::string head = readFirstLine(gitDirectory / "HEAD");
+    constexpr std::string_view RefPrefix = "ref: ";
+    if (!startsWith(head, RefPrefix))
+    {
+        identity.commit = head;
+    }
+    else
+    {
+        identity.reference = head.substr(RefPrefix.size());
+        identity.commit = readFirstLine(gitDirectory / identity.reference);
+        if (identity.commit.empty())
+        {
+            identity.commit = readFirstLine(commonDirectory / identity.reference);
+        }
+        if (identity.commit.empty())
+        {
+            std::ifstream packedRefs(commonDirectory / "packed-refs");
+            std::string line;
+            while (std::getline(packedRefs, line))
+            {
+                if (line.empty() || line.front() == '#' || line.front() == '^')
+                {
+                    continue;
+                }
+                const std::size_t separator = line.find(' ');
+                if (separator != std::string::npos &&
+                    line.substr(separator + 1) == identity.reference)
+                {
+                    identity.commit = line.substr(0, separator);
+                    break;
+                }
+            }
+        }
+    }
+    if (const std::optional<bool> dirty = inspectWorkingTreeDirty(*root))
+    {
+        identity.dirty = *dirty;
+        identity.dirtyKnown = true;
+    }
+    return identity;
+}
+
+std::string hexDigest(const std::array<unsigned char, 32>& digest)
+{
+    std::ostringstream formatted;
+    formatted << std::hex << std::setfill('0');
+    for (const unsigned char byte : digest)
+    {
+        formatted << std::setw(2) << static_cast<unsigned int>(byte);
+    }
+    return formatted.str();
+}
+
+class Sha256Stream
+{
+public:
+    Sha256Stream()
+    {
+        mbedtls_sha256_init(&context);
+        valid = mbedtls_sha256_starts(&context, 0) == 0;
+    }
+
+    Sha256Stream(const Sha256Stream&) = delete;
+    Sha256Stream& operator=(const Sha256Stream&) = delete;
+
+    ~Sha256Stream()
+    {
+        mbedtls_sha256_free(&context);
+    }
+
+    bool update(const void* bytes, std::size_t size)
+    {
+        if (!valid || (size != 0 && bytes == nullptr))
+        {
+            valid = false;
+            return false;
+        }
+        if (size != 0 &&
+            mbedtls_sha256_update(
+                &context,
+                static_cast<const unsigned char*>(bytes),
+                size) != 0)
+        {
+            valid = false;
+        }
+        return valid;
+    }
+
+    bool update(std::string_view text)
+    {
+        return update(text.data(), text.size());
+    }
+
+    std::optional<std::string> finish()
+    {
+        if (!valid || finished)
+        {
+            return std::nullopt;
+        }
+        std::array<unsigned char, 32> digest{};
+        if (mbedtls_sha256_finish(&context, digest.data()) != 0)
+        {
+            valid = false;
+            return std::nullopt;
+        }
+        finished = true;
+        return hexDigest(digest);
+    }
+
+private:
+    mbedtls_sha256_context context{};
+    bool valid = false;
+    bool finished = false;
+};
+
+std::optional<std::string> sha256Text(std::string_view text)
+{
+    Sha256Stream hash;
+    if (!hash.update(text))
+    {
+        return std::nullopt;
+    }
+    return hash.finish();
+}
+
+struct FileDigest
+{
+    std::uintmax_t size = 0;
+    std::string sha256;
+};
+
+std::optional<FileDigest> sha256File(
+    const std::filesystem::path& path,
+    std::string& error)
+{
+    error.clear();
+    std::error_code filesystemError;
+    const std::filesystem::file_status status =
+        std::filesystem::symlink_status(path, filesystemError);
+    if (filesystemError || !std::filesystem::is_regular_file(status) ||
+        std::filesystem::is_symlink(status))
+    {
+        error = "Snapshot input is missing, unreadable, or not a regular file: " +
+            path.string();
+        return std::nullopt;
+    }
+
+    const std::uintmax_t sizeBefore =
+        std::filesystem::file_size(path, filesystemError);
+    if (filesystemError)
+    {
+        error = "Could not read snapshot input size: " + path.string();
+        return std::nullopt;
+    }
+    const std::filesystem::file_time_type writeTimeBefore =
+        std::filesystem::last_write_time(path, filesystemError);
+    if (filesystemError)
+    {
+        error = "Could not read snapshot input timestamp: " + path.string();
+        return std::nullopt;
+    }
+
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+    {
+        error = "Could not open snapshot input: " + path.string();
+        return std::nullopt;
+    }
+
+    Sha256Stream hash;
+    std::array<char, 64 * 1024> buffer{};
+    while (input)
+    {
+        input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        const std::streamsize count = input.gcount();
+        if (count > 0 &&
+            !hash.update(buffer.data(), static_cast<std::size_t>(count)))
+        {
+            error = "SHA-256 failed while reading snapshot input: " + path.string();
+            return std::nullopt;
+        }
+    }
+    if (input.bad())
+    {
+        error = "Could not finish reading snapshot input: " + path.string();
+        return std::nullopt;
+    }
+
+    const std::uintmax_t sizeAfter =
+        std::filesystem::file_size(path, filesystemError);
+    if (filesystemError)
+    {
+        error = "Could not re-read snapshot input size: " + path.string();
+        return std::nullopt;
+    }
+    const std::filesystem::file_time_type writeTimeAfter =
+        std::filesystem::last_write_time(path, filesystemError);
+    if (filesystemError || sizeBefore != sizeAfter || writeTimeBefore != writeTimeAfter)
+    {
+        error = "Snapshot input changed while it was being hashed: " + path.string();
+        return std::nullopt;
+    }
+
+    const std::optional<std::string> digest = hash.finish();
+    if (!digest)
+    {
+        error = "Could not finish SHA-256 for snapshot input: " + path.string();
+        return std::nullopt;
+    }
+    return FileDigest{sizeAfter, *digest};
+}
+
+bool appendSnapshotFile(
+    const std::filesystem::path& repositoryRoot,
+    const std::filesystem::path& relativePath,
+    std::set<std::string>& files,
+    std::string& error)
+{
+    const std::filesystem::path absolutePath =
+        (repositoryRoot / relativePath).lexically_normal();
+    std::error_code filesystemError;
+    const std::filesystem::file_status status =
+        std::filesystem::symlink_status(absolutePath, filesystemError);
+    if (filesystemError || !std::filesystem::is_regular_file(status) ||
+        std::filesystem::is_symlink(status))
+    {
+        error = "Snapshot input is missing, unreadable, or not a regular file: " +
+            absolutePath.string();
+        return false;
+    }
+    files.insert(genericUtf8(relativePath.lexically_normal()));
+    return true;
+}
+
+bool appendSnapshotTree(
+    const std::filesystem::path& repositoryRoot,
+    const std::filesystem::path& relativeRoot,
+    std::set<std::string>& files,
+    std::string& error)
+{
+    const std::filesystem::path absoluteRoot =
+        (repositoryRoot / relativeRoot).lexically_normal();
+    std::error_code filesystemError;
+    const std::filesystem::file_status rootStatus =
+        std::filesystem::symlink_status(absoluteRoot, filesystemError);
+    if (filesystemError || !std::filesystem::is_directory(rootStatus) ||
+        std::filesystem::is_symlink(rootStatus))
+    {
+        error = "Snapshot root is missing, unreadable, or not a directory: " +
+            absoluteRoot.string();
+        return false;
+    }
+
+    std::filesystem::recursive_directory_iterator iterator(absoluteRoot, filesystemError), end;
+    while (!filesystemError && iterator != end)
+    {
+        const std::filesystem::file_status status =
+            iterator->symlink_status(filesystemError);
+        if (filesystemError)
+        {
+            break;
+        }
+        if (std::filesystem::is_symlink(status))
+        {
+            error = "Snapshot scope may not contain a symbolic link: " +
+                iterator->path().string();
+            return false;
+        }
+        if (std::filesystem::is_regular_file(status))
+        {
+            const std::filesystem::path relativePath =
+                iterator->path().lexically_relative(repositoryRoot);
+            const std::string relativeText = genericUtf8(relativePath);
+            if (relativeText.empty() || relativeText == ".." ||
+                startsWith(relativeText, "../"))
+            {
+                error = "Snapshot input escaped the repository root: " +
+                    iterator->path().string();
+                return false;
+            }
+            files.insert(genericUtf8(relativePath.lexically_normal()));
+        }
+        else if (!std::filesystem::is_directory(status))
+        {
+            error = "Snapshot scope contains an unsupported filesystem entry: " +
+                iterator->path().string();
+            return false;
+        }
+        iterator.increment(filesystemError);
+    }
+    if (filesystemError)
+    {
+        error = "Could not enumerate snapshot root '" + absoluteRoot.string() +
+            "': " + filesystemError.message();
+        return false;
+    }
+    return true;
+}
+
+InputSnapshotGroup inspectSnapshotGroup(
+    const std::filesystem::path& repositoryRoot,
+    std::string name,
+    const std::set<std::string>& files,
+    std::string& error)
+{
+    InputSnapshotGroup group;
+    group.name = std::move(name);
+    Sha256Stream groupHash;
+    for (const std::string& relativePath : files)
+    {
+        const std::optional<FileDigest> file =
+            sha256File(repositoryRoot / std::filesystem::path(relativePath), error);
+        if (!file)
+        {
+            return group;
+        }
+        const std::string record =
+            "P" + std::to_string(relativePath.size()) + ":" + relativePath +
+            "S" + std::to_string(file->size) + ":H" + file->sha256 + "\n";
+        if (!groupHash.update(record))
+        {
+            error = "Could not update the SHA-256 snapshot for " + group.name + ".";
+            return group;
+        }
+        ++group.fileCount;
+        group.totalBytes += file->size;
+    }
+    const std::optional<std::string> digest = groupHash.finish();
+    if (!digest)
+    {
+        error = "Could not finish the SHA-256 snapshot for " + group.name + ".";
+        return group;
+    }
+    group.sha256 = *digest;
+    return group;
+}
+
+InputSnapshot inspectInputSnapshot(const std::filesystem::path& repositoryRoot)
+{
+    InputSnapshot snapshot;
+    const std::optional<std::string> selfTest = sha256Text("abc");
+    if (!selfTest ||
+        *selfTest != "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    {
+        snapshot.error = "SHA-256 known-answer test failed.";
+        return snapshot;
+    }
+
+    std::set<std::string> projectFiles;
+    for (const std::filesystem::path& tree : {
+             std::filesystem::path("cmake"),
+             std::filesystem::path("src/client"),
+             std::filesystem::path("src/shared")})
+    {
+        if (!appendSnapshotTree(repositoryRoot, tree, projectFiles, snapshot.error))
+        {
+            return snapshot;
+        }
+    }
+    for (const std::filesystem::path& file : {
+             std::filesystem::path("CMakeLists.txt"),
+             std::filesystem::path("Directory.Build.props"),
+             std::filesystem::path("client_debug.cfg"),
+             std::filesystem::path("client_release.cfg"),
+             std::filesystem::path("deploy/ca/isrg-root-x1.pem"),
+             std::filesystem::path("src/gameserver/ai_player.cpp"),
+             std::filesystem::path("src/gameserver/ai_player.hpp"),
+             std::filesystem::path("src/gameserver/game_engine.hpp")})
+    {
+        if (!appendSnapshotFile(repositoryRoot, file, projectFiles, snapshot.error))
+        {
+            return snapshot;
+        }
+    }
+
+    std::set<std::string> assetFiles;
+    if (!appendSnapshotTree(
+            repositoryRoot, std::filesystem::path("assets"), assetFiles, snapshot.error))
+    {
+        return snapshot;
+    }
+
+    snapshot.projectInputs = inspectSnapshotGroup(
+        repositoryRoot, "projectInputs", projectFiles, snapshot.error);
+    if (!snapshot.error.empty())
+    {
+        return snapshot;
+    }
+    snapshot.runtimeAssets = inspectSnapshotGroup(
+        repositoryRoot, "runtimeAssets", assetFiles, snapshot.error);
+    if (!snapshot.error.empty())
+    {
+        return snapshot;
+    }
+
+    const std::string overallCanonical =
+        std::string(build_identity::SnapshotSchema) + "\n" +
+        snapshot.projectInputs.name + ":" +
+        std::to_string(snapshot.projectInputs.fileCount) + ":" +
+        std::to_string(snapshot.projectInputs.totalBytes) + ":" +
+        snapshot.projectInputs.sha256 + "\n" +
+        snapshot.runtimeAssets.name + ":" +
+        std::to_string(snapshot.runtimeAssets.fileCount) + ":" +
+        std::to_string(snapshot.runtimeAssets.totalBytes) + ":" +
+        snapshot.runtimeAssets.sha256 + "\n";
+    const std::optional<std::string> overall = sha256Text(overallCanonical);
+    if (!overall)
+    {
+        snapshot.error = "Could not finish the overall SHA-256 input snapshot.";
+        return snapshot;
+    }
+    snapshot.overallSha256 = *overall;
+    snapshot.fileCount =
+        snapshot.projectInputs.fileCount + snapshot.runtimeAssets.fileCount;
+    snapshot.totalBytes =
+        snapshot.projectInputs.totalBytes + snapshot.runtimeAssets.totalBytes;
+    snapshot.available = true;
+    return snapshot;
+}
+
+InputSnapshot embeddedBuildSnapshot()
+{
+    InputSnapshot snapshot;
+    snapshot.available = std::string_view(build_identity::SnapshotSha256).size() == 64;
+    snapshot.overallSha256 = build_identity::SnapshotSha256;
+    snapshot.fileCount = build_identity::SnapshotFileCount;
+    snapshot.totalBytes = build_identity::SnapshotTotalBytes;
+    snapshot.projectInputs = {
+        build_identity::ProjectInputs.name,
+        build_identity::ProjectInputs.sha256,
+        build_identity::ProjectInputs.fileCount,
+        build_identity::ProjectInputs.totalBytes};
+    snapshot.runtimeAssets = {
+        build_identity::RuntimeAssets.name,
+        build_identity::RuntimeAssets.sha256,
+        build_identity::RuntimeAssets.fileCount,
+        build_identity::RuntimeAssets.totalBytes};
+    if (!snapshot.available)
+    {
+        snapshot.error = "The executable does not contain a complete build input snapshot.";
+    }
+    return snapshot;
+}
+
+bool snapshotGroupEqual(
+    const InputSnapshotGroup& left,
+    const InputSnapshotGroup& right)
+{
+    return left.name == right.name &&
+        left.sha256 == right.sha256 &&
+        left.fileCount == right.fileCount &&
+        left.totalBytes == right.totalBytes;
+}
+
+bool snapshotsEqual(const InputSnapshot& left, const InputSnapshot& right)
+{
+    return left.available && right.available &&
+        left.overallSha256 == right.overallSha256 &&
+        left.fileCount == right.fileCount &&
+        left.totalBytes == right.totalBytes &&
+        snapshotGroupEqual(left.projectInputs, right.projectInputs) &&
+        snapshotGroupEqual(left.runtimeAssets, right.runtimeAssets);
+}
+
+std::vector<std::string> snapshotMismatchGroups(
+    const InputSnapshot& expected,
+    const InputSnapshot& actual)
+{
+    std::vector<std::string> mismatches;
+    if (!snapshotGroupEqual(expected.projectInputs, actual.projectInputs))
+    {
+        mismatches.push_back("projectInputs");
+    }
+    if (!snapshotGroupEqual(expected.runtimeAssets, actual.runtimeAssets))
+    {
+        mismatches.push_back("runtimeAssets");
+    }
+    if (mismatches.empty() && !snapshotsEqual(expected, actual))
+    {
+        mismatches.push_back("overall");
+    }
+    return mismatches;
+}
+
+std::string joined(const std::vector<std::string>& values)
+{
+    std::ostringstream text;
+    for (std::size_t index = 0; index < values.size(); ++index)
+    {
+        if (index != 0)
+        {
+            text << ", ";
+        }
+        text << values[index];
+    }
+    return text.str();
+}
+
+void writeSnapshotGroupJson(
+    std::ostringstream& output,
+    const InputSnapshotGroup& group,
+    std::string_view indentation)
+{
+    output << indentation << "{\"sha256\": " << jsonQuoted(group.sha256)
+           << ", \"fileCount\": " << group.fileCount
+           << ", \"totalBytes\": " << group.totalBytes << "}";
+}
+
+void writeSnapshotJson(
+    std::ostringstream& output,
+    const InputSnapshot& snapshot,
+    std::string_view indentation)
+{
+    output << indentation << "{\n"
+           << indentation << "  \"available\": "
+           << (snapshot.available ? "true" : "false") << ",\n"
+           << indentation << "  \"overallSha256\": "
+           << jsonQuoted(snapshot.overallSha256) << ",\n"
+           << indentation << "  \"fileCount\": " << snapshot.fileCount << ",\n"
+           << indentation << "  \"totalBytes\": " << snapshot.totalBytes << ",\n"
+           << indentation << "  \"groups\": {\n"
+           << indentation << "    \"projectInputs\": ";
+    writeSnapshotGroupJson(output, snapshot.projectInputs, indentation);
+    output << ",\n" << indentation << "    \"runtimeAssets\": ";
+    writeSnapshotGroupJson(output, snapshot.runtimeAssets, indentation);
+    output << "\n" << indentation << "  }\n"
+           << indentation << "}";
+}
+
+struct ExecutableIdentity
+{
+    std::string path;
+    std::uintmax_t size = 0;
+    std::string fnv1a64;
+    std::string sha256;
+};
+
+ExecutableIdentity inspectExecutable(const std::filesystem::path& executablePath)
+{
+    ExecutableIdentity identity;
+    std::error_code error;
+    const std::filesystem::path absolute =
+        std::filesystem::absolute(executablePath, error);
+    const std::filesystem::path resolved = error ? executablePath : absolute;
+    identity.path = resolved.generic_string();
+    error.clear();
+    identity.size = std::filesystem::file_size(resolved, error);
+    if (error)
+    {
+        identity.size = 0;
+    }
+
+    std::ifstream input(resolved, std::ios::binary);
+    if (input)
+    {
+        std::uint64_t hash = 14695981039346656037ull;
+        Sha256Stream sha256;
+        char buffer[64 * 1024];
+        while (input)
+        {
+            input.read(buffer, sizeof(buffer));
+            const std::streamsize count = input.gcount();
+            if (count > 0)
+            {
+                sha256.update(buffer, static_cast<std::size_t>(count));
+            }
+            for (std::streamsize i = 0; i < count; ++i)
+            {
+                hash ^= static_cast<unsigned char>(buffer[i]);
+                hash *= 1099511628211ull;
+            }
+        }
+        std::ostringstream formatted;
+        formatted << std::hex << std::setw(16) << std::setfill('0') << hash;
+        identity.fnv1a64 = formatted.str();
+        if (!input.bad())
+        {
+            identity.sha256 = sha256.finish().value_or("");
+        }
+    }
+    return identity;
+}
+
+std::string buildConfiguration()
+{
+#ifdef NDEBUG
+    return "Release";
+#else
+    return "Debug";
+#endif
+}
+
+std::string compilerIdentity()
+{
+#if defined(_MSC_FULL_VER)
+    return "MSVC " + std::to_string(_MSC_FULL_VER);
+#elif defined(__clang_version__)
+    return "Clang " __clang_version__;
+#elif defined(__GNUC__)
+    return "GCC " + std::to_string(__GNUC__) + "." + std::to_string(__GNUC_MINOR__);
+#else
+    return "unknown";
+#endif
 }
 
 struct SampleCard
@@ -144,6 +924,12 @@ constexpr SampleCard SampleCards[] = {
      "Ability: push an enemy unit one square away from Vanya."},
     {"Donella of the Marsh", "Unit", "cards/donellaOfTheMarsh.png", 6, 0, 8, 4, 1, "Ancient", "", "Mirewatch", "legendary", "Warden",
      "Friendly units adjacent to Donella take 1 less damage."},
+    // Real catalogue title and artwork, intentionally carrying no supported
+    // Spell effect.  The undefined-spell captures resolve this centralized
+    // fixture so they exercise the same fail-closed client path without
+    // inventing an inline card in main.cpp.
+    {"Hidden Camp", "Spell", "cards/hiddenCamp.png", 10, 0, 0, 0, 0, "Wild", "", "Mirewatch", "common", "Concealed Deployment",
+     "Friendly companions may be deployed beside Hidden Camp."},
 
     // --- the Blackthorns ---------------------------------------------------
     {"Blackthorn Lumberjack", "Unit", "cards/blackthornLumberjack.png", 2, 0, 4, 3, 1, "Civilized", "", "Blackthorn", "starter", "Fell",
@@ -416,7 +1202,8 @@ deck_data::Deck buildDeck(
 
 const std::vector<std::string>& knownScreens()
 {
-    static const std::vector<std::string> screens = {
+    static const std::vector<std::string> screens = [] {
+        std::vector<std::string> values = {
         "title-screen",
         "login",
         "login-error",
@@ -448,45 +1235,185 @@ const std::vector<std::string>& knownScreens()
         "card-editor",
         "conquest",
         "story-select",
+        "story-seelie-spoiler-warning",
         "story-mission-select",
+        "story-blackthorn-mission-select-final",
         "story-mirewatch-mission-select",
+        "story-mirewatch-mission-select-final",
+        "story-seelie-mission-select",
+        "story-seelie-mission-select-final",
         "story-briefing",
         "story-briefing-actions",
         "story-briefing-control",
+        "story-blackthorn-briefing-optional-skip",
+        "story-blackthorn-synthesis-bypass",
         "story-mirewatch-briefing",
         "story-mirewatch-briefing-actions",
         "story-mirewatch-briefing-control",
+        "story-mirewatch-gilded-hold-art",
+        "story-mirewatch-four-losses",
+        "story-mirewatch-epilogue-voice",
+        "story-mirewatch-victor-protected",
+        "story-mirewatch-first-open-check",
+        "story-blackthorn-receipt-order",
+        "story-blackthorn-first-open-check",
+        "story-blackthorn-field-judgment",
+        "story-blackthorn-open-mastery",
+        "story-blackthorn-open-mastery-clocks",
+        "story-blackthorn-open-mastery-timeouts",
+        "story-blackthorn-open-mastery-choice",
+        "story-blackthorn-victor-reckoning-climax",
+        "story-seelie-briefing",
+        "story-seelie-briefing-actions",
+        "story-seelie-briefing-control",
+        "story-seelie-briefing-optional-skip",
+        "story-seelie-briefing-territory-required",
+        "story-mirewatch-speaker-inset-intro",
+        "story-blackthorn-speaker-inset-intro",
+        "story-seelie-speaker-inset-intro",
+        "story-mirewatch-speaker-inset-popup",
+        "story-blackthorn-speaker-inset-popup",
+        "story-seelie-speaker-inset-popup",
+        "story-seelie-story-long",
+        "story-seelie-seven-corrections",
+        "story-seelie-mirror-remembers",
+        "story-seelie-mirror-causal-setup",
+        "story-seelie-mirror-marrowind",
+        "story-seelie-mirror-orientation",
+        "story-seelie-sella-pallid",
+        "story-seelie-sella-name-eaten",
+        "story-seelie-vow-web-cause",
+        "story-seelie-vow-web-consequence",
+        "story-seelie-pump-four-chronicle-boundary",
+        "story-seelie-pump-four-rules-boundary",
+        "story-seelie-before-next-dawn",
+        "story-seelie-vow-record",
+        "story-seelie-open-record",
+        "story-seelie-final-recap",
+        "story-seelie-final-recap-empty-place",
+        "story-seelie-ascent-refusal",
+        "story-seelie-workers-refuse",
+        "story-seelie-first-release",
+        "story-seelie-separate-withdrawals",
+        "story-seelie-separate-withdrawals-coda",
+        "story-seelie-epilogue",
+        "story-seelie-witness-rail",
+        "story-blackthorn-deed",
+        "story-mirewatch-deed",
+        "story-mirewatch-telos-panel",
+        "story-mirewatch-aftermath",
         "story-deployment",
         "story-game-1",
         "story-game-1-board",
         "story-game-2",
+        "story-game-2-board",
         "story-game-3",
+        "story-game-3-board",
         "story-game-4",
+        "story-game-4-board",
         "story-game-5",
+        "story-game-5-board",
         "story-game-6",
+        "story-game-6-board",
         "story-game-7",
+        "story-game-7-board",
+        "story-game-8-board",
+        "story-game-9-board",
+        "story-game-10-board",
         "story-mirewatch-game-1",
         "story-mirewatch-game-1-board",
         "story-mirewatch-game-2",
+        "story-mirewatch-game-2-board",
         "story-mirewatch-game-3",
+        "story-mirewatch-game-3-board",
         "story-mirewatch-game-4",
+        "story-mirewatch-game-4-board",
         "story-mirewatch-game-5",
+        "story-mirewatch-game-5-board",
         "story-mirewatch-game-6",
+        "story-mirewatch-game-6-board",
         "story-mirewatch-game-7",
+        "story-mirewatch-game-7-board",
         "story-mirewatch-game-8",
         "story-mirewatch-game-8-board",
         "story-mirewatch-game-9",
+        "story-mirewatch-game-9-board",
         "story-mirewatch-game-10",
-        "story-mirewatch-game-11",
-        "story-mirewatch-game-12",
-        "story-mirewatch-game-13",
-        "story-mirewatch-game-13-board",
+        "story-mirewatch-game-10-board",
+        "story-mirewatch-game-11-board",
+        "story-mirewatch-game-12-board",
+        "story-mirewatch-river-teeth-action-01",
+        "story-mirewatch-river-teeth-action-02",
+        "story-mirewatch-river-teeth-action-03",
+        "story-mirewatch-river-teeth-action-04",
+        "story-mirewatch-river-teeth-action-05",
+        "story-mirewatch-river-teeth-action-06",
+        "story-mirewatch-river-teeth-action-07",
+        "story-mirewatch-river-teeth-action-08",
+        "story-mirewatch-river-teeth-action-09",
+        "story-mirewatch-river-teeth-action-10",
+        "story-mirewatch-river-teeth-action-11",
+        "story-mirewatch-river-teeth-aftermath-live",
+        "story-mirewatch-river-teeth-complete-live",
+        "story-mirewatch-intercept-aftermath-live",
+        "story-mirewatch-intercept-footprint-live",
+        "story-mirewatch-intercept-reset-live",
+        "story-mirewatch-intercept-exclusions-live",
+        "story-seelie-game-1",
+        "story-seelie-game-1-board",
+        "story-seelie-game-2",
+        "story-seelie-game-2-board",
+        "story-seelie-game-3",
+        "story-seelie-game-3-board",
+        "story-seelie-game-4",
+        "story-seelie-game-4-board",
+        "story-seelie-game-5",
+        "story-seelie-game-5-board",
+        "story-seelie-game-6",
+        "story-seelie-game-6-board",
+        "story-seelie-game-7",
+        "story-seelie-game-7-board",
+        "story-seelie-game-8",
+        "story-seelie-game-8-board",
+        "story-seelie-game-9",
+        "story-seelie-game-9-board",
+        "story-seelie-game-10",
+        "story-seelie-game-10-board",
+        "story-seelie-game-11",
+        "story-seelie-game-11-board",
+        "story-seelie-game-12",
+        "story-seelie-game-12-board",
+        "story-seelie-game-13",
+        "story-seelie-game-13-board",
+        "story-seelie-game-14",
+        "story-seelie-game-14-board",
+        "story-seelie-game-15-board",
+        "story-seelie-review-guided-correction",
+        "story-seelie-review-illegal-drop",
+        "story-seelie-review-already-acted",
+        "story-seelie-review-survivor-failure",
+        "story-seelie-review-defeat-no-mastery",
+        "story-seelie-reading-draw",
+        "story-seelie-reading-foresight",
+        "story-seelie-reading-foresight-correction",
+        "story-seelie-reading-discard",
         "story-mirewatch-exit-confirmation",
         "story-mirewatch-restart-confirmation",
         "story-sharpshooter-aimed",
+        "story-sharpshooter-state-lowered",
+        "story-sharpshooter-state-raised",
+        "story-blackthorn-hidden-collision-choice",
+        "story-blackthorn-hidden-collision-resolved",
         "story-powers-used",
         "story-ai-turn",
         "story-ai-attack",
+        // Packaged UI-only witness of ordinary hero placement. The setup
+        // labels itself as a fixture and never claims live-catalog authority.
+        "story-blackthorn-standard-placement",
+        // The same ordinary match after all four legal Hero placements. This
+        // proves the real four-card hand, 16-card draw pile, control income,
+        // clocks, and in-play HUD instead of stopping at deployment.
+        "story-blackthorn-standard-opening",
         "game",
         // Match states beyond the dedicated Story Mode captures above.
         "game-bases",
@@ -496,6 +1423,9 @@ const std::vector<std::string>& knownScreens()
         "game-selected",
         "game-popup",
         "game-popup-tooltip",
+        "game-action-choice",
+        "game-undefined-spell-popup",
+        "game-undefined-spell-rejected",
         "game-resign-confirmation",
         "game-victory",
         // Admin / card-editor / Conquest review states. These screens are all
@@ -507,6 +1437,144 @@ const std::vector<std::string>& knownScreens()
         "conquest-events",
         "conquest-map",
         "conquest-loadouts"};
+
+        const auto appendScenarioArtScreens =
+            [&](StoryCampaign campaign, std::string_view prefix) {
+                for (const StoryMission& mission : storyMissions(campaign))
+                {
+                    values.emplace_back(std::string(prefix) + std::string(mission.id));
+                }
+            };
+        const auto appendScenarioArtPopupScreens =
+            [&](StoryCampaign campaign, std::string_view prefix) {
+                for (const StoryMission& mission : storyMissions(campaign))
+                {
+                    if (mission.objectiveSpec.kind != StoryObjectiveKind::StoryOnly)
+                    {
+                        values.emplace_back(
+                            std::string(prefix) + std::string(mission.id));
+                    }
+                }
+            };
+        const auto campaignKey = [](StoryCampaign campaign) -> std::string_view {
+            switch (campaign)
+            {
+            case StoryCampaign::Mirewatch: return "mw";
+            case StoryCampaign::Blackthorn: return "bt";
+            case StoryCampaign::Seelie: return "se";
+            }
+            return "unknown";
+        };
+        const auto numbered = [](std::size_t index) {
+            std::string result = std::to_string(index + 1);
+            if (result.size() < 2)
+            {
+                result.insert(result.begin(), '0');
+            }
+            return result;
+        };
+        const auto briefingPageKey = [&](StoryCampaign campaign,
+                                          const StoryMission& mission,
+                                          std::size_t panelIndex) {
+            return std::string("story-page-briefing-") +
+                std::string(campaignKey(campaign)) + "-" +
+                std::string(mission.id) + "-p" + numbered(panelIndex);
+        };
+        const auto beforeStepPageKey = [&](StoryCampaign campaign,
+                                           const StoryMission& mission,
+                                           std::size_t stepIndex,
+                                           std::size_t panelIndex) {
+            return std::string("story-page-beat-before-") +
+                std::string(campaignKey(campaign)) + "-" +
+                std::string(mission.id) + "-s" + numbered(stepIndex) +
+                "-p" + numbered(panelIndex);
+        };
+        const auto actionPageKey = [&](StoryCampaign campaign,
+                                       const StoryMission& mission,
+                                       std::size_t stepIndex) {
+            return std::string("story-page-action-") +
+                std::string(campaignKey(campaign)) + "-" +
+                std::string(mission.id) + "-s" + numbered(stepIndex);
+        };
+        const auto aftermathPageKey = [&](StoryCampaign campaign,
+                                          const StoryMission& mission,
+                                          std::size_t panelIndex) {
+            return std::string("story-page-beat-aftermath-") +
+                std::string(campaignKey(campaign)) + "-" +
+                std::string(mission.id) + "-p" + numbered(panelIndex);
+        };
+        const auto appendStoryPageScreens = [&](StoryCampaign campaign) {
+            for (const StoryMission& mission : storyMissions(campaign))
+            {
+                for (std::size_t panelIndex = 0;
+                     panelIndex < mission.briefing.size();
+                     ++panelIndex)
+                {
+                    values.emplace_back(
+                        briefingPageKey(campaign, mission, panelIndex));
+                }
+
+                if (mission.objectiveSpec.kind == StoryObjectiveKind::StoryOnly)
+                {
+                    continue;
+                }
+                // Scripted missions expose every authored action immediately
+                // before it is taken. Scriptless tactical missions expose the
+                // one production state in which their open objective begins.
+                const std::size_t actionCount = mission.script.empty()
+                    ? 1
+                    : mission.script.size();
+                for (std::size_t stepIndex = 0;
+                     stepIndex < actionCount;
+                     ++stepIndex)
+                {
+                    values.emplace_back(
+                        actionPageKey(campaign, mission, stepIndex));
+                }
+                for (std::size_t stepIndex = 0;
+                     stepIndex < mission.script.size();
+                     ++stepIndex)
+                {
+                    const StoryScriptAction& step = mission.script[stepIndex];
+                    for (std::size_t panelIndex = 0;
+                         panelIndex < step.panelsBefore.size();
+                         ++panelIndex)
+                    {
+                        values.emplace_back(beforeStepPageKey(
+                            campaign, mission, stepIndex, panelIndex));
+                    }
+                }
+                for (std::size_t panelIndex = 0;
+                     panelIndex < mission.aftermath.size();
+                     ++panelIndex)
+                {
+                    values.emplace_back(
+                        aftermathPageKey(campaign, mission, panelIndex));
+                }
+            }
+        };
+
+        // Exhaustive page fixtures complement the representative legacy keys
+        // above. Every numbered briefing page uses StoryIntro; every authored
+        // action, before-step panel, and aftermath panel for a tactical mission
+        // uses its production gameplay renderer and state path.
+        appendStoryPageScreens(StoryCampaign::Mirewatch);
+        appendStoryPageScreens(StoryCampaign::Blackthorn);
+        appendStoryPageScreens(StoryCampaign::Seelie);
+        appendScenarioArtScreens(StoryCampaign::Mirewatch, "story-art-mw-");
+        appendScenarioArtScreens(StoryCampaign::Blackthorn, "story-art-bt-");
+        appendScenarioArtScreens(StoryCampaign::Seelie, "story-art-se-");
+        // Every tactical scenario also exercises the same commissioned art in
+        // the production in-mission popup renderer. Story-only entries have no
+        // board state, so their supported layout is the briefing renderer above.
+        appendScenarioArtPopupScreens(
+            StoryCampaign::Mirewatch, "story-art-popup-mw-");
+        appendScenarioArtPopupScreens(
+            StoryCampaign::Blackthorn, "story-art-popup-bt-");
+        appendScenarioArtPopupScreens(
+            StoryCampaign::Seelie, "story-art-popup-se-");
+        return values;
+    }();
     return screens;
 }
 
@@ -563,6 +1631,117 @@ std::optional<Request> parseCommandLine(int argc, char** argv)
     return request;
 }
 
+bool prepareOutputDirectory(
+    Request& request,
+    const std::filesystem::path& executablePath,
+    std::string& error)
+{
+    error.clear();
+    request.captureCheckout = inspectGitIdentity(executablePath);
+    if (request.screens.empty())
+    {
+        error = "Capture request contains no screen keys.";
+        return false;
+    }
+    for (const std::string& screen : request.screens)
+    {
+        if (std::find(knownScreens().begin(), knownScreens().end(), screen) ==
+            knownScreens().end())
+        {
+            error = "Capture request contains an unknown screen key: " + screen;
+            return false;
+        }
+    }
+    if (request.outputDirectory.empty())
+    {
+        error = "Capture output directory is empty.";
+        return false;
+    }
+
+    std::error_code filesystemError;
+    const bool exists = std::filesystem::exists(request.outputDirectory, filesystemError);
+    if (filesystemError)
+    {
+        error = "Could not inspect capture output directory '" +
+            request.outputDirectory.string() + "': " + filesystemError.message();
+        return false;
+    }
+
+    if (exists)
+    {
+        if (!std::filesystem::is_directory(request.outputDirectory, filesystemError) ||
+            filesystemError)
+        {
+            error = "Capture output path is not a directory: " +
+                request.outputDirectory.string();
+            return false;
+        }
+        const bool empty = std::filesystem::is_empty(request.outputDirectory, filesystemError);
+        if (filesystemError)
+        {
+            error = "Could not inspect capture output directory '" +
+                request.outputDirectory.string() + "': " + filesystemError.message();
+            return false;
+        }
+        if (!empty)
+        {
+            error = "Capture output directory is not empty; refusing to overwrite or mix evidence: " +
+                request.outputDirectory.string();
+            return false;
+        }
+    }
+
+    if (request.captureCheckout.repositoryRoot.empty())
+    {
+        error = "Could not locate the repository root for the capture input snapshot.";
+        return false;
+    }
+    const InputSnapshot buildSnapshot = embeddedBuildSnapshot();
+    if (!buildSnapshot.available)
+    {
+        error = "Build input snapshot is unavailable: " + buildSnapshot.error;
+        return false;
+    }
+    request.captureStartSnapshot = inspectInputSnapshot(
+        std::filesystem::path(request.captureCheckout.repositoryRoot));
+    if (!request.captureStartSnapshot.available)
+    {
+        error = "Capture-start input snapshot is unavailable: " +
+            request.captureStartSnapshot.error;
+        return false;
+    }
+    if (!snapshotsEqual(buildSnapshot, request.captureStartSnapshot))
+    {
+        error = "Capture inputs differ from the executable's embedded build snapshot";
+        const std::vector<std::string> mismatches =
+            snapshotMismatchGroups(buildSnapshot, request.captureStartSnapshot);
+        if (!mismatches.empty())
+        {
+            error += " (groups: " + joined(mismatches) + ")";
+        }
+        error += "; rebuild the client before capturing.";
+        return false;
+    }
+
+    if (!exists &&
+        (!std::filesystem::create_directories(request.outputDirectory, filesystemError) ||
+         filesystemError))
+    {
+        error = "Could not create capture output directory '" +
+            request.outputDirectory.string() + "': " + filesystemError.message();
+        return false;
+    }
+    return true;
+}
+
+std::string captureFileName(std::size_t index, std::string_view screen)
+{
+    std::ostringstream name;
+    name << std::setw(2) << std::setfill('0') << (index + 1)
+         << '-' << screen << ".png";
+    return name.str();
+}
+
 bool saveWindow(const sf::RenderWindow& window, const std::filesystem::path& path)
 {
     const sf::Vector2u size = window.getSize();
@@ -578,9 +1757,296 @@ bool saveWindow(const sf::RenderWindow& window, const std::filesystem::path& pat
     }
     texture.update(window);
 
-    std::error_code error;
-    std::filesystem::create_directories(path.parent_path(), error);
     return texture.copyToImage().saveToFile(path);
+}
+
+bool writeCompletionManifest(
+    const Request& request,
+    const std::vector<std::string>& successfulFiles,
+    const std::filesystem::path& executablePath,
+    std::string& error)
+{
+    error.clear();
+    std::vector<std::string> expectedFiles;
+    expectedFiles.reserve(request.screens.size());
+    for (std::size_t i = 0; i < request.screens.size(); ++i)
+    {
+        expectedFiles.push_back(captureFileName(i, request.screens[i]));
+    }
+    if (successfulFiles != expectedFiles)
+    {
+        error = "Successful capture file list does not exactly match the requested screens.";
+        return false;
+    }
+
+    const std::set<std::string> expectedSet(expectedFiles.begin(), expectedFiles.end());
+    std::set<std::string> actualSet;
+    std::error_code filesystemError;
+    for (std::filesystem::directory_iterator iterator(request.outputDirectory, filesystemError), end;
+         !filesystemError && iterator != end;
+         iterator.increment(filesystemError))
+    {
+        if (!iterator->is_regular_file(filesystemError) || filesystemError)
+        {
+            error = "Capture output contains an unexpected non-file entry: " +
+                iterator->path().filename().string();
+            return false;
+        }
+        const std::string filename = iterator->path().filename().string();
+        if (!expectedSet.contains(filename))
+        {
+            error = "Capture output contains an unexpected file: " + filename;
+            return false;
+        }
+        if (iterator->file_size(filesystemError) == 0 || filesystemError)
+        {
+            error = "Capture PNG is empty or unreadable: " + filename;
+            return false;
+        }
+        actualSet.insert(filename);
+    }
+    if (filesystemError)
+    {
+        error = "Could not enumerate capture output directory '" +
+            request.outputDirectory.string() + "': " + filesystemError.message();
+        return false;
+    }
+    if (actualSet != expectedSet || actualSet.size() != request.screens.size())
+    {
+        error = "Produced PNG count or names do not exactly match the requested screens.";
+        return false;
+    }
+
+    const bool exactRegisteredScreenSet = request.screens == knownScreens();
+    const auto storyActionCount = [](std::string_view campaignPrefix) {
+        return static_cast<std::size_t>(std::count_if(
+            knownScreens().begin(),
+            knownScreens().end(),
+            [&](const std::string& screen) {
+                return screen.rfind(campaignPrefix, 0) == 0;
+            }));
+    };
+    const std::size_t mirewatchStoryActionCount =
+        storyActionCount("story-page-action-mw-");
+    const std::size_t blackthornStoryActionCount =
+        storyActionCount("story-page-action-bt-");
+    const std::size_t seelieStoryActionCount =
+        storyActionCount("story-page-action-se-");
+    const CheckoutIdentity& captureCheckout = request.captureCheckout;
+    const InputSnapshot buildSnapshot = embeddedBuildSnapshot();
+    const InputSnapshot captureEndSnapshot = captureCheckout.repositoryRoot.empty()
+        ? InputSnapshot{}
+        : inspectInputSnapshot(std::filesystem::path(captureCheckout.repositoryRoot));
+    if (!buildSnapshot.available)
+    {
+        error = "Build input snapshot is unavailable: " + buildSnapshot.error;
+        return false;
+    }
+    if (!request.captureStartSnapshot.available)
+    {
+        error = "Capture-start input snapshot is unavailable: " +
+            request.captureStartSnapshot.error;
+        return false;
+    }
+    if (!captureEndSnapshot.available)
+    {
+        error = "Capture-end input snapshot is unavailable: " +
+            captureEndSnapshot.error;
+        return false;
+    }
+    const bool startMatchesBuild =
+        snapshotsEqual(buildSnapshot, request.captureStartSnapshot);
+    const bool endMatchesBuild =
+        snapshotsEqual(buildSnapshot, captureEndSnapshot);
+    const bool stableDuringCapture =
+        snapshotsEqual(request.captureStartSnapshot, captureEndSnapshot);
+    std::vector<std::string> mismatchGroups =
+        snapshotMismatchGroups(buildSnapshot, request.captureStartSnapshot);
+    for (const std::string& group :
+         snapshotMismatchGroups(buildSnapshot, captureEndSnapshot))
+    {
+        if (std::find(mismatchGroups.begin(), mismatchGroups.end(), group) ==
+            mismatchGroups.end())
+        {
+            mismatchGroups.push_back(group);
+        }
+    }
+    if (!startMatchesBuild || !endMatchesBuild || !stableDuringCapture)
+    {
+        error = stableDuringCapture
+            ? "Capture inputs do not match the executable's embedded build snapshot"
+            : "Capture inputs changed while screenshots were being produced";
+        if (!mismatchGroups.empty())
+        {
+            error += " (groups: " + joined(mismatchGroups) + ")";
+        }
+        error += "; refusing to publish a completion manifest.";
+        return false;
+    }
+
+    const ExecutableIdentity executable = inspectExecutable(executablePath);
+    if (executable.sha256.empty())
+    {
+        error = "Could not compute SHA-256 for the capture executable.";
+        return false;
+    }
+    const bool commitMatch = build_identity::SourceAvailable &&
+        !captureCheckout.commit.empty() &&
+        build_identity::SourceCommit == captureCheckout.commit;
+    const bool sourceBinaryMatch =
+        startMatchesBuild && endMatchesBuild && stableDuringCapture;
+    const std::string sourceBinaryMatchReason =
+        sourceBinaryMatch
+            ? "verified-content-snapshot-match"
+            : "build-and-capture-inputs-differ";
+
+    std::ostringstream manifest;
+    manifest << "{\n"
+             << "  \"schemaVersion\": 3,\n"
+             << "  \"completionMarker\": \"ui-capture-complete\",\n"
+             << "  \"completed\": true,\n"
+             << "  \"resolution\": {\"width\": " << request.width
+             << ", \"height\": " << request.height << "},\n"
+             << "  \"requestedScreenCount\": " << request.screens.size() << ",\n"
+             << "  \"registeredScreenCount\": " << knownScreens().size() << ",\n"
+             << "  \"registeredStoryActionScreenCount\": "
+             << (mirewatchStoryActionCount + blackthornStoryActionCount +
+                 seelieStoryActionCount)
+             << ",\n"
+             << "  \"registeredStoryActionScreenCounts\": {\"mirewatch\": "
+             << mirewatchStoryActionCount << ", \"blackthorn\": "
+             << blackthornStoryActionCount << ", \"seelie\": "
+             << seelieStoryActionCount << "},\n"
+             << "  \"exactRegisteredScreenSet\": "
+             << (exactRegisteredScreenSet ? "true" : "false") << ",\n"
+             << "  \"successCount\": " << successfulFiles.size() << ",\n"
+             << "  \"requestedScreens\": [\n";
+    for (std::size_t i = 0; i < request.screens.size(); ++i)
+    {
+        manifest << "    " << jsonQuoted(request.screens[i])
+                 << (i + 1 == request.screens.size() ? "\n" : ",\n");
+    }
+    manifest << "  ],\n"
+             << "  \"files\": [\n";
+    for (std::size_t i = 0; i < successfulFiles.size(); ++i)
+    {
+        manifest << "    {\"screen\": " << jsonQuoted(request.screens[i])
+                 << ", \"file\": " << jsonQuoted(successfulFiles[i]) << "}"
+                 << (i + 1 == successfulFiles.size() ? "\n" : ",\n");
+    }
+    manifest << "  ],\n"
+             << "  \"executable\": {\n"
+             << "    \"path\": " << jsonQuoted(executable.path) << ",\n"
+             << "    \"sizeBytes\": " << executable.size << ",\n"
+             << "    \"fnv1a64\": " << jsonQuoted(executable.fnv1a64) << ",\n"
+             << "    \"sha256\": " << jsonQuoted(executable.sha256) << "\n"
+             << "  },\n"
+             << "  \"build\": {\n"
+             << "    \"configuration\": " << jsonQuoted(buildConfiguration()) << ",\n"
+             << "    \"compiler\": " << jsonQuoted(compilerIdentity()) << ",\n"
+             << "    \"compiledAt\": " << jsonQuoted(std::string(__DATE__) + " " + __TIME__) << "\n"
+             << "  },\n"
+             << "  \"buildSource\": {\n"
+             << "    \"identityAvailable\": "
+             << (build_identity::SourceAvailable ? "true" : "false") << ",\n"
+             << "    \"gitCommit\": " << jsonQuoted(build_identity::SourceCommit) << ",\n"
+             << "    \"dirty\": " << (build_identity::SourceDirty ? "true" : "false") << ",\n"
+             << "    \"method\": " << jsonQuoted(build_identity::SourceMethod) << ",\n"
+             << "    \"identityGeneratedUtc\": "
+             << jsonQuoted(build_identity::GeneratedUtc) << "\n"
+             << "  },\n"
+             << "  \"inputSnapshot\": {\n"
+             << "    \"schema\": " << jsonQuoted(build_identity::SnapshotSchema) << ",\n"
+             << "    \"algorithm\": " << jsonQuoted(build_identity::SnapshotAlgorithm) << ",\n"
+             << "    \"scope\": " << jsonQuoted(build_identity::SnapshotScope) << ",\n"
+             << "    \"canonicalization\": \"sorted-length-framed-path-size-content-digest-v1\",\n"
+             << "    \"build\": \n";
+    writeSnapshotJson(manifest, buildSnapshot, "    ");
+    manifest << ",\n    \"captureStart\": \n";
+    writeSnapshotJson(manifest, request.captureStartSnapshot, "    ");
+    manifest << ",\n    \"captureEnd\": \n";
+    writeSnapshotJson(manifest, captureEndSnapshot, "    ");
+    manifest << ",\n"
+             << "    \"startMatchesBuild\": "
+             << (startMatchesBuild ? "true" : "false") << ",\n"
+             << "    \"endMatchesBuild\": "
+             << (endMatchesBuild ? "true" : "false") << ",\n"
+             << "    \"stableDuringCapture\": "
+             << (stableDuringCapture ? "true" : "false") << ",\n"
+             << "    \"match\": "
+             << (sourceBinaryMatch ? "true" : "false") << ",\n"
+             << "    \"mismatchGroups\": [";
+    for (std::size_t index = 0; index < mismatchGroups.size(); ++index)
+    {
+        manifest << (index == 0 ? "" : ", ") << jsonQuoted(mismatchGroups[index]);
+    }
+    manifest << "]\n"
+             << "  },\n"
+             << "  \"captureCheckout\": {\n"
+             << "    \"repositoryRoot\": " << jsonQuoted(captureCheckout.repositoryRoot) << ",\n"
+             << "    \"gitRef\": " << jsonQuoted(captureCheckout.reference) << ",\n"
+             << "    \"gitCommit\": " << jsonQuoted(captureCheckout.commit) << ",\n"
+             << "    \"dirtyKnown\": "
+             << (captureCheckout.dirtyKnown ? "true" : "false") << ",\n"
+             << "    \"dirty\": ";
+    if (captureCheckout.dirtyKnown)
+    {
+        manifest << (captureCheckout.dirty ? "true" : "false");
+    }
+    else
+    {
+        manifest << "null";
+    }
+    manifest << ",\n"
+             << "    \"commitMethod\": \"direct-git-metadata\",\n"
+             << "    \"dirtyMethod\": "
+             << jsonQuoted(captureCheckout.dirtyKnown
+                    ? "git-status-porcelain-v1"
+                    : "unavailable") << ",\n"
+             << "    \"capturedAt\": \"capture-start-before-output-admission\"\n"
+             << "  },\n"
+             << "  \"buildAndCaptureCommitMatch\": "
+             << (commitMatch ? "true" : "false") << ",\n"
+             << "  \"sourceBinaryMatch\": "
+             << (sourceBinaryMatch ? "true" : "false") << ",\n"
+             << "  \"sourceBinaryMatchReason\": "
+             << jsonQuoted(sourceBinaryMatchReason) << "\n"
+             << "}\n";
+
+    const std::filesystem::path finalPath =
+        request.outputDirectory / CompletionManifestFileName;
+    const std::filesystem::path temporaryPath =
+        request.outputDirectory / ".capture-manifest.json.tmp";
+    if (std::filesystem::exists(finalPath, filesystemError) || filesystemError)
+    {
+        error = "Completion manifest path already exists or cannot be inspected: " +
+            finalPath.string();
+        return false;
+    }
+
+    std::ofstream output(temporaryPath, std::ios::binary | std::ios::trunc);
+    output << manifest.str();
+    output.flush();
+    if (!output)
+    {
+        output.close();
+        std::error_code cleanupError;
+        std::filesystem::remove(temporaryPath, cleanupError);
+        error = "Could not write temporary capture manifest: " + temporaryPath.string();
+        return false;
+    }
+    output.close();
+
+    std::filesystem::rename(temporaryPath, finalPath, filesystemError);
+    if (filesystemError)
+    {
+        std::error_code cleanupError;
+        std::filesystem::remove(temporaryPath, cleanupError);
+        error = "Could not publish capture completion manifest '" +
+            finalPath.string() + "': " + filesystemError.message();
+        return false;
+    }
+    return true;
 }
 
 std::vector<card_data::Card> sampleCardLibrary()

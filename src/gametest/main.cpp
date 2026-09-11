@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <memory>
 #include <optional>
 #include <random>
 #include <string>
@@ -23,6 +24,7 @@
 #include "../shared/game_data.hpp"
 #include "../shared/ranking.hpp"
 #include "../gameserver/game_engine.hpp"
+#include "../gameserver/game_action.hpp"
 #include "../gameserver/ai_player.hpp"
 #include "../client/client_clock_warning.hpp"
 
@@ -454,6 +456,49 @@ int main(int argc, char** argv)
     ActionProfile dematerializedAction = materializedAction;
     dematerializedAction.state = 1;
     dematerializeUnitCard.actions = {materializedAction, dematerializedAction};
+
+    GameCard largeScenarioCard = revealUnitCard;
+    largeScenarioCard.title = "Large Scenario Piece";
+    largeScenarioCard.width = 2;
+    largeScenarioCard.height = 2;
+    GameEngine scenarioGeometryEngine(40, {});
+    check(
+        scenarioGeometryEngine.loadScenario(
+            {{1, largeScenarioCard, 6, 6, false}},
+            {}, {}, 0, 0, 1, "Valid scenario geometry", false) &&
+            scenarioGeometryEngine.boardPieces().size() == 1,
+        "scenario loading accepts a complete 2x2 footprint at the board edge");
+    const int preservedScenarioPieceId =
+        scenarioGeometryEngine.boardPieces().empty()
+            ? 0
+            : scenarioGeometryEngine.boardPieces().front().id;
+    const auto preservedScenarioState = [&]() {
+        return scenarioGeometryEngine.boardPieces().size() == 1 &&
+            scenarioGeometryEngine.boardPieces().front().id ==
+                preservedScenarioPieceId &&
+            scenarioGeometryEngine.boardPieces().front().row == 6 &&
+            scenarioGeometryEngine.boardPieces().front().column == 6;
+    };
+    check(
+        !scenarioGeometryEngine.loadScenario(
+            {{1, largeScenarioCard, 7, 7, false}},
+            {}, {}, 0, 0, 1, "Off-board geometry", false) &&
+            preservedScenarioState(),
+        "scenario loading rejects an off-board full footprint atomically");
+    check(
+        !scenarioGeometryEngine.loadScenario(
+            {{1, largeScenarioCard, 3, 3, false},
+             {2, revealUnitCard, 4, 4, false}},
+            {}, {}, 0, 0, 1, "Overlapping geometry", false) &&
+            preservedScenarioState(),
+        "scenario loading rejects overlapping authored footprints atomically");
+    check(
+        !scenarioGeometryEngine.loadScenario(
+            {{3, revealUnitCard, 2, 2, false}},
+            {}, {}, 0, 0, 1, "Invalid owner", false) &&
+            preservedScenarioState(),
+        "scenario loading rejects an invalid owner atomically");
+
     GameEngine revealEngine(41, {});
     revealEngine.loadScenario(
         {{1, revealUnitCard, 3, 3, false},
@@ -509,8 +554,7 @@ int main(int argc, char** argv)
 
     GameEngine foresightEngine(77, {});
     foresightEngine.loadScenario(
-        {{1, foresightBoardUnit, 2, 2, false},
-         {1, foresightHero, 2, 4, true},
+        {{1, foresightHero, 2, 4, true},
          {2, opponentForesightUnit, 5, 5, false},
          {2, opponentHero, 6, 5, true}},
         {},
@@ -544,7 +588,7 @@ int main(int argc, char** argv)
               foresightEngine.playerState(1).drawPile.size() == 1 &&
               foresightEngine.playerState(1).resources ==
                   resourcesBeforeForesightDraw - DrawCardResourceCost,
-          "one owned non-Hero Foresight unit reveals two cards for each paid draw");
+          "one owned Foresight Hero reveals two cards for each paid draw");
     check(foresightEngine.snapshotFor(2).foresightChoices.empty(),
           "Foresight options are hidden from the opponent");
     if (foresightSnapshot.foresightChoices.size() == 2)
@@ -604,6 +648,79 @@ int main(int argc, char** argv)
     check(!ordinaryDrawEngine.drawCard(1) &&
               ordinaryDrawEngine.playerState(1).hand.size() == 3,
           "a player cannot draw without the required 50 Resources");
+
+    GameCard undefinedSpellTarget;
+    undefinedSpellTarget.title = "Undefined Spell Target";
+    undefinedSpellTarget.type = "Hero";
+    undefinedSpellTarget.health = 5;
+    GameCard hiddenCamp;
+    hiddenCamp.title = "Hidden Camp";
+    hiddenCamp.type = "Spell";
+    hiddenCamp.cost = 10;
+    GameCard resistanceCache = hiddenCamp;
+    resistanceCache.title = "Resistance Cache";
+    resistanceCache.cost = 30;
+    GameEngine undefinedSpellEngine(0x5350454cu, {});
+    undefinedSpellEngine.loadScenario(
+        {{1, undefinedSpellTarget, 7, 0, true},
+         {2, undefinedSpellTarget, 0, 7, true}},
+        {hiddenCamp, resistanceCache},
+        {},
+        25,
+        0,
+        1,
+        "Undefined spell test");
+    const auto undefinedSpellStateUnchanged = [&]() {
+        const auto& player = undefinedSpellEngine.playerState(1);
+        return player.resources == 25 && player.hand.size() == 2 &&
+            player.hand[0].title == "Hidden Camp" &&
+            player.hand[1].title == "Resistance Cache" &&
+            undefinedSpellEngine.currentPlayer() == 1 &&
+            undefinedSpellEngine.phase() == Phase::Playing;
+    };
+    check(
+        !undefinedSpellEngine.playCard(1, 0, 0, 7) &&
+            undefinedSpellStateUnchanged() &&
+            undefinedSpellEngine.snapshotFor(1).status ==
+                "This spell has no defined game effect and cannot be played.",
+        "an undefined spell aimed at an occupied square is rejected without spending, discarding, or ending the turn");
+    check(
+        !undefinedSpellEngine.playCard(1, 1, -1, -1) &&
+            undefinedSpellStateUnchanged() &&
+            undefinedSpellEngine.snapshotFor(1).status ==
+                "This spell has no defined game effect and cannot be played.",
+        "every undefined catalog spell fails closed before target validation and reports why");
+
+    GameEngine undefinedSpellWireEngine(0x5350454du, {});
+    undefinedSpellWireEngine.loadScenario(
+        {{1, undefinedSpellTarget, 7, 0, true},
+         {2, undefinedSpellTarget, 0, 7, true}},
+        {hiddenCamp},
+        {},
+        25,
+        0,
+        1,
+        "Undefined spell wire test");
+    conquest_data::BattleAction undefinedSpellAction;
+    undefinedSpellAction.sequence = 1;
+    undefinedSpellAction.playerNumber = 1;
+    undefinedSpellAction.actionType =
+        static_cast<std::uint8_t>(MessageType::PlayCard);
+    undefinedSpellAction.argumentOne = 0;
+    undefinedSpellAction.argumentTwo = 0;
+    undefinedSpellAction.argumentThree = 7;
+    std::string undefinedSpellWireError;
+    check(
+        !game_action::apply(
+            undefinedSpellWireEngine,
+            undefinedSpellAction,
+            &undefinedSpellWireError) &&
+            undefinedSpellWireError ==
+                "This spell has no defined game effect and cannot be played." &&
+            undefinedSpellWireEngine.playerState(1).resources == 25 &&
+            undefinedSpellWireEngine.playerState(1).hand.size() == 1 &&
+            undefinedSpellWireEngine.currentPlayer() == 1,
+        "the persisted tactical wire rejects an undefined spell with the authoritative reason and no mutation");
 
     GameCard actionEconomyHero;
     actionEconomyHero.title = "Action Economy Hero";
@@ -980,6 +1097,12 @@ int main(int argc, char** argv)
     check(controlTimeline[0].owner == 1 && controlTimeline[0].originalOwner == 2 &&
               controlTimeline[0].controlTurnsRemaining == 2,
           "control changes the active owner while retaining the original owner");
+    Piece reclaimedPiece = controlTimeline[0];
+    applyPieceControl(reclaimedPiece, 2, 3);
+    check(reclaimedPiece.owner == 2 && reclaimedPiece.originalOwner == 0 &&
+              reclaimedPiece.controlTurnsRemaining == 0 &&
+              pieceOriginalOwner(reclaimedPiece) == 2,
+          "an original owner reclaiming a controlled piece restores it permanently without corrupting ownership");
     Piece heroUnderControl = controlledPiece;
     heroUnderControl.isHero = true;
     applyPieceControl(heroUnderControl, 1, 2);
@@ -1108,6 +1231,42 @@ int main(int argc, char** argv)
               piecesAreAdjacent(pullPieces[0], pullPieces[1]),
           "pull draws a surviving target toward the attacker until adjacent");
 
+    Piece pullBlocker;
+    pullBlocker.id = 18;
+    pullBlocker.owner = 2;
+    pullBlocker.row = 3;
+    pullBlocker.column = 5;
+    std::vector<Piece> blockedPullPieces = {pullAttacker, pullTarget, pullBlocker};
+    const PullResult blockedPull = applyActionPull(
+        blockedPullPieces,
+        pullTarget.id,
+        pullAttacker.id);
+    check(blockedPull.movedSquares == 1 &&
+              blockedPullPieces[1].row == 3 && blockedPullPieces[1].column == 6 &&
+              blockedPullPieces[1].health == pullTarget.health,
+          "pull stops before an occupied square without collision damage");
+
+    Piece largePullAttacker = pullAttacker;
+    largePullAttacker.id = 19;
+    largePullAttacker.row = 2;
+    largePullAttacker.column = 2;
+    largePullAttacker.width = 2;
+    largePullAttacker.height = 2;
+    Piece largePullTarget = pullTarget;
+    largePullTarget.id = 20;
+    largePullTarget.row = 2;
+    largePullTarget.column = 6;
+    largePullTarget.width = 2;
+    largePullTarget.height = 2;
+    std::vector<Piece> largePullPieces = {largePullAttacker, largePullTarget};
+    const PullResult largePull = applyActionPull(
+        largePullPieces,
+        largePullTarget.id,
+        largePullAttacker.id);
+    check(largePull.movedSquares == 2 && largePullPieces[1].column == 4 &&
+              piecesAreAdjacent(largePullPieces[0], largePullPieces[1]),
+          "pull uses footprint edges for multi-square pieces");
+
     ActionProfile nonRangedPull = horizontal;
     nonRangedPull.pull = true;
     profilePiece.actions = {nonRangedPull};
@@ -1228,6 +1387,246 @@ int main(int argc, char** argv)
     check(!resolvePieceAction(healingPieces, holes, healingPieces[0], 3, 4).legal,
           "healing-only actions cannot target a friendly piece at maximum health");
 
+    ActionProfile constructHealingAction = healingAction;
+    constructHealingAction.targetFilter = {"construct"};
+    healer.actions = {constructHealingAction};
+    Piece woundedMechanical = woundedFriendly;
+    woundedMechanical.health = 2;
+    woundedMechanical.traits = {"Mechanical"};
+    woundedMechanical.keywords.clear();
+    std::vector<Piece> constructHealingPieces = {healer, woundedMechanical};
+    const ActionResolution constructHealingResult = resolvePieceAction(
+        constructHealingPieces,
+        holes,
+        constructHealingPieces[0],
+        woundedMechanical.row,
+        woundedMechanical.column,
+        false,
+        0);
+    check(constructHealingResult.legal && constructHealingResult.attacks &&
+              constructHealingResult.targetId == woundedMechanical.id &&
+              constructHealingResult.heal == constructHealingAction.heal,
+          "legacy construct healing filters target the canonical Mechanical trait");
+    const int mechanicalHealthBefore = constructHealingPieces[1].health;
+    applyActionHealing(
+        constructHealingPieces[1],
+        constructHealingResult.heal,
+        constructHealingResult.statusTurns);
+    check(constructHealingPieces[1].health == std::min(
+              constructHealingPieces[1].maxHealth,
+              mechanicalHealthBefore + constructHealingAction.heal),
+          "construct-filtered healing restores health to a Mechanical target");
+
+    Piece woundedNonMechanical = woundedMechanical;
+    woundedNonMechanical.traits = {"Fey"};
+    woundedNonMechanical.keywords = {"Construct"};
+    check(!resolvePieceAction(
+               {healer, woundedNonMechanical},
+               holes,
+               healer,
+               woundedNonMechanical.row,
+               woundedNonMechanical.column,
+               false,
+               0).legal,
+          "construct healing rejects a non-Mechanical target even if it has a Construct keyword");
+
+    // Briar Whisperthorn's two printed actions have the same adjacent-enemy
+    // target geometry. Binding Briars has the larger numeric impact, so the
+    // legacy automatic path selects it; an explicit selector must still let a
+    // player deliberately choose the lower-impact Thorn Strike.
+    GameCard briarChoiceCard;
+    briarChoiceCard.title = "Briar Whisperthorn";
+    briarChoiceCard.type = "Unit";
+    briarChoiceCard.health = 2;
+    ActionProfile thornStrike;
+    thornStrike.name = "Thorn Strike";
+    thornStrike.kind = static_cast<std::uint8_t>(ActionKind::Slide);
+    thornStrike.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
+    thornStrike.minRange = 1;
+    thornStrike.maxRange = 1;
+    thornStrike.damage = 1;
+    thornStrike.canMove = true;
+    thornStrike.canAttack = true;
+    ActionProfile bindingBriars;
+    bindingBriars.name = "Binding Briars";
+    bindingBriars.kind = static_cast<std::uint8_t>(ActionKind::Slide);
+    bindingBriars.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
+    bindingBriars.minRange = 1;
+    bindingBriars.maxRange = 1;
+    bindingBriars.statusTurns = 2;
+    bindingBriars.canAttack = true;
+    briarChoiceCard.actions = {thornStrike, bindingBriars};
+
+    GameCard briarChoiceTarget;
+    briarChoiceTarget.title = "Briar Choice Target";
+    briarChoiceTarget.type = "Unit";
+    briarChoiceTarget.health = 4;
+
+    Piece briarChoicePiece;
+    briarChoicePiece.id = 201;
+    briarChoicePiece.owner = 1;
+    briarChoicePiece.row = 3;
+    briarChoicePiece.column = 3;
+    briarChoicePiece.health = briarChoicePiece.maxHealth = 2;
+    briarChoicePiece.actions = briarChoiceCard.actions;
+    Piece briarChoiceTargetPiece;
+    briarChoiceTargetPiece.id = 202;
+    briarChoiceTargetPiece.owner = 2;
+    briarChoiceTargetPiece.row = 3;
+    briarChoiceTargetPiece.column = 4;
+    briarChoiceTargetPiece.health = briarChoiceTargetPiece.maxHealth = 4;
+    const std::vector<Piece> briarChoicePieces = {
+        briarChoicePiece,
+        briarChoiceTargetPiece};
+    const ActionResolution automaticBriarChoice = resolvePieceAction(
+        briarChoicePieces, holes, briarChoicePieces[0], 3, 4);
+    const ActionResolution explicitThornStrike = resolvePieceAction(
+        briarChoicePieces, holes, briarChoicePieces[0], 3, 4, false, 0);
+    const ActionResolution explicitBindingBriars = resolvePieceAction(
+        briarChoicePieces, holes, briarChoicePieces[0], 3, 4, false, 1);
+    check(
+        automaticBriarChoice.legal && automaticBriarChoice.actionIndex == 1 &&
+            automaticBriarChoice.statusTurns == 2,
+        "legacy overlapping-action resolution still chooses the highest-impact legal profile");
+    check(
+        explicitThornStrike.legal && explicitThornStrike.actionIndex == 0 &&
+            explicitThornStrike.damage == 1 && explicitThornStrike.statusTurns == 0,
+        "explicit profile zero deliberately selects Briar's lower-impact Thorn Strike");
+    check(
+        explicitBindingBriars.legal && explicitBindingBriars.actionIndex == 1 &&
+            explicitBindingBriars.damage == 0 && explicitBindingBriars.statusTurns == 2,
+        "explicit profile one deliberately selects Briar's Binding Briars");
+    check(
+        !resolvePieceAction(
+            briarChoicePieces, holes, briarChoicePieces[0], 3, 4, false, 2).legal &&
+            !resolvePieceAction(
+                briarChoicePieces, holes, briarChoicePieces[0], 3, 4, false, -2).legal,
+        "rule resolution rejects out-of-range and invalid negative action indices");
+
+    const auto loadBriarChoiceScenario = [&](GameEngine& engine) {
+        engine.loadScenario(
+            {{1, briarChoiceCard, 3, 3, false},
+             {2, briarChoiceTarget, 3, 4, false}},
+            {}, {}, 0, 0, 1, "Printed action choice test", false);
+    };
+    const auto scenarioPieceIdNamed = [](const GameEngine& engine, const std::string& name) {
+        const auto found = std::find_if(
+            engine.boardPieces().begin(),
+            engine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == name; });
+        return found == engine.boardPieces().end() ? 0 : found->id;
+    };
+    const auto scenarioPieceNamed = [](const GameEngine& engine, const std::string& name) {
+        return std::find_if(
+            engine.boardPieces().begin(),
+            engine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == name; });
+    };
+
+    GameEngine explicitThornEngine(0x42524941u, {});
+    loadBriarChoiceScenario(explicitThornEngine);
+    const int explicitThornBriarId =
+        scenarioPieceIdNamed(explicitThornEngine, briarChoiceCard.title);
+    sf::Packet explicitThornPayload;
+    explicitThornPayload << explicitThornBriarId << 3 << 4
+                         << network::encodeActionProfileSelection(0);
+    conquest_data::BattleAction explicitThornAction;
+    std::string explicitThornError;
+    check(
+        game_action::decodePayload(
+            MessageType::AttackPiece,
+            explicitThornPayload,
+            1,
+            1,
+            explicitThornAction,
+            explicitThornError) &&
+            explicitThornAction.argumentFour ==
+                network::encodeActionProfileSelection(0) &&
+            game_action::apply(
+                explicitThornEngine, explicitThornAction, &explicitThornError),
+        "the tactical wire accepts and applies explicit printed action profile zero");
+    const auto thornTargetAfter =
+        scenarioPieceNamed(explicitThornEngine, briarChoiceTarget.title);
+    check(
+        thornTargetAfter != explicitThornEngine.boardPieces().end() &&
+            thornTargetAfter->health == 3 && thornTargetAfter->disabledTurns == 1,
+        "the server executes Thorn Strike's damage instead of Binding Briars' status");
+
+    GameEngine explicitBindingEngine(0x42524944u, {});
+    loadBriarChoiceScenario(explicitBindingEngine);
+    const int explicitBindingBriarId =
+        scenarioPieceIdNamed(explicitBindingEngine, briarChoiceCard.title);
+    check(
+        explicitBindingEngine.attackPiece(
+            1, explicitBindingBriarId, 3, 4, 1),
+        "the engine accepts explicit printed action profile one as a raw zero-based index");
+    const auto bindingTargetAfter =
+        scenarioPieceNamed(explicitBindingEngine, briarChoiceTarget.title);
+    check(
+        bindingTargetAfter != explicitBindingEngine.boardPieces().end() &&
+            bindingTargetAfter->health == 4 && bindingTargetAfter->disabledTurns == 2,
+        "the server deliberately executes Binding Briars when profile one is selected");
+
+    GameEngine legacyBriarEngine(0x42524942u, {});
+    loadBriarChoiceScenario(legacyBriarEngine);
+    sf::Packet legacyBriarPayload;
+    legacyBriarPayload
+        << scenarioPieceIdNamed(legacyBriarEngine, briarChoiceCard.title) << 3 << 4;
+    conquest_data::BattleAction legacyBriarAction;
+    std::string legacyBriarError;
+    check(
+        game_action::decodePayload(
+            MessageType::AttackPiece,
+            legacyBriarPayload,
+            1,
+            1,
+            legacyBriarAction,
+            legacyBriarError) &&
+            legacyBriarAction.argumentFour ==
+                network::AutomaticActionProfileSelection &&
+            game_action::apply(
+                legacyBriarEngine, legacyBriarAction, &legacyBriarError),
+        "legacy three-operand tactical packets retain automatic action selection");
+    const auto legacyTargetAfter =
+        scenarioPieceNamed(legacyBriarEngine, briarChoiceTarget.title);
+    check(
+        legacyTargetAfter != legacyBriarEngine.boardPieces().end() &&
+            legacyTargetAfter->health == 4 && legacyTargetAfter->disabledTurns == 2,
+        "the legacy automatic path still executes Binding Briars");
+
+    GameEngine invalidBriarEngine(0x42524943u, {});
+    loadBriarChoiceScenario(invalidBriarEngine);
+    conquest_data::BattleAction invalidBriarAction;
+    invalidBriarAction.sequence = 1;
+    invalidBriarAction.playerNumber = 1;
+    invalidBriarAction.actionType =
+        static_cast<std::uint8_t>(MessageType::AttackPiece);
+    invalidBriarAction.argumentOne =
+        scenarioPieceIdNamed(invalidBriarEngine, briarChoiceCard.title);
+    invalidBriarAction.argumentTwo = 3;
+    invalidBriarAction.argumentThree = 4;
+    invalidBriarAction.argumentFour = network::encodeActionProfileSelection(2);
+    std::string invalidBriarError;
+    check(
+        !game_action::apply(
+            invalidBriarEngine, invalidBriarAction, &invalidBriarError) &&
+            scenarioPieceNamed(invalidBriarEngine, briarChoiceTarget.title)->health == 4 &&
+            !invalidBriarEngine.playerState(1).pieceActionUsedThisTurn,
+        "the server rejects an out-of-range explicit action index without mutating the turn");
+    sf::Packet negativeBriarPayload;
+    negativeBriarPayload
+        << invalidBriarAction.argumentOne << 3 << 4 << -1;
+    conquest_data::BattleAction negativeBriarAction;
+    check(
+        !game_action::decodePayload(
+            MessageType::AttackPiece,
+            negativeBriarPayload,
+            1,
+            1,
+            negativeBriarAction,
+            invalidBriarError),
+        "the tactical decoder rejects a negative encoded action-profile selection");
+
     raisedGun.maxRange = 3;
     raisedGun.lineOfSight = false;
     gunner.actions = {raisedGun};
@@ -1330,6 +1729,133 @@ int main(int argc, char** argv)
               bodyguardPieces[3].health == healthBeforeBodyguardHit[2],
           "damage dealt to a Bodyguard is not redirected to adjacent Bodyguards");
 
+    Piece statusProtected = protectedPiece;
+    statusProtected.id = 36;
+    Piece statusBodyguard = makeBodyguard(37, 2, 2, 3);
+    std::vector<Piece> statusBodyguardPieces = {statusProtected, statusBodyguard};
+    std::mt19937 statusBodyguardRandom(29);
+    const DamageResolution statusBodyguardResolution =
+        resolveDamageWithBodyguardsAndIntercepts(
+            statusBodyguardPieces,
+            statusProtected.id,
+            3,
+            2,
+            statusBodyguardRandom,
+            true);
+    check(statusBodyguardResolution.effectiveTargetId == statusProtected.id &&
+              statusBodyguardResolution.assignments.size() == 1 &&
+              statusBodyguardResolution.assignments[0].pieceId == statusBodyguard.id &&
+              statusBodyguardPieces[0].health == 10 &&
+              statusBodyguardPieces[0].disabledTurns == 0 &&
+              statusBodyguardPieces[1].health == 7 &&
+              statusBodyguardPieces[1].disabledTurns == 2,
+          "Bodyguard redirects damage and its explicit Disable without retargeting the action");
+
+    Piece statusOnlyProtected = protectedPiece;
+    statusOnlyProtected.id = 38;
+    Piece statusOnlyBodyguard = makeBodyguard(39, 2, 2, 3);
+    std::vector<Piece> statusOnlyBodyguardPieces = {
+        statusOnlyProtected, statusOnlyBodyguard};
+    std::mt19937 statusOnlyBodyguardRandom(30);
+    const DamageResolution statusOnlyBodyguardResolution =
+        resolveDamageWithBodyguardsAndIntercepts(
+            statusOnlyBodyguardPieces,
+            statusOnlyProtected.id,
+            0,
+            2,
+            statusOnlyBodyguardRandom,
+            true);
+    check(statusOnlyBodyguardResolution.effectiveTargetId == statusOnlyProtected.id &&
+              statusOnlyBodyguardResolution.assignments.size() == 1 &&
+              statusOnlyBodyguardResolution.assignments[0].pieceId ==
+                  statusOnlyProtected.id &&
+              statusOnlyBodyguardPieces[0].health == 10 &&
+              statusOnlyBodyguardPieces[0].disabledTurns == 2 &&
+              statusOnlyBodyguardPieces[1].health == 10 &&
+              statusOnlyBodyguardPieces[1].disabledTurns == 0,
+          "zero-damage Disable stays on the selected target beside Bodyguard");
+
+    card_data::Card compositeAttackerCard;
+    compositeAttackerCard.title = "Bodyguard Composite Attacker";
+    compositeAttackerCard.type = "Unit";
+    compositeAttackerCard.integerValues = {{"health", 5}};
+    card_data::Action compositeAttack;
+    compositeAttack.name = "Bodyguard Composite Attack";
+    compositeAttack.kind = "ranged";
+    compositeAttack.pattern = "omni";
+    compositeAttack.minRange = 1;
+    compositeAttack.maxRange = 7;
+    compositeAttack.damage = 1;
+    compositeAttack.canAttack = true;
+    compositeAttack.statusTurns = 2;
+    compositeAttack.push = 1;
+    compositeAttack.pull = true;
+    compositeAttack.control = 2;
+    compositeAttack.infest = "Bodyguard Composite Infestation";
+    compositeAttackerCard.actions = {compositeAttack};
+
+    card_data::Card compositeTargetCard;
+    compositeTargetCard.title = "Bodyguard Composite Target";
+    compositeTargetCard.type = "Unit";
+    compositeTargetCard.integerValues = {{"health", 8}};
+    card_data::Card compositeBodyguardCard;
+    compositeBodyguardCard.title = "Bodyguard Composite Defender";
+    compositeBodyguardCard.type = "Unit";
+    compositeBodyguardCard.integerValues = {{"health", 4}};
+    compositeBodyguardCard.keywords = {"bodyguard"};
+    card_data::Card compositeInfestationCard;
+    compositeInfestationCard.title = "Bodyguard Composite Infestation";
+    compositeInfestationCard.type = "Unit";
+    compositeInfestationCard.integerValues = {{"health", 1}};
+    const std::vector<card_data::Card> compositeCatalog = {
+        compositeAttackerCard,
+        compositeTargetCard,
+        compositeBodyguardCard,
+        compositeInfestationCard};
+    GameEngine compositeBodyguardEngine(0x42474431u, compositeCatalog);
+    check(compositeBodyguardEngine.loadScenario(
+              {{1, toGameCard(compositeAttackerCard), 3, 0, false},
+               {2, toGameCard(compositeTargetCard), 3, 3, false},
+               {2, toGameCard(compositeBodyguardCard), 2, 3, false}},
+              {},
+              {},
+              0,
+              0,
+              1,
+              "Bodyguard secondary-effect targeting",
+              false),
+          "Bodyguard secondary-effect regression loads a legal composite action");
+    const auto compositePieceNamed = [&](const std::string& name) -> const Piece* {
+        const auto found = std::find_if(
+            compositeBodyguardEngine.boardPieces().begin(),
+            compositeBodyguardEngine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == name; });
+        return found == compositeBodyguardEngine.boardPieces().end() ? nullptr : &*found;
+    };
+    const Piece* compositeAttacker =
+        compositePieceNamed(compositeAttackerCard.title);
+    check(compositeAttacker != nullptr &&
+              compositeBodyguardEngine.attackPiece(
+                  1, compositeAttacker->id, 3, 3),
+          "a legal damaging action with Disable, Push, Pull, Infest, and Control resolves beside Bodyguard");
+    const Piece* compositeTarget = compositePieceNamed(compositeTargetCard.title);
+    const Piece* compositeBodyguard =
+        compositePieceNamed(compositeBodyguardCard.title);
+    check(compositeTarget != nullptr && compositeBodyguard != nullptr &&
+              compositeBodyguard->health == 3 &&
+              compositeBodyguard->disabledTurns == 2 &&
+              compositeBodyguard->row == 2 && compositeBodyguard->column == 3 &&
+              compositeBodyguard->owner == 2 &&
+              compositeBodyguard->infestationTitle.empty() &&
+              compositeTarget->health == 8 &&
+              compositeTarget->disabledTurns == 0 &&
+              compositeTarget->row == 3 && compositeTarget->column == 1 &&
+              compositeTarget->owner == 1 && compositeTarget->originalOwner == 2 &&
+              compositeTarget->controlTurnsRemaining == 2 &&
+              compositeTarget->infestationTitle == compositeInfestationCard.title &&
+              compositeTarget->infestationOwner == 1,
+           "Bodyguard takes damage and Disable while Push, Pull, Infest, and Control stay on the selected target");
+
     auto makeIntercept = [](int id, int owner, int row, int column) {
         Piece interceptor;
         interceptor.id = id;
@@ -1346,10 +1872,12 @@ int main(int argc, char** argv)
     Piece interceptA = makeIntercept(41, 2, 3, 2);
     Piece interceptB = makeIntercept(42, 2, 2, 3);
     std::vector<Piece> interceptPieces = {interceptTarget, interceptA, interceptB};
+    check(pieceFootprintsCanSwap(interceptPieces, interceptPieces[0], interceptPieces[1]),
+          "ordinary 1x1 Intercept pieces have a legal footprint swap");
     std::mt19937 interceptRandom(31);
     const DamageResolution interceptResolution =
         resolveDamageWithBodyguardsAndIntercepts(
-            interceptPieces, interceptTarget.id, 5, 0, interceptRandom, true);
+            interceptPieces, interceptTarget.id, 5, 2, interceptRandom, true);
     const auto chosenIntercept = std::find_if(
         interceptPieces.begin(),
         interceptPieces.end(),
@@ -1360,12 +1888,13 @@ int main(int argc, char** argv)
         [&](const Piece& piece) { return piece.id == interceptTarget.id; });
     check(interceptResolution.intercepted && interceptResolution.assignments.size() == 1 &&
               chosenIntercept != interceptPieces.end() && swappedTarget != interceptPieces.end() &&
-              chosenIntercept->health == 5 && chosenIntercept->interceptUsedThisTurn &&
-              swappedTarget->health == 10 && chosenIntercept->row == interceptTarget.row &&
+              chosenIntercept->health == 5 && chosenIntercept->disabledTurns == 2 &&
+              chosenIntercept->interceptUsedThisTurn && swappedTarget->health == 10 &&
+              chosenIntercept->row == interceptTarget.row &&
               chosenIntercept->column == interceptTarget.column &&
               swappedTarget->row == (chosenIntercept->id == interceptA.id ? interceptA.row : interceptB.row) &&
-              swappedTarget->column == (chosenIntercept->id == interceptA.id ? interceptA.column : interceptB.column),
-          "Intercept randomly swaps with the attacked piece and takes its damage");
+               swappedTarget->column == (chosenIntercept->id == interceptA.id ? interceptA.column : interceptB.column),
+           "Intercept randomly swaps with the attacked piece and takes its damage and status");
     const int unusedIntercepts = static_cast<int>(std::count_if(
         interceptPieces.begin(),
         interceptPieces.end(),
@@ -1374,6 +1903,106 @@ int main(int argc, char** argv)
         }));
     check(unusedIntercepts == 1,
           "only the chosen Intercept unit is spent for the turn");
+
+    Piece edgeMaggie = protectedPiece;
+    edgeMaggie.id = 54;
+    edgeMaggie.name = "Maggie";
+    edgeMaggie.row = 2;
+    edgeMaggie.column = 5;
+    edgeMaggie.width = 2;
+    edgeMaggie.height = 2;
+    Piece edgeJuniper = makeIntercept(55, 2, 2, 7);
+    edgeJuniper.name = "Juniper";
+    std::vector<Piece> edgeInterceptPieces = {edgeMaggie, edgeJuniper};
+    check(piecesAreAdjacent(edgeInterceptPieces[0], edgeInterceptPieces[1]) &&
+              !pieceFootprintsCanSwap(
+                  edgeInterceptPieces, edgeInterceptPieces[0], edgeInterceptPieces[1]),
+          "Intercept rejects an adjacent swap that would put Maggie's 2x2 footprint off-board");
+    std::mt19937 edgeInterceptRandom(36);
+    const DamageResolution edgeInterceptResolution =
+        resolveDamageWithBodyguardsAndIntercepts(
+            edgeInterceptPieces, edgeMaggie.id, 5, 0, edgeInterceptRandom, true);
+    check(!edgeInterceptResolution.intercepted &&
+              edgeInterceptResolution.effectiveTargetId == edgeMaggie.id &&
+              edgeInterceptPieces[0].row == edgeMaggie.row &&
+              edgeInterceptPieces[0].column == edgeMaggie.column &&
+              edgeInterceptPieces[0].health == 5 &&
+              edgeInterceptPieces[1].row == edgeJuniper.row &&
+              edgeInterceptPieces[1].column == edgeJuniper.column &&
+              edgeInterceptPieces[1].health == 10 &&
+              !edgeInterceptPieces[1].interceptUsedThisTurn,
+          "an off-board 2x2 Intercept swap is skipped and the original target takes damage");
+
+    Piece obstacleMaggie = protectedPiece;
+    obstacleMaggie.id = 56;
+    obstacleMaggie.name = "Maggie";
+    obstacleMaggie.row = 2;
+    obstacleMaggie.column = 2;
+    obstacleMaggie.width = 2;
+    obstacleMaggie.height = 2;
+    Piece obstacleJuniper = makeIntercept(57, 2, 2, 4);
+    obstacleJuniper.name = "Juniper";
+    Piece interceptObstacle;
+    interceptObstacle.id = 58;
+    interceptObstacle.owner = 1;
+    interceptObstacle.row = 3;
+    interceptObstacle.column = 5;
+    std::vector<Piece> obstacleInterceptPieces = {
+        obstacleMaggie, obstacleJuniper, interceptObstacle};
+    check(piecesAreAdjacent(obstacleInterceptPieces[0], obstacleInterceptPieces[1]) &&
+              !pieceFootprintsCanSwap(
+                  obstacleInterceptPieces,
+                  obstacleInterceptPieces[0],
+                  obstacleInterceptPieces[1]),
+          "Intercept rejects a swap when Maggie's destination footprint overlaps another piece");
+    std::mt19937 obstacleInterceptRandom(37);
+    const DamageResolution obstacleInterceptResolution =
+        resolveDamageWithBodyguardsAndIntercepts(
+            obstacleInterceptPieces,
+            obstacleMaggie.id,
+            5,
+            0,
+            obstacleInterceptRandom,
+            true);
+    check(!obstacleInterceptResolution.intercepted &&
+              obstacleInterceptResolution.effectiveTargetId == obstacleMaggie.id &&
+              obstacleInterceptPieces[0].health == 5 &&
+              obstacleInterceptPieces[0].row == obstacleMaggie.row &&
+              obstacleInterceptPieces[0].column == obstacleMaggie.column &&
+              obstacleInterceptPieces[1].health == 10 &&
+              !obstacleInterceptPieces[1].interceptUsedThisTurn,
+          "an obstacle-blocked Intercept swap leaves both pieces in place and damages Maggie");
+
+    Piece overlapMaggie = obstacleMaggie;
+    overlapMaggie.id = 59;
+    Piece overlapJuniper = makeIntercept(60, 2, 1, 2);
+    std::vector<Piece> overlapInterceptPieces = {overlapMaggie, overlapJuniper};
+    check(piecesAreAdjacent(overlapInterceptPieces[0], overlapInterceptPieces[1]) &&
+              !pieceFootprintsCanSwap(
+                  overlapInterceptPieces,
+                  overlapInterceptPieces[0],
+                  overlapInterceptPieces[1]),
+          "Intercept rejects a swap whose two resulting footprints would overlap each other");
+
+    Piece mixedValidJuniper = makeIntercept(61, 2, 4, 5);
+    std::vector<Piece> mixedInterceptPieces = {
+        edgeMaggie, edgeJuniper, mixedValidJuniper};
+    std::mt19937 mixedInterceptRandom(38);
+    const DamageResolution mixedInterceptResolution =
+        resolveDamageWithBodyguardsAndIntercepts(
+            mixedInterceptPieces, edgeMaggie.id, 5, 0, mixedInterceptRandom, true);
+    check(mixedInterceptResolution.intercepted &&
+              mixedInterceptResolution.effectiveTargetId == mixedValidJuniper.id &&
+              mixedInterceptPieces[0].row == mixedValidJuniper.row &&
+              mixedInterceptPieces[0].column == mixedValidJuniper.column &&
+              mixedInterceptPieces[1].row == edgeJuniper.row &&
+              mixedInterceptPieces[1].column == edgeJuniper.column &&
+              !mixedInterceptPieces[1].interceptUsedThisTurn &&
+              mixedInterceptPieces[2].row == edgeMaggie.row &&
+              mixedInterceptPieces[2].column == edgeMaggie.column &&
+              mixedInterceptPieces[2].health == 5 &&
+              mixedInterceptPieces[2].interceptUsedThisTurn,
+           "Intercept randomly selects only footprint-safe candidates when an illegal option is adjacent");
 
     Piece exhaustedTarget = protectedPiece;
     exhaustedTarget.id = 43;
@@ -1426,6 +2055,18 @@ int main(int argc, char** argv)
                   blockedPieces[1].column == 2,
               blockedKeyword + " targets cannot be intercepted");
     }
+
+    Piece spellTarget = protectedPiece;
+    spellTarget.id = 52;
+    Piece spellInterceptor = makeIntercept(53, 2, 3, 2);
+    std::vector<Piece> spellPieces = {spellTarget, spellInterceptor};
+    std::mt19937 spellRandom(35);
+    const std::vector<DamageAssignment> spellAssignments =
+        applyDamageWithBodyguards(spellPieces, spellTarget.id, 4, 0, spellRandom);
+    check(spellAssignments.size() == 1 && spellAssignments[0].pieceId == spellTarget.id &&
+              spellPieces[0].health == 6 && spellPieces[1].health == 10 &&
+              !spellPieces[1].interceptUsedThisTurn,
+           "damage spells do not trigger Intercept");
 
     card_data::Card interceptAttackerCard;
     interceptAttackerCard.title = "Intercept Test Attacker";
@@ -1561,6 +2202,7 @@ int main(int argc, char** argv)
               roundTrippedDefinition.actionNames == encodedCard.actionNames &&
               roundTrippedDefinition.actionDisplayNames == encodedCard.actionDisplayNames &&
               roundTrippedDefinition.actions[0].repeat == 2 &&
+              roundTrippedDefinition.actions[0].pull &&
               game_data::cardDeckLimit(roundTrippedDefinition) == 3,
           "card serialization preserves Deck Limit and per-card action display names");
 
@@ -1581,7 +2223,7 @@ int main(int argc, char** argv)
               roundTrippedAction.infest == encodedHealingAction.infest &&
               roundTrippedAction.pull == encodedHealingAction.pull &&
               roundTrippedAction.targetFilter == encodedHealingAction.targetFilter,
-          "card-server action serialization keeps healing, push, repeat, target-filter, and infest data");
+          "schema-11 action serialization keeps healing, push, repeat, target-filter, infest, and Pull data");
 
     sf::Packet legacyCardListPacket;
     legacyCardListPacket << static_cast<std::uint32_t>(1);
@@ -1625,7 +2267,32 @@ int main(int argc, char** argv)
               currentCardCount == 3 && !currentCardFormatIsLegacy &&
               currentActionsIncludeNextState && currentActionsIncludeControl && currentActionsIncludeRepeat &&
               currentActionsIncludeInfest && currentActionsIncludePull,
-          "versioned card-list headers select the traits-and-keywords format");
+          "schema-11 card-list headers advertise every serialized action extension");
+
+    sf::Packet schemaTenCardListHeader;
+    schemaTenCardListHeader << card_data::CardListSchemaMarker << static_cast<std::uint32_t>(10)
+                            << static_cast<std::uint32_t>(0);
+    std::uint32_t schemaTenCardCount = 1;
+    bool schemaTenLegacy = true;
+    bool schemaTenIncludesNextState = false;
+    bool schemaTenIncludesControl = false;
+    bool schemaTenIncludesRepeat = false;
+    bool schemaTenIncludesInfest = false;
+    bool schemaTenIncludesPull = true;
+    check(card_data::readCardListHeader(
+              schemaTenCardListHeader,
+              schemaTenCardCount,
+              schemaTenLegacy,
+              &schemaTenIncludesNextState,
+              &schemaTenIncludesControl,
+              &schemaTenIncludesRepeat,
+              &schemaTenIncludesInfest,
+              &schemaTenIncludesPull) &&
+              schemaTenCardCount == 0 && !schemaTenLegacy &&
+              schemaTenIncludesNextState && schemaTenIncludesControl &&
+              schemaTenIncludesRepeat && schemaTenIncludesInfest &&
+              !schemaTenIncludesPull,
+           "schema-10 card lists remain readable with Pull defaulting off");
 
     sf::Packet previousCardListHeader;
     previousCardListHeader << card_data::CardListSchemaMarker << static_cast<std::uint32_t>(6)
@@ -2282,6 +2949,10 @@ int main(int argc, char** argv)
     plainHeroCard.title = "Plain Hero";
     plainHeroCard.type = "Hero";
     plainHeroCard.integerValues = {{"health", 4}};
+    card_data::Card largeHeroCard;
+    largeHeroCard.title = "Large Hero";
+    largeHeroCard.type = "Hero";
+    largeHeroCard.integerValues = {{"health", 8}, {"width", 2}, {"height", 2}};
 
     card_data::Card repeatHeroCard;
     repeatHeroCard.title = "Repeat Hero";
@@ -2354,18 +3025,23 @@ int main(int argc, char** argv)
               repeatEngine.currentPlayer() == 1,
           "a pending repeat prevents substituting an ability for the repeated action");
 
+    const bool drawAcceptedDuringRepeat = repeatEngine.drawCard(1);
+    check(!drawAcceptedDuringRepeat &&
+              repeatEngine.snapshotFor(1).status.find("repeatable action") != std::string::npos &&
+              repeatEngine.boardPieces()[0].repeatActionIndex >= 0,
+          "a pending repeat prevents a paid draw before checking hand or deck availability");
     const bool discardedDuringRepeat = repeatEngine.discardCard(1, 0);
     const bool resumedRepeat = repeatEngine.attackPiece(
         1,
         repeatAttackerId,
         repeatTargetRow,
         repeatTargetColumn);
-    check(discardedDuringRepeat && resumedRepeat &&
-              repeatEngine.snapshotFor(1).players[0].discardsThisTurn == 1 &&
+    check(!discardedDuringRepeat && resumedRepeat &&
+              repeatEngine.snapshotFor(1).players[0].discardsThisTurn == 0 &&
               repeatEngine.boardPieces()[2].health == repeatTargetHealth - 2 &&
               repeatEngine.boardPieces()[0].repeatActionUses == 1 &&
               repeatEngine.currentPlayer() == 1,
-          "one discard is allowed during a repeat and does not interrupt it");
+          "a pending repeat prevents discarding and remains ready to continue");
     check(repeatEngine.endTurn(1) && repeatEngine.currentPlayer() == 2,
           "the player can pass early before using all repeats");
 
@@ -2392,6 +3068,44 @@ int main(int argc, char** argv)
               exhaustedRepeatEngine.endTurn(1) &&
               exhaustedRepeatEngine.currentPlayer() == 2,
           "repeat actions stay in the turn until the player explicitly ends it");
+
+    GameEngine largeAiPlacementEngine(20, {plainHeroCard, largeHeroCard});
+    largeAiPlacementEngine.submitDeck(1, {plainHeroCard});
+    largeAiPlacementEngine.submitDeck(2, {largeHeroCard, plainHeroCard});
+    const auto aiPlacementHome = homeSquares(1)[0];
+    const bool playerHeroPlaced = largeAiPlacementEngine.placeHero(
+        1, 0, aiPlacementHome.first, aiPlacementHome.second);
+    placeAiHeroes(largeAiPlacementEngine, 2);
+    std::array<int, BoardSquares> aiPlacementOccupancy{};
+    const auto aiPlayerHome = homeSquares(2);
+    bool aiFootprintsValid = true;
+    int aiHeroCount = 0;
+    bool foundLargeAiHero = false;
+    for (const Piece& piece : largeAiPlacementEngine.boardPieces())
+    {
+        if (piece.owner != 2)
+        {
+            continue;
+        }
+        ++aiHeroCount;
+        foundLargeAiHero = foundLargeAiHero ||
+            (piece.name == "Large Hero" && piece.width == 2 && piece.height == 2);
+        for (int row = piece.row; row < piece.row + piece.height; ++row)
+        {
+            for (int column = piece.column; column < piece.column + piece.width; ++column)
+            {
+                const int index = squareIndex(row, column);
+                aiFootprintsValid = aiFootprintsValid && inBounds(row, column) &&
+                    std::find(aiPlayerHome.begin(), aiPlayerHome.end(),
+                              std::pair<int, int>{row, column}) != aiPlayerHome.end() &&
+                    ++aiPlacementOccupancy[static_cast<std::size_t>(index)] == 1;
+            }
+        }
+    }
+    check(playerHeroPlaced && largeAiPlacementEngine.phase() == Phase::Playing &&
+              largeAiPlacementEngine.playerState(2).heroesToPlace.empty() &&
+              aiHeroCount == 2 && foundLargeAiHero && aiFootprintsValid,
+          "AI hero placement fits a multi-square hero and the remaining roster on legal non-overlapping home squares");
 
     GameEngine placementTimerEngine(12, {plainHeroCard});
     placementTimerEngine.enableTimers();
@@ -2751,7 +3465,7 @@ int main(int argc, char** argv)
               pullAttackerId,
               pullVictimHome.first,
               pullVictimHome.second),
-          "authoritative ranged pull attack is accepted");
+          "authoritative ranged Pull attack is accepted");
     const auto pulledVictim = std::find_if(
         pullEngine.boardPieces().begin(),
         pullEngine.boardPieces().end(),
@@ -2762,7 +3476,41 @@ int main(int argc, char** argv)
               pulledVictim->column == pullAttackerHome.second + 1 &&
               piecesAreAdjacent(pullEngine.boardPieces().front(), *pulledVictim) &&
               pullEngine.snapshotFor(1).status.find("pulled targets 6 square(s)") != std::string::npos,
-          "authoritative ranged pull places the surviving enemy adjacent to its attacker");
+          "authoritative ranged Pull places a surviving enemy adjacent to its attacker");
+
+    GameEngine pullInterceptEngine(34, {});
+    pullInterceptEngine.loadScenario(
+        {{1, toGameCard(pullHeroCard), 3, 0, false},
+         {2, toGameCard(interceptVictimCard), 3, 5, false},
+         {2, toGameCard(interceptDefenderCard), 2, 5, false}},
+        {},
+        {},
+        0,
+        0,
+        1,
+        "Pull and Intercept test");
+    const auto pullInterceptPieceByName = [&](const std::string& name) -> const Piece* {
+        const auto found = std::find_if(
+            pullInterceptEngine.boardPieces().begin(),
+            pullInterceptEngine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == name; });
+        return found == pullInterceptEngine.boardPieces().end() ? nullptr : &*found;
+    };
+    const Piece* pullInterceptAttacker = pullInterceptPieceByName("Pull Hero");
+    check(pullInterceptAttacker != nullptr &&
+              pullInterceptEngine.attackPiece(1, pullInterceptAttacker->id, 3, 5),
+          "a ranged Pull attack resolves through an adjacent Intercept defender");
+    const Piece* pullInterceptVictim =
+        pullInterceptPieceByName("Intercept Test Victim");
+    const Piece* pulledInterceptor =
+        pullInterceptPieceByName("Intercept Test Defender");
+    check(pullInterceptVictim != nullptr && pulledInterceptor != nullptr &&
+              pullInterceptVictim->health == 10 && pullInterceptVictim->row == 2 &&
+              pullInterceptVictim->column == 5 && pulledInterceptor->health == 9 &&
+              pulledInterceptor->row == 3 && pulledInterceptor->column == 1 &&
+              pulledInterceptor->interceptUsedThisTurn &&
+              piecesAreAdjacent(*pullInterceptAttacker, *pulledInterceptor),
+           "Pull follows the swapped-in Intercept unit instead of the originally selected target");
 
     card_data::Card controlHeroCard;
     controlHeroCard.title = "Control Hero";
@@ -2839,6 +3587,8 @@ int main(int argc, char** argv)
     check(controlledVictim != controlEngine.boardPieces().end() &&
               controlledVictim->owner == 1 && controlledVictim->controlTurnsRemaining == 0,
           "authoritative control lasts through its final controlled turn");
+    const int resourcesBeforeControlRestoration =
+        controlEngine.playerState(2).resources;
     controlEngine.endTurn(1);
     controlledVictim = std::find_if(
         controlEngine.boardPieces().begin(), controlEngine.boardPieces().end(),
@@ -2846,6 +3596,12 @@ int main(int argc, char** argv)
     check(controlledVictim != controlEngine.boardPieces().end() &&
               controlledVictim->owner == 2 && controlledVictim->originalOwner == 0,
           "authoritative control restores the original owner on schedule");
+    check(controlEngine.boardControl()[static_cast<std::size_t>(
+              controlVictimHome.first * BoardSize + controlVictimHome.second)] == 2,
+          "turn-start restoration immediately recomputes the restored piece's occupied square");
+    check(controlEngine.playerState(2).resources - resourcesBeforeControlRestoration ==
+              controlEngine.controlledSquares(2),
+          "turn-start income uses control recomputed after original ownership is restored");
     card_data::Card gatherHeroCard;
     gatherHeroCard.title = "Gather Hero";
     gatherHeroCard.type = "Hero";
@@ -3004,6 +3760,21 @@ int main(int argc, char** argv)
         commandEngine.useAbility(1, commanderId);
         check(commandEngine.currentPlayer() == 1 && commandEngine.commandingPiece() == commanderId,
               "using Command keeps the turn and waits for an adjacent friendly action");
+        const bool commandDrawAccepted = commandEngine.drawCard(1);
+        const bool commandDrawExplained =
+            commandEngine.snapshotFor(1).status.find("Resolve Command") != std::string::npos;
+        const bool commandDiscardAccepted = commandEngine.discardCard(1, 0);
+        const bool commandDiscardExplained =
+            commandEngine.snapshotFor(1).status.find("Resolve Command") != std::string::npos;
+        const bool commandCardAccepted = commandEngine.playCard(1, 0, -1, -1);
+        const bool commandCardExplained =
+            commandEngine.snapshotFor(1).status.find("Resolve Command") != std::string::npos;
+        check(
+            !commandDrawAccepted && commandDrawExplained &&
+                !commandDiscardAccepted && commandDiscardExplained &&
+                !commandCardAccepted && commandCardExplained &&
+                commandEngine.commandingPiece() == commanderId,
+            "Command remains immediate and blocks draws, discards, and card plays until resolved or passed");
         const Piece* testEnemyBefore = boardPieceNamed("Enemy Hero");
         const int enemyHealthBefore = testEnemyBefore ? testEnemyBefore->health : 0;
         commandEngine.attackPiece(1, commandedId, player2Home[1].first, player2Home[1].second);
@@ -3106,6 +3877,22 @@ int main(int argc, char** argv)
                   readyRelentless && !readyRelentless->hasActed &&
                   relentlessPieceNamed(relentlessEngine, "Relentless Victim A") == nullptr,
               "a case-insensitive Relentless kill readies that piece without ending the turn");
+
+        const bool relentlessDrawAccepted = relentlessEngine.drawCard(1);
+        const bool relentlessDrawExplained =
+            relentlessEngine.snapshotFor(1).status.find("Relentless") != std::string::npos;
+        const bool relentlessDiscardAccepted = relentlessEngine.discardCard(1, 0);
+        const bool relentlessDiscardExplained =
+            relentlessEngine.snapshotFor(1).status.find("Relentless") != std::string::npos;
+        const bool relentlessCardAccepted = relentlessEngine.playCard(1, 0, -1, -1);
+        const bool relentlessCardExplained =
+            relentlessEngine.snapshotFor(1).status.find("Relentless") != std::string::npos;
+        check(
+            !relentlessDrawAccepted && relentlessDrawExplained &&
+                !relentlessDiscardAccepted && relentlessDiscardExplained &&
+                !relentlessCardAccepted && relentlessCardExplained &&
+                relentlessEngine.relentlessPiece() == attackerId,
+            "Relentless remains immediate and blocks draws, discards, and card plays until resolved or passed");
 
         GameEngine relentlessMoveBranch = relentlessEngine;
         relentlessMoveBranch.movePiece(
@@ -3265,7 +4052,7 @@ int main(int argc, char** argv)
         resolvePieceActionThroughHidden(hiddenPieces, flatBoard, hiddenPieces[0], 3, 6);
     check(hiddenStrike.action.legal && hiddenStrike.action.attacks &&
               hiddenStrike.action.targetId == lurker.id &&
-              hiddenStrike.revealedPieceId == lurker.id &&
+              hiddenStrike.revealedPieceIds == std::vector<int>{lurker.id} &&
               hiddenStrike.destinationRow == 3 && hiddenStrike.destinationColumn == 4 &&
               hiddenStrike.action.stagingRow == 3 && hiddenStrike.action.stagingColumn == 3,
           "attacking move through a hidden piece strikes it and stages just short of it");
@@ -3277,9 +4064,77 @@ int main(int argc, char** argv)
     const PieceActionOutcome hiddenBump =
         resolvePieceActionThroughHidden(walkerPieces, flatBoard, walkerPieces[0], 3, 6);
     check(hiddenBump.action.legal && !hiddenBump.action.attacks && hiddenBump.action.moves &&
-              hiddenBump.revealedPieceId == lurker.id &&
+              hiddenBump.revealedPieceIds == std::vector<int>{lurker.id} &&
               hiddenBump.destinationRow == 3 && hiddenBump.destinationColumn == 3,
           "non-attacking move halts just short of a hidden piece without damage");
+
+    Piece deliberateWalker = charger;
+    ActionProfile deliberateWalk = chargeAttack;
+    deliberateWalk.name = "Walk";
+    deliberateWalk.damage = 0;
+    deliberateWalk.canAttack = false;
+    ActionProfile deliberateCharge = chargeAttack;
+    deliberateCharge.name = "Charge";
+    deliberateWalker.actions = {deliberateWalk, deliberateCharge};
+    const std::vector<Piece> deliberateHiddenPieces = {deliberateWalker, lurker};
+    const PieceActionOutcome deliberateHiddenBump = resolvePieceActionThroughHidden(
+        deliberateHiddenPieces, flatBoard, deliberateHiddenPieces[0], 3, 6, 0);
+    const PieceActionOutcome deliberateHiddenStrike = resolvePieceActionThroughHidden(
+        deliberateHiddenPieces, flatBoard, deliberateHiddenPieces[0], 3, 6, 1);
+    check(
+        deliberateHiddenBump.action.legal &&
+            deliberateHiddenBump.action.actionIndex == 0 &&
+            !deliberateHiddenBump.action.attacks &&
+            deliberateHiddenBump.destinationColumn == 3 &&
+            deliberateHiddenStrike.action.legal &&
+            deliberateHiddenStrike.action.actionIndex == 1 &&
+            deliberateHiddenStrike.action.attacks &&
+            deliberateHiddenStrike.action.targetId == lurker.id,
+        "a hidden collision preserves the exact printed movement or attack profile the player selected");
+
+    Piece largeCharger = charger;
+    largeCharger.id = 37;
+    largeCharger.row = 3;
+    largeCharger.column = 2;
+    largeCharger.width = 2;
+    largeCharger.height = 2;
+    Piece northEdgeLurker = lurker;
+    northEdgeLurker.id = 38;
+    northEdgeLurker.row = 3;
+    northEdgeLurker.column = 4;
+    Piece southEdgeLurker = lurker;
+    southEdgeLurker.id = 39;
+    southEdgeLurker.row = 4;
+    southEdgeLurker.column = 4;
+    const std::vector<Piece> largeHiddenPieces = {
+        largeCharger, northEdgeLurker, southEdgeLurker};
+    const PieceActionOutcome largeHiddenStrike = resolvePieceActionThroughHidden(
+        largeHiddenPieces, flatBoard, largeHiddenPieces[0], 3, 3);
+    check(
+        largeHiddenStrike.action.legal && largeHiddenStrike.action.attacks &&
+            largeHiddenStrike.action.moves &&
+            largeHiddenStrike.action.targetIds == std::vector<int>{38, 39} &&
+            largeHiddenStrike.revealedPieceIds == std::vector<int>{38, 39} &&
+            largeHiddenStrike.destinationRow == 3 &&
+            largeHiddenStrike.destinationColumn == 3 &&
+            largeHiddenStrike.action.stagingRow == 3 &&
+            largeHiddenStrike.action.stagingColumn == 2,
+        "a multi-square attacking mover strikes every hidden unit on its first leading-edge collision without overshooting the chosen anchor");
+
+    Piece largeWalker = largeCharger;
+    largeWalker.actions[0].damage = 0;
+    largeWalker.actions[0].canAttack = false;
+    const std::vector<Piece> largeHiddenWalkers = {
+        largeWalker, northEdgeLurker, southEdgeLurker};
+    const PieceActionOutcome largeHiddenBump = resolvePieceActionThroughHidden(
+        largeHiddenWalkers, flatBoard, largeHiddenWalkers[0], 3, 3);
+    check(
+        largeHiddenBump.action.legal && !largeHiddenBump.action.attacks &&
+            !largeHiddenBump.action.moves &&
+            largeHiddenBump.revealedPieceIds == std::vector<int>{38, 39} &&
+            largeHiddenBump.destinationRow == 3 &&
+            largeHiddenBump.destinationColumn == 2,
+        "a multi-square non-attacking mover reveals every leading-edge blocker and remains at the last clear anchor");
 
     Piece hopper;
     hopper.id = 32;
@@ -3305,7 +4160,7 @@ int main(int argc, char** argv)
     const PieceActionOutcome hopBlocked =
         resolvePieceActionThroughHidden(hopHiddenPieces, flatBoard, hopHiddenPieces[0], 3, 5);
     check(hopBlocked.action.legal && !hopBlocked.action.attacks && !hopBlocked.action.moves &&
-              hopBlocked.revealedPieceId == landingLurker.id &&
+              hopBlocked.revealedPieceIds == std::vector<int>{landingLurker.id} &&
               hopBlocked.destinationRow == 3 && hopBlocked.destinationColumn == 3,
           "hop onto a hidden landing square fails without damaging the hopped piece");
 
@@ -3341,6 +4196,40 @@ int main(int argc, char** argv)
     materializedLurker.hidden = false;
     check(pieceExertsControl(materializedLurker),
           "materialized pieces control squares normally");
+
+    std::array<std::uint8_t, BoardSquares> hiddenControlSeed{};
+    hiddenControlSeed[static_cast<std::size_t>(squareIndex(3, 3))] = 1;
+    Piece hiddenControlPiece = lurker;
+    hiddenControlPiece.row = 3;
+    hiddenControlPiece.column = 3;
+    Piece visibleControlNeighbor = charger;
+    visibleControlNeighbor.id = 90;
+    visibleControlNeighbor.owner = 2;
+    visibleControlNeighbor.row = 3;
+    visibleControlNeighbor.column = 4;
+    const auto controlWithHidden = recomputeBoardControl(
+        hiddenControlSeed, {hiddenControlPiece, visibleControlNeighbor});
+    const auto controlWithoutHidden = recomputeBoardControl(
+        hiddenControlSeed, {visibleControlNeighbor});
+    check(
+        controlWithHidden == controlWithoutHidden &&
+            controlWithHidden[static_cast<std::size_t>(squareIndex(3, 3))] == 2,
+        "a hidden occupant neither freezes its old square nor changes the public control map");
+
+    Piece largeControlNeighbor = charger;
+    largeControlNeighbor.id = 91;
+    largeControlNeighbor.row = 2;
+    largeControlNeighbor.column = 1;
+    largeControlNeighbor.width = 2;
+    largeControlNeighbor.height = 2;
+    Piece ordinaryControlNeighbor = visibleControlNeighbor;
+    ordinaryControlNeighbor.id = 92;
+    std::array<std::uint8_t, BoardSquares> neutralControl{};
+    const auto largeInfluenceControl = recomputeBoardControl(
+        neutralControl, {largeControlNeighbor, ordinaryControlNeighbor});
+    check(
+        largeInfluenceControl[static_cast<std::size_t>(squareIndex(3, 3))] == 0,
+        "a multi-square neighbor contributes one adjacent influence rather than one per covered cell");
 
     Piece revealedPiece = lurker;
     materializeRevealedPiece(revealedPiece);
@@ -3390,6 +4279,368 @@ int main(int argc, char** argv)
     ActionProfile hiddenStep = heroStep;
     hiddenStep.state = 1;
     scenarioAmbusher.actions = {heroStep, hiddenStep};
+
+    GameCard controlMapNeighbor = scenarioCard("Control Map Neighbor", 4);
+    controlMapNeighbor.actions = {heroStep};
+    GameEngine hiddenControlEngine(0x48494443u, {});
+    hiddenControlEngine.loadScenario(
+        {{1, scenarioAmbusher, 3, 3, false},
+         {2, controlMapNeighbor, 3, 4, false}},
+        {}, {}, 0, 0, 1, "Hidden control privacy", false);
+    const auto hiddenControlAmbusher = std::find_if(
+        hiddenControlEngine.boardPieces().begin(), hiddenControlEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Goblin Ambusher"; });
+    const std::size_t hiddenControlSquare =
+        static_cast<std::size_t>(squareIndex(3, 3));
+    const bool hiddenControlStartedOwned =
+        hiddenControlEngine.boardControl()[hiddenControlSquare] == 1;
+    const bool hiddenControlActivated =
+        hiddenControlAmbusher != hiddenControlEngine.boardPieces().end() &&
+        hiddenControlEngine.useAbility(1, hiddenControlAmbusher->id);
+    const Snapshot hiddenControlOpponentView = hiddenControlEngine.snapshotFor(2);
+    check(
+        hiddenControlStartedOwned && hiddenControlActivated &&
+            hiddenControlEngine.boardControl()[hiddenControlSquare] == 2 &&
+            hiddenControlOpponentView.control[hiddenControlSquare] == 2 &&
+            std::none_of(
+                hiddenControlOpponentView.pieces.begin(),
+                hiddenControlOpponentView.pieces.end(),
+                [](const Piece& piece) { return piece.name == "Goblin Ambusher"; }),
+        "authoritative Dematerialize removes hidden influence before publishing the opponent's control map");
+
+    GameCard largeCollisionCard = scenarioCard("Large Collision Attacker", 8);
+    largeCollisionCard.width = 2;
+    largeCollisionCard.height = 2;
+    largeCollisionCard.actions = {chargeAttack};
+    GameCard northHiddenCard = scenarioAmbusher;
+    northHiddenCard.title = "North Hidden Target";
+    GameCard southHiddenCard = scenarioAmbusher;
+    southHiddenCard.title = "South Hidden Target";
+    GameEngine largeHiddenEngine(409, {});
+    largeHiddenEngine.loadScenario(
+        {{1, largeCollisionCard, 3, 2, false},
+         {2, northHiddenCard, 3, 4, false},
+         {2, southHiddenCard, 4, 4, false}},
+        {}, {}, 0, 0, 2, "Large hidden collision");
+    const auto largeHiddenPieceId = [&](std::string_view title) {
+        const auto found = std::find_if(
+            largeHiddenEngine.boardPieces().begin(),
+            largeHiddenEngine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == title; });
+        return found == largeHiddenEngine.boardPieces().end() ? 0 : found->id;
+    };
+    const int largeAttackerId = largeHiddenPieceId("Large Collision Attacker");
+    const int northHiddenId = largeHiddenPieceId("North Hidden Target");
+    const int southHiddenId = largeHiddenPieceId("South Hidden Target");
+    const bool hidNorth = largeHiddenEngine.useAbility(2, northHiddenId);
+    const bool passedToPlayerOne = largeHiddenEngine.endTurn(2);
+    const bool playerOneWaited = largeHiddenEngine.endTurn(1);
+    const bool hidSouth = largeHiddenEngine.useAbility(2, southHiddenId);
+    const bool returnedToPlayerOne = largeHiddenEngine.endTurn(2);
+    const bool largeAttackAccepted =
+        largeHiddenEngine.movePiece(1, largeAttackerId, 3, 3);
+    const auto authoritativeLarge = std::find_if(
+        largeHiddenEngine.boardPieces().begin(),
+        largeHiddenEngine.boardPieces().end(),
+        [&](const Piece& piece) { return piece.id == largeAttackerId; });
+    const auto authoritativeNorth = std::find_if(
+        largeHiddenEngine.boardPieces().begin(),
+        largeHiddenEngine.boardPieces().end(),
+        [&](const Piece& piece) { return piece.id == northHiddenId; });
+    const auto authoritativeSouth = std::find_if(
+        largeHiddenEngine.boardPieces().begin(),
+        largeHiddenEngine.boardPieces().end(),
+        [&](const Piece& piece) { return piece.id == southHiddenId; });
+    check(
+        hidNorth && passedToPlayerOne && playerOneWaited && hidSouth &&
+            returnedToPlayerOne && largeAttackAccepted &&
+            authoritativeLarge != largeHiddenEngine.boardPieces().end() &&
+            authoritativeLarge->row == 3 && authoritativeLarge->column == 2 &&
+            authoritativeNorth != largeHiddenEngine.boardPieces().end() &&
+            !authoritativeNorth->hidden && authoritativeNorth->health == 2 &&
+            authoritativeNorth->disabledTurns >= HiddenRevealStunTurns &&
+            authoritativeSouth != largeHiddenEngine.boardPieces().end() &&
+            !authoritativeSouth->hidden && authoritativeSouth->health == 2 &&
+            authoritativeSouth->disabledTurns >= HiddenRevealStunTurns,
+        "the authoritative engine damages, materializes, and stuns every hidden unit swept by a multi-square attack footprint");
+
+    GameCard hiddenDeploymentBlocker = scenarioAmbusher;
+    hiddenDeploymentBlocker.title = "Hidden Deployment Blocker";
+    GameCard deploymentCard = scenarioCard("Deployment Card", 4);
+    deploymentCard.cost = 3;
+    GameCard deploymentControl = scenarioCard("Deployment Control", 4);
+    auto hiddenDeploymentEngineStorage =
+        std::make_unique<GameEngine>(0x4445504cu, std::vector<card_data::Card>{});
+    GameEngine& hiddenDeploymentEngine = *hiddenDeploymentEngineStorage;
+    hiddenDeploymentEngine.loadScenario(
+        {{1, deploymentControl, 2, 3, false},
+         {1, deploymentControl, 4, 3, false},
+         {2, hiddenDeploymentBlocker, 3, 3, false}},
+        {deploymentCard}, {}, 9, 0, 2, "Hidden deployment collision", false);
+    const auto deploymentBlockerBefore = std::find_if(
+        hiddenDeploymentEngine.boardPieces().begin(),
+        hiddenDeploymentEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Hidden Deployment Blocker"; });
+    const int deploymentBlockerId = deploymentBlockerBefore ==
+            hiddenDeploymentEngine.boardPieces().end()
+        ? 0
+        : deploymentBlockerBefore->id;
+    const bool deploymentBlockerHid = deploymentBlockerId != 0 &&
+        hiddenDeploymentEngine.useAbility(2, deploymentBlockerId);
+    const bool deploymentTurnPassed = hiddenDeploymentEngine.endTurn(2);
+    const Snapshot deploymentPlayerView = hiddenDeploymentEngine.snapshotFor(1);
+    const int deploymentResourcesBefore =
+        hiddenDeploymentEngine.playerState(1).resources;
+    const bool deploymentCollisionAccepted =
+        hiddenDeploymentEngine.playCard(1, 0, 3, 3);
+    const auto deploymentBlockerAfter = std::find_if(
+        hiddenDeploymentEngine.boardPieces().begin(),
+        hiddenDeploymentEngine.boardPieces().end(),
+        [&](const Piece& piece) { return piece.id == deploymentBlockerId; });
+    check(
+        deploymentBlockerHid && deploymentTurnPassed &&
+            deploymentPlayerView.control[static_cast<std::size_t>(squareIndex(3, 3))] == 1 &&
+            std::none_of(
+                deploymentPlayerView.pieces.begin(),
+                deploymentPlayerView.pieces.end(),
+                [&](const Piece& piece) { return piece.id == deploymentBlockerId; }) &&
+            deploymentCollisionAccepted &&
+            hiddenDeploymentEngine.playerState(1).hand.empty() &&
+            hiddenDeploymentEngine.playerState(1).resources ==
+                deploymentResourcesBefore - deploymentCard.cost &&
+            std::none_of(
+                hiddenDeploymentEngine.boardPieces().begin(),
+                hiddenDeploymentEngine.boardPieces().end(),
+                [](const Piece& piece) { return piece.name == "Deployment Card"; }) &&
+            deploymentBlockerAfter != hiddenDeploymentEngine.boardPieces().end() &&
+            !deploymentBlockerAfter->hidden &&
+            deploymentBlockerAfter->disabledTurns >= HiddenRevealStunTurns,
+        "a 1x1 deployment into an apparently empty hidden blocker spends the card and Resources, then materializes and stuns the blocker");
+
+    GameCard largeHiddenDeploymentBlocker = scenarioAmbusher;
+    largeHiddenDeploymentBlocker.title = "Large Hidden Deployment Blocker";
+    largeHiddenDeploymentBlocker.width = 2;
+    largeHiddenDeploymentBlocker.height = 2;
+    GameCard largeDeploymentCard = scenarioCard("Large Deployment Card", 7);
+    largeDeploymentCard.width = 2;
+    largeDeploymentCard.height = 2;
+    largeDeploymentCard.cost = 5;
+    auto largeHiddenDeploymentEngineStorage =
+        std::make_unique<GameEngine>(0x4c444550u, std::vector<card_data::Card>{});
+    GameEngine& largeHiddenDeploymentEngine = *largeHiddenDeploymentEngineStorage;
+    largeHiddenDeploymentEngine.loadScenario(
+        {{1, deploymentControl, 2, 3, false},
+         {1, deploymentControl, 2, 4, false},
+         {1, deploymentControl, 3, 2, false},
+         {1, deploymentControl, 4, 2, false},
+         {1, deploymentControl, 5, 3, false},
+         {1, deploymentControl, 5, 4, false},
+         {1, deploymentControl, 3, 5, false},
+         {1, deploymentControl, 4, 5, false},
+         {2, largeHiddenDeploymentBlocker, 3, 3, false}},
+        {largeDeploymentCard}, {}, 11, 0, 2, "Large hidden deployment collision", false);
+    const auto largeDeploymentBlockerBefore = std::find_if(
+        largeHiddenDeploymentEngine.boardPieces().begin(),
+        largeHiddenDeploymentEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Large Hidden Deployment Blocker"; });
+    const int largeDeploymentBlockerId = largeDeploymentBlockerBefore ==
+            largeHiddenDeploymentEngine.boardPieces().end()
+        ? 0
+        : largeDeploymentBlockerBefore->id;
+    const bool largeDeploymentBlockerHid = largeDeploymentBlockerId != 0 &&
+        largeHiddenDeploymentEngine.useAbility(2, largeDeploymentBlockerId);
+    const bool largeDeploymentTurnPassed = largeHiddenDeploymentEngine.endTurn(2);
+    const bool largeDeploymentSquaresControlled =
+        largeHiddenDeploymentEngine.boardControl()[static_cast<std::size_t>(squareIndex(3, 3))] == 1 &&
+        largeHiddenDeploymentEngine.boardControl()[static_cast<std::size_t>(squareIndex(3, 4))] == 1 &&
+        largeHiddenDeploymentEngine.boardControl()[static_cast<std::size_t>(squareIndex(4, 3))] == 1 &&
+        largeHiddenDeploymentEngine.boardControl()[static_cast<std::size_t>(squareIndex(4, 4))] == 1;
+    const int largeDeploymentResourcesBefore =
+        largeHiddenDeploymentEngine.playerState(1).resources;
+    const bool largeDeploymentCollisionAccepted =
+        largeHiddenDeploymentEngine.playCard(1, 0, 3, 3);
+    const auto largeDeploymentBlockerAfter = std::find_if(
+        largeHiddenDeploymentEngine.boardPieces().begin(),
+        largeHiddenDeploymentEngine.boardPieces().end(),
+        [&](const Piece& piece) { return piece.id == largeDeploymentBlockerId; });
+    check(
+        largeDeploymentBlockerHid && largeDeploymentTurnPassed &&
+            largeDeploymentSquaresControlled && largeDeploymentCollisionAccepted &&
+            largeHiddenDeploymentEngine.playerState(1).hand.empty() &&
+            largeHiddenDeploymentEngine.playerState(1).resources ==
+                largeDeploymentResourcesBefore - largeDeploymentCard.cost &&
+            std::none_of(
+                largeHiddenDeploymentEngine.boardPieces().begin(),
+                largeHiddenDeploymentEngine.boardPieces().end(),
+                [](const Piece& piece) { return piece.name == "Large Deployment Card"; }) &&
+            largeDeploymentBlockerAfter != largeHiddenDeploymentEngine.boardPieces().end() &&
+            !largeDeploymentBlockerAfter->hidden &&
+            largeDeploymentBlockerAfter->disabledTurns >= HiddenRevealStunTurns,
+        "a 2x2 deployment collision resolves footprint-wide without a free hidden-square probe");
+
+    GameCard hiddenSummonBlocker = largeHiddenDeploymentBlocker;
+    hiddenSummonBlocker.title = "Hidden Summon Blocker";
+    GameCard summonedUnit = scenarioCard("Summoned Unit", 3);
+    GameCard summonerCard = scenarioCard("Collision Summoner", 5);
+    summonerCard.ability = "summon";
+    summonerCard.summonTitle = summonedUnit.title;
+    auto hiddenSummonEngineStorage =
+        std::make_unique<GameEngine>(0x53554d4du, std::vector<card_data::Card>{});
+    GameEngine& hiddenSummonEngine = *hiddenSummonEngineStorage;
+    hiddenSummonEngine.loadScenario(
+        {{1, summonerCard, 3, 2, false},
+         {2, hiddenSummonBlocker, 3, 3, false}},
+        {}, {}, 0, 0, 2, "Hidden summon collision", false);
+    hiddenSummonEngine.registerScenarioCard(summonedUnit);
+    const auto hiddenSummonBlockerBefore = std::find_if(
+        hiddenSummonEngine.boardPieces().begin(),
+        hiddenSummonEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Hidden Summon Blocker"; });
+    const auto summonerBefore = std::find_if(
+        hiddenSummonEngine.boardPieces().begin(),
+        hiddenSummonEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Collision Summoner"; });
+    const int hiddenSummonBlockerId = hiddenSummonBlockerBefore ==
+            hiddenSummonEngine.boardPieces().end()
+        ? 0
+        : hiddenSummonBlockerBefore->id;
+    const int summonerId = summonerBefore == hiddenSummonEngine.boardPieces().end()
+        ? 0
+        : summonerBefore->id;
+    const bool summonBlockerHid = hiddenSummonBlockerId != 0 &&
+        hiddenSummonEngine.useAbility(2, hiddenSummonBlockerId);
+    const bool summonBlockerTurnPassed = hiddenSummonEngine.endTurn(2);
+    const Snapshot summonPlayerView = hiddenSummonEngine.snapshotFor(1);
+    const bool hiddenSummonAccepted = summonerId != 0 &&
+        hiddenSummonEngine.useAbility(1, summonerId);
+    const auto hiddenSummonBlockerAfter = std::find_if(
+        hiddenSummonEngine.boardPieces().begin(),
+        hiddenSummonEngine.boardPieces().end(),
+        [&](const Piece& piece) { return piece.id == hiddenSummonBlockerId; });
+    const auto summonerAfter = std::find_if(
+        hiddenSummonEngine.boardPieces().begin(),
+        hiddenSummonEngine.boardPieces().end(),
+        [&](const Piece& piece) { return piece.id == summonerId; });
+    check(
+        summonBlockerHid && summonBlockerTurnPassed &&
+            std::none_of(
+                summonPlayerView.pieces.begin(),
+                summonPlayerView.pieces.end(),
+                [&](const Piece& piece) { return piece.id == hiddenSummonBlockerId; }) &&
+            hiddenSummonAccepted &&
+            std::none_of(
+                hiddenSummonEngine.boardPieces().begin(),
+                hiddenSummonEngine.boardPieces().end(),
+                [](const Piece& piece) { return piece.name == "Summoned Unit"; }) &&
+            hiddenSummonBlockerAfter != hiddenSummonEngine.boardPieces().end() &&
+            !hiddenSummonBlockerAfter->hidden &&
+            hiddenSummonBlockerAfter->disabledTurns >= HiddenRevealStunTurns &&
+            summonerAfter != hiddenSummonEngine.boardPieces().end() &&
+            summonerAfter->hasActed &&
+            hiddenSummonEngine.playerState(1).pieceActionUsedThisTurn,
+        "Summon into a hidden 2x2 footprint consumes the real ability action, reveals and stuns the blocker, and creates no unit");
+
+    GameCard hiddenPullAttackerCard = scenarioCard("Hidden Pull Attacker", 6);
+    ActionProfile hiddenPullAction;
+    hiddenPullAction.name = "Hidden Pull";
+    hiddenPullAction.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+    hiddenPullAction.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
+    hiddenPullAction.minRange = 1;
+    hiddenPullAction.maxRange = 7;
+    hiddenPullAction.damage = 1;
+    hiddenPullAction.canMove = false;
+    hiddenPullAction.canAttack = true;
+    hiddenPullAction.pull = true;
+    hiddenPullAttackerCard.actions = {hiddenPullAction};
+    GameCard forcedTarget = scenarioCard("Forced Target", 8);
+    GameCard hiddenPullBlocker = scenarioAmbusher;
+    hiddenPullBlocker.title = "Hidden Pull Blocker";
+    auto hiddenPullEngineStorage =
+        std::make_unique<GameEngine>(0x50554c4cu, std::vector<card_data::Card>{});
+    GameEngine& hiddenPullEngine = *hiddenPullEngineStorage;
+    hiddenPullEngine.loadScenario(
+        {{1, hiddenPullAttackerCard, 3, 1, false},
+         {2, hiddenPullBlocker, 3, 3, false},
+         {2, forcedTarget, 3, 5, false}},
+        {}, {}, 0, 0, 2, "Hidden Pull collision", false);
+    const auto hiddenPullId = [&](std::string_view title) {
+        const auto found = std::find_if(
+            hiddenPullEngine.boardPieces().begin(),
+            hiddenPullEngine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == title; });
+        return found == hiddenPullEngine.boardPieces().end() ? 0 : found->id;
+    };
+    const int hiddenPullAttackerId = hiddenPullId("Hidden Pull Attacker");
+    const int hiddenPullBlockerId = hiddenPullId("Hidden Pull Blocker");
+    const bool hiddenPullBlockerHid =
+        hiddenPullEngine.useAbility(2, hiddenPullBlockerId);
+    const bool hiddenPullTurnPassed = hiddenPullEngine.endTurn(2);
+    const bool hiddenPullAccepted = hiddenPullEngine.attackPiece(
+        1, hiddenPullAttackerId, 3, 5, 0);
+    const auto hiddenPullBlockerAfter = std::find_if(
+        hiddenPullEngine.boardPieces().begin(),
+        hiddenPullEngine.boardPieces().end(),
+        [&](const Piece& piece) { return piece.id == hiddenPullBlockerId; });
+    const auto hiddenPullTargetAfter = std::find_if(
+        hiddenPullEngine.boardPieces().begin(),
+        hiddenPullEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Forced Target"; });
+    check(
+        hiddenPullBlockerHid && hiddenPullTurnPassed && hiddenPullAccepted &&
+            hiddenPullTargetAfter != hiddenPullEngine.boardPieces().end() &&
+            hiddenPullTargetAfter->row == 3 && hiddenPullTargetAfter->column == 4 &&
+            hiddenPullBlockerAfter != hiddenPullEngine.boardPieces().end() &&
+            !hiddenPullBlockerAfter->hidden &&
+            hiddenPullBlockerAfter->disabledTurns >= HiddenRevealStunTurns,
+        "authoritative Pull stops before a hidden 1x1 blocker and materializes it stunned");
+
+    GameCard hiddenPushAttackerCard = scenarioCard("Hidden Push Attacker", 6);
+    ActionProfile hiddenPushAction = hiddenPullAction;
+    hiddenPushAction.name = "Hidden Push";
+    hiddenPushAction.pull = false;
+    hiddenPushAction.push = 3;
+    hiddenPushAttackerCard.actions = {hiddenPushAction};
+    GameCard hiddenPushBlocker = largeHiddenDeploymentBlocker;
+    hiddenPushBlocker.title = "Hidden Push Blocker";
+    auto hiddenPushEngineStorage =
+        std::make_unique<GameEngine>(0x50555348u, std::vector<card_data::Card>{});
+    GameEngine& hiddenPushEngine = *hiddenPushEngineStorage;
+    hiddenPushEngine.loadScenario(
+        {{1, hiddenPushAttackerCard, 3, 1, false},
+         {2, forcedTarget, 3, 3, false},
+         {2, hiddenPushBlocker, 3, 5, false}},
+        {}, {}, 0, 0, 2, "Hidden Push collision", false);
+    const auto hiddenPushId = [&](std::string_view title) {
+        const auto found = std::find_if(
+            hiddenPushEngine.boardPieces().begin(),
+            hiddenPushEngine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == title; });
+        return found == hiddenPushEngine.boardPieces().end() ? 0 : found->id;
+    };
+    const int hiddenPushAttackerId = hiddenPushId("Hidden Push Attacker");
+    const int hiddenPushBlockerId = hiddenPushId("Hidden Push Blocker");
+    const bool hiddenPushBlockerHid =
+        hiddenPushEngine.useAbility(2, hiddenPushBlockerId);
+    const bool hiddenPushTurnPassed = hiddenPushEngine.endTurn(2);
+    const bool hiddenPushAccepted = hiddenPushEngine.attackPiece(
+        1, hiddenPushAttackerId, 3, 3, 0);
+    const auto hiddenPushBlockerAfter = std::find_if(
+        hiddenPushEngine.boardPieces().begin(),
+        hiddenPushEngine.boardPieces().end(),
+        [&](const Piece& piece) { return piece.id == hiddenPushBlockerId; });
+    const auto hiddenPushTargetAfter = std::find_if(
+        hiddenPushEngine.boardPieces().begin(),
+        hiddenPushEngine.boardPieces().end(),
+        [](const Piece& piece) { return piece.name == "Forced Target"; });
+    check(
+        hiddenPushBlockerHid && hiddenPushTurnPassed && hiddenPushAccepted &&
+            hiddenPushTargetAfter != hiddenPushEngine.boardPieces().end() &&
+            hiddenPushTargetAfter->row == 3 && hiddenPushTargetAfter->column == 4 &&
+            hiddenPushTargetAfter->health == forcedTarget.health - 1 - 2 &&
+            hiddenPushBlockerAfter != hiddenPushEngine.boardPieces().end() &&
+            !hiddenPushBlockerAfter->hidden &&
+            hiddenPushBlockerAfter->disabledTurns >= HiddenRevealStunTurns,
+        "authoritative Push collision damage and hidden 2x2 materialization resolve together");
 
     GameCard scenarioLumberjack = scenarioCard("Blackthorn Lumberjack", 4);
     scenarioLumberjack.actions = {heroStep};
@@ -3488,6 +4739,592 @@ int main(int argc, char** argv)
             storyAiEngine.boardPieces().size() == aiPiecesBefore + 1,
         "multiplayer AI values and uses a legal summoning power in Story scenarios");
 
+    GameCard widowrootChoice = scenarioCard("Widowroot Choice", 5);
+    ActionProfile rootedStrike;
+    rootedStrike.name = "Rooted Strike";
+    rootedStrike.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+    rootedStrike.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
+    rootedStrike.minRange = 1;
+    rootedStrike.maxRange = 1;
+    rootedStrike.damage = 1;
+    rootedStrike.canAttack = true;
+    ActionProfile widowsBind = rootedStrike;
+    widowsBind.name = "Widow's Bind";
+    widowsBind.damage = 0;
+    widowsBind.statusTurns = 2;
+    widowrootChoice.actions = {rootedStrike, widowsBind};
+    GameCard fragileChoiceTarget = scenarioCard("Fragile Choice Target", 1);
+    fragileChoiceTarget.actions = {heroStep};
+
+    const auto loadWidowrootChoiceScenario = [&](GameEngine& engine) {
+        engine.loadScenario(
+            {{1, scenarioHero, 7, 0, true},
+             {1, fragileChoiceTarget, 3, 3, false},
+             {2, scenarioHero, 0, 7, true},
+             {2, widowrootChoice, 3, 4, false}},
+            {}, {}, 0, 0, 2, "Widowroot action choice", false);
+    };
+    const auto choicePieceId = [](const GameEngine& engine, std::string_view name) {
+        const auto found = std::find_if(
+            engine.boardPieces().begin(), engine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == name; });
+        return found == engine.boardPieces().end() ? 0 : found->id;
+    };
+
+    GameEngine bindChoiceEngine(0x57494442u, {});
+    loadWidowrootChoiceScenario(bindChoiceEngine);
+    const int bindWidowrootId = choicePieceId(bindChoiceEngine, widowrootChoice.title);
+    check(
+        applyAiAction(
+            bindChoiceEngine,
+            2,
+            {AiActionKind::AttackPiece, bindWidowrootId, 0, 3, 3, 1}),
+        "AI execution can deliberately choose Widow's Bind instead of the overlapping strike");
+    const Piece* boundChoiceTarget = findPieceAt(bindChoiceEngine.boardPieces(), 3, 3);
+    check(
+        boundChoiceTarget != nullptr && boundChoiceTarget->health == 1 &&
+            boundChoiceTarget->disabledTurns == 2,
+        "the AI's explicit Bind profile disables without borrowing Rooted Strike's damage");
+
+    GameEngine lethalChoiceEngine(0x57494453u, {});
+    loadWidowrootChoiceScenario(lethalChoiceEngine);
+    GameEngine::ScenarioObjective lethalChoiceObjective;
+    lethalChoiceObjective.kind = GameEngine::ScenarioObjectiveKind::DefeatPiece;
+    lethalChoiceObjective.targetPieceId =
+        choicePieceId(lethalChoiceEngine, fragileChoiceTarget.title);
+    lethalChoiceObjective.successPlayer = 2;
+    check(
+        lethalChoiceEngine.configureScenarioObjective(lethalChoiceObjective),
+        "AI overlapping-profile victory objective configures");
+    const AiAction lethalChoice = chooseAiAction(lethalChoiceEngine, 2, 1);
+    check(
+        lethalChoice.kind == AiActionKind::AttackPiece && lethalChoice.actionIndex == 0 &&
+            lethalChoice.row == 3 && lethalChoice.column == 3 &&
+            applyAiAction(lethalChoiceEngine, 2, lethalChoice) &&
+            lethalChoiceEngine.phase() == Phase::GameOver &&
+            lethalChoiceEngine.winner() == 2,
+        "the AI enumerates overlapping printed profiles and chooses lethal Rooted Strike over Widow's Bind");
+
+    // Scenario planning keeps its objective in an AI-only projection. The
+    // redacted engine never adjudicates from an incomplete board, but its
+    // candidate beam must still retain moves that pursue or defend the public
+    // Story objective.
+    GameCard westboundRunner = scenarioCard("Westbound Objective Runner", 4);
+    ActionProfile westboundStep = heroStep;
+    westboundStep.name = "Westbound Step";
+    westboundRunner.actions = {westboundStep};
+    GameCard temptingStriker = scenarioCard("Tempting Striker", 5);
+    ActionProfile temptingStrike = heroStep;
+    temptingStrike.name = "Tempting Strike";
+    temptingStrike.damage = 10;
+    temptingStrike.canAttack = true;
+    temptingStriker.actions = {temptingStrike};
+    GameCard temptingVictim = scenarioCard("Tempting Victim", 1);
+
+    auto reachAiStorage = std::make_unique<GameEngine>(
+        0x41495243u, std::vector<card_data::Card>{});
+    GameEngine& reachAiEngine = *reachAiStorage;
+    reachAiEngine.loadScenario(
+        {{1, westboundRunner, 3, 1, false},
+         {1, temptingStriker, 5, 5, false},
+         {2, temptingVictim, 5, 6, false}},
+        {}, {}, 0, 0, 1, "AI reach objective", false);
+    const int westboundRunnerId =
+        choicePieceId(reachAiEngine, westboundRunner.title);
+    GameEngine::ScenarioObjective reachAiObjective;
+    reachAiObjective.kind = GameEngine::ScenarioObjectiveKind::ReachSquare;
+    reachAiObjective.successPlayer = 1;
+    reachAiObjective.targetPieceId = westboundRunnerId;
+    reachAiObjective.targetRow = 3;
+    reachAiObjective.targetColumn = 0;
+    reachAiObjective.requiredForceOriginalOwner = 1;
+    reachAiObjective.requiredSurvivorPieceIds = {westboundRunnerId};
+    check(
+        reachAiEngine.configureScenarioObjective(reachAiObjective),
+        "AI reach-square objective configures");
+    const AiAction reachAiChoice = chooseAiAction(reachAiEngine, 1, 1);
+    check(
+        reachAiChoice.kind == AiActionKind::MovePiece &&
+            reachAiChoice.pieceId == westboundRunnerId &&
+            reachAiChoice.row == 3 && reachAiChoice.column == 0 &&
+            applyAiAction(reachAiEngine, 1, reachAiChoice) &&
+            reachAiEngine.phase() == Phase::GameOver &&
+            reachAiEngine.winner() == 1,
+        "the AI chooses the westbound reach goal over an unrelated easy defeat");
+
+    GameCard objectiveMarksman = scenarioCard("Objective Marksman", 5);
+    ActionProfile objectiveTap;
+    objectiveTap.name = "Objective Tap";
+    objectiveTap.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+    objectiveTap.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
+    objectiveTap.minRange = 1;
+    objectiveTap.maxRange = 1;
+    objectiveTap.damage = 1;
+    objectiveTap.canAttack = true;
+    objectiveMarksman.actions = {objectiveTap};
+    GameCard durableObjective = scenarioCard("Durable Objective", 3);
+    GameCard fragileDistraction = scenarioCard("Fragile Distraction", 1);
+    auto defeatAiStorage = std::make_unique<GameEngine>(
+        0x41494446u, std::vector<card_data::Card>{});
+    GameEngine& defeatAiEngine = *defeatAiStorage;
+    defeatAiEngine.loadScenario(
+        {{1, objectiveMarksman, 3, 3, false},
+         {2, durableObjective, 3, 4, false},
+         {2, fragileDistraction, 4, 3, false}},
+        {}, {}, 0, 0, 1, "AI named defeat objective", false);
+    const int durableObjectiveId =
+        choicePieceId(defeatAiEngine, durableObjective.title);
+    GameEngine::ScenarioObjective defeatAiObjective;
+    defeatAiObjective.kind = GameEngine::ScenarioObjectiveKind::DefeatPiece;
+    defeatAiObjective.successPlayer = 1;
+    defeatAiObjective.targetPieceId = durableObjectiveId;
+    defeatAiObjective.requiredForceOriginalOwner = 1;
+    check(
+        defeatAiEngine.configureScenarioObjective(defeatAiObjective),
+        "AI named-defeat objective configures");
+    const AiAction defeatAiChoice = chooseAiAction(defeatAiEngine, 1, 1);
+    check(
+        defeatAiChoice.kind == AiActionKind::AttackPiece &&
+            defeatAiChoice.pieceId == choicePieceId(defeatAiEngine, objectiveMarksman.title) &&
+            defeatAiChoice.row == 3 && defeatAiChoice.column == 4 &&
+            applyAiAction(defeatAiEngine, 1, defeatAiChoice) &&
+            findPieceAt(defeatAiEngine.boardPieces(), 3, 4) != nullptr &&
+            findPieceAt(defeatAiEngine.boardPieces(), 3, 4)->health == 2 &&
+            findPieceAt(defeatAiEngine.boardPieces(), 4, 3) != nullptr,
+        "the AI damages the named objective instead of taking an unrelated easy defeat");
+    auto redactedObjectiveStorage =
+        std::make_unique<GameEngine>(defeatAiEngine);
+    redactedObjectiveStorage->redactForPlanning(1);
+    check(
+        redactedObjectiveStorage->phase() == Phase::Playing &&
+            redactedObjectiveStorage->winner() == 0 &&
+            redactedObjectiveStorage->scenarioObjective().kind ==
+                GameEngine::ScenarioObjectiveKind::None &&
+            !redactedObjectiveStorage->scenarioObjectiveProgress().configured,
+        "planning redaction removes authoritative objective adjudication while AI projection remains read-only");
+
+    GameCard requiredRunner = scenarioCard("Required Objective Survivor", 1);
+    ActionProfile emergencyRetreat;
+    emergencyRetreat.name = "Emergency Retreat";
+    emergencyRetreat.pattern = static_cast<std::uint8_t>(MovePattern::Horizontal);
+    emergencyRetreat.minRange = 1;
+    emergencyRetreat.maxRange = 3;
+    emergencyRetreat.canMove = true;
+    requiredRunner.actions = {emergencyRetreat};
+    GameCard survivorBrawler = temptingStriker;
+    survivorBrawler.title = "Survivor Distraction Brawler";
+    GameCard executioner = scenarioCard("Objective Executioner", 5);
+    ActionProfile executionShot = objectiveTap;
+    executionShot.name = "Execution Shot";
+    executionShot.pattern = static_cast<std::uint8_t>(MovePattern::Horizontal);
+    executionShot.maxRange = 3;
+    executionShot.damage = 10;
+    executioner.actions = {executionShot};
+    GameCard executionDecoy = scenarioCard("Execution Decoy", 1);
+    auto survivorAiStorage = std::make_unique<GameEngine>(
+        0x41495356u, std::vector<card_data::Card>{});
+    GameEngine& survivorAiEngine = *survivorAiStorage;
+    survivorAiEngine.loadScenario(
+        {{1, requiredRunner, 3, 3, false},
+         {1, survivorBrawler, 5, 5, false},
+         {2, executioner, 3, 4, false},
+         {2, executionDecoy, 5, 6, false}},
+        {}, {}, 0, 0, 1, "AI required-survivor defense", false);
+    const int requiredRunnerId =
+        choicePieceId(survivorAiEngine, requiredRunner.title);
+    GameEngine::ScenarioObjective survivorAiObjective;
+    survivorAiObjective.kind = GameEngine::ScenarioObjectiveKind::ControlSquares;
+    survivorAiObjective.successPlayer = 1;
+    survivorAiObjective.controlAmount = BoardSquares;
+    survivorAiObjective.requiredForceOriginalOwner = 1;
+    survivorAiObjective.requiredSurvivorPieceIds = {requiredRunnerId};
+    check(
+        survivorAiEngine.configureScenarioObjective(survivorAiObjective),
+        "AI required-survivor objective configures");
+    const AiAction survivorAiChoice = chooseAiAction(survivorAiEngine, 1, 2);
+    check(
+        survivorAiChoice.kind == AiActionKind::MovePiece &&
+            survivorAiChoice.pieceId == requiredRunnerId &&
+            survivorAiChoice.row == 3 && survivorAiChoice.column == 0 &&
+            applyAiAction(survivorAiEngine, 1, survivorAiChoice),
+        "the AI retreats a required survivor out of a lethal reply instead of taking an unrelated defeat");
+
+    // --- generic authoritative scenario objectives -----------------------
+    GameCard objectiveStriker = scenarioCard("Objective Striker", 8);
+    ActionProfile objectiveShot;
+    objectiveShot.name = "Long Shot";
+    objectiveShot.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+    objectiveShot.pattern = static_cast<std::uint8_t>(MovePattern::Horizontal);
+    objectiveShot.minRange = 1;
+    objectiveShot.maxRange = 3;
+    objectiveShot.damage = 10;
+    objectiveShot.canAttack = true;
+    objectiveShot.lineOfSight = true;
+    objectiveStriker.actions = {objectiveShot};
+
+    const auto pieceIdNamed = [](const GameEngine& engine, std::string_view name) {
+        const auto found = std::find_if(
+            engine.boardPieces().begin(), engine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == name; });
+        return found == engine.boardPieces().end() ? 0 : found->id;
+    };
+
+    {
+        GameEngine objectiveEngine(0x4f424a31u, {});
+        objectiveEngine.registerScenarioCard(scenarioLumberjack);
+        objectiveEngine.loadScenario(
+            {{1, objectiveStriker, 3, 3, false},
+             {2, scenarioForeman, 3, 6, false}},
+            {}, {}, 0, 0, 2, "Defeat force objective", false);
+        const int strikerId = pieceIdNamed(objectiveEngine, "Objective Striker");
+        const int objectiveForemanId =
+            pieceIdNamed(objectiveEngine, "Blackthorn Foreman");
+        GameEngine::ScenarioObjective objective;
+        objective.kind = GameEngine::ScenarioObjectiveKind::DefeatOriginalOwner;
+        objective.successPlayer = 1;
+        objective.opposingOriginalOwner = 2;
+        objective.requiredForceOriginalOwner = 1;
+        check(
+            objectiveEngine.configureScenarioObjective(objective) &&
+                objectiveEngine.scenarioObjectiveProgress().remaining == 1,
+            "defeat-force objective configures from authoritative original ownership");
+        check(
+            objectiveEngine.useAbility(2, objectiveForemanId) &&
+                objectiveEngine.scenarioObjectiveProgress().remaining == 2 &&
+                objectiveEngine.phase() == Phase::Playing,
+            "enemy summons join the authoritative defeat-force objective");
+        check(objectiveEngine.endTurn(2), "enemy can pass after summoning");
+        check(
+            objectiveEngine.attackPiece(1, strikerId, 3, 5) &&
+                objectiveEngine.scenarioObjectiveProgress().remaining == 1 &&
+                objectiveEngine.phase() == Phase::Playing,
+            "defeat-force objective stays open after only the summon is defeated");
+        check(
+            objectiveEngine.endTurn(1) && objectiveEngine.endTurn(2) &&
+                objectiveEngine.attackPiece(1, strikerId, 3, 6) &&
+                objectiveEngine.phase() == Phase::GameOver &&
+                objectiveEngine.winner() == 1 &&
+                objectiveEngine.scenarioObjectiveProgress().complete,
+            "defeat-force objective produces the authoritative terminal win");
+    }
+
+    GameCard objectiveController = scenarioCard("Objective Controller", 3);
+    ActionProfile objectiveControl;
+    objectiveControl.name = "Control";
+    objectiveControl.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+    objectiveControl.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
+    objectiveControl.minRange = 1;
+    objectiveControl.maxRange = 1;
+    objectiveControl.canAttack = true;
+    objectiveControl.control = 2;
+    objectiveController.actions = {objectiveControl};
+
+    {
+        GameEngine controlledEnemyEngine(0x4f424a32u, {});
+        controlledEnemyEngine.loadScenario(
+            {{1, objectiveController, 3, 3, false},
+             {2, scenarioLumberjack, 3, 4, false}},
+            {}, {}, 0, 0, 1, "Controlled enemy objective", false);
+        GameEngine::ScenarioObjective objective;
+        objective.kind = GameEngine::ScenarioObjectiveKind::DefeatOriginalOwner;
+        objective.successPlayer = 1;
+        objective.opposingOriginalOwner = 2;
+        objective.requiredForceOriginalOwner = 1;
+        const int controllerId =
+            pieceIdNamed(controlledEnemyEngine, "Objective Controller");
+        check(controlledEnemyEngine.configureScenarioObjective(objective),
+            "Control regression objective configures");
+        check(controlledEnemyEngine.attackPiece(1, controllerId, 3, 4),
+            "real Control action changes the enemy's current controller");
+        const Piece* borrowedEnemy = findPieceAt(
+            controlledEnemyEngine.boardPieces(), 3, 4);
+        check(
+            borrowedEnemy && borrowedEnemy->owner == 1 &&
+                borrowedEnemy->originalOwner == 2 &&
+                controlledEnemyEngine.scenarioObjectiveProgress().remaining == 1 &&
+                controlledEnemyEngine.phase() == Phase::Playing,
+            "temporary Control cannot satisfy an original-owner defeat objective");
+    }
+
+    {
+        GameCard objectiveReclaimer = objectiveController;
+        objectiveReclaimer.title = "Objective Reclaimer";
+        GameEngine reclaimedEnemyEngine(0x4f424a39u, {});
+        reclaimedEnemyEngine.loadScenario(
+            {{1, objectiveController, 3, 2, false},
+             {2, scenarioLumberjack, 3, 3, false},
+             {2, objectiveReclaimer, 3, 4, false}},
+            {}, {}, 0, 0, 1, "Reclaimed enemy objective", false);
+        GameEngine::ScenarioObjective objective;
+        objective.kind = GameEngine::ScenarioObjectiveKind::DefeatOriginalOwner;
+        objective.successPlayer = 1;
+        objective.opposingOriginalOwner = 2;
+        objective.requiredForceOriginalOwner = 1;
+        const int controllerId =
+            pieceIdNamed(reclaimedEnemyEngine, objectiveController.title);
+        const int reclaimerId =
+            pieceIdNamed(reclaimedEnemyEngine, objectiveReclaimer.title);
+        check(
+            reclaimedEnemyEngine.configureScenarioObjective(objective) &&
+                reclaimedEnemyEngine.attackPiece(1, controllerId, 3, 3) &&
+                reclaimedEnemyEngine.endTurn(1) &&
+                reclaimedEnemyEngine.attackPiece(2, reclaimerId, 3, 3),
+            "the printed owner can use a real Control action to reclaim a temporarily controlled unit");
+        const Piece* reclaimedEnemy = findPieceAt(
+            reclaimedEnemyEngine.boardPieces(), 3, 3);
+        check(
+            reclaimedEnemy != nullptr && reclaimedEnemy->owner == 2 &&
+                reclaimedEnemy->originalOwner == 0 &&
+                pieceOriginalOwner(*reclaimedEnemy) == 2 &&
+                reclaimedEnemy->controlTurnsRemaining == 0 &&
+                reclaimedEnemyEngine.scenarioObjectiveProgress().remaining == 2,
+            "authoritative reclaim preserves stable original ownership and objective identity");
+    }
+
+    GameCard objectiveKiller = scenarioCard("Objective Killer", 8);
+    ActionProfile objectiveStrike = heroStep;
+    objectiveStrike.damage = 10;
+    objectiveStrike.canAttack = true;
+    objectiveKiller.actions = {objectiveStrike};
+
+    {
+        GameCard fragileController = objectiveController;
+        fragileController.title = "Fragile Controller";
+        fragileController.health = 1;
+        GameEngine forceEngine(0x4f424a33u, {});
+        forceEngine.loadScenario(
+            {{1, fragileController, 3, 3, false},
+             {2, scenarioLumberjack, 3, 4, false},
+             {2, objectiveKiller, 2, 3, false}},
+            {}, {}, 0, 0, 1, "Original force failure", false);
+        GameEngine::ScenarioObjective objective;
+        objective.kind = GameEngine::ScenarioObjectiveKind::DefeatOriginalOwner;
+        objective.successPlayer = 1;
+        objective.opposingOriginalOwner = 2;
+        objective.requiredForceOriginalOwner = 1;
+        const int fragileId = pieceIdNamed(forceEngine, "Fragile Controller");
+        const int killerId = pieceIdNamed(forceEngine, "Objective Killer");
+        check(forceEngine.configureScenarioObjective(objective),
+            "original-force failure objective configures");
+        check(forceEngine.attackPiece(1, fragileId, 3, 4),
+            "fragile controller borrows the enemy before being defeated");
+        check(forceEngine.endTurn(1), "player passes the borrowed-enemy position");
+        check(
+            forceEngine.attackPiece(2, killerId, 3, 3) &&
+                forceEngine.phase() == Phase::GameOver &&
+                forceEngine.winner() == 2 &&
+                forceEngine.scenarioObjectiveProgress().failure ==
+                    GameEngine::ScenarioObjectiveFailure::ForceEliminated,
+            "a Controlled enemy cannot be the player's last surviving original force");
+    }
+
+    {
+        GameCard fragileAlly = scenarioCard("Controlled Original Ally", 3);
+        GameEngine controlledAllyEngine(0x4f424a34u, {});
+        controlledAllyEngine.loadScenario(
+            {{1, fragileAlly, 3, 3, false},
+             {2, objectiveController, 3, 4, false}},
+            {}, {}, 0, 0, 2, "Controlled ally force", false);
+        GameEngine::ScenarioObjective objective;
+        objective.kind = GameEngine::ScenarioObjectiveKind::DefeatOriginalOwner;
+        objective.successPlayer = 1;
+        objective.opposingOriginalOwner = 2;
+        objective.requiredForceOriginalOwner = 1;
+        const int enemyControllerId =
+            pieceIdNamed(controlledAllyEngine, "Objective Controller");
+        check(controlledAllyEngine.configureScenarioObjective(objective),
+            "controlled-ally force objective configures");
+        check(controlledAllyEngine.attackPiece(2, enemyControllerId, 3, 3),
+            "enemy uses the real Control action on the player's only ally");
+        check(
+            controlledAllyEngine.phase() == Phase::Playing &&
+                !controlledAllyEngine.scenarioObjectiveProgress().failed,
+            "an original ally still counts as surviving while enemy-Controlled");
+    }
+
+    {
+        GameCard rebirthGuard = scenarioCard("Rebirth Guard", 1);
+        rebirthGuard.rebirthTitle = "Reborn Guard";
+        GameCard rebornGuard = scenarioCard("Reborn Guard", 1);
+        GameEngine rebirthObjectiveEngine(0x4f424a35u, {});
+        rebirthObjectiveEngine.registerScenarioCard(rebornGuard);
+        rebirthObjectiveEngine.loadScenario(
+            {{1, objectiveStriker, 3, 3, false},
+             {2, rebirthGuard, 3, 4, false}},
+            {}, {}, 0, 0, 1, "Rebirth defeat objective", false);
+        const int strikerId =
+            pieceIdNamed(rebirthObjectiveEngine, "Objective Striker");
+        const int rebirthId =
+            pieceIdNamed(rebirthObjectiveEngine, "Rebirth Guard");
+        GameEngine::ScenarioObjective objective;
+        objective.kind = GameEngine::ScenarioObjectiveKind::DefeatPiece;
+        objective.targetPieceId = rebirthId;
+        objective.successPlayer = 1;
+        objective.requiredForceOriginalOwner = 1;
+        check(rebirthObjectiveEngine.configureScenarioObjective(objective),
+            "stable defeat identity objective configures");
+        check(
+            rebirthObjectiveEngine.attackPiece(1, strikerId, 3, 4) &&
+                pieceIdNamed(rebirthObjectiveEngine, "Reborn Guard") != 0 &&
+                rebirthObjectiveEngine.phase() == Phase::Playing &&
+                rebirthObjectiveEngine.scenarioObjectiveProgress().remaining == 1,
+            "genuine Rebirth remaps a stable defeat identity instead of completing it");
+        check(
+            rebirthObjectiveEngine.endTurn(1) &&
+                rebirthObjectiveEngine.endTurn(2) &&
+                rebirthObjectiveEngine.attackPiece(1, strikerId, 3, 4) &&
+                rebirthObjectiveEngine.phase() == Phase::GameOver &&
+                rebirthObjectiveEngine.winner() == 1,
+            "stable defeat identity completes only after its Rebirth lineage ends");
+    }
+
+    {
+        GameCard controlledRebirthGuard = scenarioCard("Controlled Rebirth Guard", 1);
+        controlledRebirthGuard.rebirthTitle = "Controlled Reborn Guard";
+        GameCard controlledRebornGuard = scenarioCard("Controlled Reborn Guard", 2);
+        GameEngine rebirthForceEngine(0x4f42413au, {});
+        rebirthForceEngine.registerScenarioCard(controlledRebornGuard);
+        rebirthForceEngine.loadScenario(
+            {{1, objectiveController, 3, 3, false},
+             {2, controlledRebirthGuard, 3, 4, false},
+             {2, objectiveKiller, 2, 4, false}},
+            {}, {}, 0, 0, 1, "Controlled Rebirth force objective", false);
+        const int controllerId =
+            pieceIdNamed(rebirthForceEngine, "Objective Controller");
+        const int rebirthKillerId =
+            pieceIdNamed(rebirthForceEngine, "Objective Killer");
+        GameEngine::ScenarioObjective objective;
+        objective.kind = GameEngine::ScenarioObjectiveKind::DefeatOriginalOwner;
+        objective.successPlayer = 1;
+        objective.opposingOriginalOwner = 2;
+        objective.requiredForceOriginalOwner = 1;
+        check(rebirthForceEngine.configureScenarioObjective(objective),
+            "Rebirth defeat-force objective configures");
+        check(
+            rebirthForceEngine.attackPiece(1, controllerId, 3, 4) &&
+                rebirthForceEngine.endTurn(1) &&
+                rebirthForceEngine.attackPiece(2, rebirthKillerId, 3, 4),
+            "a genuinely Controlled enemy can be defeated into its printed Rebirth");
+        const auto controlledReborn = std::find_if(
+            rebirthForceEngine.boardPieces().begin(),
+            rebirthForceEngine.boardPieces().end(),
+            [](const Piece& piece) {
+                return piece.name == "Controlled Reborn Guard";
+            });
+        check(
+            controlledReborn != rebirthForceEngine.boardPieces().end() &&
+                controlledReborn->owner == 2 &&
+                pieceOriginalOwner(*controlledReborn) == 2 &&
+                rebirthForceEngine.scenarioObjectiveProgress().remaining == 2 &&
+                rebirthForceEngine.phase() == Phase::Playing,
+            "genuine Rebirth returns to original allegiance and remains in defeat-all progress");
+    }
+
+    {
+        GameCard rebirthRunner = scenarioCard("Rebirth Runner", 1);
+        rebirthRunner.rebirthTitle = "Reborn Runner";
+        rebirthRunner.actions = {heroStep};
+        GameCard rebornRunner = scenarioCard("Reborn Runner", 2);
+        rebornRunner.actions = {heroStep};
+        GameEngine reachObjectiveEngine(0x4f424a36u, {});
+        reachObjectiveEngine.registerScenarioCard(rebornRunner);
+        reachObjectiveEngine.loadScenario(
+            {{1, rebirthRunner, 3, 3, false},
+             {2, objectiveKiller, 3, 4, false}},
+            {}, {}, 0, 0, 2, "Rebirth reach objective", false);
+        const int runnerId = pieceIdNamed(reachObjectiveEngine, "Rebirth Runner");
+        const int reachKillerId = pieceIdNamed(reachObjectiveEngine, "Objective Killer");
+        GameEngine::ScenarioObjective objective;
+        objective.kind = GameEngine::ScenarioObjectiveKind::ReachSquare;
+        objective.targetPieceId = runnerId;
+        objective.targetRow = 3;
+        objective.targetColumn = 2;
+        objective.successPlayer = 1;
+        objective.requiredForceOriginalOwner = 1;
+        objective.requiredSurvivorPieceIds = {runnerId};
+        check(reachObjectiveEngine.configureScenarioObjective(objective),
+            "stable reach and survivor identity objective configures");
+        check(
+            reachObjectiveEngine.attackPiece(2, reachKillerId, 3, 3) &&
+                pieceIdNamed(reachObjectiveEngine, "Reborn Runner") != 0 &&
+                reachObjectiveEngine.phase() == Phase::Playing &&
+                !reachObjectiveEngine.scenarioObjectiveProgress().failed,
+            "genuine Rebirth preserves both required-survivor and reach identity");
+        const int rebornRunnerId = pieceIdNamed(reachObjectiveEngine, "Reborn Runner");
+        check(
+            reachObjectiveEngine.endTurn(2) &&
+                reachObjectiveEngine.movePiece(1, rebornRunnerId, 3, 2) &&
+                reachObjectiveEngine.phase() == Phase::GameOver &&
+                reachObjectiveEngine.winner() == 1,
+            "the Rebirth replacement can authoritatively complete its inherited reach objective");
+    }
+
+    {
+        GameCard requiredAlly = scenarioCard("Required Ally", 1);
+        GameEngine survivorPriorityEngine(0x4f424a37u, {});
+        survivorPriorityEngine.loadScenario(
+            {{1, requiredAlly, 3, 3, false},
+             {2, objectiveKiller, 3, 4, false}},
+            {}, {}, 0, 0, 2, "Required survivor priority", false);
+        const int requiredId = pieceIdNamed(survivorPriorityEngine, "Required Ally");
+        const int killerId = pieceIdNamed(survivorPriorityEngine, "Objective Killer");
+        GameEngine::ScenarioObjective objective;
+        objective.kind = GameEngine::ScenarioObjectiveKind::DefeatPiece;
+        objective.targetPieceId = requiredId;
+        objective.successPlayer = 1;
+        objective.requiredForceOriginalOwner = 1;
+        objective.requiredSurvivorPieceIds = {requiredId};
+        check(survivorPriorityEngine.configureScenarioObjective(objective),
+            "required-survivor priority objective configures");
+        check(
+            survivorPriorityEngine.attackPiece(2, killerId, 3, 3) &&
+                survivorPriorityEngine.phase() == Phase::GameOver &&
+                survivorPriorityEngine.winner() == 2 &&
+                survivorPriorityEngine.scenarioObjectiveProgress().failure ==
+                    GameEngine::ScenarioObjectiveFailure::RequiredPieceMissing &&
+                !survivorPriorityEngine.scenarioObjectiveProgress().complete,
+            "required-survivor failure precedes simultaneous target-defeat success");
+    }
+
+    {
+        GameEngine controlObjectiveEngine(0x4f424a38u, {});
+        controlObjectiveEngine.loadScenario(
+            {{1, scenarioHero, 7, 0, false},
+             {2, scenarioLumberjack, 0, 7, false}},
+            {}, {}, 0, 0, 1, "Control objective", false);
+        GameEngine::ScenarioObjective objective;
+        objective.kind = GameEngine::ScenarioObjectiveKind::ControlSquares;
+        objective.successPlayer = 1;
+        objective.controlAmount = controlObjectiveEngine.controlledSquares(1);
+        objective.requiredForceOriginalOwner = 1;
+        check(
+            objective.controlAmount > 0 &&
+                controlObjectiveEngine.configureScenarioObjective(objective) &&
+                controlObjectiveEngine.phase() == Phase::GameOver &&
+                controlObjectiveEngine.winner() == 1 &&
+                controlObjectiveEngine.scenarioObjectiveProgress().current >=
+                    objective.controlAmount,
+            "control-square objective exposes progress and an authoritative terminal win");
+    }
+
+    {
+        GameEngine invalidObjectiveEngine(0x4f424a39u, {});
+        invalidObjectiveEngine.loadScenario(
+            {{1, scenarioHero, 7, 0, false},
+             {2, scenarioLumberjack, 0, 7, false}},
+            {}, {}, 0, 0, 1, "Invalid objective", false);
+        GameEngine::ScenarioObjective objective;
+        objective.kind = GameEngine::ScenarioObjectiveKind::DefeatPiece;
+        objective.targetPieceId = 99999;
+        check(
+            !invalidObjectiveEngine.configureScenarioObjective(objective) &&
+                invalidObjectiveEngine.scenarioObjectiveProgress().configured &&
+                !invalidObjectiveEngine.scenarioObjectiveProgress().valid &&
+                invalidObjectiveEngine.phase() == Phase::Playing &&
+                invalidObjectiveEngine.winner() == 0,
+            "invalid stable identity configuration fails closed without awarding a win");
+    }
+
     // --- the planner must not see through dematerialize --------------------
     // A dematerialized enemy piece is absent from the opponent's snapshot, so
     // the AI's decision has to come out identical whether or not one is on the
@@ -3553,7 +5390,8 @@ int main(int argc, char** argv)
     check(
         plainChoice.kind == hiddenChoice.kind && plainChoice.pieceId == hiddenChoice.pieceId &&
             plainChoice.handIndex == hiddenChoice.handIndex &&
-            plainChoice.row == hiddenChoice.row && plainChoice.column == hiddenChoice.column,
+            plainChoice.row == hiddenChoice.row && plainChoice.column == hiddenChoice.column &&
+            plainChoice.actionIndex == hiddenChoice.actionIndex,
         "the AI plans the same move whether or not an enemy piece is dematerialized");
 
     GameEngine redacted = hiddenEngine;

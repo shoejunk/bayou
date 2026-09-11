@@ -11,6 +11,7 @@
 #include "client_sandbox.hpp"
 #include "client_story.hpp"
 #include "client_story_cards.hpp"
+#include "client_story_keyboard.hpp"
 #include "client_string.hpp"
 #include "client_textures.hpp"
 #include "client_ui.hpp"
@@ -34,6 +35,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <future>
+#include <iterator>
 #include <list>
 #include <limits>
 #include <memory>
@@ -791,35 +793,112 @@ enum class GameConfirmationAction
     RestartStory
 };
 
+enum class StoryGameKeyboardFocus
+{
+    Board,
+    Hand,
+    PlayerOne,
+    PlayerTwo,
+    DrawPile,
+    Ability,
+    EndTurn,
+    Restart,
+    Exit
+};
+
 // The 16:9 canvas has a narrow gutter on either side of the legacy board. Keep
 // owner readouts in those gutters so the upper board row can never cover them.
 constexpr float GameTopBarY = 5.0f;
 constexpr float GamePlayerBannerWidth = 180.0f;
 constexpr float GamePlayerBannerHeight = 90.0f;
+// On the legacy 4:3 canvas the back rank begins at y=66. Keep compact HUD
+// hitboxes and paint wholly above it so A8 and H8 remain visible and clickable.
+constexpr float GameCompactPlayerBannerHeight = 56.0f;
 constexpr float GamePlayerBannerLeftX = ui_canvas::Left + 4.0f;
 constexpr float GamePlayerBannerRightX = ui_canvas::Right - GamePlayerBannerWidth - 4.0f;
+constexpr float GameCompactPlayerBannerLeftX = 4.0f;
+constexpr float GameCompactPlayerBannerRightX =
+    ui_canvas::LegacyWidth - GamePlayerBannerWidth - 4.0f;
 constexpr float GameTurnPlaqueWidth = GamePlayerBannerWidth;
 constexpr float GameTurnPlaqueHeight = 48.0f;
 constexpr float GameTurnPlaqueY = GameTopBarY + GamePlayerBannerHeight + 8.0f;
+constexpr float GameCompactStoryExitButtonX = 190.0f;
+constexpr float GameCompactStoryRestartButtonX = 496.0f;
+constexpr float GameCompactStoryButtonY = 9.0f;
+constexpr float GameCompactStoryButtonWidth = 114.0f;
+constexpr float GameCompactStoryButtonHeight = 40.0f;
 constexpr float ResignDialogX = 220.0f;
 constexpr float ResignDialogY = 188.0f;
 constexpr float ResignDialogWidth = 360.0f;
 constexpr float ResignDialogHeight = 220.0f;
+constexpr float ActionChoiceDialogX = 176.0f;
+constexpr float ActionChoiceDialogWidth = 448.0f;
+constexpr float ActionChoiceHeaderHeight = 82.0f;
+constexpr float ActionChoiceRowHeight = 62.0f;
+constexpr float ActionChoiceFooterHeight = 52.0f;
+constexpr float ActionChoiceRowInset = 18.0f;
 // The player-enchantment drop test targets the owner banners.
 constexpr float GameLabelY = GameTopBarY;
 constexpr float GamePlayerReadoutWidth = GamePlayerBannerWidth;
-constexpr float GamePlayerReadoutHeight = GamePlayerBannerHeight;
+
+static_assert(
+    GameTopBarY + GameCompactPlayerBannerHeight + 3.0f < BoardOriginY,
+    "Compact player-banner glow must stay above every board square.");
+static_assert(
+    GameCompactStoryButtonY + GameCompactStoryButtonHeight < BoardOriginY,
+    "Compact story controls must stay above every board square.");
+static_assert(
+    GameCompactStoryExitButtonX >
+            GameCompactPlayerBannerLeftX + GamePlayerBannerWidth + 3.0f &&
+        GameCompactStoryExitButtonX + GameCompactStoryButtonWidth <
+            BoardCenterX - GameTurnPlaqueWidth * 0.5f &&
+        GameCompactStoryRestartButtonX >
+            BoardCenterX + GameTurnPlaqueWidth * 0.5f &&
+        GameCompactStoryRestartButtonX + GameCompactStoryButtonWidth <
+            GameCompactPlayerBannerRightX,
+    "Compact story controls must stay in the gaps between HUD plaques.");
+
+bool usesCompactGameHud(const sf::RenderWindow& window)
+{
+    const sf::Vector2u size = window.getSize();
+    if (size.x == 0 || size.y == 0)
+    {
+        return false;
+    }
+    return static_cast<float>(size.x) / static_cast<float>(size.y) <
+        ui_canvas::Aspect - 0.01f;
+}
+
+float gamePlayerBannerX(const sf::RenderWindow& window, int playerNumber)
+{
+    if (usesCompactGameHud(window))
+    {
+        return playerNumber == 1
+            ? GameCompactPlayerBannerLeftX
+            : GameCompactPlayerBannerRightX;
+    }
+    return playerNumber == 1 ? GamePlayerBannerLeftX : GamePlayerBannerRightX;
+}
+
+float gamePlayerBannerHeight(const sf::RenderWindow& window)
+{
+    return usesCompactGameHud(window)
+        ? GameCompactPlayerBannerHeight
+        : GamePlayerBannerHeight;
+}
 
 // Bottom command bar: piles at the left, the hand across the middle, turn
 // actions at the right.
 constexpr float GameBottomBarY = 468.0f;
 constexpr float GameBottomBarHeight = 126.0f;
 constexpr float GameBottomLeftX = 22.0f;
-constexpr float GamePileY = GameBottomBarY + 10.0f;
+// Reserve the final 20 logical pixels for Story keyboard help instead of
+// painting that help through the cards, piles, and action buttons.
+constexpr float GamePileY = GameBottomBarY + 2.0f;
 constexpr float GamePileWidth = 70.0f;
 constexpr float GamePileHeight = 104.0f;
 constexpr float GameDeckPileX = GameBottomLeftX;
-constexpr float HandY = 478.0f;
+constexpr float HandY = GameBottomBarY + 2.0f;
 constexpr float HandCardWidth = 72.0f;
 constexpr float HandCardHeight = 104.0f;
 constexpr float HandGap = 5.0f;
@@ -846,7 +925,9 @@ inline float gameHandCardX(std::size_t visibleIndex, std::size_t visibleCards)
 }
 constexpr std::size_t ForesightChoiceColumns = 8;
 constexpr std::size_t ForesightVisibleRows = 3;
-constexpr float ForesightChoiceY = 142.0f;
+// Leave a readable guidance/correction band above the revealed cards. Three
+// rows still fit inside the 800x600 modal at this position.
+constexpr float ForesightChoiceY = 164.0f;
 constexpr float ForesightChoiceRowPitch = 134.0f;
 constexpr float ForesightChoiceGap = 10.0f;
 constexpr float TrashCanWidth = GamePileWidth;
@@ -865,9 +946,9 @@ constexpr float GamePrimaryButtonHeight = 44.0f;
 constexpr float GameActionButtonHeight = 26.0f;
 // The contextual ability takes the top slot; when no ability is available the
 // slot carries the opponent's hand count instead of sitting empty.
-constexpr float GameAbilityButtonY = GameBottomBarY + 8.0f;
-constexpr float GameActionButtonY = GameAbilityButtonY + 32.0f;
-constexpr float GameLeaveButtonY = GameActionButtonY + GamePrimaryButtonHeight + 6.0f;
+constexpr float GameAbilityButtonY = GameBottomBarY + 4.0f;
+constexpr float GameActionButtonY = GameAbilityButtonY + 30.0f;
+constexpr float GameLeaveButtonY = GameActionButtonY + GamePrimaryButtonHeight + 2.0f;
 constexpr float GameAbilityButtonWidth = GameActionButtonWidth;
 constexpr float GameEndTurnButtonWidth = GameActionButtonWidth;
 constexpr float GameLeaveButtonWidth = GameActionButtonWidth;
@@ -980,8 +1061,21 @@ int main(int argc, char** argv)
 {
     setExecutableDirectory(argc > 0 ? argv[0] : nullptr);
 
-    const std::optional<ui_capture::Request> captureRequest =
+    std::optional<ui_capture::Request> captureRequest =
         ui_capture::parseCommandLine(argc, argv);
+
+    if (captureRequest)
+    {
+        std::string outputError;
+        const std::filesystem::path executablePath =
+            argc > 0 && argv[0] ? argv[0] : std::filesystem::path{};
+        if (!ui_capture::prepareOutputDirectory(
+                *captureRequest, executablePath, outputError))
+        {
+            fmt::println(stderr, "[UI capture output rejection] {}", outputError);
+            return 1;
+        }
+    }
 
     const sf::VideoMode desktopMode = sf::VideoMode::getDesktopMode();
     const std::vector<sf::VideoMode>& fullscreenModes = sf::VideoMode::getFullscreenModes();
@@ -1101,8 +1195,8 @@ int main(int argc, char** argv)
     Button exitDesktopButton({20.0f, 520.0f}, {200.0f, 45.0f}, "Exit to Desktop", font);
     Button cancelMatchmakingButton({20.0f, 520.0f}, {120.0f, 45.0f}, "Cancel", font);
     Button playAiButton({150.0f, 520.0f}, {160.0f, 45.0f}, "Play vs AI", font);
-    Button storyButton({300.0f, 152.0f}, {200.0f, 48.0f}, "STORY", font);
-    Button playButton({300.0f, 215.0f}, {200.0f, 48.0f}, "PLAY", font);
+    Button storyButton({300.0f, 152.0f}, {200.0f, 48.0f}, "GUIDED STORY", font);
+    Button playButton({300.0f, 215.0f}, {200.0f, 48.0f}, "PLAY ONLINE", font);
     Button conquestButton({300.0f, 278.0f}, {200.0f, 48.0f}, "CONQUEST", font);
     Button deckEditorButton({300.0f, 341.0f}, {200.0f, 48.0f}, "DECK EDITOR", font);
     Button shopButton({300.0f, 404.0f}, {200.0f, 48.0f}, "SHOP", font);
@@ -1247,6 +1341,7 @@ int main(int argc, char** argv)
     std::optional<std::future<ServerResult>> pendingRequest;
     std::optional<std::future<ServerResult>> pendingMatchmaking;
     std::optional<std::future<CardListResult>> pendingSandboxLoad;
+    std::optional<std::future<CardListResult>> pendingStoryCardLoad;
     std::shared_ptr<MatchmakingCancelState> activeMatchmakingCancel;
     bool matchmakingCancelRequested = false;
     std::optional<std::future<void>> pendingLogout;
@@ -1295,6 +1390,8 @@ int main(int argc, char** argv)
     bool deckUnsavedChangesPopupVisible = false;
     bool resignConfirmPopupVisible = false;
     GameConfirmationAction gameConfirmationAction = GameConfirmationAction::Resign;
+    // Zero is the safe Cancel choice; one is the destructive/committing choice.
+    int gameConfirmationKeyboardFocus = 0;
     bool exitDesktopCloseHovered = false;
     bool authenticatedSettingsHovered = false;
     bool pendingAutoLogin = false;
@@ -1391,6 +1488,8 @@ int main(int argc, char** argv)
     std::unique_ptr<GameEngine> storyEngine;
     bool storyAiPending = false;
     float storyAiActionAt = 0.0f;
+    double storyTimerAccumulatorMs = 0.0;
+    bool storyClockPausedForReading = false;
     enum class StoryStage
     {
         None,
@@ -1402,6 +1501,7 @@ int main(int argc, char** argv)
     int storyMissionIndex = 0;
     int storyMissionPage = 0;
     int storyMissionStep = 0;
+    std::string storyCorrection;
     bool storyUsedAim = false;
     bool storyUsedHide = false;
     bool storyUsedSummon = false;
@@ -1411,10 +1511,23 @@ int main(int argc, char** argv)
     bool storyCompleteAfterPopup = false;
     float storyScriptActionAt = 0.0f;
     int storyCompletedCount = 0;
-    std::array<int, 2> storyCampaignProgress{};
+    std::array<int, 3> storyCampaignProgress{};
+    std::array<StoryProgress, 3> storyCampaignProgressDetails{};
+    int storyGenuineDefeatCount = 0;
+    bool storySpoilerConfirmationVisible = false;
+    int storySpoilerKeyboardFocus = 0;
     std::uint64_t storyGeneration = 0;
     std::optional<std::future<std::pair<std::uint64_t, AiAction>>> pendingStoryAi;
     int storyComicPage = 0;
+    int storySelectKeyboardFocus = 1;
+    int storyMissionKeyboardFocus = 0;
+    int storyIntroKeyboardFocus = 2;
+    int storyPopupKeyboardFocus = 1;
+    StoryGameKeyboardFocus storyGameKeyboardFocus = StoryGameKeyboardFocus::Board;
+    StoryBoardCursor storyBoardKeyboardCursor{};
+    std::size_t storyKeyboardHandIndex = 0;
+    std::size_t storyKeyboardForesightIndex = 0;
+    bool storyKeyboardNavigationActive = true;
     int storyTargetRow = -1;
     int storyTargetColumn = -1;
     int sandboxPlacementPlayer = 1;
@@ -1425,6 +1538,15 @@ int main(int argc, char** argv)
     std::optional<std::size_t> selectedHandIndex;
     std::optional<int> inspectedPieceId;
     std::optional<std::size_t> inspectedHandIndex;
+    struct PendingPieceActionChoice
+    {
+        int pieceId = 0;
+        int row = -1;
+        int column = -1;
+        std::vector<int> actionIndices;
+        int focusedOption = 0;
+    };
+    std::optional<PendingPieceActionChoice> pendingPieceActionChoice;
     std::optional<int> lastClickedPieceId;
     sf::Vector2f lastPieceClickPosition;
     float lastPieceClickTime = -10.0f;
@@ -1545,11 +1667,20 @@ int main(int argc, char** argv)
         "Resign",
         font);
     Button storyContinueButton({558.0f, 520.0f}, {194.0f, 48.0f}, "Continue", font);
-    Button storyPopupPreviousButton({312.0f, 472.0f}, {196.0f, 46.0f}, "Previous", font);
-    Button storyPopupContinueButton({524.0f, 472.0f}, {196.0f, 46.0f}, "Continue", font);
+    Button storySkipDrillButton(
+        {326.0f, 520.0f}, {216.0f, 48.0f}, "Skip (No Mastery)", font);
+    // Keep the popup controls above a dedicated keyboard-help row. The former
+    // y=472 placement put the hint directly through the Previous button.
+    Button storyPopupPreviousButton({312.0f, 456.0f}, {196.0f, 46.0f}, "Previous", font);
+    Button storyPopupContinueButton({524.0f, 456.0f}, {196.0f, 46.0f}, "Continue", font);
     Button storyBackButton({48.0f, 526.0f}, {112.0f, 40.0f}, "Back", font);
-    Button storyBlackthornButton({76.0f, 466.0f}, {288.0f, 48.0f}, "Begin", font);
-    Button storyMirewatchButton({436.0f, 466.0f}, {288.0f, 48.0f}, "Begin", font);
+    Button storyBlackthornButton({42.0f, 466.0f}, {204.0f, 42.0f}, "Begin", font);
+    Button storyMirewatchButton({298.0f, 466.0f}, {204.0f, 42.0f}, "Begin", font);
+    Button storySeelieButton({554.0f, 466.0f}, {204.0f, 42.0f}, "Begin", font);
+    Button storySpoilerMirewatchButton(
+        {220.0f, 390.0f}, {176.0f, 44.0f}, "Play Mirewatch First", font);
+    Button storySpoilerContinueButton(
+        {412.0f, 390.0f}, {168.0f, 44.0f}, "Continue Anyway", font);
     Button storySelectBackButton({48.0f, 536.0f}, {112.0f, 40.0f}, "Back", font);
     std::array<Button, 8> storyMissionButtons{
         Button({58.0f, 132.0f}, {326.0f, 72.0f}, "Mission 1", font),
@@ -1570,6 +1701,8 @@ int main(int argc, char** argv)
         {GamePlayerBannerLeftX + 12.0f, 198.0f}, {156.0f, 32.0f}, "Restart Mission", font);
     storyContinueButton.setVariant(ButtonVariant::Primary);
     storyContinueButton.setLabelSize(type::Subheading);
+    storySkipDrillButton.setVariant(ButtonVariant::Secondary);
+    storySkipDrillButton.setLabelSize(type::Body);
     storyPopupPreviousButton.setVariant(ButtonVariant::Secondary);
     storyPopupPreviousButton.setLabelSize(type::Subheading);
     storyPopupContinueButton.setVariant(ButtonVariant::Primary);
@@ -1579,6 +1712,12 @@ int main(int argc, char** argv)
     storyBlackthornButton.setLabelSize(type::Body);
     storyMirewatchButton.setVariant(ButtonVariant::Primary);
     storyMirewatchButton.setLabelSize(type::Body);
+    storySeelieButton.setVariant(ButtonVariant::Primary);
+    storySeelieButton.setLabelSize(type::Body);
+    storySpoilerMirewatchButton.setVariant(ButtonVariant::Primary);
+    storySpoilerMirewatchButton.setLabelSize(type::Body);
+    storySpoilerContinueButton.setVariant(ButtonVariant::Secondary);
+    storySpoilerContinueButton.setLabelSize(type::Body);
     storySelectBackButton.setVariant(ButtonVariant::Quiet);
     for (Button& button : storyMissionButtons)
     {
@@ -1682,10 +1821,9 @@ int main(int argc, char** argv)
     };
 
     auto layoutAuthenticatedButtons = [&]() {
-        // Three tiers instead of seven identical plates. Play is the reason the
-        // player opened the game, so it is the only wide plate; the four modes
-        // below share one rhythm; Admin and Log Out are shrunk into a footer pair
-        // so leaving the game never competes with entering it.
+        // Three tiers instead of seven identical plates. Guided Story is the
+        // first-time route and therefore the only wide plate; the four modes
+        // below share one rhythm. Admin and Log Out are a quiet footer pair.
         constexpr float centerX = 400.0f;
         constexpr float primaryWidth = 264.0f;
         constexpr float primaryHeight = 62.0f;
@@ -1694,9 +1832,9 @@ int main(int argc, char** argv)
         constexpr float footerWidth = 104.0f;
         constexpr float footerHeight = 32.0f;
 
-        playButton.setVariant(ButtonVariant::Primary);
-        playButton.setSize({primaryWidth, primaryHeight});
-        playButton.setPosition({centerX - primaryWidth * 0.5f, 168.0f});
+        storyButton.setVariant(ButtonVariant::Primary);
+        storyButton.setSize({primaryWidth, primaryHeight});
+        storyButton.setPosition({centerX - primaryWidth * 0.5f, 168.0f});
 
         float y = 256.0f;
         auto placeSecondary = [&](Button& button) {
@@ -1706,7 +1844,7 @@ int main(int argc, char** argv)
             y += secondaryHeight + 13.0f;
         };
 
-        placeSecondary(storyButton);
+        placeSecondary(playButton);
         placeSecondary(conquestButton);
         placeSecondary(deckEditorButton);
         placeSecondary(shopButton);
@@ -1984,14 +2122,16 @@ int main(int argc, char** argv)
     auto drawPlayerBadge = [&]() {
         // Width is bounded by the title frame, which starts at x = 190 and cannot
         // move: the wordmark is centred on the screen.
-        constexpr float BadgeLeft = -122.0f;
-        constexpr sf::Vector2f BadgePosition{BadgeLeft, 14.0f};
+        const bool compactBadge = window.getView().getSize().x <=
+            ui_canvas::LegacyWidth + 0.5f;
+        const float BadgeLeft = compactBadge ? 12.0f : -122.0f;
+        const sf::Vector2f BadgePosition{BadgeLeft, 14.0f};
         // The role tag lives inside the plate, so the badge grows a row to hold
         // it. Hanging it underneath read as an element that had escaped its
         // container.
         // Leave enough room for the Wood leaf and future longer league names
         // without letting the rank row touch the plate's right border.
-        constexpr float BadgeWidth = 210.0f;
+        const float BadgeWidth = compactBadge ? 166.0f : 210.0f;
         const sf::Vector2f BadgeSize{BadgeWidth, loggedInIsAdmin ? 136.0f : 112.0f};
 
         PlateStyle badge;
@@ -2002,8 +2142,8 @@ int main(int argc, char** argv)
         drawMaterialPlate(window, BadgePosition, BadgeSize, badge);
 
         // ---- portrait -----------------------------------------------------
-        constexpr sf::Vector2f PortraitCenter{BadgeLeft + 36.0f, 55.0f};
-        constexpr float PortraitRadius = 25.0f;
+        const sf::Vector2f PortraitCenter{BadgeLeft + (compactBadge ? 30.0f : 36.0f), 55.0f};
+        const float PortraitRadius = compactBadge ? 22.0f : 25.0f;
         // account_profile_circle_frame is a filled disc rather than a ring, so it
         // has to go down first as the bezel; drawing it last is what left the
         // portrait looking permanently empty.
@@ -2017,7 +2157,7 @@ int main(int argc, char** argv)
 
         // Character art is drawn on transparency, so the well needs its own
         // ground before the figure goes on top.
-        constexpr float AvatarRadius = 21.5f;
+        const float AvatarRadius = compactBadge ? 18.5f : 21.5f;
         sf::CircleShape portraitGround(AvatarRadius, 40);
         portraitGround.setOrigin({AvatarRadius, AvatarRadius});
         portraitGround.setPosition(PortraitCenter);
@@ -2054,7 +2194,7 @@ int main(int argc, char** argv)
         window.draw(portraitRing);
 
         // ---- identity -----------------------------------------------------
-        constexpr float TextLeft = BadgeLeft + 70.0f;
+        const float TextLeft = BadgeLeft + (compactBadge ? 58.0f : 70.0f);
         const float textRight = BadgePosition.x + BadgeSize.x - 10.0f;
         const float column = textRight - TextLeft;
 
@@ -2148,7 +2288,8 @@ int main(int argc, char** argv)
     // A tracked-caps build mark on a hairline, the way a shipping client marks
     // itself, rather than bare text in the corner.
     auto drawBuildStamp = [&]() {
-        constexpr float StampRight = 922.0f;
+        const float StampRight =
+            window.getView().getCenter().x + window.getView().getSize().x * 0.5f - 11.0f;
         constexpr float StampY = 578.0f;
         sf::Text version(font, "BUILD 1.0.0", type::Micro);
         version.setLetterSpacing(1.6f);
@@ -2170,14 +2311,17 @@ int main(int argc, char** argv)
         drawPlayerBadge();
         drawAuthenticatedMenuTitle();
 
+        const bool compactChrome = window.getView().getSize().x <=
+            ui_canvas::LegacyWidth + 0.5f;
+        const float settingsX = compactChrome ? 704.0f : 817.0f;
         drawMainMenuTextureContained(
             mainMenuSmallHexTexture,
-            {817.0f, 14.0f},
+            {settingsX, 14.0f},
             {36.0f, 38.0f},
             authenticatedSettingsHovered ? sf::Color::White : sf::Color(225, 218, 202));
         drawMainMenuTextureContained(
             mainMenuSettingsTexture,
-            {825.0f, 22.0f},
+            {settingsX + 8.0f, 22.0f},
             {20.0f, 20.0f},
             authenticatedSettingsHovered ? sf::Color::White : sf::Color(235, 225, 202));
 
@@ -2185,21 +2329,32 @@ int main(int argc, char** argv)
     };
 
     auto authenticatedSettingsButtonClicked = [&](sf::Vector2f point) {
-        return isInsideRect(point, 816.0f, 13.0f, 38.0f, 40.0f);
+        const float settingsX = window.getView().getSize().x <=
+                ui_canvas::LegacyWidth + 0.5f
+            ? 704.0f
+            : 817.0f;
+        return isInsideRect(point, settingsX - 1.0f, 13.0f, 38.0f, 40.0f);
     };
 
     auto drawExitDesktopCloseButton = [&]() {
+        const bool authenticatedExit = currentState == GameState::Authenticated;
+        const float authenticatedExitX = window.getView().getSize().x <=
+                ui_canvas::LegacyWidth + 0.5f
+            ? 742.0f
+            : 864.0f;
         if (currentState == GameState::Authenticated && mainMenuExitTexture)
         {
             drawMainMenuTextureStretched(
                 mainMenuExitTexture,
-                {864.0f, -2.0f},
+                {authenticatedExitX, -2.0f},
                 {58.0f, 90.0f},
                 exitDesktopCloseHovered ? sf::Color::White : sf::Color(224, 214, 202));
             return;
         }
 
-        const sf::Vector2f position{724.0f, 18.0f};
+        const sf::Vector2f position = authenticatedExit
+            ? sf::Vector2f{authenticatedExitX + 3.0f, 18.0f}
+            : sf::Vector2f{724.0f, 18.0f};
         const sf::Vector2f size{52.0f, 52.0f};
 
         drawBeveledPlate(
@@ -2229,7 +2384,11 @@ int main(int argc, char** argv)
     auto exitDesktopCloseButtonClicked = [&](sf::Vector2f point) {
         if (currentState == GameState::Authenticated)
         {
-            return isInsideRect(point, 864.0f, 0.0f, 58.0f, 72.0f);
+            const float exitX = window.getView().getSize().x <=
+                    ui_canvas::LegacyWidth + 0.5f
+                ? 742.0f
+                : 864.0f;
+            return isInsideRect(point, exitX, 0.0f, 58.0f, 72.0f);
         }
         return isInsideRect(point, 724.0f, 18.0f, 52.0f, 52.0f);
     };
@@ -2268,6 +2427,8 @@ int main(int argc, char** argv)
         }
         confirmResignButton.setLabel(confirmation);
         confirmResignButton.setVariant(ButtonVariant::Danger);
+        cancelResignButton.setFocused(gameConfirmationKeyboardFocus == 0);
+        confirmResignButton.setFocused(gameConfirmationKeyboardFocus == 1);
         sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
         overlay.setPosition({ui_canvas::Left, 0.0f});
         overlay.setFillColor(sf::Color(0, 0, 0, 182));
@@ -2285,6 +2446,13 @@ int main(int argc, char** argv)
             window, font, secondLine, 16,
             {ResignDialogX + ResignDialogWidth * 0.5f, 312.0f},
             sf::Color(220, 224, 230));
+        drawCenteredText(
+            window,
+            font,
+            "LEFT / RIGHT OR TAB: CHOOSE  |  ENTER: CONFIRM  |  ESC: CANCEL",
+            11,
+            {ResignDialogX + ResignDialogWidth * 0.5f, 337.0f},
+            sf::Color(190, 198, 214));
         cancelResignButton.draw(window);
         confirmResignButton.draw(window);
     };
@@ -2760,6 +2928,7 @@ int main(int argc, char** argv)
         dragActive = false;
         inspectedPieceId.reset();
         inspectedHandIndex.reset();
+        pendingPieceActionChoice.reset();
         lastClickedPieceId.reset();
         pendingHandClickIndex.reset();
         inspectedPieceScroll = 0.0f;
@@ -3284,6 +3453,7 @@ int main(int argc, char** argv)
         selectedHandIndex.reset();
         inspectedPieceId.reset();
         inspectedHandIndex.reset();
+        pendingPieceActionChoice.reset();
         lastClickedPieceId.reset();
         pendingHandClickIndex.reset();
         inspectedPieceScroll = 0.0f;
@@ -4456,9 +4626,7 @@ int main(int argc, char** argv)
         const std::string effectText = (value > 0 ? "+" : "") + std::to_string(value);
         const sf::Text floatingValue(font, effectText, 20);
         // Float the delta off the resources figure inside that player's banner.
-        const float pipCenterX = playerNumber == 1
-            ? GamePlayerBannerLeftX + 61.0f
-            : GamePlayerBannerRightX + 61.0f;
+        const float pipCenterX = gamePlayerBannerX(window, playerNumber) + 61.0f;
         const float x = pipCenterX - floatingValue.getLocalBounds().size.x * 0.5f;
         floatingNumberEffects.push_back({
             0,
@@ -4880,30 +5048,83 @@ int main(int argc, char** argv)
     };
 
     const auto storyProgressIndex = [](StoryCampaign campaign) {
-        return campaign == StoryCampaign::Blackthorn ? std::size_t{0} : std::size_t{1};
+        switch (campaign)
+        {
+        case StoryCampaign::Blackthorn: return std::size_t{0};
+        case StoryCampaign::Mirewatch: return std::size_t{1};
+        case StoryCampaign::Seelie: return std::size_t{2};
+        }
+        return std::size_t{0};
+    };
+
+    const auto refreshStoryCampaignProgress = [&](StoryCampaign campaign) {
+        const std::size_t index = storyProgressIndex(campaign);
+        storyCampaignProgressDetails[index] =
+            loadStoryProgress(loggedInUsername, campaign);
+        storyCampaignProgress[index] =
+            storyCampaignProgressDetails[index].advancedCount;
+    };
+
+    const auto storyCardsReady = [&]() {
+        // cardLibrary is the player's owned subset. Story missions may use any
+        // faction's units, so only the full card-server catalog is sufficient.
+        return captureRequest || !allCardLibrary.empty();
+    };
+
+    const auto requestStoryCards = [&]() {
+        if (captureRequest || storyCardsReady() || pendingStoryCardLoad)
+        {
+            return;
+        }
+        storyBlackthornButton.setEnabled(false);
+        storyMirewatchButton.setEnabled(false);
+        storySeelieButton.setEnabled(false);
+        setMessageY(messageText, 556.0f);
+        setMessage(messageText, "Loading authoritative cards...", sf::Color::Yellow);
+        pendingStoryCardLoad = std::async(std::launch::async, fetchCards);
     };
 
     auto showStorySelect = [&]() {
         currentState = GameState::StorySelect;
-        storyCampaignProgress[0] =
-            loadStoryCompletedCount(loggedInUsername, StoryCampaign::Blackthorn);
-        storyCampaignProgress[1] =
-            loadStoryCompletedCount(loggedInUsername, StoryCampaign::Mirewatch);
+        refreshStoryCampaignProgress(StoryCampaign::Blackthorn);
+        refreshStoryCampaignProgress(StoryCampaign::Mirewatch);
+        refreshStoryCampaignProgress(StoryCampaign::Seelie);
+        storySpoilerConfirmationVisible = false;
+        storySpoilerKeyboardFocus = 0;
         title.setString("");
         centerText(title, 400.0f);
-        setMessage(messageText, "", sf::Color::White);
+        setMessageY(messageText, 556.0f);
+        if (pendingStoryCardLoad)
+        {
+            setMessage(messageText, "Loading authoritative cards...", sf::Color::Yellow);
+        }
+        else
+        {
+            setMessage(messageText, "", sf::Color::White);
+        }
+        const bool cardsSelectable = !pendingStoryCardLoad.has_value();
+        storyBlackthornButton.setEnabled(cardsSelectable);
+        storyMirewatchButton.setEnabled(cardsSelectable);
+        storySeelieButton.setEnabled(cardsSelectable);
+        storySelectKeyboardFocus = 1;
+        storyKeyboardNavigationActive = true;
+        requestStoryCards();
         clearFocus();
     };
 
     auto showStoryMissionSelect = [&](StoryCampaign campaign) {
         storyCampaign = campaign;
-        storyCompletedCount = loadStoryCompletedCount(loggedInUsername, storyCampaign);
-        storyCampaignProgress[storyProgressIndex(storyCampaign)] = storyCompletedCount;
+        refreshStoryCampaignProgress(storyCampaign);
+        storyCompletedCount =
+            storyCampaignProgress[storyProgressIndex(storyCampaign)];
+        storySpoilerConfirmationVisible = false;
         const int missionCount = static_cast<int>(storyMissions(storyCampaign).size());
         const int currentMission = missionCount > 0
             ? std::min(storyCompletedCount, missionCount - 1)
             : 0;
         storyMissionPage = currentMission / StoryMissionPageSize;
+        storyMissionKeyboardFocus = currentMission % StoryMissionPageSize;
+        storyKeyboardNavigationActive = true;
         currentState = GameState::StoryMissionSelect;
         title.setString("");
         centerText(title, 400.0f);
@@ -4923,11 +5144,58 @@ int main(int argc, char** argv)
         setMessageY(messageText, 560.0f);
         setMessage(messageText, "", sf::Color::White);
         storyComicPage = 0;
+        storyGenuineDefeatCount = 0;
+        storyIntroKeyboardFocus = 2;
+        storyKeyboardNavigationActive = true;
         clearFocus();
+    };
+
+    auto requestStoryCampaignSelection = [&](StoryCampaign campaign) {
+        const int mirewatchMissionCount =
+            static_cast<int>(storyMissions(StoryCampaign::Mirewatch).size());
+        if (storyRequiresSeelieSpoilerConfirmation(
+                campaign,
+                storyCampaignProgress[storyProgressIndex(StoryCampaign::Mirewatch)],
+                mirewatchMissionCount))
+        {
+            storySpoilerConfirmationVisible = true;
+            storySpoilerKeyboardFocus = 0;
+            storyKeyboardNavigationActive = true;
+            return;
+        }
+        showStoryMissionSelect(campaign);
+    };
+
+    auto activateStorySpoilerChoice = [&](bool continueAnyway) {
+        playButtonClickSound();
+        storySpoilerConfirmationVisible = false;
+        showStoryMissionSelect(
+            continueAnyway ? StoryCampaign::Seelie : StoryCampaign::Mirewatch);
+    };
+
+    bool captureValidationFailed = false;
+    std::string captureValidationScreen;
+    const auto failCaptureValidation = [&](std::string message) {
+        captureValidationFailed = true;
+        storyCorrection = message;
+        gameSnapshot.status = message;
+        fmt::println(
+            "[UI capture validation failure]{}{}",
+            captureValidationScreen.empty()
+                ? std::string{}
+                : " [" + captureValidationScreen + "] ",
+            message);
     };
 
     const auto activeStoryMission = [&]() -> const StoryMission& {
         return storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)];
+    };
+
+    const auto activeStoryCatchUpMayBeSkipped = [&]() {
+        return storyMasteryCatchUpMayBeSkipped(
+            storyMissions(storyCampaign),
+            storyMissionIndex,
+            storyCampaignProgressDetails[storyProgressIndex(storyCampaign)]);
     };
 
     const auto storyMissionIndexById = [&](StoryCampaign campaign, std::string_view id) {
@@ -4935,13 +5203,24 @@ int main(int argc, char** argv)
         const auto found = std::find_if(
             missions.begin(), missions.end(),
             [&](const StoryMission& mission) { return mission.id == id; });
-        return found == missions.end()
-            ? 0
-            : static_cast<int>(std::distance(missions.begin(), found));
+        if (found == missions.end())
+        {
+            failCaptureValidation(
+                "Capture setup error: unknown Story mission id '" +
+                std::string(id) + "'.");
+            return 0;
+        }
+        return static_cast<int>(std::distance(missions.begin(), found));
     };
 
     const auto storyTacticalMissionIndex = [&](StoryCampaign campaign, int ordinal) {
         const std::span<const StoryMission> missions = storyMissions(campaign);
+        if (ordinal < 0)
+        {
+            failCaptureValidation(
+                "Capture setup error: tactical Story ordinal must be positive.");
+            return 0;
+        }
         int tactical = 0;
         for (std::size_t index = 0; index < missions.size(); ++index)
         {
@@ -4949,17 +5228,421 @@ int main(int argc, char** argv)
             {
                 continue;
             }
-            if (tactical == std::max(0, ordinal))
+            if (tactical == ordinal)
             {
                 return static_cast<int>(index);
             }
             ++tactical;
         }
-        return missions.empty() ? 0 : static_cast<int>(missions.size()) - 1;
+        failCaptureValidation(
+            "Capture setup error: tactical Story ordinal " +
+            std::to_string(ordinal + 1) + " does not exist.");
+        return 0;
     };
 
+    enum class StoryPageCaptureKind
+    {
+        Briefing,
+        ActionStep,
+        BeforeStep,
+        Aftermath
+    };
+    struct StoryPageCaptureTarget
+    {
+        StoryCampaign campaign = StoryCampaign::Blackthorn;
+        int missionIndex = 0;
+        StoryPageCaptureKind kind = StoryPageCaptureKind::Briefing;
+        std::size_t stepIndex = 0;
+        std::size_t panelIndex = 0;
+    };
+    struct StoryActionCaptureInvariant
+    {
+        StoryCampaign campaign = StoryCampaign::Blackthorn;
+        int missionIndex = 0;
+        std::size_t stepIndex = 0;
+        bool openObjective = false;
+        int completedCount = 0;
+        int campaignProgress = 0;
+        game_data::Phase phase = game_data::Phase::HeroPlacement;
+        int activeOwner = 0;
+    };
+    std::optional<StoryActionCaptureInvariant> storyActionCaptureInvariant;
+    static constexpr std::array<StoryCampaign, 3> CaptureStoryCampaigns = {
+        StoryCampaign::Mirewatch,
+        StoryCampaign::Blackthorn,
+        StoryCampaign::Seelie};
+    const auto storyCaptureCampaignKey =
+        [](StoryCampaign campaign) -> std::string_view {
+            switch (campaign)
+            {
+            case StoryCampaign::Mirewatch: return "mw";
+            case StoryCampaign::Blackthorn: return "bt";
+            case StoryCampaign::Seelie: return "se";
+            }
+            return "unknown";
+        };
+    const auto storyCaptureOrdinal = [](std::size_t index) {
+        std::string result = std::to_string(index + 1);
+        if (result.size() < 2)
+        {
+            result.insert(result.begin(), '0');
+        }
+        return result;
+    };
+    const auto storyBriefingPageCaptureKey =
+        [&](StoryCampaign campaign,
+            const StoryMission& mission,
+            std::size_t panelIndex) {
+            return std::string("story-page-briefing-") +
+                std::string(storyCaptureCampaignKey(campaign)) + "-" +
+                std::string(mission.id) + "-p" +
+                storyCaptureOrdinal(panelIndex);
+        };
+    const auto storyBeforeStepPageCaptureKey =
+        [&](StoryCampaign campaign,
+            const StoryMission& mission,
+            std::size_t stepIndex,
+            std::size_t panelIndex) {
+            return std::string("story-page-beat-before-") +
+                std::string(storyCaptureCampaignKey(campaign)) + "-" +
+                std::string(mission.id) + "-s" +
+                storyCaptureOrdinal(stepIndex) + "-p" +
+                storyCaptureOrdinal(panelIndex);
+        };
+    const auto storyActionPageCaptureKey =
+        [&](StoryCampaign campaign,
+            const StoryMission& mission,
+            std::size_t stepIndex) {
+            return std::string("story-page-action-") +
+                std::string(storyCaptureCampaignKey(campaign)) + "-" +
+                std::string(mission.id) + "-s" +
+                storyCaptureOrdinal(stepIndex);
+        };
+    const auto storyAftermathPageCaptureKey =
+        [&](StoryCampaign campaign,
+            const StoryMission& mission,
+            std::size_t panelIndex) {
+            return std::string("story-page-beat-aftermath-") +
+                std::string(storyCaptureCampaignKey(campaign)) + "-" +
+                std::string(mission.id) + "-p" +
+                storyCaptureOrdinal(panelIndex);
+        };
+    const auto storyPageCaptureForKey =
+        [&](std::string_view key) -> std::optional<StoryPageCaptureTarget> {
+            for (StoryCampaign campaign : CaptureStoryCampaigns)
+            {
+                const std::span<const StoryMission> missions =
+                    storyMissions(campaign);
+                for (std::size_t missionIndex = 0;
+                     missionIndex < missions.size();
+                     ++missionIndex)
+                {
+                    const StoryMission& mission = missions[missionIndex];
+                    for (std::size_t panelIndex = 0;
+                         panelIndex < mission.briefing.size();
+                         ++panelIndex)
+                    {
+                        if (key == storyBriefingPageCaptureKey(
+                                       campaign, mission, panelIndex))
+                        {
+                            return StoryPageCaptureTarget{
+                                campaign,
+                                static_cast<int>(missionIndex),
+                                StoryPageCaptureKind::Briefing,
+                                0,
+                                panelIndex};
+                        }
+                    }
+
+                    if (mission.objectiveSpec.kind ==
+                        StoryObjectiveKind::StoryOnly)
+                    {
+                        continue;
+                    }
+                    const std::size_t actionCount = mission.script.empty()
+                        ? 1
+                        : mission.script.size();
+                    for (std::size_t stepIndex = 0;
+                         stepIndex < actionCount;
+                         ++stepIndex)
+                    {
+                        if (key == storyActionPageCaptureKey(
+                                       campaign, mission, stepIndex))
+                        {
+                            return StoryPageCaptureTarget{
+                                campaign,
+                                static_cast<int>(missionIndex),
+                                StoryPageCaptureKind::ActionStep,
+                                stepIndex,
+                                0};
+                        }
+                    }
+                    for (std::size_t stepIndex = 0;
+                         stepIndex < mission.script.size();
+                         ++stepIndex)
+                    {
+                        const StoryScriptAction& step =
+                            mission.script[stepIndex];
+                        for (std::size_t panelIndex = 0;
+                             panelIndex < step.panelsBefore.size();
+                             ++panelIndex)
+                        {
+                            if (key == storyBeforeStepPageCaptureKey(
+                                           campaign,
+                                           mission,
+                                           stepIndex,
+                                           panelIndex))
+                            {
+                                return StoryPageCaptureTarget{
+                                    campaign,
+                                    static_cast<int>(missionIndex),
+                                    StoryPageCaptureKind::BeforeStep,
+                                    stepIndex,
+                                    panelIndex};
+                            }
+                        }
+                    }
+                    for (std::size_t panelIndex = 0;
+                         panelIndex < mission.aftermath.size();
+                         ++panelIndex)
+                    {
+                        if (key == storyAftermathPageCaptureKey(
+                                       campaign, mission, panelIndex))
+                        {
+                            return StoryPageCaptureTarget{
+                                campaign,
+                                static_cast<int>(missionIndex),
+                                StoryPageCaptureKind::Aftermath,
+                                0,
+                                panelIndex};
+                        }
+                    }
+                }
+            }
+            return std::nullopt;
+        };
+
+    if (captureRequest)
+    {
+        std::vector<std::string> sortedCaptureKeys = ui_capture::knownScreens();
+        std::sort(sortedCaptureKeys.begin(), sortedCaptureKeys.end());
+        if (std::adjacent_find(
+                sortedCaptureKeys.begin(), sortedCaptureKeys.end()) !=
+            sortedCaptureKeys.end())
+        {
+            failCaptureValidation(
+                "Capture registry error: screen keys must be globally unique.");
+        }
+
+        const auto validateTacticalCaptureCoverage = [&](StoryCampaign campaign,
+                                                         std::string_view prefix) {
+            const auto& registered = ui_capture::knownScreens();
+            std::size_t ordinal = 0;
+            for (const StoryMission& mission : storyMissions(campaign))
+            {
+                if (mission.objectiveSpec.kind == StoryObjectiveKind::StoryOnly)
+                {
+                    continue;
+                }
+                ++ordinal;
+                const std::string base =
+                    std::string(prefix) + std::to_string(ordinal);
+                const std::string key = base + "-board";
+                if (std::find(registered.begin(), registered.end(), key) ==
+                    registered.end())
+                {
+                    failCaptureValidation(
+                        "Capture registry error: tactical Story mission '" +
+                        std::string(mission.id) + "' lacks registered screen '" + key +
+                        "'. Every tactical mission requires clean-board evidence.");
+                }
+            }
+        };
+        validateTacticalCaptureCoverage(StoryCampaign::Blackthorn, "story-game-");
+        validateTacticalCaptureCoverage(
+            StoryCampaign::Mirewatch, "story-mirewatch-game-");
+        validateTacticalCaptureCoverage(StoryCampaign::Seelie, "story-seelie-game-");
+
+        const auto validateScenarioArtCaptureCoverage =
+            [&](StoryCampaign campaign, std::string_view prefix) {
+                const auto& registered = ui_capture::knownScreens();
+                for (const StoryMission& mission : storyMissions(campaign))
+                {
+                    const std::string key =
+                        std::string(prefix) + std::string(mission.id);
+                    if (std::find(registered.begin(), registered.end(), key) ==
+                        registered.end())
+                    {
+                        failCaptureValidation(
+                            "Capture registry error: Story mission '" +
+                            std::string(mission.id) +
+                            "' lacks registered in-layout scenario-art screen '" +
+                            key + "'.");
+                    }
+                }
+            };
+        validateScenarioArtCaptureCoverage(
+            StoryCampaign::Mirewatch, "story-art-mw-");
+        validateScenarioArtCaptureCoverage(
+            StoryCampaign::Blackthorn, "story-art-bt-");
+        validateScenarioArtCaptureCoverage(
+            StoryCampaign::Seelie, "story-art-se-");
+
+        const auto validateScenarioArtPopupCaptureCoverage =
+            [&](StoryCampaign campaign, std::string_view prefix) {
+                const auto& registered = ui_capture::knownScreens();
+                for (const StoryMission& mission : storyMissions(campaign))
+                {
+                    if (mission.objectiveSpec.kind == StoryObjectiveKind::StoryOnly)
+                    {
+                        continue;
+                    }
+                    const std::string key =
+                        std::string(prefix) + std::string(mission.id);
+                    if (std::find(registered.begin(), registered.end(), key) ==
+                        registered.end())
+                    {
+                        failCaptureValidation(
+                            "Capture registry error: tactical Story mission '" +
+                            std::string(mission.id) +
+                            "' lacks registered in-mission scenario-art popup '" +
+                            key + "'.");
+                    }
+                }
+            };
+        validateScenarioArtPopupCaptureCoverage(
+            StoryCampaign::Mirewatch, "story-art-popup-mw-");
+        validateScenarioArtPopupCaptureCoverage(
+            StoryCampaign::Blackthorn, "story-art-popup-bt-");
+        validateScenarioArtPopupCaptureCoverage(
+            StoryCampaign::Seelie, "story-art-popup-se-");
+
+        std::vector<std::string> expectedStoryPageKeys;
+        std::size_t expectedStoryActionPageCount = 0;
+        for (StoryCampaign campaign : CaptureStoryCampaigns)
+        {
+            for (const StoryMission& mission : storyMissions(campaign))
+            {
+                for (std::size_t panelIndex = 0;
+                     panelIndex < mission.briefing.size();
+                     ++panelIndex)
+                {
+                    expectedStoryPageKeys.push_back(
+                        storyBriefingPageCaptureKey(
+                            campaign, mission, panelIndex));
+                }
+                if (mission.objectiveSpec.kind ==
+                    StoryObjectiveKind::StoryOnly)
+                {
+                    continue;
+                }
+                const std::size_t actionCount = mission.script.empty()
+                    ? 1
+                    : mission.script.size();
+                for (std::size_t stepIndex = 0;
+                     stepIndex < actionCount;
+                     ++stepIndex)
+                {
+                    ++expectedStoryActionPageCount;
+                    expectedStoryPageKeys.push_back(
+                        storyActionPageCaptureKey(
+                            campaign, mission, stepIndex));
+                }
+                for (std::size_t stepIndex = 0;
+                     stepIndex < mission.script.size();
+                     ++stepIndex)
+                {
+                    const StoryScriptAction& step = mission.script[stepIndex];
+                    for (std::size_t panelIndex = 0;
+                         panelIndex < step.panelsBefore.size();
+                         ++panelIndex)
+                    {
+                        expectedStoryPageKeys.push_back(
+                            storyBeforeStepPageCaptureKey(
+                                campaign,
+                                mission,
+                                stepIndex,
+                                panelIndex));
+                    }
+                }
+                for (std::size_t panelIndex = 0;
+                     panelIndex < mission.aftermath.size();
+                     ++panelIndex)
+                {
+                    expectedStoryPageKeys.push_back(
+                        storyAftermathPageCaptureKey(
+                            campaign, mission, panelIndex));
+                }
+            }
+        }
+        const auto& registeredCaptureKeys = ui_capture::knownScreens();
+        const std::size_t registeredStoryActionPageCount =
+            static_cast<std::size_t>(std::count_if(
+                registeredCaptureKeys.begin(),
+                registeredCaptureKeys.end(),
+                [](const std::string& key) {
+                    return key.rfind("story-page-action-", 0) == 0;
+                }));
+        if (registeredStoryActionPageCount != expectedStoryActionPageCount)
+        {
+            failCaptureValidation(
+                "Capture registry error: registered Story action-page count " +
+                std::to_string(registeredStoryActionPageCount) +
+                " does not match authored tactical action-state count " +
+                std::to_string(expectedStoryActionPageCount) + ".");
+        }
+        for (const std::string& key : expectedStoryPageKeys)
+        {
+            if (std::find(
+                    registeredCaptureKeys.begin(),
+                    registeredCaptureKeys.end(),
+                    key) == registeredCaptureKeys.end())
+            {
+                failCaptureValidation(
+                    "Capture registry error: expected Story page screen '" +
+                    key + "' is not registered.");
+            }
+        }
+        for (const std::string& key : registeredCaptureKeys)
+        {
+            if (key.rfind("story-page-", 0) == 0 &&
+                !storyPageCaptureForKey(key))
+            {
+                failCaptureValidation(
+                    "Capture registry error: unexpected or stale Story page "
+                    "screen '" + key + "' is registered.");
+            }
+        }
+        if (std::find(
+                ui_capture::knownScreens().begin(),
+                ui_capture::knownScreens().end(),
+                "story-blackthorn-open-mastery-choice") ==
+            ui_capture::knownScreens().end())
+        {
+            failCaptureValidation(
+                "Capture registry error: the optional timed ordinary match "
+                "requires pre-clock choice-screen evidence.");
+        }
+        if (std::find(
+                ui_capture::knownScreens().begin(),
+                ui_capture::knownScreens().end(),
+                "story-blackthorn-synthesis-bypass") ==
+            ui_capture::knownScreens().end())
+        {
+            failCaptureValidation(
+                "Capture registry error: the completed-drill path requires "
+                "dedicated synthesis-bypass choice evidence.");
+        }
+    }
+
     auto completeStoryMission = [&](game_data::Snapshot& snapshot) {
-        if (storyStage == StoryStage::Complete)
+        if (!storyMode || !storyEngine ||
+            !storyScriptProgressAllowsCompletion(
+                activeStoryMission(), storyMissionStep) ||
+            !storyCompletionMayBeAwarded(
+                storyStage == StoryStage::Objective,
+                storyEngine->scenarioObjectiveProgress().failed,
+                snapshot.winner))
         {
             return;
         }
@@ -4968,8 +5651,11 @@ int main(int argc, char** argv)
         storyTargetColumn = -1;
         storyAiPending = false;
         storyCompletedCount = std::max(storyCompletedCount, storyMissionIndex + 1);
-        saveStoryCompletedCount(loggedInUsername, storyCampaign, storyCompletedCount);
-        storyCampaignProgress[storyProgressIndex(storyCampaign)] = storyCompletedCount;
+        recordStoryMissionProgress(
+            loggedInUsername, storyCampaign, storyMissionIndex, true);
+        refreshStoryCampaignProgress(storyCampaign);
+        storyCompletedCount =
+            storyCampaignProgress[storyProgressIndex(storyCampaign)];
         snapshot.status = storyMissionIndex + 1 < static_cast<int>(storyMissions(storyCampaign).size())
             ? "Chapter complete. Continue when you are ready."
             : std::string(storyCampaignName(storyCampaign)) +
@@ -4978,12 +5664,20 @@ int main(int argc, char** argv)
             storyMissionIndex + 1 < static_cast<int>(storyMissions(storyCampaign).size())
                 ? "Continue Story"
                 : "Finish Story");
+        storyGameKeyboardFocus = StoryGameKeyboardFocus::EndTurn;
+        storyKeyboardNavigationActive = true;
     };
 
     auto completeStoryChronicle = [&]() {
         storyCompletedCount = std::max(storyCompletedCount, storyMissionIndex + 1);
-        saveStoryCompletedCount(loggedInUsername, storyCampaign, storyCompletedCount);
-        storyCampaignProgress[storyProgressIndex(storyCampaign)] = storyCompletedCount;
+        recordStoryMissionProgress(
+            loggedInUsername,
+            storyCampaign,
+            storyMissionIndex,
+            !activeStoryMission().optionalRehearsal);
+        refreshStoryCampaignProgress(storyCampaign);
+        storyCompletedCount =
+            storyCampaignProgress[storyProgressIndex(storyCampaign)];
         const bool hasNext =
             storyMissionIndex + 1 < static_cast<int>(storyMissions(storyCampaign).size());
         if (hasNext)
@@ -5007,16 +5701,20 @@ int main(int argc, char** argv)
     auto queueStoryPanels = [&](const std::vector<StoryPanel>& panels, bool completeAfter) {
         storyPopupPanels = panels;
         storyPopupPage = 0;
+        storyPopupKeyboardFocus = 1;
+        storyKeyboardNavigationActive = true;
         storyCompleteAfterPopup = completeAfter && !storyPopupPanels.empty();
         selectedPieceId.reset();
         selectedHandIndex.reset();
         inspectedPieceId.reset();
         inspectedHandIndex.reset();
+        pendingPieceActionChoice.reset();
     };
 
     auto enterStoryScriptStep = [&]() {
         storyTargetRow = -1;
         storyTargetColumn = -1;
+        storyCorrection.clear();
         const StoryMission& mission = activeStoryMission();
         if (storyMissionStep < 0 ||
             storyMissionStep >= static_cast<int>(mission.script.size()))
@@ -5029,6 +5727,76 @@ int main(int argc, char** argv)
         if (!step.panelsBefore.empty())
         {
             queueStoryPanels(step.panelsBefore, false);
+        }
+        if (storyScriptActionRequiresPlayerInput(mission, step))
+        {
+            storyKeyboardNavigationActive = true;
+            if (step.kind == StoryActionKind::Move ||
+                step.kind == StoryActionKind::Attack ||
+                step.kind == StoryActionKind::UseAbility)
+            {
+                const int actorId = storyPieceIdForRole(step.actorRole);
+                const auto actor = storyEngine
+                    ? std::find_if(
+                          storyEngine->boardPieces().begin(),
+                          storyEngine->boardPieces().end(),
+                          [&](const game_data::Piece& piece) {
+                              return piece.id == actorId;
+                          })
+                    : std::vector<game_data::Piece>::const_iterator{};
+                if (storyEngine && actor != storyEngine->boardPieces().end())
+                {
+                    storyBoardKeyboardCursor = {actor->row, actor->column};
+                }
+                storyGameKeyboardFocus = StoryGameKeyboardFocus::Board;
+            }
+            else if (step.kind == StoryActionKind::PlayCard ||
+                     step.kind == StoryActionKind::DiscardCard)
+            {
+                if (storyEngine)
+                {
+                    const auto& hand = storyEngine->playerState(1).hand;
+                    const auto card = std::find_if(
+                        hand.begin(), hand.end(), [&](const game_data::GameCard& value) {
+                            return step.cardTitle.empty() || value.title == step.cardTitle;
+                        });
+                    storyKeyboardHandIndex = card == hand.end()
+                        ? 0
+                        : static_cast<std::size_t>(std::distance(hand.begin(), card));
+                }
+                if (game_data::inBounds(step.targetRow, step.targetColumn))
+                {
+                    storyBoardKeyboardCursor = {step.targetRow, step.targetColumn};
+                }
+                storyGameKeyboardFocus = StoryGameKeyboardFocus::Hand;
+            }
+            else if (step.kind == StoryActionKind::DrawCard)
+            {
+                storyGameKeyboardFocus = StoryGameKeyboardFocus::DrawPile;
+            }
+            else if (step.kind == StoryActionKind::ChooseForesight)
+            {
+                storyKeyboardForesightIndex = 0;
+                if (storyEngine)
+                {
+                    const game_data::Snapshot snapshot = storyEngine->snapshotFor(1);
+                    const auto choice = std::find_if(
+                        snapshot.foresightChoices.begin(),
+                        snapshot.foresightChoices.end(),
+                        [&](const game_data::GameCard& value) {
+                            return step.cardTitle.empty() || value.title == step.cardTitle;
+                        });
+                    if (choice != snapshot.foresightChoices.end())
+                    {
+                        storyKeyboardForesightIndex = static_cast<std::size_t>(
+                            std::distance(snapshot.foresightChoices.begin(), choice));
+                    }
+                }
+            }
+            else if (step.kind == StoryActionKind::EndTurn)
+            {
+                storyGameKeyboardFocus = StoryGameKeyboardFocus::EndTurn;
+            }
         }
         storyScriptActionAt = animationTime + 0.65f;
     };
@@ -5056,7 +5824,8 @@ int main(int argc, char** argv)
                                   int actorId,
                                   int targetRow,
                                   int targetColumn,
-                                  std::string_view cardTitle = {}) {
+                                  std::string_view cardTitle = {},
+                                  int selectedActionIndex = -1) {
         if (!storyMode)
         {
             return true;
@@ -5073,7 +5842,14 @@ int main(int argc, char** argv)
         }
         const StoryScriptAction& expected =
             mission.script[static_cast<std::size_t>(storyMissionStep)];
-        bool allowed = expected.kind == kind && expected.owner == owner;
+        const bool expectedPieceAction =
+            expected.kind == StoryActionKind::Move ||
+            expected.kind == StoryActionKind::Attack;
+        const bool submittedPieceAction =
+            kind == StoryActionKind::Move || kind == StoryActionKind::Attack;
+        bool allowed = !storyScriptActionAutoResolves(mission, expected) &&
+            expected.owner == owner &&
+            (expectedPieceAction ? submittedPieceAction : expected.kind == kind);
         if (allowed && !expected.actorRole.empty())
         {
             allowed = actorId != 0 && actorId == storyPieceIdForRole(expected.actorRole);
@@ -5094,50 +5870,60 @@ int main(int argc, char** argv)
         {
             allowed = expected.cardTitle == cardTitle;
         }
-        if (!allowed && haveSnapshot)
+        if (allowed && expectedPieceAction)
         {
-            gameSnapshot.status = expected.correction.empty()
+            const game_data::Piece* actor = gamePieceById(actorId);
+            allowed = actor != nullptr && storySelectedPieceActionMatches(
+                expected, kind, *actor, selectedActionIndex);
+        }
+        if (allowed && expected.kind == StoryActionKind::UseAbility)
+        {
+            const game_data::Piece* actor = gamePieceById(actorId);
+            allowed = actor != nullptr && storyAbilityStepMatches(expected, *actor);
+        }
+        if (!allowed)
+        {
+            storyCorrection = expected.correction.empty()
                 ? std::string("Follow the highlighted lesson step first.")
                 : std::string(expected.correction);
+        }
+        else
+        {
+            storyCorrection.clear();
         }
         return allowed;
     };
 
-    auto storyCardNamed = [&](const std::string& cardTitle) {
-        const auto findCard = [&](const std::vector<card_data::Card>& library)
-            -> const card_data::Card* {
-            const auto found = std::find_if(
-                library.begin(), library.end(), [&](const card_data::Card& card) {
-                    return card.title == cardTitle;
-                });
-            return found == library.end() ? nullptr : &*found;
-        };
-
-        // The UI-capture library is deliberately fabricated screen-design data.
-        // Never let it override Story Mode rules. In a real session, prefer the
-        // live authoritative catalog; offline captures use the reviewed package.
-        if (!captureRequest)
-        {
-            if (const card_data::Card* card = findCard(allCardLibrary))
-            {
-                return game_data::toGameCard(*card);
-            }
-            if (const card_data::Card* card = findCard(cardLibrary))
-            {
-                return game_data::toGameCard(*card);
-            }
-        }
-        if (std::optional<game_data::GameCard> card = packagedStoryCard(cardTitle))
-        {
-            return *card;
-        }
-
-        // Fail visibly instead of silently teaching a fabricated card rule.
+    const StoryCardResolutionMode storyCardResolutionMode = captureRequest
+        ? StoryCardResolutionMode::AllowPackagedFixtureFallback
+        : StoryCardResolutionMode::AuthoritativeOnly;
+    const auto authoritativeStoryCards = [&](const std::vector<card_data::Card>& library)
+        -> std::span<const card_data::Card> {
+        // UI capture owns a deliberately fabricated screen-design library. It
+        // opts into the reviewed package instead of treating those cards as
+        // game authority.
+        return captureRequest
+            ? std::span<const card_data::Card>{}
+            : std::span<const card_data::Card>(library.data(), library.size());
+    };
+    const auto resolvedStoryCardNamed = [&](std::string_view cardTitle) {
+        return resolveStoryCardDefinition(
+            cardTitle,
+            authoritativeStoryCards(allCardLibrary),
+            authoritativeStoryCards(cardLibrary),
+            storyCardResolutionMode);
+    };
+    const auto missingStoryCardNamed = [](std::string_view cardTitle) {
         game_data::GameCard card;
-        card.title = "Missing Story Card: " + cardTitle;
+        card.title = "Missing Story Card: " + std::string(cardTitle);
         card.type = "Story Error";
         card.health = 1;
         return card;
+    };
+    const auto storyCardNamed = [&](std::string_view cardTitle) {
+        const std::optional<game_data::GameCard> resolved =
+            resolvedStoryCardNamed(cardTitle);
+        return resolved ? *resolved : missingStoryCardNamed(cardTitle);
     };
 
     auto beginStory = [&]() {
@@ -5145,13 +5931,38 @@ int main(int argc, char** argv)
         sandboxMode = false;
         storyMode = true;
         storyAiPending = false;
+        storyTimerAccumulatorMs = 0.0;
         resignConfirmPopupVisible = false;
         gameConfirmationAction = GameConfirmationAction::Resign;
-        leaveGameButton.setLabel("Exit - Keep Unlocks");
         leaveGameButton.setLabelSize(type::Caption);
-        leaveGameButton.setPosition({GamePlayerBannerLeftX + 12.0f, 158.0f});
-        leaveGameButton.setSize({156.0f, 32.0f});
-        storyRestartButton.setLabel("Restart This Attempt");
+        storyRestartButton.setVariant(ButtonVariant::Quiet);
+        storyRestartButton.setLabelSize(type::Caption);
+        if (usesCompactGameHud(window))
+        {
+            leaveGameButton.setLabelSize(14);
+            storyRestartButton.setLabelSize(14);
+            leaveGameButton.setLabel("Exit Entry");
+            leaveGameButton.setPosition(
+                {GameCompactStoryExitButtonX, GameCompactStoryButtonY});
+            leaveGameButton.setSize(
+                {GameCompactStoryButtonWidth, GameCompactStoryButtonHeight});
+            storyRestartButton.setLabel("Restart");
+            storyRestartButton.setPosition(
+                {GameCompactStoryRestartButtonX, GameCompactStoryButtonY});
+            storyRestartButton.setSize(
+                {GameCompactStoryButtonWidth, GameCompactStoryButtonHeight});
+        }
+        else
+        {
+            leaveGameButton.setLabelSize(type::Caption);
+            storyRestartButton.setLabelSize(type::Caption);
+            leaveGameButton.setLabel("Exit to Missions");
+            leaveGameButton.setPosition({GamePlayerBannerLeftX + 12.0f, 158.0f});
+            leaveGameButton.setSize({156.0f, 32.0f});
+            storyRestartButton.setLabel("Restart Attempt");
+            storyRestartButton.setPosition({GamePlayerBannerLeftX + 12.0f, 198.0f});
+            storyRestartButton.setSize({156.0f, 32.0f});
+        }
         endTurnButton.setLabel("End Turn");
         abilityButton.setPosition({GameActionButtonX, GameAbilityButtonY});
         storyStage = StoryStage::Objective;
@@ -5160,6 +5971,7 @@ int main(int argc, char** argv)
         storyUsedHide = false;
         storyUsedSummon = false;
         storyRolePieceIds.clear();
+        storyCorrection.clear();
         storyPopupPanels.clear();
         storyPopupPage = 0;
         storyCompleteAfterPopup = false;
@@ -5180,6 +5992,7 @@ int main(int argc, char** argv)
         selectedHandIndex.reset();
         inspectedPieceId.reset();
         inspectedHandIndex.reset();
+        pendingPieceActionChoice.reset();
         lastClickedPieceId.reset();
         pendingHandClickIndex.reset();
         inspectedPieceScroll = 0.0f;
@@ -5202,6 +6015,7 @@ int main(int argc, char** argv)
         pieceKilledAnimations.clear();
         dematerializeGhosts.clear();
 
+        const StoryMission& authoredMission = activeStoryMission();
         std::vector<card_data::Card> engineLibrary = captureRequest
             ? std::vector<card_data::Card>{}
             : allCardLibrary;
@@ -5222,16 +6036,154 @@ int main(int argc, char** argv)
         {
             appendMissingCards(cardLibrary);
         }
+        const StoryCardDependencyReport cardDependencies =
+            validateStoryCardDependencies(
+                authoredMission,
+                authoritativeStoryCards(allCardLibrary),
+                authoritativeStoryCards(cardLibrary),
+                storyCardResolutionMode);
         storyEngine = std::make_unique<GameEngine>(
             0x474c4f4fu + static_cast<unsigned int>(storyMissionIndex),
             engineLibrary);
-        for (std::string_view dependentTitle : {
-                 "Sapling",
-                 "Blackthorn Lumberjack",
-                 "Swamp Tracker Unmounted"})
+        if (!cardDependencies.complete())
         {
-            storyEngine->registerScenarioCard(
-                storyCardNamed(std::string(dependentTitle)));
+            // Fail before loading any playable mission state. A connected
+            // session must never borrow a stale packaged rule definition.
+            const std::string& missingTitle = cardDependencies.missingTitles.front();
+            const game_data::GameCard missingCard = missingStoryCardNamed(missingTitle);
+            const std::string failureStatus = missingCard.title;
+            const std::vector<GameEngine::ScenarioPiece> failurePieces = {
+                {1, missingCard, 3, 3, false, -1}};
+            storyEngine->loadScenario(
+                failurePieces,
+                {},
+                {},
+                0,
+                0,
+                1,
+                failureStatus,
+                false);
+            haveSnapshot = false;
+            commitLocalSnapshot(storyEngine->snapshotFor(1));
+            storyStage = StoryStage::Failed;
+            storyTargetRow = -1;
+            storyTargetColumn = -1;
+            endTurnButton.setLabel("Retry Mission");
+            return;
+        }
+        for (const std::string& requiredTitle : cardDependencies.requiredTitles)
+        {
+            if (const std::optional<game_data::GameCard> card =
+                    resolvedStoryCardNamed(requiredTitle))
+            {
+                storyEngine->registerScenarioCard(*card);
+            }
+        }
+
+        if (authoredMission.standardMatch)
+        {
+            const auto failStandardMatchSetup = [&](std::string failureStatus) {
+                game_data::Snapshot failedSnapshot = storyEngine->snapshotFor(1);
+                failedSnapshot.status = std::move(failureStatus);
+                haveSnapshot = false;
+                commitLocalSnapshot(std::move(failedSnapshot));
+                storyStage = StoryStage::Failed;
+                storyTargetRow = -1;
+                storyTargetColumn = -1;
+                endTurnButton.setLabel("Retry Mission");
+            };
+            const auto resolvedDeck = [&](const std::vector<std::string_view>& titles) {
+                std::vector<game_data::GameCard> deck;
+                deck.reserve(titles.size());
+                for (std::string_view cardTitle : titles)
+                {
+                    deck.push_back(storyCardNamed(cardTitle));
+                }
+                return deck;
+            };
+            const auto authoritativeDeck = [&](const std::vector<std::string_view>& titles) {
+                std::vector<card_data::Card> deck;
+                deck.reserve(titles.size());
+                for (std::string_view cardTitle : titles)
+                {
+                    const auto findDefinition = [&](const std::vector<card_data::Card>& source)
+                        -> const card_data::Card* {
+                        const auto found = std::find_if(
+                            source.begin(), source.end(), [&](const card_data::Card& card) {
+                                return card.title == cardTitle;
+                            });
+                        return found == source.end() ? nullptr : &*found;
+                    };
+                    const card_data::Card* definition = findDefinition(allCardLibrary);
+                    if (definition == nullptr)
+                    {
+                        definition = findDefinition(cardLibrary);
+                    }
+                    if (definition != nullptr)
+                    {
+                        deck.push_back(*definition);
+                    }
+                }
+                return deck;
+            };
+
+            if (authoredMission.playerDeck.empty() || authoredMission.enemyDeck.empty())
+            {
+                failStandardMatchSetup(
+                    "Mission data error: the standard-match decks are missing.");
+                return;
+            }
+            if (!captureRequest)
+            {
+                const std::vector<card_data::Card> playerDefinitions =
+                    authoritativeDeck(authoredMission.playerDeck);
+                const std::vector<card_data::Card> enemyDefinitions =
+                    authoritativeDeck(authoredMission.enemyDeck);
+                if (playerDefinitions.size() != authoredMission.playerDeck.size() ||
+                    enemyDefinitions.size() != authoredMission.enemyDeck.size())
+                {
+                    failStandardMatchSetup(
+                        "Mission data error: an authoritative standard-match card is missing.");
+                    return;
+                }
+                if (const std::optional<std::string> error =
+                        game_data::deckRulesError(playerDefinitions))
+                {
+                    failStandardMatchSetup(
+                        "Mission data error: the player deck is illegal: " + *error);
+                    return;
+                }
+                if (const std::optional<std::string> error =
+                        game_data::deckRulesError(enemyDefinitions))
+                {
+                    failStandardMatchSetup(
+                        "Mission data error: the opponent deck is illegal: " + *error);
+                    return;
+                }
+            }
+
+            storyEngine->enableTimers();
+            storyEngine->submitResolvedDeck(1, resolvedDeck(authoredMission.playerDeck));
+            storyEngine->submitResolvedDeck(2, resolvedDeck(authoredMission.enemyDeck));
+            if (!storyEngine->bothDecksSubmitted() ||
+                storyEngine->phase() != game_data::Phase::HeroPlacement ||
+                storyEngine->playerState(1).heroesToPlace.empty() ||
+                storyEngine->playerState(2).heroesToPlace.empty())
+            {
+                failStandardMatchSetup(
+                    "Mission data error: ordinary hero placement did not begin.");
+                return;
+            }
+            haveSnapshot = false;
+            commitLocalSnapshot(storyEngine->snapshotFor(1));
+            storyKeyboardHandIndex = 0;
+            storyGameKeyboardFocus = StoryGameKeyboardFocus::Hand;
+            if (const auto home = game_data::homeSquares(1); !home.empty())
+            {
+                storyBoardKeyboardCursor = {home.front().first, home.front().second};
+            }
+            storyKeyboardNavigationActive = true;
+            return;
         }
 
         std::vector<GameEngine::ScenarioPiece> scenarioPieces;
@@ -5250,7 +6202,6 @@ int main(int argc, char** argv)
                 {owner, storyCardNamed(cardTitle), row, column, isHero, initialHealth});
         };
 
-        const StoryMission& authoredMission = activeStoryMission();
         const bool hasAuthoredSetup = !authoredMission.pieces.empty();
         if (hasAuthoredSetup)
         {
@@ -5287,7 +6238,7 @@ int main(int argc, char** argv)
             scenarioStatus = "Story mission data error: authored setup is missing.";
         }
 
-        storyEngine->loadScenario(
+        const bool scenarioLoaded = storyEngine->loadScenario(
             scenarioPieces,
             std::move(playerHand),
             std::move(enemyHand),
@@ -5298,26 +6249,106 @@ int main(int argc, char** argv)
             false,
             std::move(playerDrawPile),
             std::move(enemyDrawPile));
+        if (!scenarioLoaded)
+        {
+            game_data::Snapshot failedSnapshot = storyEngine->snapshotFor(1);
+            failedSnapshot.status =
+                "Story mission data error: an authored piece is off the board or overlaps another piece.";
+            haveSnapshot = false;
+            commitLocalSnapshot(std::move(failedSnapshot));
+            storyStage = StoryStage::Failed;
+            storyTargetRow = -1;
+            storyTargetColumn = -1;
+            endTurnButton.setLabel("Retry Mission");
+            return;
+        }
         haveSnapshot = false;
-        commitLocalSnapshot(storyEngine->snapshotFor(1));
+        bool objectiveConfigured = hasAuthoredSetup;
         if (hasAuthoredSetup)
         {
             for (const StoryPiecePlacement& placement : authoredMission.pieces)
             {
                 const auto found = std::find_if(
-                    gameSnapshot.pieces.begin(),
-                    gameSnapshot.pieces.end(),
+                    storyEngine->boardPieces().begin(),
+                    storyEngine->boardPieces().end(),
                     [&](const game_data::Piece& piece) {
-                        return piece.owner == placement.owner &&
+                        return game_data::pieceOriginalOwner(piece) == placement.owner &&
                             piece.name == placement.cardTitle &&
                             piece.row == placement.row &&
                             piece.column == placement.column;
                     });
-                if (found != gameSnapshot.pieces.end())
+                if (found != storyEngine->boardPieces().end())
                 {
                     storyRolePieceIds.emplace_back(placement.role, found->id);
                 }
             }
+            objectiveConfigured =
+                storyRolePieceIds.size() == authoredMission.pieces.size();
+
+            GameEngine::ScenarioObjective objective;
+            objective.successPlayer = 1;
+            objective.requiredForceOriginalOwner = 1;
+            switch (authoredMission.objectiveSpec.kind)
+            {
+            case StoryObjectiveKind::DefeatAllEnemies:
+                objective.kind =
+                    GameEngine::ScenarioObjectiveKind::DefeatOriginalOwner;
+                objective.opposingOriginalOwner = 2;
+                break;
+            case StoryObjectiveKind::DefeatRole:
+                objective.kind = GameEngine::ScenarioObjectiveKind::DefeatPiece;
+                objective.targetPieceId = storyPieceIdForRole(
+                    authoredMission.objectiveSpec.targetRole);
+                objectiveConfigured = objectiveConfigured &&
+                    objective.targetPieceId != 0;
+                break;
+            case StoryObjectiveKind::ReachSquare:
+                objective.kind = GameEngine::ScenarioObjectiveKind::ReachSquare;
+                objective.targetPieceId = storyPieceIdForRole(
+                    authoredMission.objectiveSpec.targetRole);
+                objective.targetRow = authoredMission.objectiveSpec.targetRow;
+                objective.targetColumn = authoredMission.objectiveSpec.targetColumn;
+                objectiveConfigured = objectiveConfigured &&
+                    objective.targetPieceId != 0;
+                break;
+            case StoryObjectiveKind::ControlSquares:
+                objective.kind = GameEngine::ScenarioObjectiveKind::ControlSquares;
+                objective.controlAmount = authoredMission.objectiveSpec.amount;
+                break;
+            case StoryObjectiveKind::Scripted:
+            case StoryObjectiveKind::DeployCard:
+            case StoryObjectiveKind::Legacy:
+            case StoryObjectiveKind::StoryOnly:
+                // Script sequencing and any future deployment lesson still use
+                // their explicit client step, but the engine owns force and
+                // required-survivor failure throughout the scenario.
+                objective.kind = GameEngine::ScenarioObjectiveKind::None;
+                break;
+            }
+            for (std::string_view role : authoredMission.requiredSurvivorRoles)
+            {
+                const int pieceId = storyPieceIdForRole(role);
+                objectiveConfigured = objectiveConfigured && pieceId != 0;
+                if (pieceId != 0)
+                {
+                    objective.requiredSurvivorPieceIds.push_back(pieceId);
+                }
+            }
+            objectiveConfigured = objectiveConfigured &&
+                storyEngine->configureScenarioObjective(std::move(objective));
+        }
+
+        game_data::Snapshot initialSnapshot = storyEngine->snapshotFor(1);
+        if (!objectiveConfigured)
+        {
+            storyStage = StoryStage::Failed;
+            initialSnapshot.status =
+                "Mission data error: the authoritative objective could not be configured.";
+            endTurnButton.setLabel("Retry Mission");
+        }
+        commitLocalSnapshot(std::move(initialSnapshot));
+        if (hasAuthoredSetup && objectiveConfigured)
+        {
             if (!authoredMission.script.empty())
             {
                 enterStoryScriptStep();
@@ -5326,6 +6357,23 @@ int main(int argc, char** argv)
             {
                 storyTargetRow = authoredMission.objectiveSpec.targetRow;
                 storyTargetColumn = authoredMission.objectiveSpec.targetColumn;
+                const auto firstPlayerPiece = std::find_if(
+                    storyEngine->boardPieces().begin(),
+                    storyEngine->boardPieces().end(),
+                    [](const game_data::Piece& piece) {
+                        return piece.owner == 1;
+                    });
+                if (game_data::inBounds(storyTargetRow, storyTargetColumn))
+                {
+                    storyBoardKeyboardCursor = {storyTargetRow, storyTargetColumn};
+                }
+                else if (firstPlayerPiece != storyEngine->boardPieces().end())
+                {
+                    storyBoardKeyboardCursor = {
+                        firstPlayerPiece->row, firstPlayerPiece->column};
+                }
+                storyGameKeyboardFocus = StoryGameKeyboardFocus::Board;
+                storyKeyboardNavigationActive = true;
             }
         }
     };
@@ -5361,6 +6409,7 @@ int main(int argc, char** argv)
         selectedHandIndex.reset();
         inspectedPieceId.reset();
         inspectedHandIndex.reset();
+        pendingPieceActionChoice.reset();
         lastClickedPieceId.reset();
         pendingHandClickIndex.reset();
         inspectedPieceScroll = 0.0f;
@@ -5515,15 +6564,41 @@ int main(int argc, char** argv)
             return found == library.end() ? nullptr : &*found;
         };
 
+        if (storyMode && captureRequest)
+        {
+            // Packaged Story GameCards own the capture's gameplay and visual
+            // metadata, but GameCard intentionally has no rarity field.  A
+            // generic UI sample with the same title is not an authority, so do
+            // not fabricate a rarity socket from it.
+            if (!packagedStoryCard(title) && !captureValidationFailed)
+            {
+                failCaptureValidation(
+                    "Capture render error: Story piece '" + title +
+                    "' has no exact packaged render definition.");
+            }
+            return nullptr;
+        }
+
         const card_data::Card* definition = findCard(allCardLibrary);
         if (!definition) definition = findCard(cardLibrary);
-        if (!definition) definition = findCard(matchDeck);
-        if (!definition) definition = findCard(matchHeroes);
-        if (!definition)
+        // A live Story mission may use only the authoritative full/owned
+        // catalogues accepted by its engine.  Match and sample collections are
+        // UI conveniences and must not silently supply Story render metadata.
+        if (!storyMode)
         {
-            static const std::vector<card_data::Card> sampleCards =
-                ui_capture::sampleCardLibrary();
-            definition = findCard(sampleCards);
+            if (!definition) definition = findCard(matchDeck);
+            if (!definition) definition = findCard(matchHeroes);
+            if (!definition)
+            {
+                static const std::vector<card_data::Card> sampleCards =
+                    ui_capture::sampleCardLibrary();
+                definition = findCard(sampleCards);
+            }
+        }
+
+        if (storyMode && !definition)
+        {
+            return nullptr;
         }
 
         const std::string rarity = definition
@@ -5738,13 +6813,114 @@ int main(int argc, char** argv)
         return rows;
     };
 
+    struct ActionModifierBadge
+    {
+        std::string label;
+        std::string title;
+        std::string text;
+    };
+
+    auto actionModifierBadges = [](const ActionDescription& action) {
+        std::vector<ActionModifierBadge> badges;
+        if (action.type == "Capture")
+        {
+            badges.push_back({
+                "Enemy required",
+                "Capture",
+                "Capture cannot move onto an empty square. It must target an enemy: the attacker stops before a survivor and occupies the destination only if every target there is defeated."});
+        }
+        if (!action.targetFilter.empty())
+        {
+            badges.push_back({
+                "Only: " + joinStrings(action.targetFilter, "+"),
+                "Required target traits",
+                "A legal target must have every listed word as either a Trait or a Keyword: " +
+                    joinStrings(action.targetFilter, ", ") + "."});
+        }
+        if (action.passThrough)
+        {
+            badges.push_back({
+                "Pass-through",
+                "Pass-through movement",
+                "Intermediate occupied squares do not block this movement. The destination must still be a legal empty square or an attackable enemy square."});
+        }
+        if (action.clearPath)
+        {
+            badges.push_back({
+                "Clear path",
+                "Ranged path",
+                "A straight or diagonal ranged attack needs an unobstructed path between at least one square of the attacker and one square of the target."});
+        }
+        if (action.push > 0)
+        {
+            badges.push_back({
+                "Push " + std::to_string(action.push),
+                "Push",
+                "After the attack resolves, even if it dealt zero damage, the surviving effective target moves up to " +
+                    std::to_string(action.push) +
+                    " square(s) directly away from the attack's staging square. Every square blocked by a piece or board edge becomes 1 collision damage."});
+        }
+        if (action.pull)
+        {
+            badges.push_back({
+                "Pull",
+                "Pull",
+                "After this ranged hit, the surviving effective target moves toward the attacker until their footprints are adjacent, stopping early if another piece blocks the route. A defeated target does not move."});
+        }
+        if (action.repeat > 0)
+        {
+            badges.push_back({
+                "Repeat +" + std::to_string(action.repeat),
+                "Repeat",
+                "After the first use, this same piece must use this same action up to " +
+                    std::to_string(action.repeat) +
+                    " additional time(s), or End Turn. Other pieces, card plays, draws, discards, and abilities cannot interrupt."});
+        }
+        if (!action.infest.empty())
+        {
+            badges.push_back({
+                "Infest: " + action.infest,
+                "Infest",
+                "Marks a non-Hero target before destruction resolves. If that hit kills it, or if it later dies while marked, " + action.infest +
+                    " replaces it on that square for the infesting side and cannot act until its owner's next turn. A newer Infest overrides an older one, and Infest takes priority over Rebirth."});
+        }
+        return badges;
+    };
+
+    auto actionModifierLineCount = [&](const ActionDescription& action, float contentWidth) {
+        const std::vector<ActionModifierBadge> badges = actionModifierBadges(action);
+        if (badges.empty())
+        {
+            return 0;
+        }
+        const float width = contentWidth - PiecePopupScrollTextXInset * 2.0f;
+        int lines = 1;
+        float used = 0.0f;
+        for (const ActionModifierBadge& badge : badges)
+        {
+            sf::Text measuring(font, badge.label, 10);
+            const float badgeWidth = std::min(width, measuring.getLocalBounds().size.x + 14.0f);
+            if (used > 0.0f && used + 5.0f + badgeWidth > width)
+            {
+                ++lines;
+                used = badgeWidth;
+            }
+            else
+            {
+                used += (used > 0.0f ? 5.0f : 0.0f) + badgeWidth;
+            }
+        }
+        return lines;
+    };
+
     auto detailRowsHeight = [&](const DetailRows& details, float contentWidth) {
         float height = 0.0f;
         for (const DetailRow& row : details)
         {
             if (row.action)
             {
-                height += 54.0f;
+                height += 54.0f + 20.0f * static_cast<float>(
+                    actionModifierLineCount(*row.action, contentWidth));
                 continue;
             }
             height += static_cast<float>(
@@ -5851,46 +7027,65 @@ int main(int argc, char** argv)
                 "ui/damage.png",
                 action.damage,
                 "Damage",
-                "Removes this much health from each target.");
+                "Removes this much Health from each target. Any positive damage also makes a surviving target miss its next activation and blocks its movement until that owner turn ends; a printed Disable value can extend the missed activations.");
             drawAmount(
                 "ui/heal.png",
                 action.heal,
                 "Healing",
-                "Restores this much health, up to the target's maximum health.");
+                "Targets a friendly piece that is below maximum Health and restores this much Health, without exceeding that maximum.");
             drawAmount(
                 "ui/stun.png",
                 action.stun,
-                "Stun",
-                "Prevents each target from acting for this many turns.");
+                "Disable",
+                "Makes each surviving target miss this many of its next owner-turn activations.");
             drawAmount(
                 "ui/cooldown.png",
                 action.cooldown,
                 "Cooldown",
-                "After using this action, its user cannot act for this many turns.");
+                "After using this action, its user cannot act on this many of its owner's turn activations.");
             drawAmount(
                 "ui/under-control.png",
                 action.control,
                 "Control",
                 "Takes control of an enemy non-Hero for this many of your later turns.");
-            if (action.repeat > 0)
+            const std::vector<ActionModifierBadge> modifiers = actionModifierBadges(action);
+            // Keep the first short modifier on the core stats line whenever it
+            // fits. Pull, Capture requirements, and Infest are then visible on
+            // first inspection instead of sitting just below the viewport.
+            float modifierX = x + 8.0f;
+            float modifierY = y;
+            for (const ActionModifierBadge& modifier : modifiers)
             {
-                x += 8.0f;
-                const std::string repeatLabel = "Repeat +" + std::to_string(action.repeat);
-                drawText(window, font, repeatLabel, 13, {x, y + 1.0f}, row.color);
-                x += measuredTextWidth(repeatLabel, 13);
+                sf::Text badgeText(font, modifier.label, 10);
+                const float badgeWidth = std::min(
+                    width, badgeText.getLocalBounds().size.x + 14.0f);
+                if (modifierX + badgeWidth > left + width)
+                {
+                    modifierX = left;
+                    modifierY = std::max(modifierY + 20.0f, y + 24.0f);
+                }
+                drawBeveledPlate(
+                    window,
+                    {modifierX, modifierY},
+                    {badgeWidth, 16.0f},
+                    withAlpha(row.color, 34),
+                    withAlpha(row.color, 165),
+                    false,
+                    4.0f);
+                badgeText.setFillColor(withAlpha(row.color, 242));
+                centerText(
+                    badgeText,
+                    {modifierX + badgeWidth * 0.5f, modifierY + 8.0f});
+                drawCrispText(window, badgeText);
+                if (pointer && isInsideRect(
+                        *pointer, modifierX, modifierY, badgeWidth, 16.0f))
+                {
+                    hoveredTooltip = DetailTooltip{modifier.title, modifier.text};
+                }
+                modifierX += badgeWidth + 5.0f;
             }
-            if (action.pull)
-            {
-                x += 8.0f;
-                drawText(window, font, "Pull", 13, {x, y + 1.0f}, row.color);
-                x += measuredTextWidth("Pull", 13);
-            }
-            if (!action.infest.empty())
-            {
-                x += 8.0f;
-                drawText(window, font, "Infest " + action.infest, 13, {x, y + 1.0f}, row.color, width);
-            }
-            y += 33.0f;
+            y += 33.0f + 20.0f * static_cast<float>(
+                actionModifierLineCount(action, contentWidth));
         }
         return hoveredTooltip;
     };
@@ -6034,7 +7229,7 @@ int main(int argc, char** argv)
             {
                 const float x = startX + static_cast<float>(column) *
                     (HandCardWidth + ForesightChoiceGap);
-                if (isInsideRect(point, x, y, HandCardWidth, HandCardHeight + 24.0f))
+                if (isInsideRect(point, x, y, HandCardWidth, HandCardHeight + 34.0f))
                 {
                     return rowStart + column;
                 }
@@ -6062,19 +7257,19 @@ int main(int argc, char** argv)
     auto playerReadoutAtPixel = [&](sf::Vector2f point) -> std::optional<int> {
         if (isInsideRect(
                 point,
-                GamePlayerBannerLeftX,
+                gamePlayerBannerX(window, 1),
                 GameTopBarY,
                 GamePlayerReadoutWidth,
-                GamePlayerReadoutHeight))
+                gamePlayerBannerHeight(window)))
         {
             return 1;
         }
         if (isInsideRect(
                 point,
-                GamePlayerBannerRightX,
+                gamePlayerBannerX(window, 2),
                 GameTopBarY,
                 GamePlayerReadoutWidth,
-                GamePlayerReadoutHeight))
+                gamePlayerBannerHeight(window)))
         {
             return 2;
         }
@@ -6126,98 +7321,94 @@ int main(int argc, char** argv)
     };
 
     auto updateStoryAfterAction = [&](game_data::Snapshot& snapshot) {
-        if (!storyMode || storyStage != StoryStage::Objective)
+        if (!storyMode || !storyEngine || storyStage != StoryStage::Objective)
         {
             return;
         }
 
-        const auto opponentCount = [&]() {
-            return static_cast<int>(std::count_if(
-                storyEngine->boardPieces().begin(), storyEngine->boardPieces().end(),
-                [](const game_data::Piece& piece) {
-                    return piece.owner == 2;
-                }));
-        };
-        const int playerPieceCount = static_cast<int>(std::count_if(
-            storyEngine->boardPieces().begin(), storyEngine->boardPieces().end(),
-            [](const game_data::Piece& piece) {
-                return piece.owner == 1;
-            }));
         const StoryMission& mission = activeStoryMission();
-        const bool requiredSurvivorMissing = std::any_of(
-            mission.requiredSurvivorRoles.begin(),
-            mission.requiredSurvivorRoles.end(),
-            [&](std::string_view role) {
-                const int requiredId = storyPieceIdForRole(role);
-                return requiredId == 0 || std::none_of(
-                    storyEngine->boardPieces().begin(),
-                    storyEngine->boardPieces().end(),
-                    [&](const game_data::Piece& piece) { return piece.id == requiredId; });
-            });
-        const bool engineDefeat =
-            static_cast<game_data::Phase>(snapshot.phase) == game_data::Phase::GameOver &&
-            snapshot.winner == 2;
-        if (engineDefeat || playerPieceCount == 0 || requiredSurvivorMissing)
+        const GameEngine::ScenarioObjectiveProgress& objectiveProgress =
+            storyEngine->scenarioObjectiveProgress();
+        const bool engineFinished =
+            static_cast<game_data::Phase>(snapshot.phase) == game_data::Phase::GameOver;
+        std::string missingSurvivorName;
+        if (objectiveProgress.failure ==
+            GameEngine::ScenarioObjectiveFailure::RequiredPieceMissing)
         {
+            for (std::string_view role : mission.requiredSurvivorRoles)
+            {
+                if (storyPieceIdForRole(role) != objectiveProgress.failedPieceId)
+                {
+                    continue;
+                }
+                const auto placement = std::find_if(
+                    mission.pieces.begin(), mission.pieces.end(),
+                    [&](const StoryPiecePlacement& piece) { return piece.role == role; });
+                missingSurvivorName = placement == mission.pieces.end()
+                    ? std::string(role)
+                    : std::string(placement->cardTitle);
+                break;
+            }
+        }
+        if (engineFinished && snapshot.winner == 2)
+        {
+            ++storyGenuineDefeatCount;
             storyStage = StoryStage::Failed;
             storyTargetRow = -1;
             storyTargetColumn = -1;
-            snapshot.status = requiredSurvivorMissing
-                ? "Mission failed: a required story character fell before the objective was secured."
+            // A final scripted command may have queued aftermath before the
+            // authoritative engine reports a required-survivor defeat. Defeat
+            // owns the result: discard that queue so closing it can never
+            // promote a failed mission to Complete.
+            storyPopupPanels.clear();
+            storyPopupPage = 0;
+            storyCompleteAfterPopup = false;
+            snapshot.status = !missingSurvivorName.empty()
+                ? "Mission failed: " + missingSurvivorName +
+                    " fell before the objective was secured."
                 : storyCampaign == StoryCampaign::Blackthorn
                     ? "Mission failed: the Blackthorn force was defeated."
-                    : "Mission failed: the Mirewatch force was defeated.";
+                    : storyCampaign == StoryCampaign::Mirewatch
+                        ? "Mission failed: the Mirewatch force was defeated."
+                        : "Mission failed: the Seelie defenders were defeated.";
             endTurnButton.setLabel("Retry Mission");
+            if (storyContinueWithoutMasteryAvailable(
+                    mission, storyGenuineDefeatCount))
+            {
+                snapshot.status +=
+                    " Continue Anyway unlocks the next story entry without a completion stamp; replay this mission later to earn it.";
+                storyRestartButton.setVariant(ButtonVariant::Secondary);
+                storyRestartButton.setLabel("Continue Anyway");
+                if (usesCompactGameHud(window))
+                {
+                    // A continuation decision is a result action, not a persistent
+                    // HUD utility. Stack it below Retry where the full label is
+                    // readable instead of squeezing it between top banners.
+                    storyRestartButton.setPosition(
+                        {GameActionButtonX, GameLeaveButtonY - 2.0f});
+                    storyRestartButton.setSize(
+                        {GameActionButtonWidth, GameActionButtonHeight + 4.0f});
+                    storyRestartButton.setLabelSize(14);
+                }
+            }
             return;
         }
 
-        bool completed = false;
-        switch (mission.objectiveSpec.kind)
+        bool completed = engineFinished && snapshot.winner == 1 &&
+            (mission.standardMatch || objectiveProgress.complete);
+        if (!engineFinished &&
+            mission.objectiveSpec.kind == StoryObjectiveKind::DeployCard)
         {
-        case StoryObjectiveKind::Scripted:
-        case StoryObjectiveKind::StoryOnly:
-        case StoryObjectiveKind::Legacy:
-            break;
-        case StoryObjectiveKind::DefeatAllEnemies:
-            completed = opponentCount() == 0;
-            break;
-        case StoryObjectiveKind::DefeatRole:
-        {
-            const int targetId = storyPieceIdForRole(mission.objectiveSpec.targetRole);
-            completed = targetId != 0 && std::none_of(
-                snapshot.pieces.begin(),
-                snapshot.pieces.end(),
-                [&](const game_data::Piece& piece) { return piece.id == targetId; });
-            break;
-        }
-        case StoryObjectiveKind::ReachSquare:
-        {
-            const int targetId = storyPieceIdForRole(mission.objectiveSpec.targetRole);
             completed = std::any_of(
-                snapshot.pieces.begin(),
-                snapshot.pieces.end(),
-                [&](const game_data::Piece& piece) {
-                    return piece.id == targetId &&
-                        piece.row == mission.objectiveSpec.targetRow &&
-                        piece.column == mission.objectiveSpec.targetColumn;
-                });
-            break;
-        }
-        case StoryObjectiveKind::DeployCard:
-            completed = std::any_of(
-                snapshot.pieces.begin(),
-                snapshot.pieces.end(),
+                storyEngine->boardPieces().begin(),
+                storyEngine->boardPieces().end(),
                 [&](const game_data::Piece& piece) {
                     const bool correctSquare = mission.objectiveSpec.targetRow < 0 ||
                         (piece.row == mission.objectiveSpec.targetRow &&
                          piece.column == mission.objectiveSpec.targetColumn);
-                    return piece.owner == 1 &&
+                    return game_data::pieceOriginalOwner(piece) == 1 &&
                         piece.name == mission.objectiveSpec.cardTitle && correctSquare;
                 });
-            break;
-        case StoryObjectiveKind::ControlSquares:
-            completed = controlledCountInSnapshot(snapshot, 1) >= mission.objectiveSpec.amount;
-            break;
         }
         if (completed)
         {
@@ -6314,6 +7505,12 @@ int main(int argc, char** argv)
             return;
         }
         const game_data::GameCard card = next.hand[static_cast<std::size_t>(handIndex)];
+        if (card.type == "Spell" && !game_data::isSupportedSpellEffect(card))
+        {
+            next.status = "This spell has no defined game effect and cannot be played.";
+            commitSandboxSnapshot(std::move(next));
+            return;
+        }
         const int actingPlayer = sandboxPlacementPlayer;
         if (card.type == "Unit" || card.type == "Hero")
         {
@@ -6451,7 +7648,8 @@ int main(int argc, char** argv)
         sandboxPlayCard(heroIndex, row, column);
     };
 
-    auto sandboxActWithPiece = [&](int pieceId, int row, int column) {
+    auto sandboxActWithPiece = [&](int pieceId, int row, int column,
+                                   int selectedActionIndex = -1) {
         if (!sandboxMode || !haveSnapshot ||
             static_cast<game_data::Phase>(gameSnapshot.phase) != game_data::Phase::Playing)
         {
@@ -6479,9 +7677,18 @@ int main(int argc, char** argv)
             return;
         }
         const bool continuingRepeat = piece->repeatActionIndex >= 0;
-        const int requiredActionIndex = continuingRepeat ? piece->repeatActionIndex : -1;
+        const int requiredActionIndex = continuingRepeat
+            ? piece->repeatActionIndex
+            : selectedActionIndex;
         if (continuingRepeat)
         {
+            if (selectedActionIndex >= 0 &&
+                selectedActionIndex != piece->repeatActionIndex)
+            {
+                next.status = "Repeat must continue with the same printed action.";
+                commitSandboxSnapshot(std::move(next));
+                return;
+            }
             if (requiredActionIndex >= static_cast<int>(piece->actions.size()) ||
                 piece->repeatActionUses < 0)
             {
@@ -6539,6 +7746,17 @@ int main(int argc, char** argv)
         int pushedSquares = 0;
         int pushCollisionDamage = 0;
         int pulledSquares = 0;
+        std::vector<int> revealedPieceIds = outcome.revealedPieceIds;
+        const auto rememberRevealedPieces = [&](const std::vector<int>& ids) {
+            for (int id : ids)
+            {
+                if (std::find(revealedPieceIds.begin(), revealedPieceIds.end(), id) ==
+                    revealedPieceIds.end())
+                {
+                    revealedPieceIds.push_back(id);
+                }
+            }
+        };
         const int attackDamage = action.damage +
             game_data::pieceEnchantmentDamageBonus(next.enchantments, attackerId);
         const std::string infestationTitle = action.actionIndex >= 0 &&
@@ -6616,6 +7834,7 @@ int main(int argc, char** argv)
                         action.push);
                     pushedSquares += pushResult.movedSquares;
                     pushCollisionDamage += pushResult.preventedSquares;
+                    rememberRevealedPieces(pushResult.revealedPieceIds);
                     if (game_data::Piece* pushedTarget =
                             pieceByIdInSnapshotMutable(next, effectiveTargetId);
                         pushedTarget && pushedTarget->health <= 0)
@@ -6633,6 +7852,7 @@ int main(int argc, char** argv)
                             effectiveTargetId,
                             attackerId);
                         pulledSquares += pullResult.movedSquares;
+                        rememberRevealedPieces(pullResult.revealedPieceIds);
                     }
                     if (action.control > 0)
                     {
@@ -6652,12 +7872,12 @@ int main(int argc, char** argv)
             if (damagedTargetNames.empty() && healedTargetNames.empty()) return;
         }
 
-        std::string revealedName;
-        if (outcome.revealedPieceId != 0)
+        std::vector<std::string> revealedNames;
+        for (int revealedPieceId : revealedPieceIds)
         {
-            if (game_data::Piece* revealed = pieceByIdInSnapshotMutable(next, outcome.revealedPieceId))
+            if (game_data::Piece* revealed = pieceByIdInSnapshotMutable(next, revealedPieceId))
             {
-                revealedName = revealed->name;
+                revealedNames.push_back(revealed->name);
                 game_data::materializeRevealedPiece(*revealed);
             }
         }
@@ -6777,15 +7997,32 @@ int main(int argc, char** argv)
             {
                 next.status += " Infestation spawned a unit!";
             }
-            if (anyTargetWasHidden)
+            if (!revealedNames.empty())
+            {
+                next.status += " Hidden " + joinTargets(revealedNames) +
+                    " materialized and became Disabled for " +
+                    (revealedNames.size() == 1 ? "its" : "their") +
+                    " next owner-turn activation.";
+            }
+            else if (anyTargetWasHidden)
             {
                 next.status += " It materialized!";
             }
         }
-        else if (!revealedName.empty())
+        else if (!revealedNames.empty())
         {
-            next.status = attackerName + " bumped into a hidden " + revealedName +
-                "! It materialized, stunned.";
+            std::string revealedList;
+            for (std::size_t index = 0; index < revealedNames.size(); ++index)
+            {
+                if (index > 0)
+                    revealedList += index + 1 == revealedNames.size() ? " and " : ", ";
+                revealedList += revealedNames[index];
+            }
+            next.status = attackerName + " bumped into hidden " + revealedList + "! " +
+                (revealedNames.size() == 1 ? "It" : "They") +
+                " materialized and became Disabled for " +
+                (revealedNames.size() == 1 ? "its" : "their") +
+                " next owner-turn activation.";
         }
         else
         {
@@ -7000,12 +8237,71 @@ int main(int argc, char** argv)
         commitSandboxSnapshot(std::move(next));
     };
 
+    auto refreshStoryReplacementRoles = [&]() {
+        if (!storyMode || !storyEngine)
+        {
+            return;
+        }
+
+        const StoryMission& mission = activeStoryMission();
+        for (auto& [role, pieceId] : storyRolePieceIds)
+        {
+            const bool originalStillPresent = std::any_of(
+                storyEngine->boardPieces().begin(), storyEngine->boardPieces().end(),
+                [&](const game_data::Piece& piece) { return piece.id == pieceId; });
+            if (originalStillPresent)
+            {
+                continue;
+            }
+
+            const auto placement = std::find_if(
+                mission.pieces.begin(), mission.pieces.end(),
+                [&](const StoryPiecePlacement& value) { return value.role == role; });
+            if (placement == mission.pieces.end())
+            {
+                continue;
+            }
+
+            const game_data::GameCard originalCard =
+                storyCardNamed(std::string(placement->cardTitle));
+            if (originalCard.rebirthTitle.empty())
+            {
+                continue;
+            }
+
+            int replacementRow = placement->row;
+            int replacementColumn = placement->column;
+            const auto previousPiece = std::find_if(
+                gameSnapshot.pieces.begin(), gameSnapshot.pieces.end(),
+                [&](const game_data::Piece& piece) { return piece.id == pieceId; });
+            if (previousPiece != gameSnapshot.pieces.end())
+            {
+                replacementRow = previousPiece->row;
+                replacementColumn = previousPiece->column;
+            }
+
+            const auto replacement = std::find_if(
+                storyEngine->boardPieces().begin(), storyEngine->boardPieces().end(),
+                [&](const game_data::Piece& piece) {
+                    return piece.owner == placement->owner &&
+                        piece.name == originalCard.rebirthTitle &&
+                        piece.row == replacementRow &&
+                        piece.column == replacementColumn;
+                });
+            if (replacement != storyEngine->boardPieces().end())
+            {
+                pieceId = replacement->id;
+            }
+        }
+    };
+
     auto syncStoryEngine = [&]() {
         if (!storyMode || !storyEngine)
         {
             return;
         }
 
+        refreshStoryReplacementRoles();
         game_data::Snapshot next = storyEngine->snapshotFor(1);
         updateStoryAfterAction(next);
         commitLocalSnapshot(std::move(next));
@@ -7020,6 +8316,14 @@ int main(int argc, char** argv)
     };
 
     auto updateStoryAi = [&]() {
+        // Restart/exit confirmation is a decision boundary. Keep both the
+        // scripted auto-chain and ordinary opponent planner frozen behind it;
+        // confirming rebuilds the mission, while cancelling resumes the same
+        // authored step without a hidden state change.
+        if (resignConfirmPopupVisible)
+        {
+            return;
+        }
         if (storyMode && storyEngine && storyStage == StoryStage::Objective &&
             !activeStoryMission().script.empty() && storyPopupPanels.empty() &&
             storyMissionStep >= 0 &&
@@ -7027,7 +8331,9 @@ int main(int argc, char** argv)
         {
             const StoryScriptAction& step =
                 activeStoryMission().script[static_cast<std::size_t>(storyMissionStep)];
-            if (step.owner == 2 && animationTime >= storyScriptActionAt)
+            const StoryMission& mission = activeStoryMission();
+            if (storyScriptActionAutoResolves(mission, step) &&
+                animationTime >= storyScriptActionAt)
             {
                 const int actorId = step.actorRole.empty()
                     ? 0
@@ -7049,33 +8355,112 @@ int main(int argc, char** argv)
                 }
 
                 bool accepted = false;
+                std::optional<int> scriptedActionIndex;
+                std::optional<game_data::Piece> abilityActorBefore;
+                if (step.kind == StoryActionKind::Move ||
+                    step.kind == StoryActionKind::Attack)
+                {
+                    const auto actor = std::find_if(
+                        storyEngine->boardPieces().begin(),
+                        storyEngine->boardPieces().end(),
+                        [&](const game_data::Piece& piece) {
+                            return piece.id == actorId;
+                        });
+                    if (actor != storyEngine->boardPieces().end())
+                    {
+                        scriptedActionIndex =
+                            storyExpectedActionProfileIndex(step, *actor);
+                        if (scriptedActionIndex)
+                        {
+                            const std::vector<game_data::Piece> visiblePieces =
+                                game_data::piecesVisibleTo(
+                                    storyEngine->boardPieces(), step.owner);
+                            const auto visibleActor = std::find_if(
+                                visiblePieces.begin(), visiblePieces.end(),
+                                [&](const game_data::Piece& piece) {
+                                    return piece.id == actorId;
+                                });
+                            const game_data::ActionResolution sourceResolution =
+                                visibleActor == visiblePieces.end()
+                                ? game_data::ActionResolution{}
+                                : game_data::resolvePieceAction(
+                                      visiblePieces,
+                                      storyEngine->boardHoles(),
+                                      *visibleActor,
+                                      targetRow,
+                                      targetColumn,
+                                      false,
+                                      *scriptedActionIndex);
+                            const StoryActionKind resolvedSourceKind =
+                                sourceResolution.attacks
+                                ? StoryActionKind::Attack
+                                : StoryActionKind::Move;
+                            if (!sourceResolution.legal ||
+                                !storySelectedPieceActionMatches(
+                                    step,
+                                    resolvedSourceKind,
+                                    *actor,
+                                    *scriptedActionIndex))
+                            {
+                                scriptedActionIndex.reset();
+                            }
+                        }
+                    }
+                }
+                else if (step.kind == StoryActionKind::UseAbility)
+                {
+                    const auto actor = std::find_if(
+                        storyEngine->boardPieces().begin(),
+                        storyEngine->boardPieces().end(),
+                        [&](const game_data::Piece& piece) {
+                            return piece.id == actorId;
+                        });
+                    if (actor != storyEngine->boardPieces().end() &&
+                        storyAbilityStepMatches(step, *actor))
+                    {
+                        abilityActorBefore = *actor;
+                    }
+                }
                 switch (step.kind)
                 {
                 case StoryActionKind::Move:
-                    accepted = storyEngine->movePiece(2, actorId, targetRow, targetColumn);
+                    accepted = scriptedActionIndex && storyEngine->movePiece(
+                        step.owner,
+                        actorId,
+                        targetRow,
+                        targetColumn,
+                        *scriptedActionIndex);
                     break;
                 case StoryActionKind::Attack:
-                    accepted = storyEngine->attackPiece(2, actorId, targetRow, targetColumn);
+                    accepted = scriptedActionIndex && storyEngine->attackPiece(
+                        step.owner,
+                        actorId,
+                        targetRow,
+                        targetColumn,
+                        *scriptedActionIndex);
                     break;
                 case StoryActionKind::UseAbility:
-                    accepted = storyEngine->useAbility(2, actorId);
+                    accepted = abilityActorBefore &&
+                        storyEngine->useAbility(step.owner, actorId);
                     break;
                 case StoryActionKind::DrawCard:
-                    accepted = storyEngine->drawCard(2);
+                    accepted = storyEngine->drawCard(step.owner);
                     break;
                 case StoryActionKind::ChooseForesight:
                 {
-                    const auto& choices = storyEngine->playerState(2).foresightChoices;
+                    const auto& choices =
+                        storyEngine->playerState(step.owner).foresightChoices;
                     const auto found = std::find_if(
                         choices.begin(), choices.end(), [&](const game_data::GameCard& card) {
                             return card.title == step.cardTitle;
                         });
                     accepted = found != choices.end() && storyEngine->chooseForesightCard(
-                        2, static_cast<int>(std::distance(choices.begin(), found)));
+                        step.owner,
+                        static_cast<int>(std::distance(choices.begin(), found)));
                     break;
                 }
                 case StoryActionKind::EndTurn:
-                    accepted = storyEngine->endTurn(2);
+                    accepted = storyEngine->endTurn(step.owner);
                     break;
                 default:
                     break;
@@ -7084,13 +8469,27 @@ int main(int argc, char** argv)
                 if (!accepted)
                 {
                     storyStage = StoryStage::Failed;
-                    gameSnapshot.status = "Mission data error: a scripted opponent action was no longer legal.";
+                    gameSnapshot.status =
+                        "Mission data error: a scripted automatic action was no longer legal.";
+                    endTurnButton.setLabel("Retry Mission");
+                    return;
+                }
+                if (abilityActorBefore &&
+                    !storyAbilityOutcomeMatches(
+                        step,
+                        *abilityActorBefore,
+                        storyEngine->boardPieces(),
+                        storyEngine->commandingPiece()))
+                {
+                    storyStage = StoryStage::Failed;
+                    gameSnapshot.status =
+                        "Mission data error: a scripted automatic ability did not produce its authored result.";
                     endTurnButton.setLabel("Retry Mission");
                     return;
                 }
                 const bool completeNow = advanceStoryScript();
                 syncStoryEngine();
-                if (completeNow)
+                if (completeNow && storyStage == StoryStage::Objective)
                 {
                     completeStoryMission(gameSnapshot);
                 }
@@ -7120,9 +8519,12 @@ int main(int argc, char** argv)
             {
                 if (!applyAiAction(*storyEngine, 2, action))
                 {
-                    // Nothing the planner offered was playable here; pass so the
-                    // encounter cannot stall on a rejected action.
-                    storyEngine->endTurn(2);
+                    storyAiPending = false;
+                    storyStage = StoryStage::Failed;
+                    gameSnapshot.status =
+                        "Opponent AI error: its planned action was not legal in the current game state.";
+                    endTurnButton.setLabel("Retry Mission");
+                    return;
                 }
                 syncStoryEngine();
             }
@@ -7142,14 +8544,17 @@ int main(int argc, char** argv)
         }
 
         const std::uint64_t generation = storyGeneration;
+        const int searchDepth =
+            storyAiSearchDepth(storyCampaign, activeStoryMission().id);
         GameEngine engineCopy = *storyEngine;
         pendingStoryAi.emplace(std::async(
             std::launch::async,
-            [generation, engine = std::move(engineCopy)]() mutable {
+            [generation, searchDepth, engine = std::move(engineCopy)]() mutable {
                 // Story encounters are authored teaching positions, so the
-                // tutorial opponent plans its own turn and stops there rather
-                // than playing the full-strength match search.
-                return std::pair{generation, chooseAiAction(engine, 2, 1)};
+                // opponent scales from a one-ply lesson partner to the same
+                // four-ply search used by a full-strength match opponent.
+                return std::pair{
+                    generation, chooseAiAction(engine, 2, searchDepth)};
             }));
     };
 
@@ -7160,14 +8565,29 @@ int main(int argc, char** argv)
         }
     };
 
-    auto settleStoryAction = [&](bool accepted) {
+    auto settleStoryAction = [&]
+        (bool accepted,
+         std::optional<game_data::Piece> abilityActorBefore = std::nullopt) {
         bool completeNow = false;
         if (accepted && !activeStoryMission().script.empty())
         {
             const StoryScriptAction& completedStep = activeStoryMission().script[
                 static_cast<std::size_t>(storyMissionStep)];
+            if (abilityActorBefore &&
+                !storyAbilityOutcomeMatches(
+                    completedStep,
+                    *abilityActorBefore,
+                    storyEngine->boardPieces(),
+                    storyEngine->commandingPiece()))
+            {
+                accepted = false;
+                storyStage = StoryStage::Failed;
+                gameSnapshot.status =
+                    "Mission data error: the ability did not produce its authored result.";
+                endTurnButton.setLabel("Retry Mission");
+            }
             if (completedStep.kind == StoryActionKind::PlayCard &&
-                !completedStep.effectRole.empty())
+                !completedStep.effectRole.empty() && accepted)
             {
                 const auto spawned = std::find_if(
                     storyEngine->boardPieces().begin(),
@@ -7176,23 +8596,52 @@ int main(int argc, char** argv)
                         return piece.owner == completedStep.owner &&
                             piece.name == completedStep.cardTitle &&
                             piece.row == completedStep.targetRow &&
-                            piece.column == completedStep.targetColumn;
+                            piece.column == completedStep.targetColumn &&
+                            piece.hasActed;
                     });
-                if (spawned != storyEngine->boardPieces().end())
+                if (spawned == storyEngine->boardPieces().end())
+                {
+                    accepted = false;
+                    storyStage = StoryStage::Failed;
+                    gameSnapshot.status =
+                        "Mission data error: the deployed unit did not arrive exhausted on its authored square.";
+                    endTurnButton.setLabel("Retry Mission");
+                }
+                else
                 {
                     storyRolePieceIds.emplace_back(completedStep.effectRole, spawned->id);
                 }
             }
-            completeNow = advanceStoryScript();
+            if (accepted)
+            {
+                completeNow = advanceStoryScript();
+            }
         }
         syncStoryEngine();
-        if (completeNow)
+        if (completeNow && storyStage == StoryStage::Objective)
         {
             completeStoryMission(gameSnapshot);
         }
     };
 
     auto sendPlaceHero = [&](int heroIndex, int row, int column) {
+        if (storyMode && storyEngine && activeStoryMission().standardMatch)
+        {
+            if (!storyEngine->placeHero(1, heroIndex, row, column))
+            {
+                storyCorrection =
+                    "Place that hero on empty squares inside your highlighted two-by-four home zone.";
+                syncStoryEngine();
+                return;
+            }
+            if (storyEngine->phase() == game_data::Phase::HeroPlacement &&
+                storyEngine->playerState(1).heroesToPlace.empty())
+            {
+                placeAiHeroes(*storyEngine, 2);
+            }
+            syncStoryEngine();
+            return;
+        }
         if (sandboxMode)
         {
             sandboxPlaceHero(heroIndex, row, column);
@@ -7228,45 +8677,71 @@ int main(int argc, char** argv)
         sendGamePacket(packet);
     };
 
-    auto sendMovePiece = [&](int pieceId, int row, int column) {
+    auto sendMovePiece = [&](int pieceId, int row, int column,
+                             int selectedActionIndex = -1) {
         if (storyMode && storyEngine)
         {
-            if (!storyActionAllowed(StoryActionKind::Move, 1, pieceId, row, column))
+            if (!storyActionAllowed(
+                    StoryActionKind::Move,
+                    1,
+                    pieceId,
+                    row,
+                    column,
+                    {},
+                    selectedActionIndex))
             {
                 return;
             }
-            settleStoryAction(storyEngine->movePiece(1, pieceId, row, column));
+            settleStoryAction(storyEngine->movePiece(
+                1, pieceId, row, column, selectedActionIndex));
             return;
         }
         if (sandboxMode)
         {
-            sandboxActWithPiece(pieceId, row, column);
+            sandboxActWithPiece(pieceId, row, column, selectedActionIndex);
             return;
         }
         sf::Packet packet;
         packet << static_cast<std::uint8_t>(network::MessageType::MovePiece)
                << pieceId << row << column;
+        if (selectedActionIndex >= 0)
+        {
+            packet << network::encodeActionProfileSelection(selectedActionIndex);
+        }
         sendGamePacket(packet);
     };
 
-    auto sendAttackPiece = [&](int attackerId, int row, int column) {
+    auto sendAttackPiece = [&](int attackerId, int row, int column,
+                               int selectedActionIndex = -1) {
         if (storyMode && storyEngine)
         {
-            if (!storyActionAllowed(StoryActionKind::Attack, 1, attackerId, row, column))
+            if (!storyActionAllowed(
+                    StoryActionKind::Attack,
+                    1,
+                    attackerId,
+                    row,
+                    column,
+                    {},
+                    selectedActionIndex))
             {
                 return;
             }
-            settleStoryAction(storyEngine->attackPiece(1, attackerId, row, column));
+            settleStoryAction(storyEngine->attackPiece(
+                1, attackerId, row, column, selectedActionIndex));
             return;
         }
         if (sandboxMode)
         {
-            sandboxActWithPiece(attackerId, row, column);
+            sandboxActWithPiece(attackerId, row, column, selectedActionIndex);
             return;
         }
         sf::Packet packet;
         packet << static_cast<std::uint8_t>(network::MessageType::AttackPiece)
                << attackerId << row << column;
+        if (selectedActionIndex >= 0)
+        {
+            packet << network::encodeActionProfileSelection(selectedActionIndex);
+        }
         sendGamePacket(packet);
     };
 
@@ -7288,15 +8763,201 @@ int main(int argc, char** argv)
             requiredActionIndex);
         if (!outcome.action.legal)
         {
+            if (storyMode && storyStage == StoryStage::Objective &&
+                storyPopupPanels.empty())
+            {
+                const StoryMission& mission = activeStoryMission();
+                const game_data::Piece* friendlyBlocker = nullptr;
+                for (int targetRow = row;
+                     friendlyBlocker == nullptr && targetRow < row + piece->height;
+                     ++targetRow)
+                {
+                    for (int targetColumn = column;
+                         targetColumn < column + piece->width;
+                         ++targetColumn)
+                    {
+                        const game_data::Piece* occupant = game_data::findPieceAt(
+                            gameSnapshot.pieces, targetRow, targetColumn);
+                        if (occupant != nullptr && occupant->id != piece->id &&
+                            occupant->owner == piece->owner)
+                        {
+                            friendlyBlocker = occupant;
+                            break;
+                        }
+                    }
+                }
+                const bool hasExpectedStep =
+                    !mission.script.empty() && storyMissionStep >= 0 &&
+                    storyMissionStep < static_cast<int>(mission.script.size());
+                if (friendlyBlocker != nullptr)
+                {
+                    const std::string squareName =
+                        game_data::inBounds(row, column)
+                        ? std::string(1, static_cast<char>('A' + column)) +
+                            std::to_string(row + 1)
+                        : std::string("That square");
+                    storyCorrection = squareName + " is occupied by " +
+                        friendlyBlocker->name + ", so " + piece->name +
+                        " cannot finish there.";
+                    if (hasExpectedStep)
+                    {
+                        const StoryScriptAction& expected =
+                            mission.script[static_cast<std::size_t>(storyMissionStep)];
+                        if (!expected.correction.empty())
+                        {
+                            storyCorrection += " " + std::string(expected.correction);
+                        }
+                    }
+                }
+                else if (hasExpectedStep)
+                {
+                    const StoryScriptAction& expected =
+                        mission.script[static_cast<std::size_t>(storyMissionStep)];
+                    storyCorrection = expected.correction.empty()
+                        ? std::string("That unit has no legal action on that square. Follow the glowing ACT and TARGET markers.")
+                        : std::string(expected.correction);
+                }
+                else
+                {
+                    storyCorrection =
+                        "That unit has no legal action on that square. Inspect it with double-click or focus + I.";
+                }
+            }
             return;
         }
-        if (outcome.action.attacks)
+
+        std::vector<int> legalActionIndices;
+        if (requiredActionIndex >= 0)
         {
-            sendAttackPiece(pieceId, row, column);
+            legalActionIndices.push_back(requiredActionIndex);
         }
         else
         {
-            sendMovePiece(pieceId, row, column);
+            for (std::size_t index = 0; index < piece->actions.size(); ++index)
+            {
+                const game_data::PieceActionOutcome candidate =
+                    game_data::resolvePieceActionThroughHidden(
+                        gameSnapshot.pieces,
+                        gameSnapshot.holes,
+                        *piece,
+                        row,
+                        column,
+                        static_cast<int>(index));
+                if (candidate.action.legal)
+                {
+                    legalActionIndices.push_back(static_cast<int>(index));
+                }
+            }
+        }
+
+        if (legalActionIndices.size() > 1)
+        {
+            pendingPieceActionChoice = PendingPieceActionChoice{
+                pieceId, row, column, std::move(legalActionIndices), 0};
+            storyCorrection.clear();
+            return;
+        }
+
+        const int selectedActionIndex = legalActionIndices.empty()
+            ? outcome.action.actionIndex
+            : legalActionIndices.front();
+        const game_data::PieceActionOutcome selectedOutcome =
+            game_data::resolvePieceActionThroughHidden(
+                gameSnapshot.pieces,
+                gameSnapshot.holes,
+                *piece,
+                row,
+                column,
+                selectedActionIndex);
+        const std::vector<game_data::Piece> sourceVisiblePieces =
+            game_data::piecesVisibleTo(gameSnapshot.pieces, piece->owner);
+        const game_data::ActionResolution selectedSourceAction =
+            game_data::resolvePieceAction(
+                sourceVisiblePieces,
+                gameSnapshot.holes,
+                *piece,
+                row,
+                column,
+                false,
+                selectedActionIndex);
+        if (!selectedSourceAction.legal)
+        {
+            gameSnapshot.status =
+                "That printed action is no longer legal on the chosen square.";
+            return;
+        }
+        if (selectedSourceAction.attacks)
+        {
+            sendAttackPiece(pieceId, row, column, selectedActionIndex);
+        }
+        else
+        {
+            sendMovePiece(pieceId, row, column, selectedActionIndex);
+        }
+    };
+
+    auto submitPendingPieceActionChoice = [&](int optionIndex) {
+        if (!pendingPieceActionChoice || optionIndex < 0 ||
+            optionIndex >= static_cast<int>(
+                pendingPieceActionChoice->actionIndices.size()))
+        {
+            return;
+        }
+        const PendingPieceActionChoice choice = *pendingPieceActionChoice;
+        pendingPieceActionChoice.reset();
+        const game_data::Piece* piece = gamePieceById(choice.pieceId);
+        if (piece == nullptr)
+        {
+            return;
+        }
+        const int selectedActionIndex =
+            choice.actionIndices[static_cast<std::size_t>(optionIndex)];
+        const game_data::PieceActionOutcome selectedOutcome =
+            game_data::resolvePieceActionThroughHidden(
+                gameSnapshot.pieces,
+                gameSnapshot.holes,
+                *piece,
+                choice.row,
+                choice.column,
+                selectedActionIndex);
+        if (!selectedOutcome.action.legal)
+        {
+            gameSnapshot.status =
+                "That printed action is no longer legal on the chosen square.";
+            return;
+        }
+        const std::vector<game_data::Piece> sourceVisiblePieces =
+            game_data::piecesVisibleTo(gameSnapshot.pieces, piece->owner);
+        const game_data::ActionResolution selectedSourceAction =
+            game_data::resolvePieceAction(
+                sourceVisiblePieces,
+                gameSnapshot.holes,
+                *piece,
+                choice.row,
+                choice.column,
+                false,
+                selectedActionIndex);
+        if (!selectedSourceAction.legal)
+        {
+            gameSnapshot.status =
+                "That printed action is no longer legal on the chosen square.";
+            return;
+        }
+        if (selectedSourceAction.attacks)
+        {
+            sendAttackPiece(
+                choice.pieceId,
+                choice.row,
+                choice.column,
+                selectedActionIndex);
+        }
+        else
+        {
+            sendMovePiece(
+                choice.pieceId,
+                choice.row,
+                choice.column,
+                selectedActionIndex);
         }
     };
 
@@ -7317,6 +8978,10 @@ int main(int argc, char** argv)
             const std::string ability = found == storyEngine->boardPieces().end()
                 ? std::string()
                 : found->ability;
+            const std::optional<game_data::Piece> abilityActorBefore =
+                found == storyEngine->boardPieces().end()
+                ? std::nullopt
+                : std::optional<game_data::Piece>(*found);
             const bool accepted = storyEngine->useAbility(1, pieceId);
             if (accepted)
             {
@@ -7327,7 +8992,7 @@ int main(int argc, char** argv)
                 storyUsedSummon = storyUsedSummon ||
                     (pieceName == "Blackthorn Foreman" && ability == "summon");
             }
-            settleStoryAction(accepted);
+            settleStoryAction(accepted, abilityActorBefore);
             return;
         }
         if (sandboxMode)
@@ -7431,11 +9096,17 @@ int main(int argc, char** argv)
         {
             return false;
         }
-        if (gameSnapshot.relentlessPieceId != 0)
+        const int me = gameSnapshot.yourPlayer;
+        const bool pendingRepeat = me >= 1 && me <= 2 && std::any_of(
+            gameSnapshot.pieces.begin(), gameSnapshot.pieces.end(),
+            [&](const game_data::Piece& piece) {
+                return piece.owner == me && piece.repeatActionIndex >= 0;
+            });
+        if (gameSnapshot.relentlessPieceId != 0 ||
+            gameSnapshot.commandingPieceId != 0 || pendingRepeat)
         {
             return false;
         }
-        const int me = gameSnapshot.yourPlayer;
         if (me < 1 || me > 2 || gameSnapshot.activePlayer != me)
         {
             return false;
@@ -7453,6 +9124,16 @@ int main(int argc, char** argv)
         }
         const int me = gameSnapshot.yourPlayer;
         if (me < 1 || me > 2 || gameSnapshot.activePlayer != me)
+        {
+            return false;
+        }
+        const bool pendingRepeat = std::any_of(
+            gameSnapshot.pieces.begin(), gameSnapshot.pieces.end(),
+            [&](const game_data::Piece& piece) {
+                return piece.owner == me && piece.repeatActionIndex >= 0;
+            });
+        if (pendingRepeat || gameSnapshot.relentlessPieceId != 0 ||
+            gameSnapshot.commandingPieceId != 0)
         {
             return false;
         }
@@ -7476,13 +9157,27 @@ int main(int argc, char** argv)
         {
             return false;
         }
-        if (gameSnapshot.relentlessPieceId != 0)
+        const int me = gameSnapshot.yourPlayer;
+        const bool pendingRepeat = me >= 1 && me <= 2 && std::any_of(
+            gameSnapshot.pieces.begin(), gameSnapshot.pieces.end(),
+            [&](const game_data::Piece& piece) {
+                return piece.owner == me && piece.repeatActionIndex >= 0;
+            });
+        if (gameSnapshot.relentlessPieceId != 0 ||
+            gameSnapshot.commandingPieceId != 0 || pendingRepeat)
         {
             return false;
         }
 
         const game_data::GameCard& card = gameSnapshot.hand[handIndex];
         selectedPieceId.reset();
+        if (card.type == "Spell" && !game_data::isSupportedSpellEffect(card))
+        {
+            gameSnapshot.status =
+                "This spell has no defined game effect and cannot be played.";
+            selectedHandIndex.reset();
+            return true;
+        }
         if (card.type == "Spell" && game_data::isResourcesEffect(card) &&
             (sandboxMode ||
              game_data::heroTraitsAllowCard(
@@ -7584,6 +9279,19 @@ int main(int argc, char** argv)
         {
             if (gameSnapshot.relentlessPieceId != 0)
             {
+                if (storyMode)
+                {
+                    storyCorrection =
+                        "Finish the current unit's extra action or End Turn before using a card.";
+                }
+                return;
+            }
+            const game_data::GameCard& card = gameSnapshot.hand[*handIndex];
+            if (card.type == "Spell" && !game_data::isSupportedSpellEffect(card))
+            {
+                gameSnapshot.status =
+                    "This spell has no defined game effect and cannot be played.";
+                selectedHandIndex.reset();
                 return;
             }
             gameDragKind = GameDragKind::HandCard;
@@ -7604,6 +9312,34 @@ int main(int argc, char** argv)
             {
                 gameDragPieceRowOffset = grabbedSquare->first - piece->row;
                 gameDragPieceColumnOffset = grabbedSquare->second - piece->column;
+            }
+        }
+        else if (piece && storyMode && storyStage == StoryStage::Objective)
+        {
+            if (piece->owner != me)
+            {
+                storyCorrection =
+                    "That is an enemy unit. Select one of your own ready units to act.";
+            }
+            else if (piece->disabledTurns > 0)
+            {
+                storyCorrection =
+                    piece->name + " is Disabled and must miss this activation.";
+            }
+            else if (piece->growTurnsRemaining > 0)
+            {
+                storyCorrection =
+                    piece->name + " is not ready to act yet.";
+            }
+            else if (piece->hasActed)
+            {
+                storyCorrection =
+                    piece->name + " has already acted this turn. Use End Turn.";
+            }
+            else
+            {
+                storyCorrection =
+                    "The normal piece action for this turn is already spent. Use End Turn.";
             }
         }
     };
@@ -7628,6 +9364,11 @@ int main(int argc, char** argv)
                 inspectedPieceId.reset();
                 pendingHandClickIndex.reset();
             }
+            else if (storyMode)
+            {
+                storyCorrection =
+                    "Discard is not available now. Follow the current lesson step or End Turn.";
+            }
             resetGameDrag();
             return true;
         }
@@ -7651,6 +9392,12 @@ int main(int argc, char** argv)
         const std::optional<std::pair<int, int>> square = squareAtPixel(releasePos);
         if (!square)
         {
+            if (storyMode && storyStage == StoryStage::Objective)
+            {
+                storyCorrection = gameDragKind == GameDragKind::HandCard
+                    ? "Drop the card on a legal board square, or on the discard area when Discard is available."
+                    : "Drop the unit on a board square. Guided missions mark the required TARGET.";
+            }
             resetGameDrag();
             return true;
         }
@@ -7679,12 +9426,10 @@ int main(int argc, char** argv)
             column -= gameDragPieceColumnOffset;
             if (const game_data::Piece* piece = gamePieceById(*draggingPieceId))
             {
-                const game_data::PieceActionOutcome outcome = game_data::resolvePieceActionThroughHidden(
-                    gameSnapshot.pieces, gameSnapshot.holes, *piece, row, column);
-                if (outcome.action.legal)
-                {
-                    requestPieceAction(piece->id, row, column);
-                }
+                // Keep the legality check in requestPieceAction. Story Mode uses
+                // that single gate to explain an illegal on-board drop instead
+                // of silently snapping the piece back before feedback can run.
+                requestPieceAction(piece->id, row, column);
             }
             selectedPieceId.reset();
             selectedHandIndex.reset();
@@ -7867,6 +9612,7 @@ int main(int argc, char** argv)
         selectedHandIndex.reset();
         inspectedPieceId.reset();
         inspectedHandIndex.reset();
+        pendingPieceActionChoice.reset();
         lastClickedPieceId.reset();
         pendingHandClickIndex.reset();
         inspectedPieceScroll = 0.0f;
@@ -7907,6 +9653,33 @@ int main(int argc, char** argv)
         else
         {
             showAuthenticatedScreen();
+        }
+    };
+
+    const auto canContinueStoryWithoutMastery = [&]() {
+        return storyMode && haveSnapshot && storyStage == StoryStage::Failed &&
+            storyContinueWithoutMasteryAvailable(
+                activeStoryMission(), storyGenuineDefeatCount);
+    };
+
+    auto continueStoryWithoutMastery = [&]() {
+        if (!canContinueStoryWithoutMastery())
+        {
+            return;
+        }
+
+        recordStoryMissionProgress(
+            loggedInUsername, storyCampaign, storyMissionIndex, false);
+        refreshStoryCampaignProgress(storyCampaign);
+        storyCompletedCount =
+            storyCampaignProgress[storyProgressIndex(storyCampaign)];
+        const bool hasNext = storyMissionIndex + 1 <
+            static_cast<int>(storyMissions(storyCampaign).size());
+        leaveGame();
+        if (hasNext)
+        {
+            storyComicPage = 0;
+            showStoryIntro();
         }
     };
 
@@ -8004,6 +9777,77 @@ int main(int argc, char** argv)
         }
     };
 
+    const auto drawStorySpeakerPortraitInset = [&](
+        std::string_view scenarioArtPath,
+        std::string_view speakerArtPath,
+        sf::Vector2f center,
+        float radius) {
+        // Commissioned scene art establishes place and action, while the card
+        // portrait keeps a changing speaker visually identifiable. Only add
+        // the medallion when it contributes a genuinely different image.
+        if (scenarioArtPath.empty() || speakerArtPath.empty() ||
+            scenarioArtPath == speakerArtPath)
+        {
+            return;
+        }
+        sf::Texture* portraitTexture = textures.load(std::string(speakerArtPath));
+        if (portraitTexture == nullptr)
+        {
+            return;
+        }
+
+        sf::CircleShape shadow(radius + 3.0f, 48);
+        shadow.setOrigin({radius + 3.0f, radius + 3.0f});
+        shadow.setPosition(center + sf::Vector2f(2.0f, 3.0f));
+        shadow.setFillColor(sf::Color(2, 5, 6, 188));
+        window.draw(shadow);
+
+        sf::CircleShape bezel(radius, 48);
+        bezel.setOrigin({radius, radius});
+        bezel.setPosition(center);
+        bezel.setFillColor(sf::Color(53, 39, 25, 255));
+        bezel.setOutlineThickness(2.0f);
+        bezel.setOutlineColor(sf::Color(232, 190, 102, 245));
+        window.draw(bezel);
+
+        const float portraitRadius = radius - 5.0f;
+        sf::CircleShape portrait(portraitRadius, 48);
+        portrait.setOrigin({portraitRadius, portraitRadius});
+        portrait.setPosition(center);
+        portrait.setFillColor(sf::Color::White);
+        portrait.setTexture(portraitTexture);
+        const sf::Vector2u textureSize = portraitTexture->getSize();
+        const int shortestSide = static_cast<int>(std::min(textureSize.x, textureSize.y));
+        const bool characterPortrait =
+            speakerArtPath.starts_with("cards/") ||
+            speakerArtPath.starts_with("characters/");
+        const int cropSide = characterPortrait
+            ? std::max(1, static_cast<int>(static_cast<float>(shortestSide) * 0.58f))
+            : shortestSide;
+        if (cropSide > 0)
+        {
+            const int availableY = static_cast<int>(textureSize.y) - cropSide;
+            const int portraitY = characterPortrait
+                ? std::min(
+                    availableY,
+                    static_cast<int>(static_cast<float>(textureSize.y) * 0.035f))
+                : availableY / 2;
+            portrait.setTextureRect(sf::IntRect(
+                {static_cast<int>(textureSize.x - cropSide) / 2,
+                 portraitY},
+                {cropSide, cropSide}));
+        }
+        window.draw(portrait);
+
+        sf::CircleShape innerRing(portraitRadius + 0.5f, 48);
+        innerRing.setOrigin({portraitRadius + 0.5f, portraitRadius + 0.5f});
+        innerRing.setPosition(center);
+        innerRing.setFillColor(sf::Color::Transparent);
+        innerRing.setOutlineThickness(1.5f);
+        innerRing.setOutlineColor(sf::Color(255, 225, 157, 190));
+        window.draw(innerRing);
+    };
+
     #include "screens/game_screen.inl"
 
     #include "screens/story_select_screen.inl"
@@ -8014,6 +9858,217 @@ int main(int argc, char** argv)
 
     #include "screens/deck_select_screen.inl"
 
+    const auto actionChoiceDialogHeight = [&]() {
+        const std::size_t count = pendingPieceActionChoice
+            ? pendingPieceActionChoice->actionIndices.size()
+            : 0;
+        return ActionChoiceHeaderHeight +
+            ActionChoiceRowHeight * static_cast<float>(count) +
+            ActionChoiceFooterHeight;
+    };
+    const auto actionChoiceDialogY = [&]() {
+        return (ui_canvas::Height - actionChoiceDialogHeight()) * 0.5f;
+    };
+    const auto actionChoiceOptionAt = [&](sf::Vector2f point)
+        -> std::optional<int> {
+        if (!pendingPieceActionChoice)
+        {
+            return std::nullopt;
+        }
+        const float firstY = actionChoiceDialogY() + ActionChoiceHeaderHeight;
+        const float left = ActionChoiceDialogX + ActionChoiceRowInset;
+        const float width = ActionChoiceDialogWidth - ActionChoiceRowInset * 2.0f;
+        for (std::size_t index = 0;
+             index < pendingPieceActionChoice->actionIndices.size();
+             ++index)
+        {
+            const float top = firstY +
+                static_cast<float>(index) * ActionChoiceRowHeight + 4.0f;
+            if (isInsideRect(
+                    point,
+                    left,
+                    top,
+                    width,
+                    ActionChoiceRowHeight - 8.0f))
+            {
+                return static_cast<int>(index);
+            }
+        }
+        return std::nullopt;
+    };
+    const auto actionChoiceCancelRect = [&]() {
+        const float dialogY = actionChoiceDialogY();
+        const float height = actionChoiceDialogHeight();
+        return sf::FloatRect(
+            {ActionChoiceDialogX + ActionChoiceDialogWidth - 104.0f,
+             dialogY + height - 39.0f},
+            {86.0f, 27.0f});
+    };
+    const auto drawActionChoicePopup = [&]() {
+        if (!pendingPieceActionChoice)
+        {
+            return;
+        }
+        const game_data::Piece* piece =
+            gamePieceById(pendingPieceActionChoice->pieceId);
+        if (piece == nullptr)
+        {
+            pendingPieceActionChoice.reset();
+            return;
+        }
+
+        const float dialogHeight = actionChoiceDialogHeight();
+        const float dialogY = actionChoiceDialogY();
+        const sf::Vector2f pointer = window.mapPixelToCoords(
+            sf::Mouse::getPosition(window));
+        sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
+        overlay.setPosition({ui_canvas::Left, 0.0f});
+        overlay.setFillColor(sf::Color(0, 0, 0, 188));
+        window.draw(overlay);
+        drawBeveledPlate(
+            window,
+            {ActionChoiceDialogX, dialogY},
+            {ActionChoiceDialogWidth, dialogHeight},
+            sf::Color(20, 25, 27, 252),
+            sf::Color(213, 170, 84),
+            true,
+            11.0f);
+
+        drawCenteredText(
+            window,
+            displayFontOr(font),
+            "Choose Printed Action",
+            23,
+            {ActionChoiceDialogX + ActionChoiceDialogWidth * 0.5f,
+             dialogY + 24.0f},
+            sf::Color(250, 232, 188));
+        const std::string squareName =
+            std::string(1, static_cast<char>('A' + pendingPieceActionChoice->column)) +
+            std::to_string(pendingPieceActionChoice->row + 1);
+        drawCenteredText(
+            window,
+            font,
+            piece->name + " has multiple legal actions on " + squareName + ".",
+            13,
+            {ActionChoiceDialogX + ActionChoiceDialogWidth * 0.5f,
+             dialogY + 54.0f},
+            sf::Color(207, 211, 211));
+
+        const float rowX = ActionChoiceDialogX + ActionChoiceRowInset;
+        const float rowWidth = ActionChoiceDialogWidth - ActionChoiceRowInset * 2.0f;
+        const float firstY = dialogY + ActionChoiceHeaderHeight;
+        for (std::size_t option = 0;
+             option < pendingPieceActionChoice->actionIndices.size();
+             ++option)
+        {
+            const int actionIndex = pendingPieceActionChoice->actionIndices[option];
+            if (actionIndex < 0 ||
+                actionIndex >= static_cast<int>(piece->actions.size()))
+            {
+                continue;
+            }
+            const game_data::ActionProfile& profile =
+                piece->actions[static_cast<std::size_t>(actionIndex)];
+            const ActionDescription description =
+                actionDescription(profile, static_cast<std::size_t>(actionIndex));
+            const float rowY = firstY +
+                static_cast<float>(option) * ActionChoiceRowHeight + 4.0f;
+            const bool hovered = isInsideRect(
+                pointer,
+                rowX,
+                rowY,
+                rowWidth,
+                ActionChoiceRowHeight - 8.0f);
+            const bool focused =
+                pendingPieceActionChoice->focusedOption == static_cast<int>(option);
+            drawBeveledPlate(
+                window,
+                {rowX, rowY},
+                {rowWidth, ActionChoiceRowHeight - 8.0f},
+                hovered || focused
+                    ? sf::Color(48, 69, 66, 252)
+                    : sf::Color(28, 36, 38, 248),
+                hovered
+                    ? sf::Color(148, 230, 204)
+                    : focused
+                        ? sf::Color(226, 192, 111)
+                        : sf::Color(95, 110, 108),
+                hovered || focused,
+                7.0f);
+
+            const sf::Vector2f numberCenter{rowX + 24.0f, rowY + 27.0f};
+            drawLeagueSigil(numberCenter, 13.0f, sf::Color(184, 137, 71));
+            drawCenteredText(
+                window,
+                font,
+                std::to_string(option + 1),
+                12,
+                numberCenter,
+                sf::Color(255, 244, 210));
+            drawText(
+                window,
+                displayFontOr(font),
+                description.name,
+                17,
+                {rowX + 48.0f, rowY + 7.0f},
+                sf::Color(248, 239, 216),
+                rowWidth - 60.0f);
+
+            std::string summary = description.type + "  " + description.range;
+            const auto appendAmount = [&](std::string_view label, int amount) {
+                if (amount > 0)
+                {
+                    summary += "  " + std::string(label) + " " +
+                        std::to_string(amount);
+                }
+            };
+            appendAmount("DMG", description.damage);
+            appendAmount("HEAL", description.heal);
+            appendAmount("DISABLE", description.stun);
+            appendAmount("COOLDOWN", description.cooldown);
+            appendAmount("CONTROL", description.control);
+            if (description.pull) summary += "  PULL";
+            if (description.push > 0)
+                summary += "  PUSH " + std::to_string(description.push);
+            if (!description.infest.empty())
+                summary += "  INFEST " + description.infest;
+            drawText(
+                window,
+                font,
+                summary,
+                12,
+                {rowX + 48.0f, rowY + 31.0f},
+                sf::Color(164, 210, 198),
+                rowWidth - 60.0f);
+        }
+
+        const sf::FloatRect cancel = actionChoiceCancelRect();
+        const bool cancelHovered = cancel.contains(pointer);
+        drawBeveledPlate(
+            window,
+            cancel.position,
+            cancel.size,
+            cancelHovered ? sf::Color(68, 46, 43) : sf::Color(38, 39, 40),
+            cancelHovered ? sf::Color(235, 145, 126) : sf::Color(130, 125, 116),
+            cancelHovered,
+            6.0f);
+        drawCenteredText(
+            window,
+            font,
+            "Cancel",
+            13,
+            cancel.position + cancel.size * 0.5f,
+            sf::Color(236, 224, 202));
+        drawText(
+            window,
+            font,
+            "Up/Down + Enter",
+            12,
+            {ActionChoiceDialogX + 20.0f,
+             dialogY + dialogHeight - 31.0f},
+            sf::Color(162, 165, 163));
+    };
+
     // ---- offline screenshot harness ---------------------------------------
     // Populates the account state the services would normally supply, then
     // walks the requested screens writing one PNG each. See
@@ -8021,6 +10076,12 @@ int main(int argc, char** argv)
     std::size_t captureIndex = 0;
     int captureFramesOnScreen = 0;
     bool captureScreenReady = false;
+    bool captureCompleted = false;
+    std::vector<std::string> successfulCaptureFiles;
+    if (captureRequest)
+    {
+        successfulCaptureFiles.reserve(captureRequest->screens.size());
+    }
     // Lets a capture screen pin the pointer somewhere, so hover treatments are
     // reviewable instead of only existing while a human holds the mouse still.
     std::optional<sf::Vector2f> captureHoverPoint;
@@ -8089,6 +10150,9 @@ int main(int argc, char** argv)
         conquestBattleMode = false;
         resignConfirmPopupVisible = false;
         leaveGameButton.setLabel("Resign");
+        leaveGameButton.setLabelSize(type::Body);
+        leaveGameButton.setPosition({GameActionButtonX, GameLeaveButtonY});
+        leaveGameButton.setSize({GameLeaveButtonWidth, GameActionButtonHeight});
         storyStage = StoryStage::None;
         storyTargetRow = -1;
         storyTargetColumn = -1;
@@ -8188,7 +10252,8 @@ int main(int argc, char** argv)
         static constexpr CaptureDeployment BaseDeployments[] = {
             {"Eyeblight", 1, 0, 0, 4, false, false, 1, 1},
             {"Gloom Fairy", 1, 0, 7, 3, false, false, 1, 1},
-            {"Thorn Griffin", 2, 7, 0, 8, false, false, 1, 1},
+            {"Blackthorn Debt Collector", 2, 7, 0, 5, false, false, 1, 1},
+            {"Goblin Sharpshooter", 2, 7, 7, 4, false, false, 1, 1},
             {"Crystal Unicorn", 2, 2, 2, 9, false, false, 4, 4},
         };
         const auto spawnDeployments = [&](const auto& deployments) {
@@ -8232,6 +10297,23 @@ int main(int argc, char** argv)
         else
         {
             spawnDeployments(Deployments);
+        }
+
+        if (variant == "action-choice")
+        {
+            snapshot.pieces.clear();
+            nextSandboxPieceId = 1;
+            const std::optional<game_data::GameCard> briar =
+                packagedStoryCard("Briar Whisperthorn");
+            const std::optional<game_data::GameCard> target =
+                packagedStoryCard("Bristlejack");
+            if (briar && target)
+            {
+                spawnSandboxPiece(
+                    snapshot, nextSandboxPieceId, 1, *briar, 3, 2, false);
+                spawnSandboxPiece(
+                    snapshot, nextSandboxPieceId, 2, *target, 4, 3, false);
+            }
         }
 
         // One held enemy, so the under-control badge is reviewable.
@@ -8307,7 +10389,962 @@ int main(int argc, char** argv)
         }
     };
 
+    // Replays River Teeth through the same Story action entry points used by
+    // mouse input. Each capture can therefore freeze before a specific player
+    // action without inventing a board state or advancing the script counter.
+    auto replayRiverTeethForCapture = [&](
+                                             int completedPlayerActions,
+                                             bool keepNextPlayerPanels = false) {
+        storyCampaign = StoryCampaign::Mirewatch;
+        storyMissionIndex = storyMissionIndexById(
+            storyCampaign, "mw01_river_teeth");
+        beginStory();
+
+        const StoryMission& mission = activeStoryMission();
+        const int totalPlayerActions = static_cast<int>(std::count_if(
+            mission.script.begin(),
+            mission.script.end(),
+            [](const StoryScriptAction& step) { return step.owner == 1; }));
+        const int requestedActions = std::clamp(
+            completedPlayerActions, 0, totalPlayerActions);
+        int completed = 0;
+
+        // Briefing and between-step panels are advanced as ordinary Continue
+        // clicks would advance them. They do not alter the engine or count as
+        // game actions.
+        const auto dismissNonFinalPanels = [&]() {
+            storyPopupPanels.clear();
+            storyPopupPage = 0;
+            storyCompleteAfterPopup = false;
+            storyScriptActionAt = animationTime + 0.35f;
+        };
+
+        for (int guard = 0;
+             guard < 96 && storyStage == StoryStage::Objective;
+             ++guard)
+        {
+            if (!storyPopupPanels.empty())
+            {
+                // The final aftermath is part of the end-to-end evidence. Keep
+                // it on screen after all eleven real player actions.
+                if (completed >= totalPlayerActions ||
+                    (keepNextPlayerPanels && completed >= requestedActions))
+                {
+                    break;
+                }
+                dismissNonFinalPanels();
+            }
+
+            if (storyMissionStep < 0 ||
+                storyMissionStep >= static_cast<int>(mission.script.size()))
+            {
+                break;
+            }
+
+            const StoryScriptAction step =
+                mission.script[static_cast<std::size_t>(storyMissionStep)];
+            if (step.owner == 1 && completed >= requestedActions)
+            {
+                break;
+            }
+
+            const int previousStep = storyMissionStep;
+            if (step.owner == 2)
+            {
+                storyScriptActionAt = std::numeric_limits<float>::lowest();
+                updateStoryAi();
+            }
+            else
+            {
+                int targetRow = step.targetRow;
+                int targetColumn = step.targetColumn;
+                if (!step.targetRole.empty())
+                {
+                    const int targetId = storyPieceIdForRole(step.targetRole);
+                    const auto target = std::find_if(
+                        storyEngine->boardPieces().begin(),
+                        storyEngine->boardPieces().end(),
+                        [&](const game_data::Piece& piece) {
+                            return piece.id == targetId;
+                        });
+                    if (target == storyEngine->boardPieces().end())
+                    {
+                        break;
+                    }
+                    targetRow = target->row;
+                    targetColumn = target->column;
+                }
+
+                const int actorId = step.actorRole.empty()
+                    ? 0
+                    : storyPieceIdForRole(step.actorRole);
+                switch (step.kind)
+                {
+                case StoryActionKind::Move:
+                case StoryActionKind::Attack:
+                    // Resolve the drop exactly as the live board does. This
+                    // proves the printed action is classified as a move or an
+                    // attack before Story gating and the engine receive it.
+                    requestPieceAction(actorId, targetRow, targetColumn);
+                    break;
+                case StoryActionKind::EndTurn:
+                    sendEndTurn();
+                    break;
+                default:
+                    // River Teeth intentionally teaches only movement, attack,
+                    // and normal turn cadence.
+                    break;
+                }
+                if (storyMissionStep != previousStep)
+                {
+                    ++completed;
+                }
+            }
+
+            if (storyMissionStep == previousStep)
+            {
+                gameSnapshot.status =
+                    "Capture replay error: River Teeth action was rejected.";
+                break;
+            }
+        }
+
+        return completed == requestedActions;
+    };
+
+    // Replays the Chapter 13 route lesson through ordinary Story entry points
+    // and freezes on the genuine aftermath produced by Juniper's Intercept.
+    const auto replayVaultCostForCapture = [&]() {
+        storyCampaign = StoryCampaign::Mirewatch;
+        storyMissionIndex = storyMissionIndexById(
+            storyCampaign, "mw11_no_plan_saves_all");
+        beginStory();
+        storyPopupPanels.clear();
+        storyPopupPage = 0;
+        storyCompleteAfterPopup = false;
+
+        const int birdieId = storyPieceIdForRole("birdie");
+        const int reedId = storyPieceIdForRole("reed");
+        const int juniperId = storyPieceIdForRole("juniper");
+        const int runnerId = storyPieceIdForRole("runner");
+        const int attackerId = storyPieceIdForRole("intercept_attacker");
+        bool accepted = birdieId != 0 && reedId != 0 && juniperId != 0 &&
+            runnerId != 0 && attackerId != 0;
+
+        const auto playerDrop = [&](int actorId, int row, int column) {
+            const int stepBefore = storyMissionStep;
+            requestPieceAction(actorId, row, column);
+            accepted = accepted && storyMissionStep == stepBefore + 1;
+        };
+        const auto playerPass = [&]() {
+            const int stepBefore = storyMissionStep;
+            sendEndTurn();
+            accepted = accepted && storyMissionStep == stepBefore + 1;
+        };
+        const auto opponentStep = [&]() {
+            const int stepBefore = storyMissionStep;
+            storyScriptActionAt = std::numeric_limits<float>::lowest();
+            updateStoryAi();
+            accepted = accepted && storyMissionStep == stepBefore + 1;
+        };
+
+        playerDrop(birdieId, 2, 4);
+        playerPass();
+        opponentStep();
+        playerDrop(reedId, 6, 4);
+        playerPass();
+        opponentStep();
+        playerDrop(juniperId, 4, 1);
+        playerPass();
+        opponentStep();
+
+        const game_data::Piece* runner = gamePieceById(runnerId);
+        const game_data::Piece* attacker = gamePieceById(attackerId);
+        const bool genuineAftermath = accepted && gamePieceById(juniperId) == nullptr &&
+            runner != nullptr && runner->row == 4 && runner->column == 1 &&
+            attacker != nullptr && attacker->row == 4 && attacker->column == 2 &&
+            !storyPopupPanels.empty() && storyCompleteAfterPopup;
+        if (!genuineAftermath)
+        {
+            failCaptureValidation(
+                "Capture replay error: Chapter 13 did not reach its genuine Intercept aftermath.");
+        }
+        return genuineAftermath;
+    };
+
+    const auto dismissStoryPanelsForCapture = [&]() {
+        storyPopupPanels.clear();
+        storyPopupPage = 0;
+        storyPopupKeyboardFocus = 1;
+        storyCompleteAfterPopup = false;
+        storyScriptActionAt = animationTime + 0.35f;
+    };
+
+    const auto storyCaptureSnapshotMatchesEngine = [&]() {
+        if (!storyEngine)
+        {
+            return false;
+        }
+        game_data::Snapshot rendered = gameSnapshot;
+        const game_data::Snapshot authoritative =
+            storyEngine->snapshotFor(gameSnapshot.yourPlayer);
+        // failCaptureValidation deliberately surfaces its message in the HUD.
+        // Once another capture guard has already failed, do not misreport that
+        // diagnostic-only status replacement as an engine synchronization bug.
+        if (captureValidationFailed && rendered.status == storyCorrection)
+        {
+            rendered.status = authoritative.status;
+        }
+        sf::Packet renderedPacket;
+        sf::Packet authoritativePacket;
+        game_data::writeSnapshot(renderedPacket, rendered);
+        game_data::writeSnapshot(authoritativePacket, authoritative);
+        if (renderedPacket.getDataSize() != authoritativePacket.getDataSize())
+        {
+            return false;
+        }
+        const auto* renderedBytes = static_cast<const std::uint8_t*>(
+            renderedPacket.getData());
+        const auto* authoritativeBytes = static_cast<const std::uint8_t*>(
+            authoritativePacket.getData());
+        return std::equal(
+            renderedBytes,
+            renderedBytes + renderedPacket.getDataSize(),
+            authoritativeBytes);
+    };
+
+    const auto storyCapturePopupMatches = [&](
+                                                  const std::vector<StoryPanel>& expected,
+                                                  bool completeAfter) {
+        if (storyStage != StoryStage::Objective ||
+            storyPopupPanels.size() != expected.size() ||
+            storyCompleteAfterPopup != (completeAfter && !expected.empty()))
+        {
+            return false;
+        }
+        for (std::size_t index = 0; index < expected.size(); ++index)
+        {
+            if (storyPopupPanels[index].speaker != expected[index].speaker ||
+                storyPopupPanels[index].text != expected[index].text ||
+                storyPopupPanels[index].artPath != expected[index].artPath)
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    // Replays authored steps through the same client action entry points used
+    // by mouse/keyboard play. Opponent steps use the production scripted-AI
+    // path. The target step's panelsBefore (or the genuine final aftermath)
+    // remain queued; earlier modal panels are dismissed without writing
+    // campaign progression.
+    const auto replayScriptedStoryForCapture =
+        [&](std::size_t stopBeforeStep) {
+            const StoryMission& mission = activeStoryMission();
+            const auto replayFailure = [&](std::string detail) {
+                failCaptureValidation(
+                    "Capture replay error: Story mission '" +
+                    std::string(mission.id) + "' " + std::move(detail));
+                return false;
+            };
+            if (mission.script.empty() ||
+                stopBeforeStep > mission.script.size())
+            {
+                return replayFailure(
+                    "has no authored scripted path to the requested beat.");
+            }
+            const int completedCountBefore = storyCompletedCount;
+            const int campaignProgressBefore =
+                storyCampaignProgress[storyProgressIndex(storyCampaign)];
+
+            beginStory();
+            if (!storyEngine || storyStage == StoryStage::Failed)
+            {
+                return replayFailure(
+                    "could not initialize its authoritative engine state.");
+            }
+
+            for (std::size_t guard = 0;
+                 guard < mission.script.size() + 8 &&
+                 static_cast<std::size_t>(storyMissionStep) < stopBeforeStep;
+                 ++guard)
+            {
+                if (!storyPopupPanels.empty())
+                {
+                    dismissStoryPanelsForCapture();
+                }
+                if (storyMissionStep < 0 ||
+                    storyMissionStep >=
+                        static_cast<int>(mission.script.size()))
+                {
+                    return replayFailure(
+                        "left its authored script before the requested beat.");
+                }
+
+                const int previousStep = storyMissionStep;
+                const StoryScriptAction step =
+                    mission.script[static_cast<std::size_t>(previousStep)];
+                if (storyScriptActionAutoResolves(mission, step))
+                {
+                    storyScriptActionAt =
+                        std::numeric_limits<float>::lowest();
+                    updateStoryAi();
+                }
+                else if (storyScriptActionRequiresPlayerInput(mission, step))
+                {
+                    int targetRow = step.targetRow;
+                    int targetColumn = step.targetColumn;
+                    if (!step.targetRole.empty())
+                    {
+                        const int targetId =
+                            storyPieceIdForRole(step.targetRole);
+                        const game_data::Piece* target =
+                            gamePieceById(targetId);
+                        if (!target)
+                        {
+                            return replayFailure(
+                                "could not resolve target role '" +
+                                std::string(step.targetRole) + "' at step " +
+                                std::to_string(previousStep + 1) + ".");
+                        }
+                        targetRow = target->row;
+                        targetColumn = target->column;
+                    }
+
+                    const int actorId = step.actorRole.empty()
+                        ? 0
+                        : storyPieceIdForRole(step.actorRole);
+                    switch (step.kind)
+                    {
+                    case StoryActionKind::Move:
+                    case StoryActionKind::Attack:
+                    {
+                        const game_data::Piece* actor =
+                            gamePieceById(actorId);
+                        if (!actor)
+                        {
+                            return replayFailure(
+                                "could not resolve actor role '" +
+                                std::string(step.actorRole) + "' at step " +
+                                std::to_string(previousStep + 1) + ".");
+                        }
+                        const std::optional<int> actionIndex =
+                            storyExpectedActionProfileIndex(step, *actor);
+                        if (!actionIndex)
+                        {
+                            return replayFailure(
+                                "could not resolve the exact printed action at "
+                                "step " + std::to_string(previousStep + 1) + ".");
+                        }
+                        if (step.kind == StoryActionKind::Move)
+                        {
+                            sendMovePiece(
+                                actorId,
+                                targetRow,
+                                targetColumn,
+                                *actionIndex);
+                        }
+                        else
+                        {
+                            sendAttackPiece(
+                                actorId,
+                                targetRow,
+                                targetColumn,
+                                *actionIndex);
+                        }
+                        break;
+                    }
+                    case StoryActionKind::UseAbility:
+                        sendUseAbility(actorId);
+                        break;
+                    case StoryActionKind::PlayCard:
+                    {
+                        const auto card = std::find_if(
+                            gameSnapshot.hand.begin(),
+                            gameSnapshot.hand.end(),
+                            [&](const game_data::GameCard& value) {
+                                return value.title == step.cardTitle;
+                            });
+                        if (card == gameSnapshot.hand.end())
+                        {
+                            return replayFailure(
+                                "could not find card '" +
+                                std::string(step.cardTitle) + "' at step " +
+                                std::to_string(previousStep + 1) + ".");
+                        }
+                        sendPlayCard(
+                            static_cast<int>(std::distance(
+                                gameSnapshot.hand.begin(), card)),
+                            targetRow,
+                            targetColumn);
+                        break;
+                    }
+                    case StoryActionKind::DrawCard:
+                        sendDrawCard();
+                        break;
+                    case StoryActionKind::ChooseForesight:
+                    {
+                        const auto card = std::find_if(
+                            gameSnapshot.foresightChoices.begin(),
+                            gameSnapshot.foresightChoices.end(),
+                            [&](const game_data::GameCard& value) {
+                                return value.title == step.cardTitle;
+                            });
+                        if (card == gameSnapshot.foresightChoices.end())
+                        {
+                            return replayFailure(
+                                "could not find Foresight choice '" +
+                                std::string(step.cardTitle) + "' at step " +
+                                std::to_string(previousStep + 1) + ".");
+                        }
+                        sendChooseForesightCard(static_cast<int>(
+                            std::distance(
+                                gameSnapshot.foresightChoices.begin(), card)));
+                        break;
+                    }
+                    case StoryActionKind::DiscardCard:
+                    {
+                        const auto card = std::find_if(
+                            gameSnapshot.hand.begin(),
+                            gameSnapshot.hand.end(),
+                            [&](const game_data::GameCard& value) {
+                                return value.title == step.cardTitle;
+                            });
+                        if (card == gameSnapshot.hand.end())
+                        {
+                            return replayFailure(
+                                "could not find discard '" +
+                                std::string(step.cardTitle) + "' at step " +
+                                std::to_string(previousStep + 1) + ".");
+                        }
+                        sendDiscardCard(static_cast<int>(std::distance(
+                            gameSnapshot.hand.begin(), card)));
+                        break;
+                    }
+                    case StoryActionKind::EndTurn:
+                        sendEndTurn();
+                        break;
+                    case StoryActionKind::None:
+                        return replayFailure(
+                            "contains an inert authored action at step " +
+                            std::to_string(previousStep + 1) + ".");
+                    }
+                }
+                else
+                {
+                    return replayFailure(
+                        "has an authored step with no valid automatic or player-input path for player " +
+                        std::to_string(step.owner) + " at step " +
+                        std::to_string(previousStep + 1) + ".");
+                }
+
+                if (storyStage == StoryStage::Failed ||
+                    storyMissionStep != previousStep + 1)
+                {
+                    return replayFailure(
+                        "rejected authored step " +
+                        std::to_string(previousStep + 1) + ".");
+                }
+            }
+
+            if (storyMissionStep !=
+                    static_cast<int>(stopBeforeStep) ||
+                !storyCaptureSnapshotMatchesEngine() ||
+                storyCompletedCount != completedCountBefore ||
+                storyCampaignProgress[storyProgressIndex(storyCampaign)] !=
+                    campaignProgressBefore)
+            {
+                return replayFailure(
+                    "did not stop on a synchronized, non-progressing "
+                    "authoritative state.");
+            }
+            if (stopBeforeStep < mission.script.size())
+            {
+                const StoryScriptAction& target =
+                    mission.script[stopBeforeStep];
+                if (!storyCapturePopupMatches(target.panelsBefore, false))
+                {
+                    return replayFailure(
+                        "did not queue the requested production before-step popup.");
+                }
+            }
+            else if (!storyCapturePopupMatches(mission.aftermath, true))
+            {
+                return replayFailure(
+                    "did not produce its genuine completion aftermath.");
+            }
+            return true;
+        };
+
+    // Verifies that an action-page fixture is the exact production state the
+    // named authored command expects. Legality is tested on an isolated engine
+    // copy so the screenshot remains immediately before the command.
+    const auto storyActionCaptureStateError =
+        [&](std::size_t stepIndex,
+            bool openObjective) -> std::optional<std::string> {
+            const StoryMission& mission = activeStoryMission();
+            if (!storyEngine || currentState != GameState::Game ||
+                !storyMode || storyStage != StoryStage::Objective)
+            {
+                return "is not in its live objective gameplay state.";
+            }
+            if (!storyPopupPanels.empty() || storyCompleteAfterPopup)
+            {
+                return "still has a modal Story panel over the requested action.";
+            }
+            if (!storyCaptureSnapshotMatchesEngine())
+            {
+                return "has a rendered snapshot that differs from its authoritative engine.";
+            }
+
+            if (openObjective)
+            {
+                if (!mission.script.empty() ||
+                    mission.objectiveSpec.kind == StoryObjectiveKind::StoryOnly ||
+                    stepIndex != 0 || storyMissionStep != 0)
+                {
+                    return "does not resolve to the sole initial open-objective state.";
+                }
+                const game_data::Phase expectedPhase = mission.standardMatch
+                    ? game_data::Phase::HeroPlacement
+                    : game_data::Phase::Playing;
+                if (storyEngine->phase() != expectedPhase ||
+                    static_cast<game_data::Phase>(gameSnapshot.phase) !=
+                        expectedPhase ||
+                    storyEngine->currentPlayer() != gameSnapshot.activePlayer)
+                {
+                    return "does not preserve its initial authoritative phase and active owner.";
+                }
+                return std::nullopt;
+            }
+
+            if (mission.script.empty() || stepIndex >= mission.script.size() ||
+                storyMissionStep != static_cast<int>(stepIndex))
+            {
+                return "does not resolve to its exact authored script index.";
+            }
+            const StoryScriptAction& step = mission.script[stepIndex];
+            if (step.kind == StoryActionKind::None)
+            {
+                return "resolves to an inert authored action.";
+            }
+            if (step.owner < 1 || step.owner > 2 ||
+                storyEngine->phase() != game_data::Phase::Playing ||
+                static_cast<game_data::Phase>(gameSnapshot.phase) !=
+                    game_data::Phase::Playing ||
+                storyEngine->currentPlayer() != step.owner ||
+                gameSnapshot.activePlayer != step.owner)
+            {
+                return "has an incorrect authoritative active owner for the authored step.";
+            }
+            if (storyTargetRow != step.targetRow ||
+                storyTargetColumn != step.targetColumn)
+            {
+                return "has a tutorial target square that differs from the authored step.";
+            }
+            if (step.heading.empty() || step.instruction.empty())
+            {
+                return "has no visible authored heading or instruction.";
+            }
+
+            const int actorId = step.actorRole.empty()
+                ? 0
+                : storyPieceIdForRole(step.actorRole);
+            const game_data::Piece* actor = actorId == 0
+                ? nullptr
+                : gamePieceById(actorId);
+            const bool needsActor =
+                step.kind == StoryActionKind::Move ||
+                step.kind == StoryActionKind::Attack ||
+                step.kind == StoryActionKind::UseAbility;
+            if ((needsActor && step.actorRole.empty()) ||
+                (!step.actorRole.empty() &&
+                 (actor == nullptr || actor->owner != step.owner)))
+            {
+                return "cannot resolve its authored actor role to a live piece owned by the active side.";
+            }
+
+            int targetRow = step.targetRow;
+            int targetColumn = step.targetColumn;
+            if (!step.targetRole.empty())
+            {
+                const int targetId = storyPieceIdForRole(step.targetRole);
+                const game_data::Piece* target = targetId == 0
+                    ? nullptr
+                    : gamePieceById(targetId);
+                if (target == nullptr)
+                {
+                    return "cannot resolve its authored target role to a live piece.";
+                }
+                if (step.targetRow >= 0 &&
+                    (target->row != step.targetRow ||
+                     target->column != step.targetColumn))
+                {
+                    return "resolves its authored target role on the wrong square.";
+                }
+                targetRow = target->row;
+                targetColumn = target->column;
+            }
+            if ((step.kind == StoryActionKind::Move ||
+                 step.kind == StoryActionKind::Attack) &&
+                !game_data::inBounds(targetRow, targetColumn))
+            {
+                return "does not resolve its piece action to an in-bounds target square.";
+            }
+
+            GameEngine legalityProbe = *storyEngine;
+            bool accepted = false;
+            switch (step.kind)
+            {
+            case StoryActionKind::Move:
+            case StoryActionKind::Attack:
+            {
+                const std::optional<int> actionIndex = actor
+                    ? storyExpectedActionProfileIndex(step, *actor)
+                    : std::nullopt;
+                if (!actionIndex)
+                {
+                    return "cannot resolve its exact printed action profile.";
+                }
+                accepted = step.kind == StoryActionKind::Move
+                    ? legalityProbe.movePiece(
+                          step.owner,
+                          actorId,
+                          targetRow,
+                          targetColumn,
+                          *actionIndex)
+                    : legalityProbe.attackPiece(
+                          step.owner,
+                          actorId,
+                          targetRow,
+                          targetColumn,
+                          *actionIndex);
+                break;
+            }
+            case StoryActionKind::UseAbility:
+            {
+                if (!actor || !storyAbilityStepMatches(step, *actor))
+                {
+                    return "does not match the actor's exact printed ability state.";
+                }
+                const game_data::Piece actorBefore = *actor;
+                accepted = legalityProbe.useAbility(step.owner, actorId);
+                if (accepted && !storyAbilityOutcomeMatches(
+                                    step,
+                                    actorBefore,
+                                    legalityProbe.boardPieces(),
+                                    legalityProbe.commandingPiece()))
+                {
+                    return "does not produce its authored ability result on an isolated legality probe.";
+                }
+                break;
+            }
+            case StoryActionKind::PlayCard:
+            {
+                const auto& hand = legalityProbe.playerState(step.owner).hand;
+                const auto card = std::find_if(
+                    hand.begin(), hand.end(), [&](const game_data::GameCard& value) {
+                        return value.title == step.cardTitle;
+                    });
+                if (step.cardTitle.empty() || card == hand.end())
+                {
+                    return "cannot resolve its authored card in the active side's hand.";
+                }
+                accepted = legalityProbe.playCard(
+                    step.owner,
+                    static_cast<int>(std::distance(hand.begin(), card)),
+                    targetRow,
+                    targetColumn);
+                if (accepted && !step.effectRole.empty())
+                {
+                    const auto spawned = std::find_if(
+                        legalityProbe.boardPieces().begin(),
+                        legalityProbe.boardPieces().end(),
+                        [&](const game_data::Piece& piece) {
+                            return piece.owner == step.owner &&
+                                piece.name == step.cardTitle &&
+                                piece.row == step.targetRow &&
+                                piece.column == step.targetColumn &&
+                                piece.hasActed;
+                        });
+                    if (spawned == legalityProbe.boardPieces().end())
+                    {
+                        return "does not deploy its authored result role exhausted on the requested square.";
+                    }
+                }
+                break;
+            }
+            case StoryActionKind::DrawCard:
+                accepted = legalityProbe.drawCard(step.owner);
+                break;
+            case StoryActionKind::ChooseForesight:
+            {
+                const auto& choices =
+                    legalityProbe.playerState(step.owner).foresightChoices;
+                const auto choice = std::find_if(
+                    choices.begin(), choices.end(),
+                    [&](const game_data::GameCard& value) {
+                        return value.title == step.cardTitle;
+                    });
+                if (step.cardTitle.empty() || choice == choices.end())
+                {
+                    return "cannot resolve its authored Foresight choice.";
+                }
+                accepted = legalityProbe.chooseForesightCard(
+                    step.owner,
+                    static_cast<int>(std::distance(choices.begin(), choice)));
+                break;
+            }
+            case StoryActionKind::DiscardCard:
+            {
+                const auto& hand = legalityProbe.playerState(step.owner).hand;
+                const auto card = std::find_if(
+                    hand.begin(), hand.end(), [&](const game_data::GameCard& value) {
+                        return value.title == step.cardTitle;
+                    });
+                if (step.cardTitle.empty() || card == hand.end())
+                {
+                    return "cannot resolve its authored discard in the active side's hand.";
+                }
+                accepted = legalityProbe.discardCard(
+                    step.owner,
+                    static_cast<int>(std::distance(hand.begin(), card)));
+                break;
+            }
+            case StoryActionKind::EndTurn:
+                accepted = legalityProbe.endTurn(step.owner);
+                break;
+            case StoryActionKind::None:
+                break;
+            }
+            if (!accepted)
+            {
+                return "is not a legal action in the replayed authoritative state.";
+            }
+            return std::nullopt;
+        };
+
+    const auto storyActionCaptureInvariantError =
+        [&]() -> std::optional<std::string> {
+            if (!storyActionCaptureInvariant)
+            {
+                return std::nullopt;
+            }
+            const StoryActionCaptureInvariant& expected =
+                *storyActionCaptureInvariant;
+            if (storyCampaign != expected.campaign ||
+                storyMissionIndex != expected.missionIndex)
+            {
+                return "changed campaign or mission during capture warmup.";
+            }
+            if (storyCompletedCount != expected.completedCount ||
+                storyCampaignProgress[storyProgressIndex(storyCampaign)] !=
+                    expected.campaignProgress)
+            {
+                return "mutated campaign progress during capture warmup.";
+            }
+            if (!storyEngine || storyEngine->phase() != expected.phase ||
+                storyEngine->currentPlayer() != expected.activeOwner ||
+                static_cast<game_data::Phase>(gameSnapshot.phase) !=
+                    expected.phase ||
+                gameSnapshot.activePlayer != expected.activeOwner)
+            {
+                return "changed authoritative phase or active owner during capture warmup.";
+            }
+            return storyActionCaptureStateError(
+                expected.stepIndex, expected.openObjective);
+        };
+
+    // Open objective entries have no authored action script. Complete them
+    // legally: deployment uses the exact required card/square, while combat,
+    // reach, and territory objectives use the objective-aware production AI.
+    // The opponent passes when legal so the deterministic fixture demonstrates
+    // the success path without manufacturing piece coordinates or damage.
+    const auto replayOpenStoryAftermathForCapture = [&]() {
+        const StoryMission& mission = activeStoryMission();
+        const auto replayFailure = [&](std::string detail) {
+            failCaptureValidation(
+                "Capture replay error: open Story mission '" +
+                std::string(mission.id) + "' " + std::move(detail));
+            return false;
+        };
+        if (!mission.script.empty() ||
+            mission.objectiveSpec.kind == StoryObjectiveKind::StoryOnly)
+        {
+            return replayFailure(
+                "is not an open tactical objective.");
+        }
+        const int completedCountBefore = storyCompletedCount;
+        const int campaignProgressBefore =
+            storyCampaignProgress[storyProgressIndex(storyCampaign)];
+
+        beginStory();
+        if (!storyEngine || storyStage == StoryStage::Failed)
+        {
+            return replayFailure(
+                "could not initialize its authoritative engine state.");
+        }
+
+        if (mission.standardMatch)
+        {
+            placeAiHeroes(*storyEngine, 1);
+            placeAiHeroes(*storyEngine, 2);
+            syncStoryEngine();
+            if (storyEngine->phase() != game_data::Phase::Playing)
+            {
+                return replayFailure(
+                    "could not complete ordinary Hero placement.");
+            }
+        }
+        else if (mission.objectiveSpec.kind ==
+                 StoryObjectiveKind::DeployCard)
+        {
+            const auto card = std::find_if(
+                gameSnapshot.hand.begin(),
+                gameSnapshot.hand.end(),
+                [&](const game_data::GameCard& value) {
+                    return value.title == mission.objectiveSpec.cardTitle;
+                });
+            if (card == gameSnapshot.hand.end())
+            {
+                return replayFailure(
+                    "does not contain its required deployment card.");
+            }
+            sendPlayCard(
+                static_cast<int>(std::distance(
+                    gameSnapshot.hand.begin(), card)),
+                mission.objectiveSpec.targetRow,
+                mission.objectiveSpec.targetColumn);
+        }
+
+        for (int actionCount = 0;
+             storyPopupPanels.empty() &&
+             storyStage == StoryStage::Objective &&
+             storyEngine->phase() == game_data::Phase::Playing &&
+             actionCount < 2048;
+             ++actionCount)
+        {
+            const int player = storyEngine->currentPlayer();
+            bool accepted = false;
+            if (player == 2)
+            {
+                accepted = storyEngine->endTurn(2);
+                if (!accepted)
+                {
+                    accepted = applyAiAction(
+                        *storyEngine,
+                        2,
+                        chooseAiAction(*storyEngine, 2, 1));
+                }
+            }
+            else
+            {
+                accepted = applyAiAction(
+                    *storyEngine,
+                    1,
+                    chooseAiAction(*storyEngine, 1, 1));
+            }
+            if (!accepted)
+            {
+                return replayFailure(
+                    "could not apply a legal deterministic action at action " +
+                    std::to_string(actionCount + 1) + ".");
+            }
+            syncStoryEngine();
+            // This replay owns both sides synchronously; never leave a queued
+            // background opponent task for the capture warmup frames.
+            storyAiPending = false;
+        }
+
+        if (!storyCaptureSnapshotMatchesEngine() ||
+            storyCompletedCount != completedCountBefore ||
+            storyCampaignProgress[storyProgressIndex(storyCampaign)] !=
+                campaignProgressBefore)
+        {
+            return replayFailure(
+                "finished with a stale or progression-mutating client state.");
+        }
+        if (!storyCapturePopupMatches(mission.aftermath, true))
+        {
+            return replayFailure(
+                "did not reach its production completion aftermath.");
+        }
+        if (mission.standardMatch)
+        {
+            if (storyEngine->phase() != game_data::Phase::GameOver ||
+                storyEngine->winner() != 1)
+            {
+                return replayFailure(
+                    "did not finish the ordinary match with Player 1 winning.");
+            }
+        }
+        else if (mission.objectiveSpec.kind !=
+                 StoryObjectiveKind::DeployCard)
+        {
+            const GameEngine::ScenarioObjectiveProgress& progress =
+                storyEngine->scenarioObjectiveProgress();
+            if (!progress.complete || progress.failed ||
+                storyEngine->winner() != 1)
+            {
+                return replayFailure(
+                    "did not satisfy its authoritative scenario objective.");
+            }
+        }
+        return true;
+    };
+
+    const auto finishCapturedStoryAftermath = [&]() {
+        const bool completeAfter = storyCompleteAfterPopup;
+        storyPopupPanels.clear();
+        storyPopupPage = 0;
+        storyCompleteAfterPopup = false;
+        storyScriptActionAt = animationTime + 0.35f;
+        if (completeAfter)
+        {
+            completeStoryMission(gameSnapshot);
+        }
+    };
+
+    const auto inspectStoryPieceForCapture = [&] (
+                                                  StoryCampaign campaign,
+                                                  std::string_view missionId,
+                                                  std::string_view pieceName) {
+        storyCampaign = campaign;
+        storyMissionIndex = storyMissionIndexById(storyCampaign, missionId);
+        beginStory();
+        storyPopupPanels.clear();
+        storyPopupPage = 0;
+        storyCompleteAfterPopup = false;
+
+        if (!storyEngine || storyStage == StoryStage::Failed)
+        {
+            failCaptureValidation(
+                "Capture setup error: the authoritative Story mission did not load.");
+            return;
+        }
+
+        const auto found = std::find_if(
+            storyEngine->boardPieces().begin(),
+            storyEngine->boardPieces().end(),
+            [&](const game_data::Piece& piece) {
+                return piece.name == pieceName;
+            });
+        if (found == storyEngine->boardPieces().end())
+        {
+            failCaptureValidation(
+                "Capture setup error: the requested Story unit is not on the board.");
+            return;
+        }
+
+        inspectedPieceId = found->id;
+        selectedPieceId = found->id;
+        inspectedPieceScroll = 0.0f;
+    };
+
     auto applyCaptureScreen = [&](const std::string& screen) {
+        captureValidationScreen = screen;
+        storyActionCaptureInvariant.reset();
         setMessage(messageText, "", sf::Color::Red);
         title.setString("Gloomthorn");
         centerText(title, 400.0f);
@@ -8331,6 +11368,7 @@ int main(int argc, char** argv)
         lastDeckEditorClickedCardTitle.reset();
         revealedCardTitle.reset();
         starterDeckPickRequired = false;
+        pendingPieceActionChoice.reset();
         deckListOffset = 0;
         deckCardListOffset = 0;
         libraryOffset = 0;
@@ -8394,7 +11432,7 @@ int main(int argc, char** argv)
         else if (screen == "main-menu-hover")
         {
             currentState = GameState::Authenticated;
-            // Centre of the primary Play plate.
+            // Centre of the primary Guided Story plate.
             captureHoverPoint = sf::Vector2f{400.0f, 199.0f};
         }
         else if (screen == "main-menu-exit")
@@ -8530,45 +11568,761 @@ int main(int argc, char** argv)
             currentState = GameState::Conquest;
             conquestScreen.applyCaptureState(screen, allCardLibrary);
         }
-        else if (screen == "story-select")
+        else if (screen == "story-select" ||
+                 screen == "story-seelie-spoiler-warning")
         {
             showStorySelect();
             // A first-run capture begins at each path's first playable mission.
             storyCampaignProgress[storyProgressIndex(StoryCampaign::Blackthorn)] = 0;
             storyCampaignProgress[storyProgressIndex(StoryCampaign::Mirewatch)] = 0;
+            storyCampaignProgress[storyProgressIndex(StoryCampaign::Seelie)] = 0;
+            if (screen == "story-seelie-spoiler-warning")
+            {
+                storySpoilerConfirmationVisible = true;
+                storySpoilerKeyboardFocus = 0;
+            }
         }
         else if (screen == "story-mission-select" ||
-                 screen == "story-mirewatch-mission-select")
+                 screen == "story-mirewatch-mission-select" ||
+                 screen == "story-seelie-mission-select")
         {
             showStoryMissionSelect(
-                screen.rfind("story-mirewatch-", 0) == 0
-                    ? StoryCampaign::Mirewatch
-                    : StoryCampaign::Blackthorn);
+                screen.rfind("story-seelie-", 0) == 0
+                    ? StoryCampaign::Seelie
+                    : screen.rfind("story-mirewatch-", 0) == 0
+                        ? StoryCampaign::Mirewatch
+                        : StoryCampaign::Blackthorn);
             storyCompletedCount = 0;
             storyCampaignProgress[storyProgressIndex(storyCampaign)] = storyCompletedCount;
+        }
+        else if (screen == "story-blackthorn-mission-select-final" ||
+                 screen == "story-mirewatch-mission-select-final" ||
+                 screen == "story-seelie-mission-select-final")
+        {
+            const StoryCampaign captureCampaign =
+                screen.rfind("story-seelie-", 0) == 0
+                    ? StoryCampaign::Seelie
+                    : screen.rfind("story-mirewatch-", 0) == 0
+                        ? StoryCampaign::Mirewatch
+                        : StoryCampaign::Blackthorn;
+            showStoryMissionSelect(captureCampaign);
+            const int missionCount = static_cast<int>(storyMissions(storyCampaign).size());
+            storyCompletedCount = std::max(0, missionCount - 1);
+            storyCampaignProgress[storyProgressIndex(storyCampaign)] = storyCompletedCount;
+            storyMissionPage = std::max(0, (missionCount - 1) / StoryMissionPageSize);
         }
         else if (screen == "story-briefing" ||
                  screen == "story-briefing-actions" ||
                  screen == "story-briefing-control" ||
+                 screen == "story-blackthorn-briefing-optional-skip" ||
                  screen == "story-mirewatch-briefing" ||
                  screen == "story-mirewatch-briefing-actions" ||
-                 screen == "story-mirewatch-briefing-control")
+                 screen == "story-mirewatch-briefing-control" ||
+                 screen == "story-seelie-briefing" ||
+                 screen == "story-seelie-briefing-actions" ||
+                 screen == "story-seelie-briefing-control" ||
+                 screen == "story-seelie-briefing-optional-skip" ||
+                 screen == "story-seelie-briefing-territory-required")
+        {
+            storyCampaign = screen.rfind("story-seelie-", 0) == 0
+                ? StoryCampaign::Seelie
+                : screen.rfind("story-mirewatch-", 0) == 0
+                    ? StoryCampaign::Mirewatch
+                    : StoryCampaign::Blackthorn;
+            if (screen == "story-blackthorn-briefing-optional-skip")
+            {
+                storyMissionIndex = storyMissionIndexById(
+                    StoryCampaign::Blackthorn, "bt01_harness_hunger");
+                storyComicPage = static_cast<int>(activeStoryMission().briefing.size()) - 1;
+            }
+            else if (screen == "story-seelie-briefing-territory-required")
+            {
+                storyMissionIndex = storyMissionIndexById(
+                    StoryCampaign::Seelie, "se14_rules_under_pressure");
+                storyComicPage = static_cast<int>(activeStoryMission().briefing.size()) - 1;
+            }
+            else if (screen == "story-seelie-briefing-control" ||
+                screen == "story-seelie-briefing-optional-skip")
+            {
+                storyMissionIndex = storyMissionIndexById(
+                    StoryCampaign::Seelie, "se07_queens_price");
+                storyComicPage = screen == "story-seelie-briefing-optional-skip"
+                    ? static_cast<int>(activeStoryMission().briefing.size()) - 1
+                    : 1;
+            }
+            else
+            {
+                storyMissionIndex = storyTacticalMissionIndex(storyCampaign, 0);
+                storyComicPage =
+                    screen == "story-briefing-actions" ||
+                        screen == "story-mirewatch-briefing-actions" ||
+                        screen == "story-seelie-briefing-actions"
+                    ? 2
+                    : screen == "story-briefing-control" ||
+                          screen == "story-mirewatch-briefing-control"
+                        ? 3
+                        : 0;
+            }
+            currentState = GameState::StoryIntro;
+            title.setString("");
+            centerText(title, 400.0f);
+        }
+        else if (screen == "story-mirewatch-gilded-hold-art")
+        {
+            storyCampaign = StoryCampaign::Mirewatch;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign, "mw02_gilded_hold");
+            storyComicPage = 0;
+            currentState = GameState::StoryIntro;
+            title.setString("");
+            centerText(title, 400.0f);
+        }
+        else if (screen == "story-mirewatch-speaker-inset-intro" ||
+                 screen == "story-blackthorn-speaker-inset-intro" ||
+                 screen == "story-seelie-speaker-inset-intro")
+        {
+            if (screen.rfind("story-mirewatch-", 0) == 0)
+            {
+                storyCampaign = StoryCampaign::Mirewatch;
+                storyMissionIndex = storyMissionIndexById(
+                    storyCampaign, "mw03_town_under_company");
+                storyComicPage = 0;
+            }
+            else if (screen.rfind("story-seelie-", 0) == 0)
+            {
+                storyCampaign = StoryCampaign::Seelie;
+                storyMissionIndex = storyMissionIndexById(
+                    storyCampaign, "se01_cathedral_last_lights");
+                storyComicPage = 0;
+            }
+            else
+            {
+                storyCampaign = StoryCampaign::Blackthorn;
+                storyMissionIndex = storyMissionIndexById(
+                    storyCampaign, "bt01_harness_hunger");
+                storyComicPage = 1;
+            }
+            const StoryMission& mission = activeStoryMission();
+            const StoryPanel& panel =
+                mission.briefing[static_cast<std::size_t>(storyComicPage)];
+            if (mission.scenarioArtPath.empty() || panel.artPath.empty() ||
+                mission.scenarioArtPath == panel.artPath)
+            {
+                failCaptureValidation(
+                    "Capture setup error: speaker inset needs distinct scenario and portrait art.");
+            }
+            currentState = GameState::StoryIntro;
+            title.setString("");
+            centerText(title, 400.0f);
+        }
+        else if (screen == "story-mirewatch-speaker-inset-popup" ||
+                 screen == "story-blackthorn-speaker-inset-popup" ||
+                 screen == "story-seelie-speaker-inset-popup")
+        {
+            std::size_t panelIndex = 0;
+            if (screen.rfind("story-mirewatch-", 0) == 0)
+            {
+                storyCampaign = StoryCampaign::Mirewatch;
+                storyMissionIndex = storyMissionIndexById(
+                    storyCampaign, "mw03_town_under_company");
+            }
+            else if (screen.rfind("story-seelie-", 0) == 0)
+            {
+                storyCampaign = StoryCampaign::Seelie;
+                storyMissionIndex = storyMissionIndexById(
+                    storyCampaign, "se01_cathedral_last_lights");
+            }
+            else
+            {
+                storyCampaign = StoryCampaign::Blackthorn;
+                storyMissionIndex = storyMissionIndexById(
+                    storyCampaign, "bt01_harness_hunger");
+                panelIndex = 1;
+            }
+            beginStory();
+            const StoryMission& mission = activeStoryMission();
+            if (panelIndex >= mission.briefing.size())
+            {
+                failCaptureValidation(
+                    "Capture setup error: speaker inset panel is absent.");
+            }
+            else
+            {
+                const StoryPanel& panel = mission.briefing[panelIndex];
+                if (mission.scenarioArtPath.empty() || panel.artPath.empty() ||
+                    mission.scenarioArtPath == panel.artPath)
+                {
+                    failCaptureValidation(
+                        "Capture setup error: popup speaker inset needs distinct art.");
+                }
+                storyPopupPanels = {panel};
+                storyPopupPage = 0;
+                storyPopupKeyboardFocus = 1;
+                storyCompleteAfterPopup = false;
+            }
+        }
+        else if (screen == "story-blackthorn-synthesis-bypass")
+        {
+            storyCampaign = StoryCampaign::Blackthorn;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign, "bt17_natural_order");
+            const std::span<const StoryMission> missions =
+                storyMissions(storyCampaign);
+            const std::size_t progressIndex =
+                storyProgressIndex(storyCampaign);
+            StoryProgress& progress =
+                storyCampaignProgressDetails[progressIndex];
+            progress.advancedCount = storyMissionIndex;
+            progress.completedByPlay.assign(missions.size(), false);
+            for (int index = 0; index < storyMissionIndex; ++index)
+            {
+                if (missions[static_cast<std::size_t>(index)].optionalRehearsal)
+                {
+                    progress.completedByPlay[static_cast<std::size_t>(index)] = true;
+                }
+            }
+            storyCampaignProgress[progressIndex] = progress.advancedCount;
+            storyCompletedCount = progress.advancedCount;
+            if (!activeStoryCatchUpMayBeSkipped())
+            {
+                failCaptureValidation(
+                    "Capture setup error: completed rehearsals did not unlock "
+                    "the Blackthorn synthesis bypass.");
+            }
+            storyComicPage =
+                static_cast<int>(activeStoryMission().briefing.size()) - 1;
+            storyIntroKeyboardFocus = 2;
+            storyKeyboardNavigationActive = true;
+            currentState = GameState::StoryIntro;
+            title.setString("");
+            centerText(title, 400.0f);
+        }
+        else if (screen == "story-mirewatch-four-losses" ||
+                 screen == "story-mirewatch-epilogue-voice" ||
+                 screen == "story-mirewatch-victor-protected" ||
+                 screen == "story-mirewatch-first-open-check" ||
+                 screen == "story-blackthorn-receipt-order" ||
+                 screen == "story-blackthorn-first-open-check" ||
+                 screen == "story-blackthorn-field-judgment" ||
+                 screen == "story-blackthorn-open-mastery" ||
+                 screen == "story-blackthorn-open-mastery-clocks" ||
+                 screen == "story-blackthorn-open-mastery-timeouts" ||
+                 screen == "story-blackthorn-open-mastery-choice" ||
+                 screen == "story-seelie-seven-corrections" ||
+                 screen == "story-seelie-mirror-remembers" ||
+                 screen == "story-seelie-mirror-causal-setup" ||
+                 screen == "story-seelie-mirror-marrowind" ||
+                 screen == "story-seelie-mirror-orientation" ||
+                 screen == "story-seelie-sella-pallid" ||
+                 screen == "story-seelie-sella-name-eaten" ||
+                 screen == "story-seelie-vow-web-cause" ||
+                 screen == "story-seelie-vow-web-consequence" ||
+                 screen == "story-seelie-pump-four-chronicle-boundary" ||
+                 screen == "story-seelie-pump-four-rules-boundary" ||
+                 screen == "story-seelie-before-next-dawn" ||
+                 screen == "story-seelie-vow-record" ||
+                 screen == "story-seelie-open-record" ||
+                 screen == "story-seelie-final-recap" ||
+                 screen == "story-seelie-final-recap-empty-place" ||
+                 screen == "story-seelie-ascent-refusal" ||
+                 screen == "story-seelie-workers-refuse" ||
+                 screen == "story-seelie-first-release" ||
+                 screen == "story-seelie-separate-withdrawals" ||
+                 screen == "story-seelie-separate-withdrawals-coda" ||
+                 screen == "story-seelie-epilogue")
+        {
+            std::string_view missionId;
+            if (screen == "story-mirewatch-four-losses")
+            {
+                storyCampaign = StoryCampaign::Mirewatch;
+                missionId = "mw21_four_losses";
+                storyComicPage = 0;
+            }
+            else if (screen == "story-mirewatch-epilogue-voice")
+            {
+                storyCampaign = StoryCampaign::Mirewatch;
+                missionId = "s06_town_owns_itself";
+                storyComicPage = 5;
+            }
+            else if (screen == "story-mirewatch-victor-protected")
+            {
+                storyCampaign = StoryCampaign::Mirewatch;
+                missionId = "mw24_agent_not_heir";
+                storyComicPage = 2;
+            }
+            else if (screen == "story-mirewatch-first-open-check")
+            {
+                storyCampaign = StoryCampaign::Mirewatch;
+                missionId = "s02_no_one_alone";
+                storyComicPage = 8;
+            }
+            else if (screen == "story-blackthorn-receipt-order")
+            {
+                storyCampaign = StoryCampaign::Blackthorn;
+                missionId = "bt06_receipt_book";
+                storyComicPage = 3;
+            }
+            else if (screen == "story-blackthorn-first-open-check")
+            {
+                storyCampaign = StoryCampaign::Blackthorn;
+                missionId = "bt06_receipt_book";
+                storyComicPage = 5;
+            }
+            else if (screen == "story-blackthorn-open-mastery" ||
+                     screen == "story-blackthorn-open-mastery-clocks" ||
+                     screen == "story-blackthorn-open-mastery-timeouts" ||
+                     screen == "story-blackthorn-open-mastery-choice")
+            {
+                storyCampaign = StoryCampaign::Blackthorn;
+                missionId = "bt17b_open_mastery";
+                storyComicPage = 0;
+            }
+            else if (screen == "story-blackthorn-field-judgment")
+            {
+                storyCampaign = StoryCampaign::Blackthorn;
+                missionId = "bt17a_field_judgment";
+                storyComicPage = 0;
+            }
+            else
+            {
+                storyCampaign = StoryCampaign::Seelie;
+                if (screen == "story-seelie-mirror-remembers" ||
+                    screen == "story-seelie-mirror-orientation")
+                {
+                    missionId = "se00_what_mirror_remembers";
+                    storyComicPage = 0;
+                }
+                else if (screen == "story-seelie-mirror-causal-setup")
+                {
+                    missionId = "se00_what_mirror_remembers";
+                    storyComicPage = 2;
+                }
+                else if (screen == "story-seelie-mirror-marrowind")
+                {
+                    missionId = "se00_what_mirror_remembers";
+                    storyComicPage = 4;
+                }
+                else if (screen == "story-seelie-sella-pallid" ||
+                         screen == "story-seelie-sella-name-eaten")
+                {
+                    missionId = "se08a_sella_receives_herself";
+                    storyComicPage =
+                        screen == "story-seelie-sella-name-eaten" ? 4 : 3;
+                }
+                else if (screen == "story-seelie-vow-web-cause" ||
+                         screen == "story-seelie-vow-web-consequence")
+                {
+                    missionId = "se18_what_complete_means";
+                    storyComicPage =
+                        screen == "story-seelie-vow-web-consequence" ? 2 : 0;
+                }
+                else if (screen == "story-seelie-pump-four-chronicle-boundary" ||
+                         screen == "story-seelie-pump-four-rules-boundary")
+                {
+                    missionId = "se27_emperor_at_tree";
+                    storyComicPage =
+                        screen == "story-seelie-pump-four-rules-boundary" ? 4 : 2;
+                }
+                else if (screen == "story-seelie-before-next-dawn")
+                {
+                    missionId = "se18c_before_next_dawn";
+                    storyComicPage = 0;
+                }
+                else if (screen == "story-seelie-seven-corrections")
+                {
+                    missionId = "se28b_seven_corrections";
+                    storyComicPage = 3;
+                }
+                else if (screen == "story-seelie-vow-record")
+                {
+                    missionId = "se28c_a_vow_can_end";
+                    storyComicPage = 2;
+                }
+                else if (screen == "story-seelie-open-record")
+                {
+                    missionId = "se28d_an_unfinished_record";
+                    storyComicPage = 3;
+                }
+                else if (screen == "story-seelie-final-recap" ||
+                         screen == "story-seelie-final-recap-empty-place")
+                {
+                    missionId = "se28a_two_men_one_vacancy";
+                    storyComicPage =
+                        screen == "story-seelie-final-recap-empty-place" ? 1 : 0;
+                }
+                else if (screen == "story-seelie-ascent-refusal")
+                {
+                    missionId = "se29a_baalzapub_ascendant";
+                    storyComicPage = 3;
+                }
+                else if (screen == "story-seelie-workers-refuse")
+                {
+                    missionId = "se29b_fizzlewick_says_no";
+                    storyComicPage = 3;
+                }
+                else if (screen == "story-seelie-first-release")
+                {
+                    missionId = "se29c_all_authority_returns";
+                    storyComicPage = 1;
+                }
+                else if (screen == "story-seelie-separate-withdrawals" ||
+                         screen == "story-seelie-separate-withdrawals-coda")
+                {
+                    missionId = "se29c2_separate_withdrawals";
+                    storyComicPage =
+                        screen == "story-seelie-separate-withdrawals-coda" ? 5 : 1;
+                }
+                else
+                {
+                    missionId = "se30_names_we_keep";
+                    storyComicPage = 4;
+                }
+            }
+            storyMissionIndex = storyMissionIndexById(storyCampaign, missionId);
+            if (screen == "story-mirewatch-first-open-check" ||
+                screen == "story-blackthorn-first-open-check")
+            {
+                const StoryMission& openCheck = activeStoryMission();
+                const int friendlyCount = static_cast<int>(std::count_if(
+                    openCheck.pieces.begin(), openCheck.pieces.end(),
+                    [](const StoryPiecePlacement& piece) { return piece.owner == 1; }));
+                const int enemyCount = static_cast<int>(std::count_if(
+                    openCheck.pieces.begin(), openCheck.pieces.end(),
+                    [](const StoryPiecePlacement& piece) { return piece.owner == 2; }));
+                if (!openCheck.optionalRehearsal || !openCheck.script.empty() ||
+                    openCheck.objectiveSpec.kind != StoryObjectiveKind::DefeatAllEnemies ||
+                    friendlyCount != 3 || enemyCount != 3 ||
+                    !openCheck.masteryCards.empty() || !openCheck.masteryRules.empty())
+                {
+                    failCaptureValidation(
+                        "Capture registry error: the first open check must remain an optional, unscripted, mastery-free ordinary 3v3 objective.");
+                }
+            }
+            if (screen == "story-blackthorn-open-mastery-clocks")
+            {
+                storyComicPage = 6;
+            }
+            else if (screen == "story-blackthorn-open-mastery-timeouts")
+            {
+                storyComicPage = 7;
+            }
+            else if (screen == "story-blackthorn-open-mastery-choice" ||
+                     screen == "story-seelie-mirror-orientation")
+            {
+                storyComicPage = static_cast<int>(activeStoryMission().briefing.size()) - 1;
+            }
+            currentState = GameState::StoryIntro;
+            title.setString("");
+            centerText(title, 400.0f);
+        }
+        else if (const std::optional<StoryPageCaptureTarget> storyPageCapture =
+                     storyPageCaptureForKey(screen))
+        {
+            storyCampaign = storyPageCapture->campaign;
+            storyMissionIndex = storyPageCapture->missionIndex;
+            const StoryMission& mission = activeStoryMission();
+            if (storyPageCapture->kind == StoryPageCaptureKind::Briefing)
+            {
+                if (storyPageCapture->panelIndex >= mission.briefing.size())
+                {
+                    failCaptureValidation(
+                        "Capture seed error: Story briefing page is out of range.");
+                }
+                else
+                {
+                    storyComicPage =
+                        static_cast<int>(storyPageCapture->panelIndex);
+                    currentState = GameState::StoryIntro;
+                    title.setString("");
+                    centerText(title, 400.0f);
+                }
+            }
+            else if (storyPageCapture->kind ==
+                     StoryPageCaptureKind::ActionStep)
+            {
+                const bool openObjective = mission.script.empty();
+                const bool indexInRange = openObjective
+                    ? storyPageCapture->stepIndex == 0
+                    : storyPageCapture->stepIndex < mission.script.size();
+                if (!indexInRange ||
+                    mission.objectiveSpec.kind == StoryObjectiveKind::StoryOnly)
+                {
+                    failCaptureValidation(
+                        "Capture seed error: Story action step is out of range.");
+                }
+                else
+                {
+                    const int completedCountBefore = storyCompletedCount;
+                    const int campaignProgressBefore =
+                        storyCampaignProgress[storyProgressIndex(storyCampaign)];
+                    const bool replayed = openObjective
+                        ? (beginStory(),
+                           storyEngine != nullptr &&
+                               storyStage != StoryStage::Failed)
+                        : replayScriptedStoryForCapture(
+                              storyPageCapture->stepIndex);
+                    if (replayed)
+                    {
+                        if (!openObjective)
+                        {
+                            // replayScriptedStoryForCapture first proves the
+                            // exact target popup. Removing it here reveals the
+                            // production instruction, highlights, hand state,
+                            // and owner banner for the action itself.
+                            dismissStoryPanelsForCapture();
+                        }
+                        storyAiPending = false;
+                        storyScriptActionAt =
+                            std::numeric_limits<float>::max();
+                        if (storyCompletedCount != completedCountBefore ||
+                            storyCampaignProgress[
+                                storyProgressIndex(storyCampaign)] !=
+                                campaignProgressBefore)
+                        {
+                            failCaptureValidation(
+                                "Capture replay error: Story action fixture "
+                                "mutated campaign progress while seeding.");
+                        }
+                        else if (const std::optional<std::string> error =
+                                     storyActionCaptureStateError(
+                                         storyPageCapture->stepIndex,
+                                         openObjective))
+                        {
+                            failCaptureValidation(
+                                "Capture replay error: Story mission '" +
+                                std::string(mission.id) + "' action " +
+                                std::to_string(storyPageCapture->stepIndex + 1) +
+                                " " + *error);
+                        }
+                        else
+                        {
+                            storyActionCaptureInvariant =
+                                StoryActionCaptureInvariant{
+                                    storyCampaign,
+                                    storyMissionIndex,
+                                    storyPageCapture->stepIndex,
+                                    openObjective,
+                                    storyCompletedCount,
+                                    storyCampaignProgress[
+                                        storyProgressIndex(storyCampaign)],
+                                    storyEngine->phase(),
+                                    storyEngine->currentPlayer()};
+                        }
+                    }
+                    else if (openObjective)
+                    {
+                        failCaptureValidation(
+                            "Capture replay error: open Story mission '" +
+                            std::string(mission.id) +
+                            "' did not initialize its authoritative action state.");
+                    }
+                }
+            }
+            else if (storyPageCapture->kind ==
+                     StoryPageCaptureKind::BeforeStep)
+            {
+                if (storyPageCapture->stepIndex >= mission.script.size() ||
+                    storyPageCapture->panelIndex >=
+                        mission.script[storyPageCapture->stepIndex]
+                            .panelsBefore.size())
+                {
+                    failCaptureValidation(
+                        "Capture seed error: Story before-step beat is out of range.");
+                }
+                else
+                {
+                    if (replayScriptedStoryForCapture(
+                            storyPageCapture->stepIndex))
+                    {
+                        if (storyPageCapture->panelIndex >=
+                                storyPopupPanels.size())
+                        {
+                            failCaptureValidation(
+                                "Capture seed error: replayed before-step "
+                                "popup page is out of range.");
+                        }
+                        else
+                        {
+                            storyPopupPage = storyPageCapture->panelIndex;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                if (storyPageCapture->panelIndex >= mission.aftermath.size())
+                {
+                    failCaptureValidation(
+                        "Capture seed error: Story aftermath beat is out of range.");
+                }
+                else
+                {
+                    const bool replayed = mission.script.empty()
+                        ? replayOpenStoryAftermathForCapture()
+                        : replayScriptedStoryForCapture(
+                              mission.script.size());
+                    if (replayed)
+                    {
+                        if (storyPageCapture->panelIndex >=
+                                storyPopupPanels.size())
+                        {
+                            failCaptureValidation(
+                                "Capture seed error: replayed aftermath "
+                                "popup page is out of range.");
+                        }
+                        else
+                        {
+                            storyPopupPage = storyPageCapture->panelIndex;
+                        }
+                    }
+                }
+            }
+        }
+        else if (screen.rfind("story-art-mw-", 0) == 0 ||
+                 screen.rfind("story-art-bt-", 0) == 0 ||
+                 screen.rfind("story-art-se-", 0) == 0)
+        {
+            constexpr std::string_view mirewatchPrefix = "story-art-mw-";
+            constexpr std::string_view blackthornPrefix = "story-art-bt-";
+            constexpr std::string_view seeliePrefix = "story-art-se-";
+            std::string_view missionId;
+            if (screen.rfind(mirewatchPrefix, 0) == 0)
+            {
+                storyCampaign = StoryCampaign::Mirewatch;
+                missionId = std::string_view(screen).substr(mirewatchPrefix.size());
+            }
+            else if (screen.rfind(blackthornPrefix, 0) == 0)
+            {
+                storyCampaign = StoryCampaign::Blackthorn;
+                missionId = std::string_view(screen).substr(blackthornPrefix.size());
+            }
+            else
+            {
+                storyCampaign = StoryCampaign::Seelie;
+                missionId = std::string_view(screen).substr(seeliePrefix.size());
+            }
+            storyMissionIndex = storyMissionIndexById(storyCampaign, missionId);
+            storyComicPage = 0;
+            currentState = GameState::StoryIntro;
+            title.setString("");
+            centerText(title, 400.0f);
+        }
+        else if (screen.rfind("story-art-popup-mw-", 0) == 0 ||
+                 screen.rfind("story-art-popup-bt-", 0) == 0 ||
+                 screen.rfind("story-art-popup-se-", 0) == 0)
+        {
+            constexpr std::string_view mirewatchPrefix = "story-art-popup-mw-";
+            constexpr std::string_view blackthornPrefix = "story-art-popup-bt-";
+            constexpr std::string_view seeliePrefix = "story-art-popup-se-";
+            std::string_view missionId;
+            if (screen.rfind(mirewatchPrefix, 0) == 0)
+            {
+                storyCampaign = StoryCampaign::Mirewatch;
+                missionId = std::string_view(screen).substr(mirewatchPrefix.size());
+            }
+            else if (screen.rfind(blackthornPrefix, 0) == 0)
+            {
+                storyCampaign = StoryCampaign::Blackthorn;
+                missionId = std::string_view(screen).substr(blackthornPrefix.size());
+            }
+            else
+            {
+                storyCampaign = StoryCampaign::Seelie;
+                missionId = std::string_view(screen).substr(seeliePrefix.size());
+            }
+            storyMissionIndex = storyMissionIndexById(storyCampaign, missionId);
+            const StoryMission& mission = activeStoryMission();
+            if (mission.objectiveSpec.kind == StoryObjectiveKind::StoryOnly ||
+                mission.briefing.empty() ||
+                (mission.scenarioArtPath.empty() && mission.briefing.front().artPath.empty()))
+            {
+                failCaptureValidation(
+                    "Capture seed error: tactical scenario-art popup requires a "
+                    "first briefing panel with commissioned mission or panel art.");
+            }
+            beginStory();
+            if (!mission.briefing.empty())
+            {
+                queueStoryPanels({mission.briefing.front()}, false);
+            }
+        }
+        else if (screen == "story-blackthorn-victor-reckoning-climax")
+        {
+            storyCampaign = StoryCampaign::Blackthorn;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign, "bt17c_victor_reckoning");
+            storyComicPage = static_cast<int>(activeStoryMission().briefing.size()) - 1;
+            currentState = GameState::StoryIntro;
+            title.setString("");
+            centerText(title, 400.0f);
+        }
+        else if (screen == "story-blackthorn-deed" ||
+                 screen == "story-mirewatch-deed")
         {
             storyCampaign = screen.rfind("story-mirewatch-", 0) == 0
                 ? StoryCampaign::Mirewatch
                 : StoryCampaign::Blackthorn;
-            storyMissionIndex = storyTacticalMissionIndex(storyCampaign, 0);
-            storyComicPage =
-                screen == "story-briefing-actions" ||
-                    screen == "story-mirewatch-briefing-actions"
-                ? 2
-                : screen == "story-briefing-control" ||
-                      screen == "story-mirewatch-briefing-control"
-                    ? 3
-                    : 0;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign,
+                storyCampaign == StoryCampaign::Mirewatch
+                    ? "mw25_deed_own_hand"
+                    : "bt18_deed_own_hand");
+            storyComicPage = 0;
             currentState = GameState::StoryIntro;
             title.setString("");
             centerText(title, 400.0f);
+        }
+        else if (screen == "story-seelie-story-long")
+        {
+            storyCampaign = StoryCampaign::Seelie;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign, "se29_no_complete_bearer");
+            // The third panel is deliberately one of the campaign's longest;
+            // keep it in the review suite so wrapping regressions are visible.
+            storyComicPage = 2;
+            currentState = GameState::StoryIntro;
+            title.setString("");
+            centerText(title, 400.0f);
+        }
+        else if (screen == "story-seelie-witness-rail")
+        {
+            storyCampaign = StoryCampaign::Seelie;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign, "se29e_hold_the_witness_rail");
+            storyComicPage = 1;
+            currentState = GameState::StoryIntro;
+            title.setString("");
+            centerText(title, 400.0f);
+        }
+        else if (screen == "story-mirewatch-telos-panel" ||
+                 screen == "story-mirewatch-aftermath")
+        {
+            const bool replayed = screen == "story-mirewatch-aftermath"
+                ? replayRiverTeethForCapture(11)
+                : replayRiverTeethForCapture(8, true);
+            if (!replayed)
+            {
+                failCaptureValidation(
+                    "Capture replay error: the requested River Teeth panel was not reached.");
+            }
+            else if (screen == "story-mirewatch-telos-panel")
+            {
+                const bool hasTelosPanel = std::any_of(
+                    storyPopupPanels.begin(), storyPopupPanels.end(),
+                    [](const StoryPanel& panel) {
+                        return panel.speaker == "Telos the Merchant";
+                    });
+                if (!hasTelosPanel)
+                {
+                    failCaptureValidation(
+                        "Capture replay error: the real Telos Travel panel is absent.");
+                }
+            }
+            else if (storyPopupPanels.empty() || !storyCompleteAfterPopup)
+            {
+                failCaptureValidation(
+                    "Capture replay error: River Teeth did not reach its real aftermath popup.");
+            }
         }
         else if (screen == "story-deployment")
         {
@@ -8576,73 +12330,746 @@ int main(int argc, char** argv)
             storyMissionIndex = storyMissionIndexById(
                 storyCampaign, "bt03_sanctuary_debt");
             beginStory();
+            const StoryMission& mission = activeStoryMission();
+            if (!storyEngine || storyStage != StoryStage::Objective ||
+                storyEngine->phase() != game_data::Phase::Playing ||
+                storyEngine->currentPlayer() != 1 || storyMissionStep != 0 ||
+                mission.script.empty() ||
+                mission.script.front().kind != StoryActionKind::PlayCard ||
+                mission.script.front().cardTitle != "Blackthorn Alchemist" ||
+                mission.script.front().targetRow != 3 ||
+                mission.script.front().targetColumn != 2)
+            {
+                failCaptureValidation(
+                    "Capture setup error: Sanctuary Debt did not reach its exact deployment step.");
+                return;
+            }
+
+            const GameEngine::EnginePlayer& player = storyEngine->playerState(1);
+            const bool controlledTarget =
+                storyEngine->boardControl()[static_cast<std::size_t>(
+                    game_data::squareIndex(3, 2))] == 1;
+            if (player.resources != mission.playerResources ||
+                player.hand.size() != 1 ||
+                player.hand.front().title != "Blackthorn Alchemist" ||
+                player.hand.front().type != "Unit" ||
+                player.hand.front().cost <= 0 ||
+                player.pieceActionUsedThisTurn || !controlledTarget)
+            {
+                failCaptureValidation(
+                    "Capture setup error: the deployment hand, Resources, action budget, or controlled target drifted.");
+                return;
+            }
+
+            // Keep the displayed capture on the pre-action teaching frame, but
+            // prove that this exact fixture can execute the real deployment and
+            // reaches every claimed postcondition.
+            GameEngine deploymentWitness = *storyEngine;
+            const int resourcesBefore = player.resources;
+            const int cardCost = player.hand.front().cost;
+            const std::size_t handBefore = player.hand.size();
+            const std::size_t piecesBefore = storyEngine->boardPieces().size();
+            const bool deployed = deploymentWitness.playCard(1, 0, 3, 2);
+            const auto alchemist = std::find_if(
+                deploymentWitness.boardPieces().begin(),
+                deploymentWitness.boardPieces().end(),
+                [](const game_data::Piece& piece) {
+                    return piece.owner == 1 &&
+                        piece.name == "Blackthorn Alchemist" &&
+                        piece.row == 3 && piece.column == 2;
+                });
+            const GameEngine::EnginePlayer& after = deploymentWitness.playerState(1);
+            if (!deployed ||
+                deploymentWitness.boardPieces().size() != piecesBefore + 1 ||
+                alchemist == deploymentWitness.boardPieces().end() ||
+                !alchemist->hasActed ||
+                after.resources != resourcesBefore - cardCost ||
+                after.hand.size() + 1 != handBefore ||
+                after.pieceActionUsedThisTurn)
+            {
+                failCaptureValidation(
+                    "Capture witness error: the Alchemist did not deploy at exact cost, leave the normal action available, and arrive exhausted.");
+            }
         }
-        else if (screen == "story-sharpshooter-aimed")
+        else if (screen == "story-sharpshooter-aimed" ||
+                 screen == "story-sharpshooter-state-lowered" ||
+                 screen == "story-sharpshooter-state-raised")
         {
             storyCampaign = StoryCampaign::Blackthorn;
             storyMissionIndex = storyMissionIndexById(
                 storyCampaign, "bt02_customs_bell");
-            beginStory();
+            const StoryMission& mission = activeStoryMission();
+            const auto stepByHeading = [&](std::string_view heading) {
+                return std::find_if(
+                    mission.script.begin(),
+                    mission.script.end(),
+                    [&](const StoryScriptAction& step) {
+                        return step.heading == heading;
+                    });
+            };
+            const auto raiseStep = stepByHeading("RAISE THE GUN");
+            const auto fireStepIt = stepByHeading("SHARPSHOOTER - FIRE");
+            if (raiseStep == mission.script.end() ||
+                fireStepIt == mission.script.end())
+            {
+                failCaptureValidation(
+                    "Capture replay error: Customs Bell lost its authored Sharpshooter state lesson.");
+                return;
+            }
+            const std::size_t raiseStepIndex = static_cast<std::size_t>(
+                std::distance(mission.script.begin(), raiseStep));
+            if (!replayScriptedStoryForCapture(raiseStepIndex) ||
+                !storyEngine || storyStage != StoryStage::Objective ||
+                storyEngine->phase() != game_data::Phase::Playing ||
+                storyEngine->currentPlayer() != 1 ||
+                storyMissionStep != static_cast<int>(raiseStepIndex))
+            {
+                failCaptureValidation(
+                    "Capture replay error: Customs Bell did not reach its authored Raise Gun beat.");
+                return;
+            }
+
             const auto sharpshooter = std::find_if(
                 storyEngine->boardPieces().begin(),
                 storyEngine->boardPieces().end(),
                 [](const game_data::Piece& piece) {
                     return piece.name == "Goblin Sharpshooter";
                 });
-            if (sharpshooter != storyEngine->boardPieces().end())
+            if (sharpshooter == storyEngine->boardPieces().end())
             {
-                const int pieceId = sharpshooter->id;
+                failCaptureValidation(
+                    "Capture replay error: the Goblin Sharpshooter is absent.");
+                return;
+            }
+
+            const int pieceId = sharpshooter->id;
+            const StoryScriptAction& transformStep = *raiseStep;
+            if (!storyAbilityStepMatches(transformStep, *sharpshooter) ||
+                game_data::pieceAbilityLabel(*sharpshooter) != "Raise Gun" ||
+                sharpshooter->actionState != 0 || sharpshooter->hasActed)
+            {
+                failCaptureValidation(
+                    "Capture replay error: the lowered Sharpshooter no longer exposes the authored Raise Gun state.");
+                return;
+            }
+
+            if (screen != "story-sharpshooter-state-lowered")
+            {
+                const game_data::Piece beforeTransform = *sharpshooter;
                 sendUseAbility(pieceId);
-                storyAiActionAt = animationTime;
-                updateStoryAi();
+                const game_data::Piece* transformed = gamePieceById(pieceId);
+                if (storyMissionStep != static_cast<int>(raiseStepIndex + 1) ||
+                    transformed == nullptr ||
+                    !storyUsedAim || transformed->actionState != 1 ||
+                    !transformed->hasActed ||
+                    game_data::pieceAbilityLabel(*transformed) != "Lower Gun" ||
+                    !storyAbilityOutcomeMatches(
+                        transformStep,
+                        beforeTransform,
+                        storyEngine->boardPieces(),
+                        storyEngine->commandingPiece()))
+                {
+                    failCaptureValidation(
+                        "Capture replay error: Raise Gun did not produce the exact transformed state.");
+                    return;
+                }
+
+                const StoryScriptAction& fireStep = *fireStepIt;
+                const std::optional<int> fireIndex =
+                    storyExpectedActionProfileIndex(fireStep, *transformed);
+                if (!fireIndex ||
+                    *fireIndex < 0 ||
+                    *fireIndex >= static_cast<int>(transformed->actions.size()) ||
+                    !transformed->actions[static_cast<std::size_t>(*fireIndex)].canAttack ||
+                    transformed->actions[static_cast<std::size_t>(*fireIndex)].canMove)
+                {
+                    failCaptureValidation(
+                        "Capture replay error: the raised Sharpshooter has no unique active Fire profile.");
+                    return;
+                }
+            }
+
+            const game_data::Piece* capturedSharpshooter = gamePieceById(pieceId);
+            const int expectedState =
+                screen == "story-sharpshooter-state-lowered" ? 0 : 1;
+            if (capturedSharpshooter == nullptr ||
+                capturedSharpshooter->actionState != expectedState)
+            {
+                failCaptureValidation(
+                    "Capture replay error: Sharpshooter did not reach the requested printed-action state.");
+                return;
+            }
+            if (screen == "story-sharpshooter-aimed")
+            {
                 selectedPieceId = pieceId;
+            }
+            else
+            {
+                inspectedPieceId = pieceId;
+                inspectedPieceScroll = 0.0f;
+            }
+        }
+        else if (screen == "story-blackthorn-hidden-collision-choice" ||
+                 screen == "story-blackthorn-hidden-collision-resolved")
+        {
+            storyCampaign = StoryCampaign::Blackthorn;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign, "bt04_terms_conditions");
+            beginStory();
+            const int pathAmbusherId = storyPieceIdForRole("ambusher_path");
+            const int collisionAmbusherId =
+                storyPieceIdForRole("ambusher_collision");
+            const int erevanId = storyPieceIdForRole("erevan");
+            if (pathAmbusherId == 0 || collisionAmbusherId == 0 || erevanId == 0)
+            {
+                failCaptureValidation(
+                    "Capture replay error: the Hidden Transit roles are incomplete.");
+            }
+            else
+            {
+                const auto runScriptedOpponentStep = [&]() {
+                    storyScriptActionAt = animationTime;
+                    updateStoryAi();
+                };
+                sendUseAbility(pathAmbusherId);
+                sendEndTurn();
+                runScriptedOpponentStep();
+                runScriptedOpponentStep();
+                requestPieceAction(pathAmbusherId, 3, 4);
+                sendEndTurn();
+                runScriptedOpponentStep();
+                sendUseAbility(collisionAmbusherId);
+                sendEndTurn();
+                runScriptedOpponentStep();
+                requestPieceAction(collisionAmbusherId, 5, 2);
+
+                int ambushOption = -1;
+                if (pendingPieceActionChoice)
+                {
+                    const game_data::Piece* actor = gamePieceById(collisionAmbusherId);
+                    for (std::size_t option = 0;
+                         actor != nullptr &&
+                         option < pendingPieceActionChoice->actionIndices.size();
+                         ++option)
+                    {
+                        const int actionIndex =
+                            pendingPieceActionChoice->actionIndices[option];
+                        if (actionIndex >= 0 &&
+                            actionIndex < static_cast<int>(actor->actions.size()) &&
+                            actor->actions[static_cast<std::size_t>(actionIndex)].name ==
+                                "Ambush")
+                        {
+                            ambushOption = static_cast<int>(option);
+                        }
+                    }
+                }
+                if (!pendingPieceActionChoice ||
+                    pendingPieceActionChoice->actionIndices.size() != 2 ||
+                    ambushOption < 0)
+                {
+                    failCaptureValidation(
+                        "Capture replay error: the hidden collision did not offer both source profiles.");
+                }
+                else if (screen == "story-blackthorn-hidden-collision-resolved")
+                {
+                    submitPendingPieceActionChoice(ambushOption);
+                    const game_data::Piece* ambusher =
+                        gamePieceById(collisionAmbusherId);
+                    const game_data::Piece* erevan = gamePieceById(erevanId);
+                    if (ambusher == nullptr || erevan == nullptr ||
+                        ambusher->row != 5 || ambusher->column != 1 ||
+                        ambusher->actionState != 0 || erevan->hidden ||
+                        erevan->disabledTurns <= 0 ||
+                        storyMissionStep != 11 || !storyPopupPanels.empty() ||
+                        storyCompleteAfterPopup)
+                    {
+                        failCaptureValidation(
+                            "Capture replay error: Ambush did not resolve the authored hidden collision.");
+                    }
+                }
             }
         }
         else if (screen == "story-powers-used")
         {
             storyCampaign = StoryCampaign::Blackthorn;
             storyMissionIndex = storyMissionIndexById(
-                storyCampaign, "bt13_feyward_transit");
+                storyCampaign, "bt17a_field_judgment");
             beginStory();
-            const auto useStoryPower = [&](const std::string& pieceName) {
-                const auto piece = std::find_if(
-                    storyEngine->boardPieces().begin(),
-                    storyEngine->boardPieces().end(),
-                    [&](const game_data::Piece& candidate) {
-                        return candidate.name == pieceName;
-                    });
-                if (piece == storyEngine->boardPieces().end())
+            if (!storyEngine || storyStage != StoryStage::Objective ||
+                storyEngine->phase() != game_data::Phase::Playing ||
+                storyEngine->currentPlayer() != 1 ||
+                !activeStoryMission().script.empty())
+            {
+                failCaptureValidation(
+                    "Capture replay error: Field Judgment did not reach its open player turn.");
+                return;
+            }
+            const auto foreman = std::find_if(
+                storyEngine->boardPieces().begin(),
+                storyEngine->boardPieces().end(),
+                [](const game_data::Piece& piece) {
+                    return piece.name == "Blackthorn Foreman";
+                });
+            if (foreman == storyEngine->boardPieces().end())
+            {
+                failCaptureValidation(
+                    "Capture replay error: the Blackthorn Foreman is absent from Field Judgment.");
+                return;
+            }
+
+            const int pieceId = foreman->id;
+            const game_data::Piece foremanBefore = *foreman;
+            const auto [summonRow, summonColumn] =
+                game_data::summonDestination(foremanBefore);
+            StoryScriptAction summonWitness;
+            summonWitness.kind = StoryActionKind::UseAbility;
+            summonWitness.owner = 1;
+            summonWitness.expectedAbility = "summon";
+            summonWitness.expectedAbilityLabel = "Summon";
+            summonWitness.expectedSummonTitle = "Blackthorn Lumberjack";
+            if (!storyAbilityStepMatches(summonWitness, foremanBefore) ||
+                foremanBefore.hasActed ||
+                storyEngine->playerState(1).pieceActionUsedThisTurn ||
+                !game_data::pieceFootprintFree(
+                    storyEngine->boardPieces(),
+                    foremanBefore,
+                    summonRow,
+                    summonColumn))
+            {
+                failCaptureValidation(
+                    "Capture replay error: the Foreman''s real Summon preconditions are not present.");
+                return;
+            }
+
+            const std::size_t piecesBefore = storyEngine->boardPieces().size();
+            const int stepBefore = storyMissionStep;
+            // This is the same legal Summon a player can choose in the open
+            // rehearsal, including the real front-square requirement.
+            sendUseAbility(pieceId);
+            const game_data::Piece* foremanAfter = gamePieceById(pieceId);
+            const int summonedCount = static_cast<int>(std::count_if(
+                storyEngine->boardPieces().begin(),
+                storyEngine->boardPieces().end(),
+                [&](const game_data::Piece& piece) {
+                    return piece.id != pieceId && piece.owner == 1 &&
+                        piece.name == "Blackthorn Lumberjack" &&
+                        piece.row == summonRow && piece.column == summonColumn &&
+                        piece.hasActed;
+                }));
+            if (storyMissionStep != stepBefore || !storyUsedSummon ||
+                storyStage != StoryStage::Objective || foremanAfter == nullptr ||
+                !foremanAfter->hasActed ||
+                storyEngine->boardPieces().size() != piecesBefore + 1 ||
+                summonedCount != 1 || storyEngine->commandingPiece() != 0 ||
+                !storyEngine->playerState(1).pieceActionUsedThisTurn ||
+                !storyAbilityOutcomeMatches(
+                    summonWitness,
+                    foremanBefore,
+                    storyEngine->boardPieces(),
+                    storyEngine->commandingPiece()))
+            {
+                failCaptureValidation(
+                    "Capture replay error: Foreman Summon did not create exactly one exhausted Lumberjack and spend the ordinary action.");
+                return;
+            }
+            selectedPieceId = pieceId;
+        }
+        else if (screen == "story-mirewatch-pull-popup")
+        {
+            inspectStoryPieceForCapture(
+                StoryCampaign::Mirewatch,
+                "mw03_town_under_company",
+                "Bog Spearman");
+        }
+        else if (screen == "story-mirewatch-intercept-popup")
+        {
+            inspectStoryPieceForCapture(
+                StoryCampaign::Mirewatch,
+                "mw11_no_plan_saves_all",
+                "Juniper Flash");
+        }
+        else if (screen == "story-mirewatch-reveal-popup")
+        {
+            inspectStoryPieceForCapture(
+                StoryCampaign::Mirewatch,
+                "mw13_making_credit",
+                "Swamp Tracker");
+        }
+        else if (screen == "story-blackthorn-capture-popup")
+        {
+            inspectStoryPieceForCapture(
+                StoryCampaign::Blackthorn,
+                "bt05_freight_office",
+                "Grask");
+        }
+        else if (screen == "story-seelie-infest-popup")
+        {
+            inspectStoryPieceForCapture(
+                StoryCampaign::Seelie,
+                "se07a_queens_price_scene",
+                "Queen Nyxara");
+        }
+        else if (screen == "story-blackthorn-standard-placement" ||
+                 screen == "story-blackthorn-standard-opening")
+        {
+            storyCampaign = StoryCampaign::Blackthorn;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign, "bt17b_open_mastery");
+            beginStory();
+            storyPopupPanels.clear();
+            storyPopupPage = 0;
+            storyCompleteAfterPopup = false;
+            if (!captureRequest || !storyEngine || storyStage == StoryStage::Failed)
+            {
+                failCaptureValidation(
+                    "Capture setup error: the Blackthorn placement screen is a capture-only fixture and did not initialize.");
+                return;
+            }
+
+            // This screen deliberately exercises the ordinary placement UI
+            // with reviewed packaged definitions.  It is not evidence that a
+            // connected card server supplied or approved either deck.
+            const StoryMission& fixtureMission = activeStoryMission();
+            const auto exactPackagedDeckState = [&](const std::vector<std::string_view>& authored,
+                                                    const GameEngine::EnginePlayer& player) {
+                std::vector<std::string> expectedHeroes;
+                std::vector<std::string> expectedDrawPile;
+                for (const std::string_view title : authored)
                 {
+                    const std::optional<game_data::GameCard> resolved =
+                        resolvedStoryCardNamed(title);
+                    if (!resolved || resolved->title != title ||
+                        resolved->type == "Story Error")
+                    {
+                        return false;
+                    }
+                    (resolved->type == "Hero" ? expectedHeroes : expectedDrawPile)
+                        .push_back(resolved->title);
+                }
+
+                std::vector<std::string> actualHeroes;
+                std::vector<std::string> actualDrawPile;
+                for (const game_data::GameCard& card : player.heroesToPlace)
+                {
+                    actualHeroes.push_back(card.title);
+                }
+                for (const game_data::GameCard& card : player.drawPile)
+                {
+                    actualDrawPile.push_back(card.title);
+                }
+                std::sort(expectedHeroes.begin(), expectedHeroes.end());
+                std::sort(expectedDrawPile.begin(), expectedDrawPile.end());
+                std::sort(actualHeroes.begin(), actualHeroes.end());
+                std::sort(actualDrawPile.begin(), actualDrawPile.end());
+                return authored.size() == 22 && expectedHeroes.size() == 2 &&
+                    expectedDrawPile.size() == 20 && actualHeroes == expectedHeroes &&
+                    actualDrawPile == expectedDrawPile && player.hand.empty() &&
+                    player.foresightChoices.empty() && player.resources == 0 &&
+                    player.discardsThisTurn == 0 &&
+                    !player.pieceActionUsedThisTurn && player.deckSubmitted;
+            };
+            const auto snapshotHandIs = [&](std::string_view first, std::string_view second) {
+                if (gameSnapshot.hand.size() != 2)
+                {
+                    return false;
+                }
+                std::array<std::string, 2> actual = {
+                    gameSnapshot.hand[0].title, gameSnapshot.hand[1].title};
+                std::array<std::string, 2> expected = {
+                    std::string(first), std::string(second)};
+                std::sort(actual.begin(), actual.end());
+                std::sort(expected.begin(), expected.end());
+                return actual == expected;
+            };
+            const bool exactAuthoredHeroes =
+                fixtureMission.playerDeck.size() == 22 &&
+                fixtureMission.enemyDeck.size() == 22 &&
+                fixtureMission.playerDeck[0] == "Thaeron Baelstone" &&
+                fixtureMission.playerDeck[1] == "Ashenfang" &&
+                fixtureMission.enemyDeck[0] == "Maggie Mudroot" &&
+                fixtureMission.enemyDeck[1] == "Joni Pumpernickel";
+            const GameEngine::EnginePlayer& player = storyEngine->playerState(1);
+            const GameEngine::EnginePlayer& opponent = storyEngine->playerState(2);
+            if (!fixtureMission.standardMatch || !exactAuthoredHeroes ||
+                !storyEngine->bothDecksSubmitted() ||
+                storyEngine->phase() != game_data::Phase::HeroPlacement ||
+                storyEngine->currentPlayer() != 1 ||
+                !storyEngine->timersAreEnabled() ||
+                !exactPackagedDeckState(fixtureMission.playerDeck, player) ||
+                !exactPackagedDeckState(fixtureMission.enemyDeck, opponent) ||
+                !storyEngine->boardPieces().empty() ||
+                !storyEngine->boardEnchantments().empty() ||
+                static_cast<game_data::Phase>(gameSnapshot.phase) !=
+                    game_data::Phase::HeroPlacement ||
+                gameSnapshot.activePlayer != 1 || gameSnapshot.yourPlayer != 1 ||
+                gameSnapshot.winner != 0 || !gameSnapshot.timersEnabled ||
+                gameSnapshot.turnRemainingMs != GameEngine::FullTurnTimerMs ||
+                gameSnapshot.players[0].clockRemainingMs != GameEngine::RegularClockMs ||
+                gameSnapshot.players[1].clockRemainingMs != GameEngine::RegularClockMs ||
+                gameSnapshot.players[0].heroesToPlace != 2 ||
+                gameSnapshot.players[1].heroesToPlace != 2 ||
+                gameSnapshot.players[0].drawPileCount != 20 ||
+                gameSnapshot.players[1].drawPileCount != 20 ||
+                !snapshotHandIs("Thaeron Baelstone", "Ashenfang"))
+            {
+                failCaptureValidation(
+                    fmt::format(
+                        "Capture setup error: packaged-only Blackthorn placement fixture did not reach its exact two-Hero, 20-card, timed placement state (stage {}, phase {}, heroes {}, status: {}).",
+                        static_cast<int>(storyStage),
+                        static_cast<int>(storyEngine->phase()),
+                        gameSnapshot.hand.size(),
+                        gameSnapshot.status));
+                return;
+            }
+            if (screen == "story-blackthorn-standard-opening")
+            {
+                const auto placeNamedHero = [&](int playerNumber,
+                                                std::string_view title,
+                                                int row,
+                                                int column) {
+                    const auto& heroes =
+                        storyEngine->playerState(playerNumber).heroesToPlace;
+                    const auto found = std::find_if(
+                        heroes.begin(), heroes.end(),
+                        [&](const game_data::GameCard& card) {
+                            return card.title == title;
+                        });
+                    return found != heroes.end() &&
+                        storyEngine->placeHero(
+                            playerNumber,
+                            static_cast<int>(std::distance(heroes.begin(), found)),
+                            row,
+                            column);
+                };
+
+                const bool legalPlacement =
+                    placeNamedHero(1, "Thaeron Baelstone", 2, 0) &&
+                    placeNamedHero(1, "Ashenfang", 5, 1) &&
+                    placeNamedHero(2, "Maggie Mudroot", 3, 6) &&
+                    placeNamedHero(2, "Joni Pumpernickel", 2, 7);
+                game_data::Snapshot opening = storyEngine->snapshotFor(1);
+                const auto hasHeroAt = [&](int owner,
+                                           std::string_view title,
+                                           int row,
+                                           int column,
+                                           int width,
+                                           int height) {
+                    return std::any_of(
+                        opening.pieces.begin(), opening.pieces.end(),
+                        [&](const game_data::Piece& piece) {
+                            return piece.owner == owner && piece.isHero &&
+                                piece.name == title && piece.row == row &&
+                                piece.column == column && piece.width == width &&
+                                piece.height == height;
+                        });
+                };
+                const GameEngine::EnginePlayer& openingPlayer =
+                    storyEngine->playerState(1);
+                const GameEngine::EnginePlayer& openingOpponent =
+                    storyEngine->playerState(2);
+                if (!legalPlacement ||
+                    storyEngine->phase() != game_data::Phase::Playing ||
+                    storyEngine->currentPlayer() != 1 ||
+                    !storyEngine->timersAreEnabled() ||
+                    storyStage != StoryStage::Objective ||
+                    opening.phase !=
+                        static_cast<std::uint8_t>(game_data::Phase::Playing) ||
+                    opening.activePlayer != 1 || opening.yourPlayer != 1 ||
+                    opening.winner != 0 || !opening.timersEnabled ||
+                    opening.turnRemainingMs != GameEngine::FullTurnTimerMs ||
+                    opening.players[0].clockRemainingMs !=
+                        GameEngine::RegularClockMs ||
+                    opening.players[1].clockRemainingMs !=
+                        GameEngine::RegularClockMs ||
+                    opening.hand.size() != 4 ||
+                    opening.players[0].handCount != 4 ||
+                    opening.players[1].handCount != 4 ||
+                    opening.players[0].drawPileCount != 16 ||
+                    opening.players[1].drawPileCount != 16 ||
+                    openingPlayer.hand.size() != 4 ||
+                    openingOpponent.hand.size() != 4 ||
+                    openingPlayer.drawPile.size() != 16 ||
+                    openingOpponent.drawPile.size() != 16 ||
+                    opening.players[0].controlledSquares <= 0 ||
+                    opening.players[0].resources !=
+                        opening.players[0].controlledSquares ||
+                    opening.players[1].resources != 0 ||
+                    opening.pieces.size() != 4 ||
+                    !storyEngine->boardEnchantments().empty() ||
+                    !hasHeroAt(1, "Thaeron Baelstone", 2, 0, 1, 1) ||
+                    !hasHeroAt(1, "Ashenfang", 5, 1, 1, 1) ||
+                    !hasHeroAt(2, "Maggie Mudroot", 3, 6, 2, 2) ||
+                    !hasHeroAt(2, "Joni Pumpernickel", 2, 7, 1, 1))
+                {
+                    failCaptureValidation(
+                        fmt::format(
+                            "Capture setup error: Blackthorn ordinary opening drifted (placed {}, stage {}, phase {}, active {}, hand {}, draw {}/{}, resources {}/{}, pieces {}, status: {}).",
+                            legalPlacement,
+                            static_cast<int>(storyStage),
+                            static_cast<int>(storyEngine->phase()),
+                            storyEngine->currentPlayer(),
+                            opening.hand.size(),
+                            opening.players[0].drawPileCount,
+                            opening.players[1].drawPileCount,
+                            opening.players[0].resources,
+                            opening.players[1].resources,
+                            opening.pieces.size(),
+                            opening.status));
                     return;
                 }
-                sendUseAbility(piece->id);
-                storyAiActionAt = animationTime;
-                updateStoryAi();
-            };
-            useStoryPower("Blackthorn Foreman");
+                commitLocalSnapshot(std::move(opening));
+                storyAiPending = false;
+                gameSnapshot.status =
+                    "ORDINARY STORY MATCH - opening turn; packaged capture fixture.";
+            }
+            else
+            {
+                gameSnapshot.status =
+                    "UI CAPTURE FIXTURE ONLY - packaged cards; live catalog authority is not claimed.";
+            }
         }
         else if (screen == "story-ai-turn")
         {
             storyCampaign = StoryCampaign::Blackthorn;
             storyMissionIndex = storyMissionIndexById(
-                storyCampaign, "bt05_freight_office");
+                storyCampaign, "bt17a_field_judgment");
             beginStory();
+            if (!storyEngine || storyStage != StoryStage::Objective ||
+                storyEngine->phase() != game_data::Phase::Playing ||
+                storyEngine->currentPlayer() != 1 ||
+                gameSnapshot.activePlayer != 1 ||
+                !activeStoryMission().script.empty())
+            {
+                failCaptureValidation(
+                    "Capture replay error: Field Judgment did not begin on an ordinary open player turn.");
+                return;
+            }
+            const int stepBefore = storyMissionStep;
+            // Open rehearsals use the ordinary turn rules, so this legal pass
+            // reaches the exact opponent-turn state the capture is reviewing.
             sendEndTurn();
-            storyAiActionAt = animationTime;
-            updateStoryAi();
+            const bool plannerWasScheduled = storyAiPending;
+            if (storyStage != StoryStage::Objective ||
+                storyMissionStep != stepBefore ||
+                storyEngine->phase() != game_data::Phase::Playing ||
+                storyEngine->currentPlayer() != 2 ||
+                gameSnapshot.activePlayer != 2 ||
+                !plannerWasScheduled)
+            {
+                failCaptureValidation(
+                    "Capture replay error: the legal pass did not reach a genuine scheduled opponent turn.");
+                return;
+            }
+            // Hold the screenshot on the post-pass frame; live play still starts
+            // the normal planner after its short readability pause.
+            storyAiPending = false;
         }
         else if (screen == "story-ai-attack")
         {
-            storyCampaign = StoryCampaign::Blackthorn;
+            storyCampaign = StoryCampaign::Seelie;
             storyMissionIndex = storyMissionIndexById(
-                storyCampaign, "bt05_freight_office");
+                storyCampaign, "se02_broken_bridge");
             beginStory();
-            for (int exchange = 0; exchange < 3; ++exchange)
+            if (!storyEngine || storyStage != StoryStage::Objective ||
+                storyEngine->phase() != game_data::Phase::Playing ||
+                storyEngine->currentPlayer() != 1 || storyMissionStep != 0 ||
+                activeStoryMission().script.size() < 4)
             {
-                sendEndTurn();
-                storyAiActionAt = animationTime;
-                updateStoryAi();
+                failCaptureValidation(
+                    "Capture replay error: The Broken Bridge did not reach its opening scripted state.");
+                return;
             }
+
+            // Follow the authored lesson through two legal player inputs, then
+            // let its real Bristlejack attack resolve through the story engine.
+            const int sisterId = storyPieceIdForRole("sister");
+            const int messengerId = storyPieceIdForRole("messenger");
+            const int knightId = storyPieceIdForRole("knight");
+            const int bristleId = storyPieceIdForRole("bristle");
+            const StoryScriptAction& moveStep = activeStoryMission().script[0];
+            const StoryScriptAction& passStep = activeStoryMission().script[1];
+            const StoryScriptAction& attackStep = activeStoryMission().script[2];
+            const game_data::Piece* sisterBefore = gamePieceById(sisterId);
+            const game_data::Piece* bristleBeforeSetup = gamePieceById(bristleId);
+            if (sisterId == 0 || messengerId == 0 || knightId == 0 ||
+                bristleId == 0 || sisterBefore == nullptr ||
+                bristleBeforeSetup == nullptr ||
+                moveStep.kind != StoryActionKind::Move || moveStep.owner != 1 ||
+                moveStep.actorRole != "sister" || moveStep.targetRow != 4 ||
+                moveStep.targetColumn != 2 ||
+                passStep.kind != StoryActionKind::EndTurn || passStep.owner != 1 ||
+                attackStep.kind != StoryActionKind::Attack || attackStep.owner != 2 ||
+                attackStep.actorRole != "bristle" ||
+                attackStep.targetRole != "messenger" ||
+                !storyExpectedActionProfileIndex(attackStep, *bristleBeforeSetup))
+            {
+                failCaptureValidation(
+                    "Capture replay error: The Broken Bridge roles or authored move/attack identities drifted.");
+                return;
+            }
+
+            requestPieceAction(sisterId, 4, 2);
+            const game_data::Piece* sisterAfter = gamePieceById(sisterId);
+            if (storyMissionStep != 1 || sisterAfter == nullptr ||
+                sisterAfter->row != 4 || sisterAfter->column != 2 ||
+                !sisterAfter->hasActed ||
+                !storyEngine->playerState(1).pieceActionUsedThisTurn)
+            {
+                failCaptureValidation(
+                    "Capture replay error: the Heartwood Sister''s authored Grovewalk was not accepted exactly.");
+                return;
+            }
+            sendEndTurn();
+            if (storyMissionStep != 2 || storyEngine->currentPlayer() != 2 ||
+                gameSnapshot.activePlayer != 2)
+            {
+                failCaptureValidation(
+                    "Capture replay error: The Broken Bridge did not enter its scripted Bristlejack turn.");
+                return;
+            }
+
+            const game_data::Piece* messengerBefore = gamePieceById(messengerId);
+            const game_data::Piece* knightBefore = gamePieceById(knightId);
+            const game_data::Piece* bristleBefore = gamePieceById(bristleId);
+            if (messengerBefore == nullptr || knightBefore == nullptr ||
+                bristleBefore == nullptr)
+            {
+                failCaptureValidation(
+                    "Capture replay error: a required Broken Bridge combat piece vanished before the attack.");
+                return;
+            }
+            const game_data::Piece messengerStateBefore = *messengerBefore;
+            const game_data::Piece knightStateBefore = *knightBefore;
+            const game_data::Piece bristleStateBefore = *bristleBefore;
+            storyScriptActionAt = std::numeric_limits<float>::lowest();
+            updateStoryAi();
+            const game_data::Piece* messengerAfter = gamePieceById(messengerId);
+            const game_data::Piece* knightAfter = gamePieceById(knightId);
+            const game_data::Piece* bristleAfter = gamePieceById(bristleId);
+            if (storyMissionStep != 3 || storyStage != StoryStage::Objective ||
+                storyEngine->phase() != game_data::Phase::Playing ||
+                storyEngine->currentPlayer() != 2 || gameSnapshot.activePlayer != 2 ||
+                messengerAfter == nullptr || knightAfter == nullptr ||
+                bristleAfter == nullptr ||
+                messengerAfter->health != messengerStateBefore.health ||
+                messengerAfter->disabledTurns != messengerStateBefore.disabledTurns ||
+                messengerAfter->sleepTurnsRemaining !=
+                    messengerStateBefore.sleepTurnsRemaining ||
+                knightAfter->health != knightStateBefore.health - 2 ||
+                knightAfter->disabledTurns != game_data::DamageDisabledTurns ||
+                knightAfter->sleepTurnsRemaining != 1 ||
+                bristleAfter->row != bristleStateBefore.row ||
+                bristleAfter->column != bristleStateBefore.column ||
+                !bristleAfter->hasActed ||
+                !storyEngine->playerState(2).pieceActionUsedThisTurn)
+            {
+                failCaptureValidation(
+                    "Capture replay error: Bristle Charge did not leave the Messenger unharmed, redirect exactly 2 damage and Disable to the Knight, and retain the opposing turn.");
+                return;
+            }
+            // Preserve the genuine after-attack/before-pass moment for all six
+            // warm-up frames instead of allowing the next scripted End Turn.
+            storyScriptActionAt = std::numeric_limits<float>::max();
         }
         else if (screen == "story-mirewatch-exit-confirmation" ||
                  screen == "story-mirewatch-restart-confirmation")
@@ -8667,7 +13094,10 @@ int main(int argc, char** argv)
             }
             catch (const std::exception&)
             {
-                storyMissionIndex = 0;
+                failCaptureValidation(
+                    "Capture setup error: invalid Blackthorn tactical screen key '" +
+                    screen + "'.");
+                return;
             }
             beginStory();
             if (screen.size() >= 6 &&
@@ -8676,6 +13106,87 @@ int main(int argc, char** argv)
                 storyPopupPanels.clear();
                 storyPopupPage = 0;
                 storyCompleteAfterPopup = false;
+            }
+        }
+        else if (screen.rfind("story-mirewatch-river-teeth-action-", 0) == 0)
+        {
+            constexpr std::string_view prefix =
+                "story-mirewatch-river-teeth-action-";
+            const std::string_view suffix =
+                std::string_view(screen).substr(prefix.size());
+            if (suffix.size() != 2 ||
+                !std::all_of(suffix.begin(), suffix.end(), [](const char ch) {
+                    return ch >= '0' && ch <= '9';
+                }))
+            {
+                failCaptureValidation(
+                    "Capture setup error: invalid River Teeth action screen key '" +
+                    screen + "'; expected action-01 through action-11.");
+                return;
+            }
+            const int actionNumber =
+                (suffix[0] - '0') * 10 + (suffix[1] - '0');
+            if (actionNumber < 1 || actionNumber > 11)
+            {
+                failCaptureValidation(
+                    "Capture setup error: invalid River Teeth action screen key '" +
+                    screen + "'; expected action-01 through action-11.");
+                return;
+            }
+            if (!replayRiverTeethForCapture(actionNumber - 1))
+            {
+                failCaptureValidation(
+                    "Capture replay error: the requested River Teeth action was not reached.");
+                return;
+            }
+        }
+        else if (screen == "story-mirewatch-river-teeth-aftermath-live" ||
+                 screen == "story-mirewatch-river-teeth-complete-live")
+        {
+            if (!replayRiverTeethForCapture(11))
+            {
+                failCaptureValidation(
+                    "Capture replay error: River Teeth did not reach its aftermath.");
+            }
+            else if (screen == "story-mirewatch-river-teeth-complete-live")
+            {
+                finishCapturedStoryAftermath();
+                if (storyStage != StoryStage::Complete)
+                {
+                    failCaptureValidation(
+                        "Capture replay error: River Teeth did not reach genuine completion.");
+                }
+            }
+            else if (storyPopupPanels.empty() || !storyCompleteAfterPopup)
+            {
+                failCaptureValidation(
+                    "Capture replay error: River Teeth aftermath is not genuine.");
+            }
+        }
+        else if (screen == "story-mirewatch-intercept-aftermath-live" ||
+                 screen == "story-mirewatch-intercept-footprint-live" ||
+                 screen == "story-mirewatch-intercept-reset-live" ||
+                 screen == "story-mirewatch-intercept-exclusions-live")
+        {
+            if (replayVaultCostForCapture())
+            {
+                if (screen == "story-mirewatch-intercept-footprint-live")
+                {
+                    storyPopupPage = 1;
+                }
+                else if (screen == "story-mirewatch-intercept-reset-live")
+                {
+                    storyPopupPage = 2;
+                }
+                else if (screen == "story-mirewatch-intercept-exclusions-live")
+                {
+                    storyPopupPage = 3;
+                }
+                if (storyPopupPage >= storyPopupPanels.size())
+                {
+                    failCaptureValidation(
+                        "Capture replay error: requested Intercept explanation page is absent.");
+                }
             }
         }
         else if (screen.rfind("story-mirewatch-game-", 0) == 0)
@@ -8689,7 +13200,359 @@ int main(int argc, char** argv)
             }
             catch (const std::exception&)
             {
-                storyMissionIndex = 0;
+                failCaptureValidation(
+                    "Capture setup error: invalid Mirewatch tactical screen key '" +
+                    screen + "'.");
+                return;
+            }
+            beginStory();
+            if (screen.size() >= 6 &&
+                screen.compare(screen.size() - 6, 6, "-board") == 0)
+            {
+                storyPopupPanels.clear();
+                storyPopupPage = 0;
+                storyCompleteAfterPopup = false;
+            }
+        }
+        else if (screen.rfind("story-seelie-review-", 0) == 0)
+        {
+            storyCampaign = StoryCampaign::Seelie;
+            const bool survivorFailure =
+                screen == "story-seelie-review-survivor-failure" ||
+                screen == "story-seelie-review-defeat-no-mastery";
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign,
+                survivorFailure
+                    ? "se27_emperor_at_tree"
+                    : "se01_cathedral_last_lights");
+            beginStory();
+            storyPopupPanels.clear();
+            storyPopupPage = 0;
+            storyCompleteAfterPopup = false;
+            if (screen == "story-seelie-review-guided-correction")
+            {
+                // Pavo's Quickstep from C3 to E2 is a legal printed action, but
+                // the first guided step requires the Messenger. Route the
+                // attempt through ordinary action resolution and let the Story
+                // gate provide its real correction.
+                const int pavoId = storyPieceIdForRole("pavo");
+                const int stepBefore = storyMissionStep;
+                requestPieceAction(pavoId, 1, 4);
+                const game_data::Piece* pavo = gamePieceById(pavoId);
+                if (pavo == nullptr || pavo->row != 2 || pavo->column != 2 ||
+                    storyMissionStep != stepBefore ||
+                    (storyCorrection.empty() && gameSnapshot.status.empty()))
+                {
+                    failCaptureValidation(
+                        "Capture replay error: the genuine wrong-actor correction was not reproduced.");
+                }
+            }
+            else if (screen == "story-seelie-review-illegal-drop")
+            {
+                // C3 is occupied by Pavo, so this genuine Messenger drop is
+                // rejected by normal board legality before Story gating.
+                const int messengerId = storyPieceIdForRole("messenger");
+                const int stepBefore = storyMissionStep;
+                requestPieceAction(messengerId, 2, 2);
+                const game_data::Piece* messenger = gamePieceById(messengerId);
+                if (messenger == nullptr || messenger->row != 2 || messenger->column != 1 ||
+                    storyMissionStep != stepBefore ||
+                    (storyCorrection.empty() && gameSnapshot.status.empty()))
+                {
+                    failCaptureValidation(
+                        "Capture replay error: the genuine occupied-square rejection was not reproduced.");
+                }
+            }
+            else if (screen == "story-seelie-review-already-acted")
+            {
+                const int messengerId = storyPieceIdForRole("messenger");
+                const int pavoId = storyPieceIdForRole("pavo");
+                requestPieceAction(messengerId, 2, 3);
+                sendEndTurn();
+                storyScriptActionAt = std::numeric_limits<float>::lowest();
+                updateStoryAi();
+                requestPieceAction(messengerId, 2, 4);
+                sendEndTurn();
+                storyScriptActionAt = std::numeric_limits<float>::lowest();
+                updateStoryAi();
+                requestPieceAction(pavoId, 3, 4);
+
+                const game_data::Piece* pavo = gamePieceById(pavoId);
+                if (pavo != nullptr)
+                {
+                    // Starting another drag on the same unit now exercises the
+                    // normal hasActed feedback path; no status is fabricated.
+                    beginPotentialGameDrag(boardFootprintCenter(
+                        pavo->row,
+                        pavo->column,
+                        pavo->width,
+                        pavo->height,
+                        gameSnapshot.yourPlayer));
+                }
+                const std::string actedFeedback =
+                    storyCorrection + " " + gameSnapshot.status;
+                if (pavo == nullptr || !pavo->hasActed ||
+                    actedFeedback.find("already acted") == std::string::npos)
+                {
+                    failCaptureValidation(
+                        "Capture replay error: the genuine already-acted feedback was not reproduced.");
+                }
+            }
+            else if (survivorFailure)
+            {
+                const int knightId = storyPieceIdForRole("knight_north");
+                const int sylvaraId = storyPieceIdForRole("sylvara");
+                const int bristleId = storyPieceIdForRole("bristle_north");
+                bool replayAccepted = knightId != 0 && sylvaraId != 0 &&
+                    bristleId != 0;
+                const auto opponentAction = [&](bool accepted) {
+                    replayAccepted = replayAccepted && accepted;
+                    if (accepted)
+                    {
+                        syncStoryEngine();
+                    }
+                };
+
+                // Every transition below is a legal open-mission action. The
+                // north Knight vacates Bodyguard range, Sylvara advances, and
+                // the Bristlejack spends three separate turns reaching her.
+                sendMovePiece(knightId, 2, 2);          // B3 -> C3
+                sendEndTurn();
+                opponentAction(storyEngine->endTurn(2));
+                sendMovePiece(sylvaraId, 0, 3);         // A4 -> D1
+                sendEndTurn();
+                opponentAction(storyEngine->movePiece(2, bristleId, 0, 5));
+                opponentAction(storyEngine->endTurn(2));
+                sendEndTurn();
+                opponentAction(storyEngine->movePiece(2, bristleId, 0, 4));
+                opponentAction(storyEngine->endTurn(2));
+                sendEndTurn();
+                opponentAction(storyEngine->attackPiece(2, bristleId, 0, 3));
+
+                if (!replayAccepted || storyStage != StoryStage::Failed)
+                {
+                    failCaptureValidation(
+                        "Capture replay error: the legal survivor-loss sequence did not finish.");
+                }
+                else if (gamePieceById(sylvaraId) != nullptr || gameSnapshot.winner != 2)
+                {
+                    failCaptureValidation(
+                        "Capture replay error: survivor failure was not caused by Sylvara's real defeat.");
+                }
+                else if (!canContinueStoryWithoutMastery())
+                {
+                    failCaptureValidation(
+                        "Capture replay error: a genuine required open-mission defeat did not expose no-mastery continuation.");
+                }
+            }
+        }
+        else if (screen == "story-seelie-reading-draw" ||
+                 screen == "story-seelie-reading-foresight" ||
+                 screen == "story-seelie-reading-foresight-correction" ||
+                 screen == "story-seelie-reading-discard")
+        {
+            storyCampaign = StoryCampaign::Seelie;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign, "se04_reading_room");
+            beginStory();
+            storyPopupPanels.clear();
+            storyPopupPage = 0;
+            storyCompleteAfterPopup = false;
+            const StoryMission& mission = activeStoryMission();
+            if (!storyEngine || storyStage != StoryStage::Objective ||
+                storyEngine->phase() != game_data::Phase::Playing ||
+                storyEngine->currentPlayer() != 1 || storyMissionStep != 0 ||
+                mission.script.size() < 4 ||
+                mission.script[0].kind != StoryActionKind::PlayCard ||
+                mission.script[0].cardTitle != "Archivist Mosswake" ||
+                mission.script[0].targetRow != 3 ||
+                mission.script[0].targetColumn != 1 ||
+                mission.script[1].kind != StoryActionKind::DrawCard ||
+                mission.script[2].kind != StoryActionKind::ChooseForesight ||
+                mission.script[2].cardTitle != "Fey Messenger" ||
+                mission.script[3].kind != StoryActionKind::DiscardCard ||
+                mission.script[3].cardTitle != "Fey Messenger")
+            {
+                failCaptureValidation(
+                    "Capture replay error: The Reading Room did not reach its exact deploy/draw/Foresight script.");
+                return;
+            }
+
+            const GameEngine::EnginePlayer& initialPlayer = storyEngine->playerState(1);
+            if (initialPlayer.resources != mission.playerResources ||
+                initialPlayer.hand.size() != 1 ||
+                initialPlayer.hand.front().title != "Archivist Mosswake" ||
+                initialPlayer.hand.front().cost != 35 ||
+                initialPlayer.drawPile.size() != 2 ||
+                initialPlayer.drawPile.front().title != "Starbloom Knight" ||
+                initialPlayer.drawPile.back().title != "Fey Messenger" ||
+                initialPlayer.pieceActionUsedThisTurn ||
+                storyEngine->boardControl()[static_cast<std::size_t>(
+                    game_data::squareIndex(3, 1))] != 1)
+            {
+                failCaptureValidation(
+                    "Capture replay error: the Reading Room hand, pile order, Resources, or controlled deploy square drifted.");
+                return;
+            }
+
+            sendPlayCard(0, 3, 1);
+            const int mosswakeId = storyPieceIdForRole("mosswake");
+            const game_data::Piece* mosswake = gamePieceById(mosswakeId);
+            const GameEngine::EnginePlayer& deployedPlayer = storyEngine->playerState(1);
+            if (storyMissionStep != 1 || mosswakeId == 0 || mosswake == nullptr ||
+                mosswake->owner != 1 || mosswake->name != "Archivist Mosswake" ||
+                mosswake->row != 3 || mosswake->column != 1 ||
+                !mosswake->hasActed ||
+                !game_data::hasKeyword(mosswake->keywords, "foresight") ||
+                deployedPlayer.resources != 65 || !deployedPlayer.hand.empty() ||
+                deployedPlayer.drawPile.size() != 2 ||
+                !deployedPlayer.foresightChoices.empty() ||
+                deployedPlayer.pieceActionUsedThisTurn)
+            {
+                failCaptureValidation(
+                    "Capture replay error: Mosswake did not deploy for 35 Resources, arrive exhausted, and preserve the normal piece action.");
+                return;
+            }
+
+            // Prove the rest of the exact rules cycle on a copy even when the
+            // requested screenshot intentionally remains on the pre-draw frame.
+            GameEngine foresightWitness = *storyEngine;
+            const bool witnessDrew = foresightWitness.drawCard(1);
+            const GameEngine::EnginePlayer& witnessAfterDraw =
+                foresightWitness.playerState(1);
+            const bool witnessChoices = witnessDrew &&
+                witnessAfterDraw.resources == 15 &&
+                witnessAfterDraw.hand.empty() &&
+                witnessAfterDraw.drawPile.empty() &&
+                witnessAfterDraw.foresightChoices.size() == 2 &&
+                witnessAfterDraw.foresightChoices[0].title == "Fey Messenger" &&
+                witnessAfterDraw.foresightChoices[1].title == "Starbloom Knight";
+            const bool witnessChose = witnessChoices &&
+                foresightWitness.chooseForesightCard(1, 0);
+            const GameEngine::EnginePlayer& witnessAfterChoice =
+                foresightWitness.playerState(1);
+            const bool witnessChoiceOutcome = witnessChose &&
+                witnessAfterChoice.resources == 15 &&
+                witnessAfterChoice.foresightChoices.empty() &&
+                witnessAfterChoice.hand.size() == 1 &&
+                witnessAfterChoice.hand.front().title == "Fey Messenger" &&
+                witnessAfterChoice.drawPile.size() == 1 &&
+                witnessAfterChoice.drawPile.front().title == "Starbloom Knight";
+            const bool witnessDiscarded = witnessChoiceOutcome &&
+                foresightWitness.discardCard(1, 0);
+            const GameEngine::EnginePlayer& witnessAfterDiscard =
+                foresightWitness.playerState(1);
+            if (!witnessDiscarded || !witnessAfterDiscard.hand.empty() ||
+                witnessAfterDiscard.resources != 15 ||
+                witnessAfterDiscard.discardsThisTurn != 1 ||
+                witnessAfterDiscard.pieceActionUsedThisTurn ||
+                witnessAfterDiscard.drawPile.size() != 2 ||
+                witnessAfterDiscard.drawPile.front().title != "Fey Messenger" ||
+                witnessAfterDiscard.drawPile.back().title != "Starbloom Knight")
+            {
+                failCaptureValidation(
+                    "Capture witness error: paid Foresight did not reveal two, keep the chosen card, and return both rejected/discarded cards to the exact bottom order.");
+                return;
+            }
+
+            if (screen != "story-seelie-reading-draw")
+            {
+                const int resourcesBeforeDraw = storyEngine->playerState(1).resources;
+                sendDrawCard();
+                const GameEngine::EnginePlayer& afterDraw = storyEngine->playerState(1);
+                if (storyMissionStep != 2 ||
+                    afterDraw.resources !=
+                        resourcesBeforeDraw - game_data::DrawCardResourceCost ||
+                    !afterDraw.hand.empty() || !afterDraw.drawPile.empty() ||
+                    afterDraw.foresightChoices.size() != 2 ||
+                    afterDraw.foresightChoices[0].title != "Fey Messenger" ||
+                    afterDraw.foresightChoices[1].title != "Starbloom Knight" ||
+                    !storyEngine->hasPendingForesightChoice(1))
+                {
+                    failCaptureValidation(
+                        "Capture replay error: the paid draw did not reach the exact two-card Foresight choice.");
+                    return;
+                }
+            }
+
+            if (screen == "story-seelie-reading-foresight-correction")
+            {
+                const auto knight = std::find_if(
+                    gameSnapshot.foresightChoices.begin(),
+                    gameSnapshot.foresightChoices.end(),
+                    [](const game_data::GameCard& card) {
+                        return card.title == "Starbloom Knight";
+                    });
+                if (knight == gameSnapshot.foresightChoices.end())
+                {
+                    failCaptureValidation(
+                        "Capture replay error: Starbloom Knight is absent from the genuine Foresight choices.");
+                    return;
+                }
+                sendChooseForesightCard(static_cast<int>(
+                    std::distance(gameSnapshot.foresightChoices.begin(), knight)));
+                const GameEngine::EnginePlayer& afterWrongChoice =
+                    storyEngine->playerState(1);
+                if (storyMissionStep != 2 ||
+                    afterWrongChoice.foresightChoices.size() != 2 ||
+                    afterWrongChoice.hand.size() != 0 ||
+                    !storyEngine->hasPendingForesightChoice(1) ||
+                    storyCorrection.find("Fey Messenger is required") ==
+                        std::string::npos)
+                {
+                    failCaptureValidation(
+                        "Capture replay error: the rejected Starbloom Knight choice did not preserve the modal with its Fey Messenger correction.");
+                    return;
+                }
+            }
+            else if (screen == "story-seelie-reading-discard")
+            {
+                const auto messenger = std::find_if(
+                    gameSnapshot.foresightChoices.begin(),
+                    gameSnapshot.foresightChoices.end(),
+                    [](const game_data::GameCard& card) {
+                        return card.title == "Fey Messenger";
+                    });
+                if (messenger == gameSnapshot.foresightChoices.end())
+                {
+                    failCaptureValidation(
+                        "Capture replay error: Fey Messenger is absent from the genuine Foresight choices.");
+                    return;
+                }
+                sendChooseForesightCard(static_cast<int>(
+                    std::distance(gameSnapshot.foresightChoices.begin(), messenger)));
+                const GameEngine::EnginePlayer& afterChoice = storyEngine->playerState(1);
+                if (storyMissionStep != 3 ||
+                    afterChoice.resources != 15 ||
+                    !afterChoice.foresightChoices.empty() ||
+                    storyEngine->hasPendingForesightChoice(1) ||
+                    afterChoice.hand.size() != 1 ||
+                    afterChoice.hand.front().title != "Fey Messenger" ||
+                    afterChoice.drawPile.size() != 1 ||
+                    afterChoice.drawPile.front().title != "Starbloom Knight" ||
+                    afterChoice.pieceActionUsedThisTurn)
+                {
+                    failCaptureValidation(
+                        "Capture replay error: the Foresight choice did not keep Messenger and return Knight to the bottom without another cost or action.");
+                    return;
+                }
+            }
+        }
+        else if (screen.rfind("story-seelie-game-", 0) == 0)
+        {
+            storyCampaign = StoryCampaign::Seelie;
+            try
+            {
+                storyMissionIndex = storyTacticalMissionIndex(
+                    storyCampaign,
+                    std::stoi(screen.substr(std::string("story-seelie-game-").size())) - 1);
+            }
+            catch (const std::exception&)
+            {
+                failCaptureValidation(
+                    "Capture setup error: invalid Seelie tactical screen key '" +
+                    screen + "'.");
+                return;
             }
             beginStory();
             if (screen.size() >= 6 &&
@@ -8747,6 +13610,105 @@ int main(int argc, char** argv)
                 captureHoverPoint = sf::Vector2f{244.0f, 312.0f};
             }
         }
+        else if (screen == "game-action-choice")
+        {
+            seedCaptureMatch("action-choice");
+            const auto briar = std::find_if(
+                gameSnapshot.pieces.begin(),
+                gameSnapshot.pieces.end(),
+                [](const game_data::Piece& piece) {
+                    return piece.name == "Briar Whisperthorn";
+                });
+            const auto target = std::find_if(
+                gameSnapshot.pieces.begin(),
+                gameSnapshot.pieces.end(),
+                [](const game_data::Piece& piece) {
+                    return piece.name == "Bristlejack";
+                });
+            if (briar != gameSnapshot.pieces.end() &&
+                target != gameSnapshot.pieces.end())
+            {
+                requestPieceAction(briar->id, target->row, target->column);
+            }
+            if (!pendingPieceActionChoice ||
+                pendingPieceActionChoice->actionIndices.size() != 2)
+            {
+                failCaptureValidation(
+                    "Capture setup error: both legal Briar profiles were not offered.");
+            }
+        }
+        else if (screen == "game-undefined-spell-popup" ||
+                 screen == "game-undefined-spell-rejected")
+        {
+            seedCaptureMatch("midgame");
+            const auto packagedFixture = std::find_if(
+                allCardLibrary.begin(), allCardLibrary.end(),
+                [](const card_data::Card& card) {
+                    return card.title == "Hidden Camp";
+                });
+            if (packagedFixture == allCardLibrary.end())
+            {
+                failCaptureValidation(
+                    "Capture setup error: packaged Hidden Camp fixture is missing.");
+                return;
+            }
+            game_data::GameCard hiddenCamp = game_data::toGameCard(*packagedFixture);
+            if (hiddenCamp.title != "Hidden Camp" || hiddenCamp.type != "Spell" ||
+                hiddenCamp.cost != 10 ||
+                hiddenCamp.imagePath != "cards/hiddenCamp.png" ||
+                std::find(hiddenCamp.traits.begin(), hiddenCamp.traits.end(), "Wild") ==
+                    hiddenCamp.traits.end() ||
+                game_data::isSupportedSpellEffect(hiddenCamp))
+            {
+                failCaptureValidation(
+                    "Capture setup error: packaged Hidden Camp no longer represents the intended unsupported Spell fixture.");
+                return;
+            }
+            gameSnapshot.hand.insert(gameSnapshot.hand.begin(), std::move(hiddenCamp));
+            gameSnapshot.players[0].handCount =
+                static_cast<int>(gameSnapshot.hand.size());
+            if (screen == "game-undefined-spell-popup")
+            {
+                inspectedHandIndex = 0;
+                inspectedPieceScroll = 0.0f;
+                if (!inspectedHandIndex || *inspectedHandIndex != 0 ||
+                    gameSnapshot.hand.empty() ||
+                    gameSnapshot.hand.front().title != "Hidden Camp" ||
+                    gameSnapshot.hand.front().type != "Spell" ||
+                    game_data::isSupportedSpellEffect(gameSnapshot.hand.front()))
+                {
+                    failCaptureValidation(
+                        "Capture setup error: packaged undefined Spell popup state was not reached.");
+                    return;
+                }
+            }
+            else
+            {
+                const std::size_t beforeHandSize = gameSnapshot.hand.size();
+                const int beforeResources = gameSnapshot.players[0].resources;
+                const std::size_t beforePieceCount = gameSnapshot.pieces.size();
+                const int beforeActivePlayer = gameSnapshot.activePlayer;
+                const std::uint8_t beforePhase = gameSnapshot.phase;
+                const int beforeDrawPile = gameSnapshot.players[0].drawPileCount;
+                const bool handled = handleHandCardClick(0);
+                if (!handled || gameSnapshot.hand.size() != beforeHandSize ||
+                    gameSnapshot.players[0].resources != beforeResources ||
+                    gameSnapshot.pieces.size() != beforePieceCount ||
+                    gameSnapshot.activePlayer != beforeActivePlayer ||
+                    gameSnapshot.phase != beforePhase ||
+                    gameSnapshot.players[0].drawPileCount != beforeDrawPile ||
+                    gameSnapshot.hand.empty() ||
+                    gameSnapshot.hand.front().title != "Hidden Camp" ||
+                    selectedHandIndex || selectedPieceId ||
+                    gameSnapshot.status !=
+                        "This spell has no defined game effect and cannot be played.")
+                {
+                    failCaptureValidation(
+                        "Capture setup error: an undefined Spell did not fail closed.");
+                    return;
+                }
+            }
+        }
         else if (screen == "game-resign-confirmation")
         {
             seedCaptureMatch("midgame");
@@ -8755,6 +13717,166 @@ int main(int argc, char** argv)
         else if (screen == "game-victory")
         {
             seedCaptureMatch("victory");
+        }
+        else
+        {
+            failCaptureValidation(
+                "Capture setup error: unknown or unhandled UI capture screen key '" +
+                screen + "'.");
+            return;
+        }
+
+        if (!captureValidationFailed && captureRequest && storyMode && storyEngine &&
+            currentState == GameState::Game)
+        {
+            // Capture Story gameplay resolves through packaged GameCards, not
+            // the generic account-screen sample catalogue.  Verify every
+            // dependency and every currently renderable object against that
+            // exact source so a same-title sample row can never mask drift in
+            // type, card art, token art, or animation identity. GameCard does
+            // not carry rarity; rarityGemArtworkFor therefore renders no gem
+            // for this fixture instead of inventing one from sample metadata.
+            const auto renderMetadataMatches = [](
+                const game_data::GameCard& actual,
+                const game_data::GameCard& expected) {
+                return actual.title == expected.title &&
+                    actual.type == expected.type &&
+                    actual.imagePath == expected.imagePath &&
+                    actual.tokenPath == expected.tokenPath &&
+                    actual.state1TokenPath == expected.state1TokenPath &&
+                    actual.pieceBaseBluePath == expected.pieceBaseBluePath &&
+                    actual.pieceBaseRedPath == expected.pieceBaseRedPath &&
+                    actual.walkAnimPath == expected.walkAnimPath &&
+                    actual.idleAnimPath == expected.idleAnimPath &&
+                    actual.attackAnimPath == expected.attackAnimPath &&
+                    actual.damagedAnimPath == expected.damagedAnimPath &&
+                    actual.killedAnimPath == expected.killedAnimPath &&
+                    actual.fidgetAnimPath == expected.fidgetAnimPath &&
+                    actual.walkAnimFrames == expected.walkAnimFrames &&
+                    actual.idleAnimFrames == expected.idleAnimFrames &&
+                    actual.attackAnimFrames == expected.attackAnimFrames &&
+                    actual.damagedAnimFrames == expected.damagedAnimFrames &&
+                    actual.killedAnimFrames == expected.killedAnimFrames &&
+                    actual.fidgetAnimFrames == expected.fidgetAnimFrames &&
+                    actual.width == expected.width &&
+                    actual.height == expected.height;
+            };
+            std::string metadataFailure;
+            const auto recordFailure = [&](std::string_view kind, std::string_view title) {
+                if (metadataFailure.empty())
+                {
+                    metadataFailure = std::string(kind) + " '" +
+                        std::string(title) + "'";
+                }
+            };
+
+            const StoryCardDependencyReport dependencies =
+                validateStoryCardDependencies(
+                    activeStoryMission(),
+                    {},
+                    {},
+                    StoryCardResolutionMode::AllowPackagedFixtureFallback);
+            if (!dependencies.complete())
+            {
+                recordFailure("dependency", dependencies.missingTitles.front());
+            }
+            for (const std::string& title : dependencies.requiredTitles)
+            {
+                const std::optional<game_data::GameCard> expected =
+                    packagedStoryCard(title);
+                const std::optional<game_data::GameCard> resolved =
+                    resolvedStoryCardNamed(title);
+                if (!expected || !resolved ||
+                    !renderMetadataMatches(*resolved, *expected))
+                {
+                    recordFailure("dependency", title);
+                }
+            }
+
+            const auto validateCards = [&](const auto& cards, std::string_view kind) {
+                for (const game_data::GameCard& card : cards)
+                {
+                    const std::optional<game_data::GameCard> expected =
+                        packagedStoryCard(card.title);
+                    if (!expected || !renderMetadataMatches(card, *expected))
+                    {
+                        recordFailure(kind, card.title);
+                    }
+                }
+            };
+            for (int playerNumber = 1; playerNumber <= 2; ++playerNumber)
+            {
+                const GameEngine::EnginePlayer& player =
+                    storyEngine->playerState(playerNumber);
+                validateCards(player.heroesToPlace, "Hero placement card");
+                validateCards(player.hand, "hand card");
+                validateCards(player.drawPile, "draw-pile card");
+                validateCards(player.foresightChoices, "Foresight card");
+            }
+            validateCards(gameSnapshot.hand, "visible hand card");
+            validateCards(gameSnapshot.foresightChoices, "visible Foresight card");
+
+            const auto validatePiece = [&](const game_data::Piece& piece,
+                                           std::string_view kind) {
+                const std::optional<game_data::GameCard> expected =
+                    packagedStoryCard(piece.name);
+                const bool typeMatches = expected &&
+                    ((expected->type == "Hero" && piece.isHero) ||
+                     (expected->type == "Unit" && !piece.isHero));
+                if (!expected || !typeMatches ||
+                    piece.imagePath != expected->imagePath ||
+                    piece.tokenPath != expected->tokenPath ||
+                    piece.state1TokenPath != expected->state1TokenPath ||
+                    piece.pieceBaseBluePath != expected->pieceBaseBluePath ||
+                    piece.pieceBaseRedPath != expected->pieceBaseRedPath ||
+                    piece.walkAnimPath != expected->walkAnimPath ||
+                    piece.idleAnimPath != expected->idleAnimPath ||
+                    piece.attackAnimPath != expected->attackAnimPath ||
+                    piece.damagedAnimPath != expected->damagedAnimPath ||
+                    piece.killedAnimPath != expected->killedAnimPath ||
+                    piece.fidgetAnimPath != expected->fidgetAnimPath ||
+                    piece.walkAnimFrames != expected->walkAnimFrames ||
+                    piece.idleAnimFrames != expected->idleAnimFrames ||
+                    piece.attackAnimFrames != expected->attackAnimFrames ||
+                    piece.damagedAnimFrames != expected->damagedAnimFrames ||
+                    piece.killedAnimFrames != expected->killedAnimFrames ||
+                    piece.fidgetAnimFrames != expected->fidgetAnimFrames ||
+                    piece.width != expected->width ||
+                    piece.height != expected->height)
+                {
+                    recordFailure(kind, piece.name);
+                }
+            };
+            for (const game_data::Piece& piece : gameSnapshot.pieces)
+            {
+                validatePiece(piece, "board piece");
+            }
+            for (const PieceKilledAnimation& animation : pieceKilledAnimations)
+            {
+                validatePiece(animation.piece, "killed-piece animation");
+            }
+            for (const DematerializeGhost& ghost : dematerializeGhosts)
+            {
+                validatePiece(ghost.piece, "dematerialized-piece animation");
+            }
+            for (const game_data::Enchantment& enchantment : gameSnapshot.enchantments)
+            {
+                const std::optional<game_data::GameCard> expected =
+                    packagedStoryCard(enchantment.title);
+                if (!expected || expected->type != "Enchantment" ||
+                    enchantment.imagePath != expected->imagePath)
+                {
+                    recordFailure("enchantment", enchantment.title);
+                }
+            }
+
+            if (!metadataFailure.empty())
+            {
+                failCaptureValidation(
+                    "Capture render error: exact packaged Story metadata did not resolve for " +
+                    metadataFailure + ".");
+                return;
+            }
         }
     };
 
@@ -8780,8 +13902,8 @@ int main(int argc, char** argv)
     };
 
     auto syncAuthenticatedMenuFocus = [&]() {
-        playButton.setFocused(authenticatedMenuFocus == 0);
-        storyButton.setFocused(authenticatedMenuFocus == 1);
+        storyButton.setFocused(authenticatedMenuFocus == 0);
+        playButton.setFocused(authenticatedMenuFocus == 1);
         conquestButton.setFocused(authenticatedMenuFocus == 2);
         deckEditorButton.setFocused(authenticatedMenuFocus == 3);
         shopButton.setFocused(authenticatedMenuFocus == 4);
@@ -8798,11 +13920,11 @@ int main(int argc, char** argv)
         playButtonClickSound();
         if (index == 0)
         {
-            showDeckSelect();
+            showStorySelect();
         }
         else if (index == 1)
         {
-            showStorySelect();
+            showDeckSelect();
         }
         else if (index == 2)
         {
@@ -8843,6 +13965,763 @@ int main(int argc, char** argv)
         }
     };
 
+    auto activateStorySelectKeyboardFocus = [&]() {
+        playButtonClickSound();
+        if (storySelectKeyboardFocus == 3)
+        {
+            showAuthenticatedScreen();
+        }
+        else if (!storyCardsReady())
+        {
+            requestStoryCards();
+        }
+        else if (storySelectKeyboardFocus == 0)
+        {
+            requestStoryCampaignSelection(StoryCampaign::Blackthorn);
+        }
+        else if (storySelectKeyboardFocus == 1)
+        {
+            requestStoryCampaignSelection(StoryCampaign::Mirewatch);
+        }
+        else if (storySelectKeyboardFocus == 2)
+        {
+            requestStoryCampaignSelection(StoryCampaign::Seelie);
+        }
+    };
+
+    const auto storyMissionKeyboardTargets = [&]() {
+        std::vector<int> targets;
+        const int missionCount = static_cast<int>(storyMissions(storyCampaign).size());
+        const int completed = storyCampaignProgress[storyProgressIndex(storyCampaign)];
+        const int unlockedCount =
+            std::min(missionCount, completed + (completed < missionCount ? 1 : 0));
+        for (int slot = 0; slot < StoryMissionPageSize; ++slot)
+        {
+            const int missionIndex = storyMissionPage * StoryMissionPageSize + slot;
+            if (missionIndex < missionCount && missionIndex < unlockedCount)
+            {
+                targets.push_back(slot);
+            }
+        }
+        targets.push_back(8); // Back
+        if (storyMissionPage > 0)
+        {
+            targets.push_back(9); // Previous page
+        }
+        const int pageCount =
+            std::max(1, (missionCount + StoryMissionPageSize - 1) / StoryMissionPageSize);
+        if (storyMissionPage + 1 < pageCount)
+        {
+            targets.push_back(10); // Next page
+        }
+        if (missionCount > 0)
+        {
+            targets.push_back(11); // Continue/replay
+        }
+        return targets;
+    };
+
+    auto moveStoryMissionKeyboardFocus = [&](int delta) {
+        const std::vector<int> targets = storyMissionKeyboardTargets();
+        if (targets.empty())
+        {
+            storyMissionKeyboardFocus = -1;
+            return;
+        }
+        const auto current = std::find(
+            targets.begin(), targets.end(), storyMissionKeyboardFocus);
+        const int currentIndex = current == targets.end()
+            ? -1
+            : static_cast<int>(std::distance(targets.begin(), current));
+        const int nextIndex = wrapStoryKeyboardIndex(
+            currentIndex, delta, static_cast<int>(targets.size()));
+        storyMissionKeyboardFocus = targets[static_cast<std::size_t>(nextIndex)];
+    };
+
+    const auto focusFirstStoryMissionOnPage = [&]() {
+        const std::vector<int> targets = storyMissionKeyboardTargets();
+        const auto missionTarget = std::find_if(
+            targets.begin(), targets.end(), [](int value) {
+                return value >= 0 && value < StoryMissionPageSize;
+            });
+        storyMissionKeyboardFocus = missionTarget == targets.end() ? 8 : *missionTarget;
+    };
+
+    auto activateStoryMissionKeyboardFocus = [&]() {
+        const int missionCount = static_cast<int>(storyMissions(storyCampaign).size());
+        const int completed = storyCampaignProgress[storyProgressIndex(storyCampaign)];
+        const int unlockedCount =
+            std::min(missionCount, completed + (completed < missionCount ? 1 : 0));
+        if (storyMissionKeyboardFocus >= 0 &&
+            storyMissionKeyboardFocus < StoryMissionPageSize)
+        {
+            const int missionIndex =
+                storyMissionPage * StoryMissionPageSize + storyMissionKeyboardFocus;
+            if (missionIndex < missionCount && missionIndex < unlockedCount)
+            {
+                playButtonClickSound();
+                showStoryIntro(missionIndex);
+            }
+            return;
+        }
+        if (storyMissionKeyboardFocus == 8)
+        {
+            playButtonClickSound();
+            showStorySelect();
+        }
+        else if (storyMissionKeyboardFocus == 9 && storyMissionPage > 0)
+        {
+            playButtonClickSound();
+            --storyMissionPage;
+            focusFirstStoryMissionOnPage();
+        }
+        else if (storyMissionKeyboardFocus == 10)
+        {
+            const int lastPage =
+                std::max(0, (missionCount - 1) / StoryMissionPageSize);
+            if (storyMissionPage < lastPage)
+            {
+                playButtonClickSound();
+                ++storyMissionPage;
+                focusFirstStoryMissionOnPage();
+            }
+        }
+        else if (storyMissionKeyboardFocus == 11 && missionCount > 0)
+        {
+            playButtonClickSound();
+            showStoryIntro(std::min(completed, missionCount - 1));
+        }
+    };
+
+    const auto storyIntroKeyboardTargets = [&]() {
+        std::vector<int> targets = {0}; // Previous/missions
+        const StoryMission& mission = activeStoryMission();
+        if ((mission.optionalRehearsal || activeStoryCatchUpMayBeSkipped()) &&
+            storyComicPage + 1 >= static_cast<int>(mission.briefing.size()))
+        {
+            targets.push_back(1); // Skip an optional drill or replay mastered catch-up
+        }
+        targets.push_back(2); // Continue/start
+        return targets;
+    };
+
+    auto moveStoryIntroKeyboardFocus = [&](int delta) {
+        const std::vector<int> targets = storyIntroKeyboardTargets();
+        const auto current = std::find(
+            targets.begin(), targets.end(), storyIntroKeyboardFocus);
+        const int currentIndex = current == targets.end()
+            ? -1
+            : static_cast<int>(std::distance(targets.begin(), current));
+        storyIntroKeyboardFocus = targets[static_cast<std::size_t>(
+            wrapStoryKeyboardIndex(
+                currentIndex, delta, static_cast<int>(targets.size())))];
+    };
+
+    auto storyIntroBack = [&]() {
+        playButtonClickSound();
+        if (storyComicPage > 0)
+        {
+            --storyComicPage;
+            storyIntroKeyboardFocus = 2;
+        }
+        else
+        {
+            showStoryMissionSelect(storyCampaign);
+        }
+    };
+
+    auto storyIntroContinue = [&]() {
+        playButtonClickSound();
+        const StoryMission& mission = activeStoryMission();
+        if (storyComicPage + 1 < static_cast<int>(mission.briefing.size()))
+        {
+            ++storyComicPage;
+            storyIntroKeyboardFocus = 2;
+        }
+        else if (mission.objectiveSpec.kind == StoryObjectiveKind::StoryOnly)
+        {
+            completeStoryChronicle();
+        }
+        else if (activeStoryCatchUpMayBeSkipped())
+        {
+            completeStoryChronicle();
+        }
+        else
+        {
+            beginStory();
+        }
+    };
+
+    auto advanceStoryPopup = [&]() {
+        playButtonClickSound();
+        if (storyPopupPage + 1 < storyPopupPanels.size())
+        {
+            ++storyPopupPage;
+            storyPopupKeyboardFocus = 1;
+            return;
+        }
+        const bool completeAfter = storyCompleteAfterPopup;
+        storyPopupPanels.clear();
+        storyPopupPage = 0;
+        storyCompleteAfterPopup = false;
+        storyScriptActionAt = animationTime + 0.35f;
+        if (completeAfter)
+        {
+            completeStoryMission(gameSnapshot);
+        }
+    };
+
+    auto retreatStoryPopup = [&]() {
+        if (storyPopupPage > 0)
+        {
+            playButtonClickSound();
+            --storyPopupPage;
+            storyPopupKeyboardFocus = storyPopupPage > 0 ? 0 : 1;
+        }
+    };
+
+    const auto storyEndTurnAvailable = [&]() {
+        if (!storyMode || !haveSnapshot || !storyPopupPanels.empty())
+        {
+            return false;
+        }
+        if (storyStage == StoryStage::Complete || storyStage == StoryStage::Failed)
+        {
+            return true;
+        }
+        if (static_cast<game_data::Phase>(gameSnapshot.phase) !=
+                game_data::Phase::Playing ||
+            gameSnapshot.activePlayer != gameSnapshot.yourPlayer)
+        {
+            return false;
+        }
+        const StoryMission& mission = activeStoryMission();
+        if (mission.script.empty())
+        {
+            return true;
+        }
+        if (storyMissionStep < 0 ||
+            storyMissionStep >= static_cast<int>(mission.script.size()))
+        {
+            return false;
+        }
+        const StoryScriptAction& step =
+            mission.script[static_cast<std::size_t>(storyMissionStep)];
+        return step.owner == gameSnapshot.yourPlayer &&
+            step.kind == StoryActionKind::EndTurn;
+    };
+
+    const auto storyAbilityAvailable = [&]() {
+        if (!storyMode || !haveSnapshot || !selectedPieceId ||
+            static_cast<game_data::Phase>(gameSnapshot.phase) !=
+                game_data::Phase::Playing ||
+            gameSnapshot.activePlayer != gameSnapshot.yourPlayer)
+        {
+            return false;
+        }
+        const game_data::Piece* piece = gamePieceById(*selectedPieceId);
+        return piece && pieceCanTakeGameAction(*piece) &&
+            game_data::pieceAbilityAvailable(gameSnapshot.pieces, *piece);
+    };
+
+    const auto storyGameKeyboardTargets = [&]() {
+        std::vector<StoryGameKeyboardFocus> targets = {
+            StoryGameKeyboardFocus::Board};
+        if (haveSnapshot && !gameSnapshot.hand.empty() &&
+            (static_cast<game_data::Phase>(gameSnapshot.phase) ==
+                 game_data::Phase::HeroPlacement ||
+             (static_cast<game_data::Phase>(gameSnapshot.phase) ==
+                  game_data::Phase::Playing &&
+              gameSnapshot.activePlayer == gameSnapshot.yourPlayer)))
+        {
+            targets.push_back(StoryGameKeyboardFocus::Hand);
+        }
+        if (selectedHandIndex && *selectedHandIndex < gameSnapshot.hand.size())
+        {
+            const game_data::GameCard& selectedCard = gameSnapshot.hand[*selectedHandIndex];
+            if (selectedCard.type == "Enchantment" && selectedCard.target == "player")
+            {
+                targets.push_back(StoryGameKeyboardFocus::PlayerOne);
+                targets.push_back(StoryGameKeyboardFocus::PlayerTwo);
+            }
+        }
+        if (playerCanDrawCard())
+        {
+            targets.push_back(StoryGameKeyboardFocus::DrawPile);
+        }
+        if (storyAbilityAvailable())
+        {
+            targets.push_back(StoryGameKeyboardFocus::Ability);
+        }
+        if (storyEndTurnAvailable())
+        {
+            targets.push_back(StoryGameKeyboardFocus::EndTurn);
+        }
+        targets.push_back(StoryGameKeyboardFocus::Restart);
+        targets.push_back(StoryGameKeyboardFocus::Exit);
+        return targets;
+    };
+
+    auto moveStoryGameKeyboardFocus = [&](int delta) {
+        const std::vector<StoryGameKeyboardFocus> targets =
+            storyGameKeyboardTargets();
+        const auto current = std::find(
+            targets.begin(), targets.end(), storyGameKeyboardFocus);
+        const int currentIndex = current == targets.end()
+            ? -1
+            : static_cast<int>(std::distance(targets.begin(), current));
+        const int nextIndex = wrapStoryKeyboardIndex(
+            currentIndex, delta, static_cast<int>(targets.size()));
+        storyGameKeyboardFocus = targets[static_cast<std::size_t>(nextIndex)];
+    };
+
+    auto ensureStoryKeyboardHandVisible = [&]() {
+        if (gameSnapshot.hand.empty())
+        {
+            storyKeyboardHandIndex = 0;
+            gameHandOffset = 0;
+            return;
+        }
+        storyKeyboardHandIndex = std::min(
+            storyKeyboardHandIndex, gameSnapshot.hand.size() - 1);
+        if (storyKeyboardHandIndex < gameHandOffset)
+        {
+            gameHandOffset = storyKeyboardHandIndex;
+        }
+        else if (storyKeyboardHandIndex >= gameHandOffset + VisibleGameHandCards)
+        {
+            gameHandOffset = storyKeyboardHandIndex - VisibleGameHandCards + 1;
+        }
+        clampListOffset(
+            gameHandOffset, gameSnapshot.hand.size(), VisibleGameHandCards);
+    };
+
+    auto cycleStoryKeyboardHand = [&](int delta) {
+        if (gameSnapshot.hand.empty())
+        {
+            return;
+        }
+        storyKeyboardHandIndex = static_cast<std::size_t>(wrapStoryKeyboardIndex(
+            static_cast<int>(storyKeyboardHandIndex),
+            delta,
+            static_cast<int>(gameSnapshot.hand.size())));
+        ensureStoryKeyboardHandVisible();
+    };
+
+    auto activateStoryKeyboardHand = [&]() {
+        if (!haveSnapshot || gameSnapshot.hand.empty())
+        {
+            return;
+        }
+        ensureStoryKeyboardHandVisible();
+        const game_data::GameCard focusedCard =
+            gameSnapshot.hand[storyKeyboardHandIndex];
+        const bool immediateAction = handleHandCardClick(storyKeyboardHandIndex);
+        if (!immediateAction && selectedHandIndex)
+        {
+            if (focusedCard.type == "Enchantment" &&
+                focusedCard.target == "player")
+            {
+                storyGameKeyboardFocus = gameSnapshot.yourPlayer == 1
+                    ? StoryGameKeyboardFocus::PlayerOne
+                    : StoryGameKeyboardFocus::PlayerTwo;
+            }
+            else
+            {
+                if (game_data::inBounds(storyTargetRow, storyTargetColumn))
+                {
+                    storyBoardKeyboardCursor = {storyTargetRow, storyTargetColumn};
+                }
+                storyGameKeyboardFocus = StoryGameKeyboardFocus::Board;
+            }
+        }
+    };
+
+    auto activateStoryKeyboardBoardSquare = [&]() {
+        if (!haveSnapshot || !game_data::inBounds(
+                storyBoardKeyboardCursor.row, storyBoardKeyboardCursor.column))
+        {
+            return;
+        }
+        const game_data::Phase phase =
+            static_cast<game_data::Phase>(gameSnapshot.phase);
+        if (selectedHandIndex && *selectedHandIndex < gameSnapshot.hand.size())
+        {
+            const int handIndex = static_cast<int>(*selectedHandIndex);
+            if (phase == game_data::Phase::HeroPlacement)
+            {
+                sendPlaceHero(
+                    handIndex,
+                    storyBoardKeyboardCursor.row,
+                    storyBoardKeyboardCursor.column);
+            }
+            else if (phase == game_data::Phase::Playing &&
+                     gameSnapshot.activePlayer == gameSnapshot.yourPlayer)
+            {
+                const game_data::GameCard& card =
+                    gameSnapshot.hand[static_cast<std::size_t>(handIndex)];
+                if (card.type == "Enchantment" && card.target == "player")
+                {
+                    sendPlayCard(handIndex, -1, gameSnapshot.yourPlayer);
+                }
+                else
+                {
+                    sendPlayCard(
+                        handIndex,
+                        storyBoardKeyboardCursor.row,
+                        storyBoardKeyboardCursor.column);
+                }
+            }
+            selectedHandIndex.reset();
+            selectedPieceId.reset();
+            ensureStoryKeyboardHandVisible();
+            if (phase == game_data::Phase::HeroPlacement &&
+                static_cast<game_data::Phase>(gameSnapshot.phase) ==
+                    game_data::Phase::HeroPlacement &&
+                !gameSnapshot.hand.empty())
+            {
+                storyGameKeyboardFocus = StoryGameKeyboardFocus::Hand;
+            }
+            return;
+        }
+        if (selectedPieceId && phase == game_data::Phase::Playing &&
+            gameSnapshot.activePlayer == gameSnapshot.yourPlayer)
+        {
+            const game_data::Piece* selectedPiece = gamePieceById(*selectedPieceId);
+            if (selectedPiece &&
+                selectedPiece->owner == gameSnapshot.yourPlayer &&
+                pieceCanTakeGameAction(*selectedPiece))
+            {
+                requestPieceAction(
+                    selectedPiece->id,
+                    storyBoardKeyboardCursor.row,
+                    storyBoardKeyboardCursor.column);
+                selectedPieceId.reset();
+                selectedHandIndex.reset();
+                return;
+            }
+            // Enemy and inactive pieces remain available as previews, but can
+            // never become keyboard action sources.
+            selectedPieceId.reset();
+        }
+
+        const game_data::Piece* piece = gamePieceAt(
+            storyBoardKeyboardCursor.row, storyBoardKeyboardCursor.column);
+        selectedHandIndex.reset();
+        if (piece && (gameSnapshot.activePlayer != gameSnapshot.yourPlayer ||
+                      pieceCanTakeGameAction(*piece) ||
+                      piece->owner != gameSnapshot.yourPlayer))
+        {
+            selectedPieceId = piece->id;
+            const StoryMission& mission = activeStoryMission();
+            if (piece->owner == gameSnapshot.yourPlayer &&
+                !mission.script.empty() && storyMissionStep >= 0 &&
+                storyMissionStep < static_cast<int>(mission.script.size()))
+            {
+                const StoryScriptAction& step =
+                    mission.script[static_cast<std::size_t>(storyMissionStep)];
+                if (step.owner == gameSnapshot.yourPlayer &&
+                    storyPieceIdForRole(step.actorRole) == piece->id)
+                {
+                    if ((step.kind == StoryActionKind::Move ||
+                         step.kind == StoryActionKind::Attack) &&
+                        game_data::inBounds(storyTargetRow, storyTargetColumn))
+                    {
+                        storyBoardKeyboardCursor = {
+                            storyTargetRow, storyTargetColumn};
+                    }
+                    else if (step.kind == StoryActionKind::UseAbility &&
+                             storyAbilityAvailable())
+                    {
+                        storyGameKeyboardFocus =
+                            StoryGameKeyboardFocus::Ability;
+                    }
+                }
+            }
+        }
+        else
+        {
+            selectedPieceId.reset();
+        }
+    };
+
+    auto activateStoryEndTurnKeyboard = [&]() {
+        if (storyStage == StoryStage::Complete)
+        {
+            const bool hasNext = storyMissionIndex + 1 <
+                static_cast<int>(storyMissions(storyCampaign).size());
+            leaveGame();
+            if (hasNext)
+            {
+                storyComicPage = 0;
+                showStoryIntro();
+            }
+        }
+        else if (storyStage == StoryStage::Failed)
+        {
+            beginStory();
+        }
+        else if (storyEndTurnAvailable())
+        {
+            sendEndTurn();
+        }
+        selectedPieceId.reset();
+        selectedHandIndex.reset();
+    };
+
+    auto activateStoryGameKeyboardFocus = [&]() {
+        switch (storyGameKeyboardFocus)
+        {
+        case StoryGameKeyboardFocus::Board:
+            activateStoryKeyboardBoardSquare();
+            break;
+        case StoryGameKeyboardFocus::Hand:
+            activateStoryKeyboardHand();
+            break;
+        case StoryGameKeyboardFocus::PlayerOne:
+        case StoryGameKeyboardFocus::PlayerTwo:
+            if (selectedHandIndex && *selectedHandIndex < gameSnapshot.hand.size())
+            {
+                const int targetPlayer = storyGameKeyboardFocus ==
+                        StoryGameKeyboardFocus::PlayerOne
+                    ? 1
+                    : 2;
+                sendPlayCard(
+                    static_cast<int>(*selectedHandIndex), -1, targetPlayer);
+                selectedHandIndex.reset();
+                selectedPieceId.reset();
+            }
+            break;
+        case StoryGameKeyboardFocus::DrawPile:
+            if (playerCanDrawCard())
+            {
+                sendDrawCard();
+            }
+            break;
+        case StoryGameKeyboardFocus::Ability:
+            if (storyAbilityAvailable())
+            {
+                const int pieceId = *selectedPieceId;
+                sendUseAbility(pieceId);
+                selectedPieceId.reset();
+                selectedHandIndex.reset();
+            }
+            break;
+        case StoryGameKeyboardFocus::EndTurn:
+            activateStoryEndTurnKeyboard();
+            break;
+        case StoryGameKeyboardFocus::Restart:
+            if (canContinueStoryWithoutMastery())
+            {
+                continueStoryWithoutMastery();
+            }
+            else
+            {
+                gameConfirmationAction = GameConfirmationAction::RestartStory;
+                resignConfirmPopupVisible = true;
+            }
+            break;
+        case StoryGameKeyboardFocus::Exit:
+            gameConfirmationAction = GameConfirmationAction::ExitStory;
+            resignConfirmPopupVisible = true;
+            break;
+        }
+    };
+
+    auto syncStoryGameKeyboardButtonFocus = [&]() {
+        const bool active = storyMode && storyKeyboardNavigationActive;
+        storyPopupPreviousButton.setFocused(
+            active && !storyPopupPanels.empty() && storyPopupPage > 0 &&
+            storyPopupKeyboardFocus == 0);
+        storyPopupContinueButton.setFocused(
+            active && !storyPopupPanels.empty() &&
+            storyPopupKeyboardFocus != 0);
+        abilityButton.setFocused(
+            active && storyPopupPanels.empty() && storyAbilityAvailable() &&
+            storyGameKeyboardFocus == StoryGameKeyboardFocus::Ability);
+        endTurnButton.setFocused(
+            active && storyPopupPanels.empty() && storyEndTurnAvailable() &&
+            storyGameKeyboardFocus == StoryGameKeyboardFocus::EndTurn);
+        storyRestartButton.setFocused(
+            active && storyPopupPanels.empty() &&
+            storyGameKeyboardFocus == StoryGameKeyboardFocus::Restart);
+        leaveGameButton.setFocused(
+            active && storyPopupPanels.empty() &&
+            storyGameKeyboardFocus == StoryGameKeyboardFocus::Exit);
+    };
+
+    auto drawStoryKeyboardFocus = [&]() {
+        if (!storyMode || !storyKeyboardNavigationActive ||
+            pendingPieceActionChoice || resignConfirmPopupVisible ||
+            inspectedPieceId || inspectedHandIndex)
+        {
+            return;
+        }
+
+        if (!storyPopupPanels.empty())
+        {
+            drawCenteredText(
+                window,
+                font,
+                storyPopupPage > 0
+                    ? "LEFT/RIGHT: PAGE  |  TAB: BUTTON  |  ENTER: ACTIVATE"
+                    : "RIGHT: NEXT  |  ENTER: ACTIVATE",
+                12,
+                {400.0f, 519.0f},
+                sf::Color(190, 198, 214));
+            return;
+        }
+
+        const auto drawFocusRect = [&](sf::Vector2f position, sf::Vector2f size) {
+            sf::RectangleShape outer(size);
+            outer.setPosition(position);
+            outer.setFillColor(sf::Color::Transparent);
+            outer.setOutlineThickness(3.0f);
+            outer.setOutlineColor(sf::Color(255, 224, 118, 244));
+            window.draw(outer);
+            sf::RectangleShape inner(size - sf::Vector2f(6.0f, 6.0f));
+            inner.setPosition(position + sf::Vector2f(3.0f, 3.0f));
+            inner.setFillColor(sf::Color::Transparent);
+            inner.setOutlineThickness(1.0f);
+            inner.setOutlineColor(sf::Color(24, 232, 204, 224));
+            window.draw(inner);
+        };
+
+        std::string keyboardHint =
+            "TAB: NEXT CONTROL  |  ENTER: ACTIVATE  |  ESC: CANCEL/EXIT";
+        if (storyStage == StoryStage::Failed)
+        {
+            keyboardHint = canContinueStoryWithoutMastery()
+                ? "TAB: RETRY / CONTINUE / EXIT  |  ENTER: CHOOSE"
+                : "TAB: RETRY / EXIT  |  ENTER: CHOOSE";
+        }
+        else if (storyStage == StoryStage::Complete)
+        {
+            keyboardHint =
+                "TAB: CONTINUE / RESTART / EXIT  |  ENTER: CHOOSE";
+        }
+        else if (static_cast<game_data::Phase>(gameSnapshot.phase) ==
+                 game_data::Phase::HeroPlacement)
+        {
+            keyboardHint = selectedHandIndex
+                ? "ARROWS: SQUARE  |  ENTER: PLACE  |  TAB: NEXT  |  ESC: CANCEL"
+                : "LEFT/RIGHT: HERO  |  ENTER: SELECT  |  TAB: NEXT  |  ESC: BACK";
+        }
+        else if (!gameSnapshot.foresightChoices.empty())
+        {
+            if (storyKeyboardForesightIndex < gameSnapshot.foresightChoices.size())
+            {
+                const std::size_t row =
+                    storyKeyboardForesightIndex / ForesightChoiceColumns;
+                const std::size_t column =
+                    storyKeyboardForesightIndex % ForesightChoiceColumns;
+                if (row >= foresightChoiceRowOffset &&
+                    row < foresightChoiceRowOffset + ForesightVisibleRows)
+                {
+                    const std::size_t rowStart = row * ForesightChoiceColumns;
+                    const std::size_t rowCount = std::min(
+                        ForesightChoiceColumns,
+                        gameSnapshot.foresightChoices.size() - rowStart);
+                    const float rowWidth = static_cast<float>(rowCount) * HandCardWidth +
+                        static_cast<float>(rowCount - 1) * ForesightChoiceGap;
+                    const float startX = (ui_canvas::Width - rowWidth) * 0.5f;
+                    const float x = startX + static_cast<float>(column) *
+                        (HandCardWidth + ForesightChoiceGap);
+                    const float y = ForesightChoiceY +
+                        static_cast<float>(row - foresightChoiceRowOffset) *
+                            ForesightChoiceRowPitch;
+                    drawFocusRect(
+                        {x - 4.0f, y - 4.0f},
+                        {HandCardWidth + 8.0f, HandCardHeight + 38.0f});
+                }
+            }
+            keyboardHint =
+                "ARROWS CHOOSE CARD  |  ENTER KEEP CARD";
+        }
+        else if (storyGameKeyboardFocus == StoryGameKeyboardFocus::Board)
+        {
+            const BoardCellMetrics metrics = boardCellMetricsForViewer(
+                storyBoardKeyboardCursor.row,
+                storyBoardKeyboardCursor.column,
+                gameSnapshot.yourPlayer);
+            drawQuad(
+                metrics.corners,
+                sf::Color(28, 232, 204, 34),
+                3.0f,
+                sf::Color(255, 224, 118, 244));
+            const std::string cursorSquare =
+                std::string(1, static_cast<char>(
+                    'A' + storyBoardKeyboardCursor.column)) +
+                std::to_string(storyBoardKeyboardCursor.row + 1);
+            keyboardHint = selectedPieceId || selectedHandIndex
+                ? "TARGET " + cursorSquare +
+                    "  |  ARROWS MOVE  |  ENTER ACT  |  ESC CANCEL"
+                : "CURSOR " + cursorSquare +
+                    "  |  ARROWS MOVE  |  ENTER SELECT  |  TAB NEXT  |  I INFO";
+        }
+        else if (storyGameKeyboardFocus == StoryGameKeyboardFocus::Hand &&
+                 !gameSnapshot.hand.empty())
+        {
+            ensureStoryKeyboardHandVisible();
+            const std::size_t visibleCards = std::min(
+                gameSnapshot.hand.size() - gameHandOffset,
+                VisibleGameHandCards);
+            const std::size_t visibleIndex = storyKeyboardHandIndex - gameHandOffset;
+            drawFocusRect(
+                {gameHandCardX(visibleIndex, visibleCards) - 4.0f,
+                 HandY - HandHoverLift - 4.0f},
+                {HandCardWidth + 8.0f,
+                 HandCardHeight + HandHoverLift + 8.0f});
+            keyboardHint =
+                "LEFT/RIGHT CARD  |  ENTER SELECT  |  X DISCARD  |  I INSPECT";
+        }
+        else if (storyGameKeyboardFocus == StoryGameKeyboardFocus::DrawPile)
+        {
+            drawFocusRect(
+                {GameDeckPileX - 4.0f, GamePileY - 8.0f},
+                {GamePileWidth + 8.0f, GamePileHeight + 2.0f});
+            keyboardHint = "ENTER / D DRAW CARD  |  TAB NEXT CONTROL";
+        }
+        else if (storyGameKeyboardFocus == StoryGameKeyboardFocus::PlayerOne ||
+                 storyGameKeyboardFocus == StoryGameKeyboardFocus::PlayerTwo)
+        {
+            const int targetPlayer = storyGameKeyboardFocus ==
+                    StoryGameKeyboardFocus::PlayerOne
+                ? 1
+                : 2;
+            drawFocusRect(
+                {gamePlayerBannerX(window, targetPlayer) - 4.0f,
+                 GameTopBarY - 1.0f},
+                {GamePlayerReadoutWidth + 8.0f,
+                 gamePlayerBannerHeight(window) + 2.0f});
+            keyboardHint =
+                "LEFT/RIGHT OR TAB TARGET  |  ENTER PLAY ENCHANTMENT";
+        }
+
+        drawBeveledPlate(
+            window,
+            {110.0f, 576.0f},
+            {580.0f, 23.0f},
+            sf::Color(8, 14, 15, 242),
+            sf::Color(126, 163, 136, 216),
+            false,
+            4.0f);
+        unsigned int keyboardHintSize = 13;
+        sf::Text keyboardHintMeasure(font, keyboardHint, keyboardHintSize);
+        while (keyboardHintSize > 12u &&
+               keyboardHintMeasure.getLocalBounds().size.x > 556.0f)
+        {
+            keyboardHintMeasure.setCharacterSize(--keyboardHintSize);
+        }
+        drawCenteredText(
+            window,
+            font,
+            keyboardHint,
+            keyboardHintSize,
+            {400.0f, 587.5f},
+            sf::Color(224, 232, 218));
+    };
+
     while (window.isOpen())
     {
         const float deltaTime = clock.restart().asSeconds();
@@ -8860,6 +14739,41 @@ int main(int argc, char** argv)
         if (currentState == GameState::Game)
         {
             pollGameSocket();
+            const bool storyClockIsRunning =
+                storyMode && storyEngine && storyStage == StoryStage::Objective &&
+                activeStoryMission().standardMatch && storyEngine->timersAreEnabled() &&
+                (storyEngine->phase() == game_data::Phase::Playing ||
+                 storyEngine->phase() == game_data::Phase::HeroPlacement);
+            // The briefing is completed before beginStory starts this match.
+            // From Hero placement onward, its clocks obey ordinary match rules:
+            // inspection and decision overlays never create a Story-only pause.
+            storyClockPausedForReading = false;
+            if (storyClockIsRunning)
+            {
+                storyTimerAccumulatorMs += static_cast<double>(deltaTime) * 1000.0;
+                const auto elapsedMs = static_cast<std::int64_t>(storyTimerAccumulatorMs);
+                if (elapsedMs > 0)
+                {
+                    storyTimerAccumulatorMs -= static_cast<double>(elapsedMs);
+                    if (storyEngine->updateTimers(elapsedMs))
+                    {
+                        syncStoryEngine();
+                    }
+                    else
+                    {
+                        const game_data::Snapshot timedSnapshot = storyEngine->snapshotFor(1);
+                        gameSnapshot.turnRemainingMs = timedSnapshot.turnRemainingMs;
+                        gameSnapshot.players[0].clockRemainingMs =
+                            timedSnapshot.players[0].clockRemainingMs;
+                        gameSnapshot.players[1].clockRemainingMs =
+                            timedSnapshot.players[1].clockRemainingMs;
+                    }
+                }
+            }
+            else
+            {
+                storyTimerAccumulatorMs = 0.0;
+            }
             updateClockWarnings();
             updateStoryAi();
             updatePieceFidgetAnimations();
@@ -9341,6 +15255,39 @@ int main(int argc, char** argv)
             }
         }
 
+        if (pendingStoryCardLoad &&
+            pendingStoryCardLoad->wait_for(std::chrono::seconds(0)) ==
+                std::future_status::ready)
+        {
+            CardListResult result = pendingStoryCardLoad->get();
+            pendingStoryCardLoad.reset();
+            const bool usableCatalog = result.success && !result.cards.empty();
+            if (usableCatalog && !loggedInUsername.empty())
+            {
+                allCardLibrary = std::move(result.cards);
+            }
+            storyBlackthornButton.setEnabled(true);
+            storyMirewatchButton.setEnabled(true);
+            storySeelieButton.setEnabled(true);
+            if (currentState == GameState::StorySelect)
+            {
+                setMessageY(messageText, 556.0f);
+                if (storyCardsReady())
+                {
+                    setMessage(messageText, "", sf::Color::White);
+                }
+                else
+                {
+                    setMessage(
+                        messageText,
+                        result.success
+                            ? "No current game cards were returned. Select a story to retry."
+                            : "Card server unavailable. Select a story to retry.",
+                        sf::Color::Red);
+                }
+            }
+        }
+
         if (pendingPlayLoad &&
             pendingPlayLoad->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
@@ -9567,6 +15514,17 @@ int main(int argc, char** argv)
                 mousePressed && mousePressed->button == sf::Mouse::Button::Left)
             {
                 const sf::Vector2f clickPos = window.mapPixelToCoords(mousePressed->position);
+                if (currentState == GameState::StorySelect ||
+                    currentState == GameState::StoryMissionSelect ||
+                    currentState == GameState::StoryIntro ||
+                    (currentState == GameState::Game && storyMode))
+                {
+                    storyKeyboardNavigationActive = false;
+                    storySelectKeyboardFocus = -1;
+                    storyMissionKeyboardFocus = -1;
+                    storyIntroKeyboardFocus = -1;
+                    storyPopupKeyboardFocus = -1;
+                }
                 if (exitDesktopPopupVisible)
                 {
                     if (confirmExitDesktopButton.isClicked(clickPos))
@@ -9597,6 +15555,30 @@ int main(int argc, char** argv)
                     continue;
                 }
 
+                if (pendingPieceActionChoice)
+                {
+                    if (const std::optional<int> option =
+                            actionChoiceOptionAt(clickPos))
+                    {
+                        submitPendingPieceActionChoice(*option);
+                    }
+                    else
+                    {
+                        const sf::FloatRect cancel = actionChoiceCancelRect();
+                        const bool insideDialog = isInsideRect(
+                            clickPos,
+                            ActionChoiceDialogX,
+                            actionChoiceDialogY(),
+                            ActionChoiceDialogWidth,
+                            actionChoiceDialogHeight());
+                        if (cancel.contains(clickPos) || !insideDialog)
+                        {
+                            pendingPieceActionChoice.reset();
+                        }
+                    }
+                    continue;
+                }
+
                 if (resignConfirmPopupVisible)
                 {
                     if (confirmResignButton.isClicked(clickPos))
@@ -9604,6 +15586,7 @@ int main(int argc, char** argv)
                         const GameConfirmationAction confirmedAction = gameConfirmationAction;
                         resignConfirmPopupVisible = false;
                         gameConfirmationAction = GameConfirmationAction::Resign;
+                        gameConfirmationKeyboardFocus = 0;
                         if (confirmedAction == GameConfirmationAction::RestartStory)
                         {
                             beginStory();
@@ -9619,6 +15602,7 @@ int main(int argc, char** argv)
                     {
                         resignConfirmPopupVisible = false;
                         gameConfirmationAction = GameConfirmationAction::Resign;
+                        gameConfirmationKeyboardFocus = 0;
                     }
                     continue;
                 }
@@ -9692,17 +15676,41 @@ int main(int argc, char** argv)
                 }
                 else if (currentState == GameState::StorySelect)
                 {
-                    if (storySelectBackButton.isClicked(clickPos))
+                    if (storySpoilerConfirmationVisible)
+                    {
+                        if (storySpoilerMirewatchButton.isClicked(clickPos))
+                        {
+                            activateStorySpoilerChoice(false);
+                        }
+                        else if (storySpoilerContinueButton.isClicked(clickPos))
+                        {
+                            activateStorySpoilerChoice(true);
+                        }
+                    }
+                    else if (storySelectBackButton.isClicked(clickPos))
                     {
                         showAuthenticatedScreen();
                     }
+                    else if (!storyCardsReady())
+                    {
+                        if (storyBlackthornButton.isClicked(clickPos) ||
+                            storyMirewatchButton.isClicked(clickPos) ||
+                            storySeelieButton.isClicked(clickPos))
+                        {
+                            requestStoryCards();
+                        }
+                    }
                     else if (storyBlackthornButton.isClicked(clickPos))
                     {
-                        showStoryMissionSelect(StoryCampaign::Blackthorn);
+                        requestStoryCampaignSelection(StoryCampaign::Blackthorn);
                     }
                     else if (storyMirewatchButton.isClicked(clickPos))
                     {
-                        showStoryMissionSelect(StoryCampaign::Mirewatch);
+                        requestStoryCampaignSelection(StoryCampaign::Mirewatch);
+                    }
+                    else if (storySeelieButton.isClicked(clickPos))
+                    {
+                        requestStoryCampaignSelection(StoryCampaign::Seelie);
                     }
                 }
                 else if (currentState == GameState::StoryMissionSelect)
@@ -9767,13 +15775,29 @@ int main(int argc, char** argv)
                             showStoryMissionSelect(storyCampaign);
                         }
                     }
+                    else if ((activeStoryMission().optionalRehearsal ||
+                              activeStoryCatchUpMayBeSkipped()) &&
+                        storyComicPage + 1 >= static_cast<int>(
+                            activeStoryMission().briefing.size()) &&
+                        storySkipDrillButton.isClicked(clickPos))
+                    {
+                        if (activeStoryCatchUpMayBeSkipped())
+                        {
+                            beginStory();
+                        }
+                        else
+                        {
+                            completeStoryChronicle();
+                        }
+                    }
                     else if (storyContinueButton.isClicked(clickPos) &&
                         storyComicPage + 1 >= static_cast<int>(
                             storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)]
                                 .briefing.size()))
                     {
                         if (activeStoryMission().objectiveSpec.kind ==
-                            StoryObjectiveKind::StoryOnly)
+                                StoryObjectiveKind::StoryOnly ||
+                            activeStoryCatchUpMayBeSkipped())
                         {
                             completeStoryChronicle();
                         }
@@ -10327,8 +16351,15 @@ int main(int argc, char** argv)
                     {
                         pendingHandClickIndex.reset();
                         resetGameDrag();
-                        gameConfirmationAction = GameConfirmationAction::RestartStory;
-                        resignConfirmPopupVisible = true;
+                        if (canContinueStoryWithoutMastery())
+                        {
+                            continueStoryWithoutMastery();
+                        }
+                        else
+                        {
+                            gameConfirmationAction = GameConfirmationAction::RestartStory;
+                            resignConfirmPopupVisible = true;
+                        }
                     }
                     else if (storyMode && endTurnButton.isClicked(clickPos))
                     {
@@ -10967,25 +16998,87 @@ int main(int argc, char** argv)
                     continue;
                 }
 
+                if (pendingPieceActionChoice)
+                {
+                    const int count = static_cast<int>(
+                        pendingPieceActionChoice->actionIndices.size());
+                    if (keyPressed->code == sf::Keyboard::Key::Escape)
+                    {
+                        pendingPieceActionChoice.reset();
+                    }
+                    else if (count > 0 &&
+                        (keyPressed->code == sf::Keyboard::Key::Up ||
+                         keyPressed->code == sf::Keyboard::Key::Left))
+                    {
+                        pendingPieceActionChoice->focusedOption =
+                            (pendingPieceActionChoice->focusedOption - 1 + count) % count;
+                    }
+                    else if (count > 0 &&
+                        (keyPressed->code == sf::Keyboard::Key::Down ||
+                         keyPressed->code == sf::Keyboard::Key::Right ||
+                         keyPressed->code == sf::Keyboard::Key::Tab))
+                    {
+                        pendingPieceActionChoice->focusedOption =
+                            (pendingPieceActionChoice->focusedOption + 1) % count;
+                    }
+                    else if (count > 0 &&
+                        (keyPressed->code == sf::Keyboard::Key::Enter ||
+                         keyPressed->code == sf::Keyboard::Key::Space))
+                    {
+                        submitPendingPieceActionChoice(
+                            pendingPieceActionChoice->focusedOption);
+                    }
+                    continue;
+                }
+
                 if (resignConfirmPopupVisible)
                 {
                     if (keyPressed->code == sf::Keyboard::Key::Escape)
                     {
                         resignConfirmPopupVisible = false;
                         gameConfirmationAction = GameConfirmationAction::Resign;
+                        gameConfirmationKeyboardFocus = 0;
                     }
-                    else if (keyPressed->code == sf::Keyboard::Key::Enter)
+                    else if (keyPressed->code == sf::Keyboard::Key::Left ||
+                             keyPressed->code == sf::Keyboard::Key::Up ||
+                             (keyPressed->code == sf::Keyboard::Key::Tab &&
+                              keyPressed->shift))
                     {
-                        const GameConfirmationAction confirmedAction = gameConfirmationAction;
-                        resignConfirmPopupVisible = false;
-                        gameConfirmationAction = GameConfirmationAction::Resign;
-                        if (confirmedAction == GameConfirmationAction::RestartStory)
+                        gameConfirmationKeyboardFocus = 0;
+                        storyKeyboardNavigationActive = true;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Right ||
+                             keyPressed->code == sf::Keyboard::Key::Down ||
+                             keyPressed->code == sf::Keyboard::Key::Tab)
+                    {
+                        gameConfirmationKeyboardFocus = 1;
+                        storyKeyboardNavigationActive = true;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter ||
+                             keyPressed->code == sf::Keyboard::Key::Space)
+                    {
+                        if (gameConfirmationKeyboardFocus == 0)
                         {
-                            beginStory();
+                            resignConfirmPopupVisible = false;
+                            gameConfirmationAction = GameConfirmationAction::Resign;
+                            gameConfirmationKeyboardFocus = 0;
                         }
                         else
                         {
-                            leaveGame();
+                            const GameConfirmationAction confirmedAction =
+                                gameConfirmationAction;
+                            resignConfirmPopupVisible = false;
+                            gameConfirmationAction = GameConfirmationAction::Resign;
+                            gameConfirmationKeyboardFocus = 0;
+                            if (confirmedAction ==
+                                GameConfirmationAction::RestartStory)
+                            {
+                                beginStory();
+                            }
+                            else
+                            {
+                                leaveGame();
+                            }
                         }
                     }
                     continue;
@@ -11019,6 +17112,441 @@ int main(int argc, char** argv)
                         const int index = authenticatedMenuFocus;
                         activateAuthenticatedMenuButton(index);
                         syncAuthenticatedMenuFocus();
+                        continue;
+                    }
+                }
+
+                if (currentState == GameState::StorySelect)
+                {
+                    bool handled = false;
+                    if (storySpoilerConfirmationVisible)
+                    {
+                        if (keyPressed->code == sf::Keyboard::Key::Left ||
+                            keyPressed->code == sf::Keyboard::Key::Up ||
+                            (keyPressed->code == sf::Keyboard::Key::Tab && keyPressed->shift))
+                        {
+                            storySpoilerKeyboardFocus = wrapStoryKeyboardIndex(
+                                storySpoilerKeyboardFocus, -1, 2);
+                        }
+                        else if (keyPressed->code == sf::Keyboard::Key::Right ||
+                                 keyPressed->code == sf::Keyboard::Key::Down ||
+                                 keyPressed->code == sf::Keyboard::Key::Tab)
+                        {
+                            storySpoilerKeyboardFocus = wrapStoryKeyboardIndex(
+                                storySpoilerKeyboardFocus, 1, 2);
+                        }
+                        else if (keyPressed->code == sf::Keyboard::Key::Enter ||
+                                 keyPressed->code == sf::Keyboard::Key::Space)
+                        {
+                            activateStorySpoilerChoice(storySpoilerKeyboardFocus == 1);
+                        }
+                        else if (keyPressed->code == sf::Keyboard::Key::Escape)
+                        {
+                            activateStorySpoilerChoice(false);
+                        }
+                        storyKeyboardNavigationActive = true;
+                        continue;
+                    }
+                    if (keyPressed->code == sf::Keyboard::Key::Left ||
+                        keyPressed->code == sf::Keyboard::Key::Up ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && keyPressed->shift))
+                    {
+                        storySelectKeyboardFocus = wrapStoryKeyboardIndex(
+                            storySelectKeyboardFocus, -1, 4);
+                        handled = true;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Right ||
+                             keyPressed->code == sf::Keyboard::Key::Down ||
+                             keyPressed->code == sf::Keyboard::Key::Tab)
+                    {
+                        storySelectKeyboardFocus = wrapStoryKeyboardIndex(
+                            storySelectKeyboardFocus, 1, 4);
+                        handled = true;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter ||
+                             keyPressed->code == sf::Keyboard::Key::Space)
+                    {
+                        if (storySelectKeyboardFocus < 0)
+                        {
+                            storySelectKeyboardFocus = 1;
+                        }
+                        activateStorySelectKeyboardFocus();
+                        handled = true;
+                    }
+                    if (handled)
+                    {
+                        storyKeyboardNavigationActive = true;
+                        continue;
+                    }
+                }
+
+                if (currentState == GameState::StoryMissionSelect)
+                {
+                    bool handled = false;
+                    const bool moveBackward =
+                        keyPressed->code == sf::Keyboard::Key::Left ||
+                        keyPressed->code == sf::Keyboard::Key::Up ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && keyPressed->shift);
+                    const bool moveForward =
+                        keyPressed->code == sf::Keyboard::Key::Right ||
+                        keyPressed->code == sf::Keyboard::Key::Down ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && !keyPressed->shift);
+                    if (moveBackward || moveForward)
+                    {
+                        moveStoryMissionKeyboardFocus(moveBackward ? -1 : 1);
+                        handled = true;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::PageUp &&
+                             storyMissionPage > 0)
+                    {
+                        --storyMissionPage;
+                        focusFirstStoryMissionOnPage();
+                        handled = true;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::PageDown)
+                    {
+                        const int missionCount =
+                            static_cast<int>(storyMissions(storyCampaign).size());
+                        const int lastPage =
+                            std::max(0, (missionCount - 1) / StoryMissionPageSize);
+                        if (storyMissionPage < lastPage)
+                        {
+                            ++storyMissionPage;
+                            focusFirstStoryMissionOnPage();
+                        }
+                        handled = true;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter ||
+                             keyPressed->code == sf::Keyboard::Key::Space)
+                    {
+                        if (storyMissionKeyboardFocus < 0)
+                        {
+                            moveStoryMissionKeyboardFocus(1);
+                        }
+                        activateStoryMissionKeyboardFocus();
+                        handled = true;
+                    }
+                    if (handled)
+                    {
+                        storyKeyboardNavigationActive = true;
+                        continue;
+                    }
+                }
+
+                if (currentState == GameState::StoryIntro)
+                {
+                    bool handled = false;
+                    if (keyPressed->code == sf::Keyboard::Key::Tab)
+                    {
+                        moveStoryIntroKeyboardFocus(keyPressed->shift ? -1 : 1);
+                        handled = true;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Left)
+                    {
+                        storyIntroBack();
+                        handled = true;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Right)
+                    {
+                        storyIntroContinue();
+                        handled = true;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter ||
+                             keyPressed->code == sf::Keyboard::Key::Space)
+                    {
+                        if (storyIntroKeyboardFocus < 0)
+                        {
+                            storyIntroKeyboardFocus = 2;
+                        }
+                        if (storyIntroKeyboardFocus == 0)
+                        {
+                            storyIntroBack();
+                        }
+                        else if (storyIntroKeyboardFocus == 1 &&
+                                 (activeStoryMission().optionalRehearsal ||
+                                  activeStoryCatchUpMayBeSkipped()) &&
+                                 storyComicPage + 1 >= static_cast<int>(
+                                     activeStoryMission().briefing.size()))
+                        {
+                            playButtonClickSound();
+                            if (activeStoryCatchUpMayBeSkipped())
+                            {
+                                beginStory();
+                            }
+                            else
+                            {
+                                completeStoryChronicle();
+                            }
+                        }
+                        else
+                        {
+                            storyIntroContinue();
+                        }
+                        handled = true;
+                    }
+                    if (handled)
+                    {
+                        storyKeyboardNavigationActive = true;
+                        continue;
+                    }
+                }
+
+                if (currentState == GameState::Game && storyMode &&
+                    !pendingPieceActionChoice && !resignConfirmPopupVisible)
+                {
+                    storyKeyboardNavigationActive = true;
+                    if (!storyPopupPanels.empty())
+                    {
+                        if (keyPressed->code == sf::Keyboard::Key::Left)
+                        {
+                            retreatStoryPopup();
+                        }
+                        else if (keyPressed->code == sf::Keyboard::Key::Right)
+                        {
+                            advanceStoryPopup();
+                        }
+                        else if (keyPressed->code == sf::Keyboard::Key::Tab)
+                        {
+                            if (storyPopupPage > 0)
+                            {
+                                storyPopupKeyboardFocus =
+                                    storyPopupKeyboardFocus == 0 ? 1 : 0;
+                            }
+                            else
+                            {
+                                storyPopupKeyboardFocus = 1;
+                            }
+                        }
+                        else if (keyPressed->code == sf::Keyboard::Key::Enter ||
+                                 keyPressed->code == sf::Keyboard::Key::Space)
+                        {
+                            if (storyPopupKeyboardFocus == 0 && storyPopupPage > 0)
+                            {
+                                retreatStoryPopup();
+                            }
+                            else
+                            {
+                                advanceStoryPopup();
+                            }
+                        }
+                        else if (keyPressed->code == sf::Keyboard::Key::Escape &&
+                                 storyPopupPage > 0)
+                        {
+                            retreatStoryPopup();
+                        }
+                        // Story panels are modal. Escape on their first page does
+                        // not abandon the mission behind the player's back.
+                        continue;
+                    }
+
+                    if (!gameSnapshot.foresightChoices.empty())
+                    {
+                        const int choiceCount = static_cast<int>(
+                            gameSnapshot.foresightChoices.size());
+                        int delta = 0;
+                        if (keyPressed->code == sf::Keyboard::Key::Left ||
+                            (keyPressed->code == sf::Keyboard::Key::Tab && keyPressed->shift))
+                        {
+                            delta = -1;
+                        }
+                        else if (keyPressed->code == sf::Keyboard::Key::Right ||
+                                 keyPressed->code == sf::Keyboard::Key::Tab)
+                        {
+                            delta = 1;
+                        }
+                        else if (keyPressed->code == sf::Keyboard::Key::Up)
+                        {
+                            delta = -static_cast<int>(ForesightChoiceColumns);
+                        }
+                        else if (keyPressed->code == sf::Keyboard::Key::Down)
+                        {
+                            delta = static_cast<int>(ForesightChoiceColumns);
+                        }
+                        if (delta != 0 && choiceCount > 0)
+                        {
+                            storyKeyboardForesightIndex = static_cast<std::size_t>(
+                                wrapStoryKeyboardIndex(
+                                    static_cast<int>(storyKeyboardForesightIndex),
+                                    delta,
+                                    choiceCount));
+                            const std::size_t row = storyKeyboardForesightIndex /
+                                ForesightChoiceColumns;
+                            if (row < foresightChoiceRowOffset)
+                            {
+                                foresightChoiceRowOffset = row;
+                            }
+                            else if (row >= foresightChoiceRowOffset + ForesightVisibleRows)
+                            {
+                                foresightChoiceRowOffset = row - ForesightVisibleRows + 1;
+                            }
+                            continue;
+                        }
+                        if ((keyPressed->code == sf::Keyboard::Key::Enter ||
+                             keyPressed->code == sf::Keyboard::Key::Space) &&
+                            storyKeyboardForesightIndex <
+                                gameSnapshot.foresightChoices.size())
+                        {
+                            sendChooseForesightCard(static_cast<int>(
+                                storyKeyboardForesightIndex));
+                        }
+                        // The revealed-card choice is modal, just like the mouse
+                        // path; no other keyboard command can leak through it.
+                        continue;
+                    }
+
+                    if (inspectedPieceId || inspectedHandIndex)
+                    {
+                        if (keyPressed->code == sf::Keyboard::Key::I ||
+                            keyPressed->code == sf::Keyboard::Key::Enter ||
+                            keyPressed->code == sf::Keyboard::Key::Space)
+                        {
+                            inspectedPieceId.reset();
+                            inspectedHandIndex.reset();
+                            inspectedPieceScroll = 0.0f;
+                            continue;
+                        }
+                        // Escape is handled by the common popup-close path below.
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Tab)
+                    {
+                        moveStoryGameKeyboardFocus(keyPressed->shift ? -1 : 1);
+                        continue;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::H &&
+                             !gameSnapshot.hand.empty())
+                    {
+                        if (storyGameKeyboardFocus == StoryGameKeyboardFocus::Hand)
+                        {
+                            cycleStoryKeyboardHand(1);
+                        }
+                        else
+                        {
+                            storyGameKeyboardFocus = StoryGameKeyboardFocus::Hand;
+                            ensureStoryKeyboardHandVisible();
+                        }
+                        continue;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Left ||
+                             keyPressed->code == sf::Keyboard::Key::Right ||
+                             keyPressed->code == sf::Keyboard::Key::Up ||
+                             keyPressed->code == sf::Keyboard::Key::Down)
+                    {
+                        if (storyGameKeyboardFocus == StoryGameKeyboardFocus::Board)
+                        {
+                            const int rowDelta =
+                                keyPressed->code == sf::Keyboard::Key::Up ? 1 :
+                                keyPressed->code == sf::Keyboard::Key::Down ? -1 : 0;
+                            const int columnDelta =
+                                keyPressed->code == sf::Keyboard::Key::Right ? 1 :
+                                keyPressed->code == sf::Keyboard::Key::Left ? -1 : 0;
+                            storyBoardKeyboardCursor = moveStoryBoardCursor(
+                                storyBoardKeyboardCursor, rowDelta, columnDelta);
+                        }
+                        else if (storyGameKeyboardFocus ==
+                                     StoryGameKeyboardFocus::Hand &&
+                                 (keyPressed->code == sf::Keyboard::Key::Left ||
+                                  keyPressed->code == sf::Keyboard::Key::Right))
+                        {
+                            cycleStoryKeyboardHand(
+                                keyPressed->code == sf::Keyboard::Key::Left ? -1 : 1);
+                        }
+                        else
+                        {
+                            moveStoryGameKeyboardFocus(
+                                keyPressed->code == sf::Keyboard::Key::Left ||
+                                        keyPressed->code == sf::Keyboard::Key::Up
+                                    ? -1
+                                    : 1);
+                        }
+                        continue;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter ||
+                             keyPressed->code == sf::Keyboard::Key::Space)
+                    {
+                        activateStoryGameKeyboardFocus();
+                        continue;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::A)
+                    {
+                        if (storyAbilityAvailable())
+                        {
+                            storyGameKeyboardFocus = StoryGameKeyboardFocus::Ability;
+                            activateStoryGameKeyboardFocus();
+                        }
+                        continue;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::D)
+                    {
+                        if (playerCanDrawCard())
+                        {
+                            storyGameKeyboardFocus = StoryGameKeyboardFocus::DrawPile;
+                            activateStoryGameKeyboardFocus();
+                        }
+                        continue;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::E)
+                    {
+                        if (storyEndTurnAvailable())
+                        {
+                            storyGameKeyboardFocus = StoryGameKeyboardFocus::EndTurn;
+                            activateStoryGameKeyboardFocus();
+                        }
+                        continue;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::X)
+                    {
+                        const std::size_t discardIndex = selectedHandIndex
+                            ? *selectedHandIndex
+                            : storyKeyboardHandIndex;
+                        if (canDiscardHandCard(discardIndex))
+                        {
+                            sendDiscardCard(static_cast<int>(discardIndex));
+                            selectedHandIndex.reset();
+                            selectedPieceId.reset();
+                            ensureStoryKeyboardHandVisible();
+                        }
+                        continue;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::I)
+                    {
+                        if (storyGameKeyboardFocus == StoryGameKeyboardFocus::Hand &&
+                            storyKeyboardHandIndex < gameSnapshot.hand.size())
+                        {
+                            inspectedHandIndex = storyKeyboardHandIndex;
+                            inspectedPieceId.reset();
+                        }
+                        else
+                        {
+                            const game_data::Piece* piece = gamePieceAt(
+                                storyBoardKeyboardCursor.row,
+                                storyBoardKeyboardCursor.column);
+                            inspectedPieceId = piece
+                                ? std::optional<int>(piece->id)
+                                : std::nullopt;
+                            inspectedHandIndex.reset();
+                        }
+                        inspectedPieceScroll = 0.0f;
+                        continue;
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Escape)
+                    {
+                        if (selectedPieceId || selectedHandIndex)
+                        {
+                            selectedPieceId.reset();
+                            selectedHandIndex.reset();
+                            storyGameKeyboardFocus = StoryGameKeyboardFocus::Board;
+                        }
+                        else if (storyGameKeyboardFocus !=
+                                 StoryGameKeyboardFocus::Board)
+                        {
+                            storyGameKeyboardFocus = StoryGameKeyboardFocus::Board;
+                        }
+                        else
+                        {
+                            gameConfirmationAction =
+                                GameConfirmationAction::ExitStory;
+                            resignConfirmPopupVisible = true;
+                        }
                         continue;
                     }
                 }
@@ -11302,9 +17830,18 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::StorySelect)
         {
-            storyBlackthornButton.update(mousePos);
-            storyMirewatchButton.update(mousePos);
-            storySelectBackButton.update(mousePos);
+            if (storySpoilerConfirmationVisible)
+            {
+                storySpoilerMirewatchButton.update(mousePos);
+                storySpoilerContinueButton.update(mousePos);
+            }
+            else
+            {
+                storyBlackthornButton.update(mousePos);
+                storyMirewatchButton.update(mousePos);
+                storySeelieButton.update(mousePos);
+                storySelectBackButton.update(mousePos);
+            }
         }
         else if (currentState == GameState::StoryMissionSelect)
         {
@@ -11321,6 +17858,12 @@ int main(int argc, char** argv)
         {
             storyBackButton.update(mousePos);
             storyContinueButton.update(mousePos);
+            if ((activeStoryMission().optionalRehearsal ||
+                 activeStoryCatchUpMayBeSkipped()) &&
+                storyComicPage + 1 >= static_cast<int>(activeStoryMission().briefing.size()))
+            {
+                storySkipDrillButton.update(mousePos);
+            }
         }
         else if (currentState == GameState::ChangePassword)
         {
@@ -11553,7 +18096,12 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Game)
         {
-            if (resignConfirmPopupVisible)
+            if (pendingPieceActionChoice)
+            {
+                // Hover is drawn directly from the pointer so the underlying
+                // board controls remain inert while a profile is being chosen.
+            }
+            else if (resignConfirmPopupVisible)
             {
                 cancelResignButton.update(mousePos);
                 confirmResignButton.update(mousePos);
@@ -11758,6 +18306,7 @@ int main(int argc, char** argv)
         else if (currentState == GameState::StorySelect)
         {
             drawStorySelect();
+            window.draw(messageText);
         }
         else if (currentState == GameState::StoryMissionSelect)
         {
@@ -11848,8 +18397,8 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Authenticated)
         {
             drawAuthenticatedMenuChrome();
-            drawAuthenticatedMenuButton(playButton, mainMenuPlayIconTexture);
             drawAuthenticatedMenuButton(storyButton, mainMenuStoryIconTexture);
+            drawAuthenticatedMenuButton(playButton, mainMenuPlayIconTexture);
             drawAuthenticatedMenuButton(conquestButton, mainMenuConquestIconTexture);
             drawAuthenticatedMenuButton(deckEditorButton, mainMenuDeckEditorIconTexture);
             drawAuthenticatedMenuButton(shopButton, mainMenuShopIconTexture);
@@ -11907,8 +18456,14 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::Game)
         {
+            syncStoryGameKeyboardButtonFocus();
             drawGame();
-            if (resignConfirmPopupVisible)
+            drawStoryKeyboardFocus();
+            if (pendingPieceActionChoice)
+            {
+                drawActionChoicePopup();
+            }
+            else if (resignConfirmPopupVisible)
             {
                 drawResignConfirmationPopup();
             }
@@ -11924,16 +18479,50 @@ int main(int argc, char** argv)
             if (++captureFramesOnScreen >= captureRequest->warmupFrames)
             {
                 const std::string& screen = captureRequest->screens[captureIndex];
-                char ordinal[8] = {};
-                std::snprintf(ordinal, sizeof(ordinal), "%02zu", captureIndex + 1);
-                ui_capture::saveWindow(
-                    window,
-                    captureRequest->outputDirectory / (std::string(ordinal) + "-" + screen + ".png"));
+                if (const std::optional<std::string> invariantError =
+                        storyActionCaptureInvariantError())
+                {
+                    failCaptureValidation(
+                        "Capture replay error: action screen '" + screen +
+                        "' " + *invariantError);
+                }
+                const std::string captureFile =
+                    ui_capture::captureFileName(captureIndex, screen);
+                const std::filesystem::path capturePath =
+                    captureRequest->outputDirectory / captureFile;
+                if (!ui_capture::saveWindow(window, capturePath))
+                {
+                    failCaptureValidation(
+                        "Capture write error: could not save " + capturePath.string());
+                }
+                else
+                {
+                    successfulCaptureFiles.push_back(captureFile);
+                }
 
                 captureFramesOnScreen = 0;
                 ++captureIndex;
                 if (captureIndex >= captureRequest->screens.size())
                 {
+                    if (!captureValidationFailed)
+                    {
+                        std::string manifestError;
+                        const std::filesystem::path executablePath =
+                            argc > 0 && argv[0] ? argv[0] : std::filesystem::path{};
+                        if (!ui_capture::writeCompletionManifest(
+                                *captureRequest,
+                                successfulCaptureFiles,
+                                executablePath,
+                                manifestError))
+                        {
+                            failCaptureValidation(
+                                "Capture completion error: " + manifestError);
+                        }
+                        else
+                        {
+                            captureCompleted = true;
+                        }
+                    }
                     window.close();
                 }
                 else
@@ -11944,5 +18533,5 @@ int main(int argc, char** argv)
         }
     }
 
-    return 0;
+    return captureRequest && (captureValidationFailed || !captureCompleted) ? 1 : 0;
 }

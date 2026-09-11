@@ -858,7 +858,7 @@ private:
                     data.battleId,
                     connection.playerNumber,
                     error);
-                sendSnapshot(connection);
+                sendSnapshot(connection, error);
                 return;
             }
             const bool adjudicatedAtLimit =
@@ -965,7 +965,9 @@ private:
                 attemptedActionWasStored ? " (retry was already committed)" : "");
         }
 
-        void sendSnapshot(Connection& connection)
+        void sendSnapshot(
+            Connection& connection,
+            const std::string& statusOverride = {})
         {
             if (!connection.connected)
             {
@@ -973,9 +975,13 @@ private:
             }
             sf::Packet packet;
             packet << static_cast<std::uint8_t>(network::MessageType::GameStateUpdate);
-            game_data::writeSnapshot(
-                packet,
-                engine->snapshotFor(connection.playerNumber));
+            game_data::Snapshot snapshot =
+                engine->snapshotFor(connection.playerNumber);
+            if (!statusOverride.empty())
+            {
+                snapshot.status = statusOverride;
+            }
+            game_data::writeSnapshot(packet, snapshot);
             if (connection.socket->send(packet, ClientSendTimeout) !=
                 sf::Socket::Status::Done)
             {

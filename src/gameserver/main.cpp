@@ -1155,8 +1155,23 @@ private:
                 int pieceId = 0;
                 int row = 0;
                 int column = 0;
+                int actionProfileSelection = network::AutomaticActionProfileSelection;
                 packet >> pieceId >> row >> column;
-                engine.movePiece(playerNumber, pieceId, row, column);
+                if (packet && !packet.endOfPacket())
+                {
+                    packet >> actionProfileSelection;
+                }
+                if (!packet || !packet.endOfPacket() ||
+                    !network::validActionProfileSelection(actionProfileSelection))
+                {
+                    return false;
+                }
+                engine.movePiece(
+                    playerNumber,
+                    pieceId,
+                    row,
+                    column,
+                    network::decodeActionProfileSelection(actionProfileSelection));
                 return true;
             }
             case MessageType::AttackPiece:
@@ -1164,8 +1179,23 @@ private:
                 int attackerId = 0;
                 int row = 0;
                 int column = 0;
+                int actionProfileSelection = network::AutomaticActionProfileSelection;
                 packet >> attackerId >> row >> column;
-                engine.attackPiece(playerNumber, attackerId, row, column);
+                if (packet && !packet.endOfPacket())
+                {
+                    packet >> actionProfileSelection;
+                }
+                if (!packet || !packet.endOfPacket() ||
+                    !network::validActionProfileSelection(actionProfileSelection))
+                {
+                    return false;
+                }
+                engine.attackPiece(
+                    playerNumber,
+                    attackerId,
+                    row,
+                    column,
+                    network::decodeActionProfileSelection(actionProfileSelection));
                 return true;
             }
             case MessageType::UseAbility:
