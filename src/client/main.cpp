@@ -11562,11 +11562,23 @@ int main(int argc, char** argv)
             currentState = GameState::CardEditor;
             cardEditorScreen.applyCaptureState(screen, allCardLibrary);
         }
-        else if (screen == "conquest-events" || screen == "conquest-map" ||
-                 screen == "conquest-loadouts")
+        else if (screen.rfind("conquest-", 0) == 0)
         {
             currentState = GameState::Conquest;
             conquestScreen.applyCaptureState(screen, allCardLibrary);
+            if (screen == "conquest-interactions")
+            {
+                std::string interactionError;
+                if (!conquestScreen.runCaptureInteractionChecks(
+                        window, allCardLibrary, interactionError))
+                {
+                    failCaptureValidation("Conquest interaction check failed: " + interactionError);
+                }
+                else
+                {
+                    fmt::println("[Conquest interaction checks] All checks passed.");
+                }
+            }
         }
         else if (screen == "story-select" ||
                  screen == "story-seelie-spoiler-warning")

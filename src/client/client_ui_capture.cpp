@@ -1436,7 +1436,18 @@ const std::vector<std::string>& knownScreens()
         "card-editor-loaded",
         "conquest-events",
         "conquest-map",
-        "conquest-loadouts"};
+        "conquest-loadouts",
+        "conquest-preview",
+        "conquest-registration",
+        "conquest-registration-ready",
+        "conquest-join-confirm",
+        "conquest-joined",
+        "conquest-loadouts-empty",
+        "conquest-many-decks",
+        "conquest-deck-edit",
+        "conquest-orders-unsaved",
+        "conquest-orders-exit",
+        "conquest-interactions"};
 
         const auto appendScenarioArtScreens =
             [&](StoryCampaign campaign, std::string_view prefix) {

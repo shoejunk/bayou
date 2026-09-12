@@ -60,8 +60,9 @@ constexpr float LoadoutRowY = 134.0f;
 constexpr float LoadoutRowHeight = 54.0f;
 constexpr std::size_t VisibleLoadoutRows = 6;
 constexpr float CardRowY = 180.0f;
-constexpr float CardRowHeight = 36.0f;
-constexpr std::size_t VisibleCardRows = 8;
+constexpr float CardRowHeight = 48.0f;
+constexpr std::size_t VisibleCardRows = 6;
+constexpr std::size_t VisibleEventDeckRows = 6;
 
 sf::FloatRect rect(float x, float y, float width, float height)
 {
@@ -161,6 +162,8 @@ void drawButton(
         : destructive ? Bad : hovered || primary ? Accent : Line;
     drawBeveledPlate(window, bounds.position, bounds.size, fill, outline, hovered && enabled, 7.0f);
     sf::Text text(font, label, bounds.size.y <= 32.0f ? 15u : 18u);
+    while (text.getCharacterSize() > 12 && text.getLocalBounds().size.x > bounds.size.x - 36.0f)
+        text.setCharacterSize(text.getCharacterSize() - 1);
     text.setFillColor(enabled ? Ink : sf::Color(126, 126, 120));
     centerButtonText(text, bounds.position + bounds.size * 0.5f);
     drawCrispText(window, text);
@@ -492,9 +495,14 @@ public:
         // not destroy launch::async futures here: their destructors may wait on
         // a stalled socket and freeze the render thread.
         ++sessionGeneration;
+        captureMode = false;
+        joinSetupActive = joinConfirmationVisible = returnToEventAfterLoadout = false;
+        ordersDirty = false;
+        exitOrdersConfirmationVisible = false;
         events.clear();
         decks.clear();
         army = {};
+        savedArmyDeckIds.clear();
         catalog.clear();
         collection.clear();
         eventState = {};
@@ -565,7 +573,18 @@ public:
             std::chrono::system_clock::now().time_since_epoch()).count();
 
         accessToken.clear();
+        captureMode = true;
+        joinSetupActive = joinConfirmationVisible = returnToEventAfterLoadout = false;
+        ordersDirty = false;
+        exitOrdersConfirmationVisible = false;
+        placements.clear();
+        selectedEventDeckId.reset();
+        selectedRegionId.reset();
+        eventDeckOffset = 0;
+        forceEndConfirmationVisible = false;
+        pendingAction.reset();
         username = "Thistlewisp";
+        eventState = {};
         accountIsAdmin = true;
         catalog = library;
         collection.clear();
@@ -655,12 +674,21 @@ public:
         }
         army.revision = 4;
         army.deckIds = {100, 101, 102, 103, 104};
+        savedArmyDeckIds = army.deckIds;
 
-        if (key == "conquest-loadouts")
+        if (key == "conquest-loadouts" || key == "conquest-loadouts-empty")
         {
             view = View::Loadout;
             selectedDeck = 1;
             setStatus("Army saved. 5 decks committed to Conquest.", true);
+            if (key == "conquest-loadouts-empty")
+            {
+                decks.clear();
+                army.deckIds.clear();
+                savedArmyDeckIds.clear();
+                selectedDeck.reset();
+                status.clear();
+            }
             return;
         }
 
@@ -784,7 +812,63 @@ public:
         selectedRegionId = 6;
         selectedEventDeckId = 900;
         status.clear();
+        if (key == "conquest-deck-edit") beginEdit(decks.front());
+        if (key == "conquest-orders-unsaved" || key == "conquest-orders-exit")
+        {
+            ordersDirty = true;
+            exitOrdersConfirmationVisible = key == "conquest-orders-exit";
+        }
+
+        if (key == "conquest-preview" || key == "conquest-registration" ||
+            key == "conquest-registration-ready" || key == "conquest-join-confirm" ||
+            key == "conquest-joined" || key == "conquest-interactions" ||
+            key == "conquest-many-decks")
+        {
+            accountIsAdmin = false;
+            eventState.summary = events[3];
+            // Other campaigns in this fixture must not block the join preview.
+            for (auto& summary : events) summary.joined = false;
+            eventState.players.clear();
+            eventState.regions.clear();
+            eventState.decks.clear();
+            eventState.battles.clear();
+            plannedOrders.clear();
+            selectedEventDeckId.reset();
+            selectedRegionId.reset();
+            if (key == "conquest-many-decks")
+            {
+                for (int i = 6; i < 10; ++i)
+                {
+                    auto deck = decks.front();
+                    deck.id = 100 + i;
+                    deck.deck.name = "Reserve " + std::to_string(i + 1);
+                    decks.push_back(deck);
+                }
+                army.deckIds = {100,101,102,103,104,105,106,107,108,109};
+            }
+            joinSetupActive = key != "conquest-preview" && key != "conquest-interactions";
+            if (joinSetupActive) selectedEventDeckId = 100;
+            if (key == "conquest-registration-ready" || key == "conquest-join-confirm" ||
+                key == "conquest-joined")
+            {
+                for (const auto& region : conquest_map::DarkRealmsRegions)
+                {
+                    if (!conquest_map::isEdgeRegion(region.id)) continue;
+                    if (placements.empty()) placements.push_back({100, region.id});
+                    else if (conquest_map::areAdjacent(placements.front().regionId, region.id))
+                    {
+                        placements.push_back({101, region.id});
+                        break;
+                    }
+                }
+                selectedEventDeckId = 101;
+            }
+            joinConfirmationVisible = key == "conquest-join-confirm";
+            if (key == "conquest-joined") submitJoin();
+        }
     }
+
+#include "conquest_ui_capture_checks.inl"
 
     std::optional<ConquestScreenAction> takeAction()
     {
@@ -816,6 +900,16 @@ public:
         {
             if (key->code == sf::Keyboard::Key::Escape)
             {
+                if (exitOrdersConfirmationVisible)
+                {
+                    exitOrdersConfirmationVisible = false;
+                    return true;
+                }
+                if (joinConfirmationVisible)
+                {
+                    if (!pendingCommand) joinConfirmationVisible = false;
+                    return true;
+                }
                 if (forceEndConfirmationVisible)
                 {
                     if (!pendingCommand)
@@ -836,7 +930,7 @@ public:
 
         if (const auto* wheel = event.getIf<sf::Event::MouseWheelScrolled>())
         {
-            if (forceEndConfirmationVisible)
+            if (forceEndConfirmationVisible || joinConfirmationVisible || exitOrdersConfirmationVisible)
             {
                 return true;
             }
@@ -893,7 +987,7 @@ public:
         // The event detail view supplies its own two-line toolbar. Drawing the
         // generic Conquest banner behind it makes the title, phase, and nav
         // controls compete for the same pixels.
-        if (view != View::Event)
+        if (view != View::Event && view != View::DeckEdit)
         {
             // drawTitlePlaque widens itself to its label and throws pipes and
             // rivets ~110px past its nominal box, which ran straight through
@@ -932,6 +1026,8 @@ public:
         {
             drawForceEndConfirmation(window);
         }
+        if (joinConfirmationVisible) drawJoinConfirmation(window);
+        if (exitOrdersConfirmationVisible) drawOrdersExitConfirmation(window);
 
         if (!status.empty() || busy())
         {
@@ -1043,6 +1139,13 @@ private:
     std::string username;
     bool accountIsAdmin = false;
     bool forceEndConfirmationVisible = false;
+    bool captureMode = false;
+    bool joinSetupActive = false;
+    bool joinConfirmationVisible = false;
+    bool returnToEventAfterLoadout = false;
+    bool ordersDirty = false;
+    bool exitOrdersConfirmationVisible = false;
+    std::vector<std::int64_t> savedArmyDeckIds;
     std::string status;
     bool statusSuccess = true;
     sf::Vector2f mousePosition;
@@ -1185,12 +1288,21 @@ private:
 
     void openEvent(std::uint64_t eventId)
     {
+        if (eventState.summary.id == eventId && !eventState.summary.name.empty())
+        {
+            view = View::Event;
+            refreshEventState();
+            return;
+        }
         eventState = {};
         eventState.summary.id = eventId;
         plannedOrders.clear();
         placements.clear();
         selectedEventDeckId.reset();
         selectedRegionId.reset();
+        joinSetupActive = joinConfirmationVisible = false;
+        ordersDirty = false;
+        eventDeckOffset = 0;
         view = View::Event;
         refreshEventState();
     }
@@ -1233,6 +1345,7 @@ private:
                     {
                         decks = std::move(result.decks);
                         army = std::move(result.army);
+                        savedArmyDeckIds = army.deckIds;
                         std::sort(decks.begin(), decks.end(), [](const auto& left, const auto& right) {
                             return left.deck.name < right.deck.name;
                         });
@@ -1290,15 +1403,25 @@ private:
                 {
                     if (result.success)
                     {
+                        const bool keepDraft = ordersDirty &&
+                            result.state.summary.turn == eventState.summary.turn &&
+                            result.state.summary.phase == conquest_data::EventPhase::Planning;
                         eventState = std::move(result.state);
-                        plannedOrders.clear();
-                        for (const conquest_data::EventDeckState& deck : eventState.decks)
+                        if (!keepDraft)
                         {
-                            if (deck.owner == username && deck.deployed && !deck.eliminated)
+                            ordersDirty = false;
+                            plannedOrders.clear();
+                            for (const conquest_data::EventDeckState& deck : eventState.decks)
                             {
-                                plannedOrders[deck.id] = deck.destinationRegionId > 0
-                                    ? deck.destinationRegionId : deck.regionId;
+                                if (deck.owner == username && deck.deployed && !deck.eliminated)
+                                    plannedOrders[deck.id] = deck.destinationRegionId > 0
+                                        ? deck.destinationRegionId : deck.regionId;
                             }
+                        }
+                        if (joinedEvent())
+                        {
+                            placements.clear();
+                            joinSetupActive = joinConfirmationVisible = false;
                         }
                     }
                     setStatus(result.message, result.success);
@@ -1352,6 +1475,14 @@ private:
                     setStatus(result.message, result.success);
                     if (result.success)
                     {
+                        if (finishedKind == CommandKind::Join)
+                        {
+                            joinConfirmationVisible = false;
+                            joinSetupActive = false;
+                            placements.clear();
+                            eventState.summary.joined = true;
+                        }
+                        if (finishedKind == CommandKind::Orders) ordersDirty = false;
                         if (finishedKind == CommandKind::DeleteDeck)
                         {
                             selectedDeck.reset();
@@ -1411,6 +1542,7 @@ private:
                     if (result.success)
                     {
                         army = std::move(result.army);
+                        savedArmyDeckIds = army.deckIds;
                     }
                 }
             }
@@ -1431,6 +1563,11 @@ private:
 
     void goBack()
     {
+        if (pendingCommand || pendingArmySave || pendingDeckSave)
+        {
+            setStatus("Finishing your request. You can go back once it completes.", true);
+            return;
+        }
         if (view == View::DeckEdit)
         {
             deckNameInput.setActive(false);
@@ -1447,8 +1584,36 @@ private:
         }
         else if (view == View::Event)
         {
+            if (ordersDirty)
+            {
+                exitOrdersConfirmationVisible = true;
+                return;
+            }
             view = View::Events;
+            setStatus(joinedEvent() ? "Campaign still active. Return here whenever you like."
+                                   : "Not joined. Reopen this campaign to resume setup; opening another clears the draft.", true);
             refreshEvents();
+        }
+        else if (view == View::Loadout)
+        {
+            if (army.deckIds != savedArmyDeckIds)
+            {
+                setStatus("Save Army before going back, or use Undo Changes.", false);
+                return;
+            }
+            view = returnToEventAfterLoadout ? View::Event : View::Events;
+            returnToEventAfterLoadout = false;
+            if (view == View::Event)
+            {
+                const auto available = armyDeckList();
+                std::erase_if(placements, [&](const auto& placement) {
+                    return std::none_of(available.begin(), available.end(), [&](const auto* deck) {
+                        return static_cast<std::uint64_t>(deck->id) == placement.deckId;
+                    });
+                });
+                selectedEventDeckId = available.empty() ? std::nullopt
+                    : std::optional<std::uint64_t>(available.front()->id);
+            }
         }
         else
         {
@@ -1498,7 +1663,7 @@ private:
         }
         else if (mouse.x > 580.0f)
         {
-            scroll(eventDeckOffset, selectableEventDecks().size(), 7);
+            scroll(eventDeckOffset, joinedEvent() ? selectableEventDecks().size() : armyDeckList().size(), VisibleEventDeckRows);
         }
         else
         {
@@ -1508,6 +1673,30 @@ private:
 
     void handleClick(sf::Vector2f mouse)
     {
+        if (exitOrdersConfirmationVisible)
+        {
+            if (rect(210, 408, 170, 40).contains(mouse)) exitOrdersConfirmationVisible = false;
+            else if (rect(410, 408, 180, 40).contains(mouse))
+            {
+                exitOrdersConfirmationVisible = false;
+                ordersDirty = false;
+                plannedOrders.clear();
+                for (const auto& deck : eventState.decks)
+                    if (deck.owner == username && deck.deployed && !deck.eliminated)
+                        plannedOrders[deck.id] = deck.destinationRegionId > 0
+                            ? deck.destinationRegionId : deck.regionId;
+                goBack();
+            }
+            return;
+        }
+        if (joinConfirmationVisible)
+        {
+            if (!pendingCommand && rect(210, 408, 170, 40).contains(mouse))
+                joinConfirmationVisible = false;
+            else if (!pendingCommand && rect(410, 408, 180, 40).contains(mouse))
+                submitJoin();
+            return;
+        }
         if (forceEndConfirmationVisible)
         {
             if (!pendingCommand && rect(220, 370, 160, 42).contains(mouse))
@@ -1608,12 +1797,23 @@ private:
         }
         if (rect(144, 64, 130, 36).contains(mouse))
         {
-            view = View::Events;
-            refreshEvents();
+            goBack();
+            return;
+        }
+        if (rect(498, 64, 156, 36).contains(mouse) && !busy())
+        {
+            army.deckIds = savedArmyDeckIds;
+            selectedArmySlot.reset();
+            setStatus("Restored your saved army.", true);
             return;
         }
         if (rect(666, 64, 114, 36).contains(mouse))
         {
+            if (army.deckIds != savedArmyDeckIds)
+            {
+                setStatus("Save Army or Undo Changes before refreshing.", false);
+                return;
+            }
             refreshLoadout();
             refreshCatalog();
             return;
@@ -1671,6 +1871,13 @@ private:
         }
         else if (rect(600, 492, 170, 38).contains(mouse) && !pendingArmySave)
         {
+            if (army.deckIds.empty()) return;
+            if (captureMode)
+            {
+                savedArmyDeckIds = army.deckIds;
+                setStatus("Army saved. Return to the campaign to choose starting regions.", true);
+                return;
+            }
             conquest_data::ConquestArmy next = army;
             pendingArmySave.emplace(std::async(
                 std::launch::async,
@@ -1692,6 +1899,7 @@ private:
 
     void toggleArmyDeck(std::int64_t id)
     {
+        if (busy()) return;
         const auto found = std::find(army.deckIds.begin(), army.deckIds.end(), id);
         if (found != army.deckIds.end())
         {
@@ -1964,7 +2172,7 @@ private:
 
     void clickEvent(sf::Vector2f mouse)
     {
-        if (rect(20, 24, 112, 36).contains(mouse))
+        if (rect(20, 24, 140, 36).contains(mouse))
         {
             goBack();
             return;
@@ -1983,6 +2191,7 @@ private:
             return;
         }
         if (accountIsAdmin &&
+            (joinedEvent() || !joinSetupActive) &&
             eventState.summary.phase == conquest_data::EventPhase::Registration &&
             rect(606, 520, 158, 32).contains(mouse))
         {
@@ -1990,10 +2199,54 @@ private:
             return;
         }
 
+        if (!joinedEvent() && rect(606, 460, 158, 32).contains(mouse))
+        {
+            returnToEventAfterLoadout = true;
+            view = View::Loadout;
+            refreshLoadout();
+            return;
+        }
+        if (!joinedEvent() && joinSetupActive && !pendingCommand &&
+            rect(606, 500, 158, 32).contains(mouse))
+        {
+            std::erase_if(placements, [&](const auto& placement) {
+                return selectedEventDeckId == placement.deckId;
+            });
+            setStatus("Placement removed. Select a deck, then a highlighted region.", true);
+            return;
+        }
+        if (rect(606, 414, 158, 36).contains(mouse))
+        {
+            if (joinedEvent() && eventState.summary.phase == conquest_data::EventPhase::Planning)
+                submitOrders();
+            else if (!joinedEvent() && !busy() &&
+                     eventState.summary.phase == conquest_data::EventPhase::Registration)
+            {
+                if (!joinSetupActive)
+                {
+                    joinSetupActive = true;
+                    const auto available = armyDeckList();
+                    if (!available.empty()) selectedEventDeckId = available.front()->id;
+                    setStatus("Select a deck, then a highlighted edge region. No coins spent yet.", true);
+                }
+                else if (placements.empty())
+                    setStatus("Place one deck on a highlighted edge region to continue.", false);
+                else joinConfirmationVisible = true;
+            }
+            return;
+        }
+
+        if (rect(590, 396, 188, 16).contains(mouse))
+        {
+            handleScroll(mouse, mouse.x >= 684 ? 1 : -1);
+            return;
+        }
+        if (pendingCommand) return;
+
         const std::vector<const conquest_data::EventDeckState*> eventDecks = selectableEventDecks();
         if (joinedEvent())
         {
-            for (std::size_t row = 0; row < 7; ++row)
+            for (std::size_t row = 0; row < VisibleEventDeckRows; ++row)
             {
                 const std::size_t index = eventDeckOffset + row;
                 if (index < eventDecks.size() &&
@@ -2004,10 +2257,10 @@ private:
                 }
             }
         }
-        else
+        else if (joinSetupActive)
         {
             const std::vector<const conquest_data::ConquestDeck*> armyDecks = armyDeckList();
-            for (std::size_t row = 0; row < 7; ++row)
+            for (std::size_t row = 0; row < VisibleEventDeckRows; ++row)
             {
                 const std::size_t index = eventDeckOffset + row;
                 if (index < armyDecks.size() &&
@@ -2039,17 +2292,7 @@ private:
             return;
         }
 
-        if (!joinedEvent() && rect(606, 414, 158, 36).contains(mouse))
-        {
-            submitJoin();
-        }
-        else if (joinedEvent() && rect(606, 414, 158, 36).contains(mouse))
-        {
-            // Orders (including an explicit empty/pass order) are independent
-            // of reinforcement deployment and never require selecting a deck.
-            submitOrders();
-        }
-        else if (joinedEvent() && rect(606, 520, 158, 32).contains(mouse))
+        if (joinedEvent() && rect(606, 520, 158, 32).contains(mouse))
         {
             submitReinforcement();
         }
@@ -2073,40 +2316,30 @@ private:
     void selectEventRegion(int regionId)
     {
         selectedRegionId = regionId;
+        if (pendingCommand) return;
         if (!selectedEventDeckId)
         {
             return;
         }
         if (!joinedEvent())
         {
+            if (!joinSetupActive) return;
             if (eventState.summary.phase != conquest_data::EventPhase::Registration)
             {
                 setStatus("Registration for this campaign has closed", false);
                 return;
             }
-            if (!conquest_map::isEdgeRegion(regionId))
-            {
-                setStatus("Starting decks must be placed on an edge region", false);
-                return;
-            }
             const std::uint64_t sourceDeckId = *selectedEventDeckId;
-            placements.erase(std::remove_if(placements.begin(), placements.end(),
-                [sourceDeckId, regionId](const auto& placement) {
-                    return placement.deckId == sourceDeckId || placement.regionId == regionId;
-                }), placements.end());
-            if (placements.size() >= 2)
+            if (const std::string error = placementError(sourceDeckId, regionId); !error.empty())
             {
-                setStatus("A player can start with at most two decks", false);
+                setStatus(error, false);
                 return;
             }
-            if (!placements.empty() &&
-                !conquest_map::areAdjacent(placements.front().regionId, regionId))
-            {
-                setStatus("The two starting regions must touch", false);
-                return;
-            }
+            std::erase_if(placements, [sourceDeckId](const auto& placement) {
+                return placement.deckId == sourceDeckId;
+            });
             placements.push_back({sourceDeckId, regionId});
-            setStatus("Starting placement selected", true);
+            setStatus("Placement preview saved. Review & Join when ready, or place a second deck.", true);
             return;
         }
 
@@ -2135,11 +2368,34 @@ private:
         // simultaneous A-vacates-X/B-enters-X orders possible. Final projected
         // positions are checked atomically when the player submits.
         plannedOrders[deck->id] = regionId;
-        setStatus(regionId == deck->regionId ? "Deck will hold position" : "Secret move planned", true);
+        ordersDirty = true;
+        setStatus("Unsaved orders. Use Submit Orders to send your plan.", true);
+    }
+
+    std::string placementError(std::uint64_t deckId, int regionId) const
+    {
+        if (!conquest_map::isEdgeRegion(regionId))
+            return "Choose a highlighted edge region on the outside of the map.";
+        if (std::any_of(eventState.decks.begin(), eventState.decks.end(), [&](const auto& deck) {
+                return deck.deployed && !deck.eliminated && deck.regionId == regionId;
+            })) return "That region is occupied. Choose another highlighted edge.";
+        std::size_t otherPlacements = 0;
+        for (const auto& placement : placements)
+        {
+            if (placement.deckId == deckId) continue;
+            ++otherPlacements;
+            if (placement.regionId == regionId)
+                return "A deck is already placed here. Select it to move or remove it.";
+            if (!conquest_map::areAdjacent(placement.regionId, regionId))
+                return "Your two starting regions must touch. Choose a highlighted region.";
+        }
+        if (otherPlacements >= 2) return "Two decks placed. Select a placed deck to move or remove it.";
+        return {};
     }
 
     void submitJoin()
     {
+        if (joinedEvent()) return;
         if (eventState.summary.phase != conquest_data::EventPhase::Registration)
         {
             setStatus("Registration for this campaign has closed", false);
@@ -2155,6 +2411,43 @@ private:
         }
         const std::uint64_t eventId = eventState.summary.id;
         const std::vector<conquest_data::StartingPlacement> next = placements;
+        for (const auto& placement : next)
+        {
+            if (const auto error = placementError(placement.deckId, placement.regionId); !error.empty())
+            {
+                joinConfirmationVisible = false;
+                setStatus(error, false);
+                return;
+            }
+        }
+        if (captureMode)
+        {
+            eventState.summary.joined = true;
+            for (const auto* source : armyDeckList())
+            {
+                conquest_data::EventDeckState deck;
+                deck.id = static_cast<std::uint64_t>(source->id);
+                deck.sourceDeckId = source->id;
+                deck.deckName = source->deck.name;
+                deck.owner = username;
+                deck.armySlot = static_cast<int>(eventState.decks.size()) + 1;
+                for (const auto& placement : next)
+                    if (placement.deckId == deck.id)
+                    {
+                        deck.deployed = true;
+                        deck.regionId = deck.destinationRegionId = placement.regionId;
+                    }
+                eventState.decks.push_back(deck);
+            }
+            conquest_data::PlayerState player;
+            player.username = username;
+            player.controlledRegions = static_cast<int>(next.size());
+            eventState.players.push_back(player);
+            placements.clear();
+            joinSetupActive = joinConfirmationVisible = false;
+            setStatus("You joined. Return to Events or Main Menu whenever you like.", true);
+            return;
+        }
         commandKind = CommandKind::Join;
         pendingCommand.emplace(std::async(
             std::launch::async,
@@ -2167,6 +2460,7 @@ private:
 
     void submitOrders()
     {
+        if (!joinedEvent()) return;
         if (eventState.summary.phase != conquest_data::EventPhase::Planning)
         {
             setStatus("Orders can only be submitted during planning", false);
@@ -2202,6 +2496,17 @@ private:
             orders.push_back({deck.id, destination});
         }
         const std::uint64_t eventId = eventState.summary.id;
+        if (captureMode)
+        {
+            for (auto& deck : eventState.decks)
+                for (const auto& order : orders)
+                    if (deck.id == order.eventDeckId) deck.destinationRegionId = order.destinationRegionId;
+            for (auto& me : eventState.players)
+                if (me.username == username) me.ordersSubmitted = true;
+            ordersDirty = false;
+            setStatus("Orders submitted. You can update them until the deadline.", true);
+            return;
+        }
         commandKind = CommandKind::Orders;
         pendingCommand.emplace(std::async(
             std::launch::async,
@@ -2379,13 +2684,14 @@ private:
 
     void drawHeaderButtons(sf::RenderWindow& window, bool loadoutActive)
     {
-        drawButton(window, font, rect(20, 64, 112, 36), "Back",
+        drawButton(window, font, rect(20, 64, 112, 36), loadoutActive ? "Back" : "Main Menu",
                    hovered(rect(20, 64, 112, 36), mousePosition));
         drawButton(window, font, rect(144, 64, 130, 36),
-                   loadoutActive ? "Events" : "Loadouts",
+                   loadoutActive ? (returnToEventAfterLoadout ? "Campaign" : "Events") : "Army Setup",
                    hovered(rect(144, 64, 130, 36), mousePosition));
         drawButton(window, font, rect(666, 64, 114, 36), "Refresh",
-                   hovered(rect(666, 64, 114, 36), mousePosition), !busy());
+                   hovered(rect(666, 64, 114, 36), mousePosition),
+                   !busy() && (!loadoutActive || army.deckIds == savedArmyDeckIds));
     }
 
     void drawEvents(sf::RenderWindow& window)
@@ -2650,7 +2956,7 @@ private:
             "with, and you will be ready the moment the next war is called.",
             14, {220.0f, 446.0f}, Muted, 360.0f);
 
-        drawButton(window, font, rect(310, 504, 180, 38), "Prepare Loadouts",
+        drawButton(window, font, rect(310, 504, 180, 38), "Army Setup",
                    hovered(rect(310, 504, 180, 38), mousePosition), true, true);
     }
 
@@ -2701,6 +3007,10 @@ private:
     void drawLoadout(sf::RenderWindow& window)
     {
         drawHeaderButtons(window, true);
+        const bool armyChanged = army.deckIds != savedArmyDeckIds;
+        if (armyChanged)
+            drawButton(window, font, rect(498, 64, 156, 36), "Undo Changes",
+                       hovered(rect(498, 64, 156, 36), mousePosition), !busy());
         // Headings sat exactly on the panel's top edge, so the border cut
         // through the glyphs. They now sit above their panels as captions.
         drawText(window, font, "CONQUEST DECKS", 13, {24.0f, 106.0f}, sf::Color(150, 132, 104));
@@ -2805,7 +3115,8 @@ private:
                    !pendingArmySave && !army.deckIds.empty(), true);
         drawSeparatorRule(window, {24.0f, 538.0f}, 752.0f);
         drawText(window, font,
-                 "Conquest decks draw on their own pool of copies. Your regular decks are untouched.",
+                 armyChanged ? "Unsaved army. Save Army to continue, or Undo Changes to restore it."
+                     : "1. Create a deck   2. Add to Army   3. Save Army   4. Return to your campaign",
                  13, {24.0f, 550.0f}, Muted);
     }
 
@@ -2816,11 +3127,15 @@ private:
         drawText(window, font, editingDeck.id == 0 ? "New Conquest Deck" : "Edit Conquest Deck",
                  23, {154.0f, 29.0f}, Accent);
         deckNameInput.draw(window);
+        drawText(window, font, "Select a card, then Add Copy. Scroll either list for more.",
+                 12, {392, 87}, Muted, 382);
+        drawText(window, font, "Available counts show copies you can still add to this deck.",
+                 12, {392, 108}, Muted, 382);
         UiContext ui{window, font, font, textures};
         drawPanel(window, rect(20, 138, 350, 346));
         drawPanel(window, rect(388, 138, 392, 346));
         drawSectionHeading(ui, {32.0f, 146.0f}, "Deck", 310.0f);
-        drawSectionHeading(ui, {400.0f, 146.0f}, "Available Collection", 348.0f);
+        drawSectionHeading(ui, {400.0f, 146.0f}, "Available to Add", 348.0f);
 
         const std::vector<std::string> titles = editingUniqueTitles();
         for (std::size_t row = 0; row < VisibleCardRows; ++row)
@@ -2865,9 +3180,9 @@ private:
                 break;
             }
             const card_data::Card& card = *library[index];
-            const int committed = copiesInOtherConquestDecks(card.title) +
-                static_cast<int>(std::count(editingDeck.deck.cardTitles.begin(),
+            const int inDeck = static_cast<int>(std::count(editingDeck.deck.cardTitles.begin(),
                                             editingDeck.deck.cardTitles.end(), card.title));
+            const int committed = copiesInOtherConquestDecks(card.title) + inDeck;
             const int owned = collectionCopiesFor(collection, card.title);
             const sf::FloatRect bounds = rect(392, CardRowY + row * CardRowHeight, 384, CardRowHeight - 3);
             CardRow rowView;
@@ -2875,10 +3190,8 @@ private:
             rowView.rect = bounds;
             rowView.selected = selectedLibraryCard == index;
             rowView.hovered = hovered(bounds, mousePosition);
-            // The shared count becomes the committed-versus-owned capacity in
-            // Conquest. availableLibrary has already excluded exhausted cards.
-            rowView.copies = committed;
-            rowView.copyLimit = owned;
+            rowView.owned = std::min(owned - committed, game_data::cardDeckLimit(card) - inDeck);
+            rowView.showOwned = true;
             drawCardRow(ui, rowView);
         }
 
@@ -2901,8 +3214,10 @@ private:
 
     void drawEvent(sf::RenderWindow& window)
     {
-        drawButton(window, font, rect(20, 24, 112, 36), "Events",
-                   hovered(rect(20, 24, 112, 36), mousePosition));
+        drawButton(window, font, rect(20, 24, 140, 36), "Back to Events",
+                   hovered(rect(20, 24, 140, 36), mousePosition));
+        drawText(window, font, joinedEvent() ? "Esc: back / still joined" : "Esc: back / preview only",
+                 10, {22, 64}, Muted);
         drawButton(window, font, rect(666, 24, 114, 36), "Refresh",
                    hovered(rect(666, 24, 114, 36), mousePosition), !pendingState);
         const bool canForceEnd = accountIsAdmin && eventState.summary.id != 0 &&
@@ -2915,14 +3230,14 @@ private:
         }
         drawText(window, font,
                   elide(font, eventState.summary.name.empty() ? "Loading campaign..." : eventState.summary.name,
-                       22, canForceEnd ? 365.0f : 500.0f),
-                 22, {150.0f, 13.0f}, Accent);
+                       22, canForceEnd ? 345.0f : 475.0f),
+                 22, {174.0f, 13.0f}, Accent);
         if (!eventState.summary.name.empty())
         {
             const conquest_data::EventPhase phase = eventState.summary.phase;
-            drawBadge(window, font, {150.0f, 44.0f}, phaseBadge(phase), phaseColor(phase));
+            drawBadge(window, font, {174.0f, 44.0f}, phaseBadge(phase), phaseColor(phase));
             sf::Text badgeProbe(font, phaseBadge(phase), 11);
-            float detailX = 150.0f + badgeProbe.getLocalBounds().size.x + 16.0f + 10.0f;
+            float detailX = 174.0f + badgeProbe.getLocalBounds().size.x + 16.0f + 10.0f;
             if (eventState.summary.turn > 0)
             {
                 drawText(window, font, "Turn " + std::to_string(eventState.summary.turn), 13,
@@ -2965,6 +3280,53 @@ private:
         drawRegionMarkers(window);
         drawEventDeckPanel(window);
         drawBattlePanel(window);
+    }
+
+    void drawJoinConfirmation(sf::RenderWindow& window)
+    {
+        sf::RectangleShape shade({ui_canvas::Width, ui_canvas::Height});
+        shade.setPosition({ui_canvas::Left, 0});
+        shade.setFillColor(sf::Color(0, 0, 0, 190));
+        window.draw(shade);
+        drawPanel(window, rect(165, 150, 470, 320));
+        drawText(window, font, "3. Review & Join", 25, {195, 171}, Accent);
+        drawText(window, font, elide(font, eventState.summary.name, 16, 410), 16, {195, 211});
+        float y = 246;
+        for (const auto& placement : placements)
+        {
+            drawText(window, font, elide(font, armyDeckName(placement.deckId) + " > " +
+                     regionName(placement.regionId), 14, 410), 14, {195, y}, Good);
+            y += 25;
+        }
+        drawText(window, font, "Cost: " + std::to_string(conquest_data::ConquestEntryFeeCoins) +
+                 " coins. Remaining decks join as reserves.", 14, {195, 305});
+        drawText(window, font, "Joining commits this army. You cannot withdraw.", 14, {195, 335}, Accent);
+        drawText(window, font, "You can close the map and return later. The campaign continues.",
+                 13, {195, 362}, Muted, 410);
+        drawButton(window, font, rect(210, 408, 170, 40), "Edit Placement",
+                   hovered(rect(210, 408, 170, 40), mousePosition), !pendingCommand);
+        drawButton(window, font, rect(410, 408, 180, 40), "Join - " +
+                   std::to_string(conquest_data::ConquestEntryFeeCoins) + " Coins",
+                   hovered(rect(410, 408, 180, 40), mousePosition), !pendingCommand, true);
+    }
+
+    void drawOrdersExitConfirmation(sf::RenderWindow& window)
+    {
+        sf::RectangleShape shade({ui_canvas::Width, ui_canvas::Height});
+        shade.setPosition({ui_canvas::Left, 0});
+        shade.setFillColor(sf::Color(0, 0, 0, 190));
+        window.draw(shade);
+        drawPanel(window, rect(165, 185, 470, 285));
+        drawText(window, font, "Leave with unsaved orders?", 24, {195, 211}, Accent);
+        drawWrappedText(window, font,
+            "Your latest moves have not been submitted. Keep editing to submit them, "
+            "or discard these changes and return to Events.", 16, {195, 263}, Ink, 407);
+        drawText(window, font, "Your campaign and previously submitted orders stay active.",
+                 13, {195, 367}, Muted, 410);
+        drawButton(window, font, rect(210,408,170,40), "Keep Editing",
+                   hovered(rect(210,408,170,40),mousePosition));
+        drawButton(window, font, rect(410,408,180,40), "Discard & Back",
+                   hovered(rect(410,408,180,40),mousePosition), true, false, true);
     }
 
     void drawForceEndConfirmation(sf::RenderWindow& window)
@@ -3061,6 +3423,17 @@ private:
         for (const conquest_map::RegionDefinition& region : conquest_map::DarkRealmsRegions)
         {
             const sf::Vector2f center = mapPoint(region.centerX, region.centerY);
+            if (!joinedEvent() && joinSetupActive && selectedEventDeckId &&
+                placementError(*selectedEventDeckId, region.id).empty())
+            {
+                sf::CircleShape target(15.0f);
+                target.setOrigin({15, 15});
+                target.setPosition(center + sf::Vector2f(0, -4));
+                target.setFillColor(sf::Color(111, 210, 137, 45));
+                target.setOutlineColor(Good);
+                target.setOutlineThickness(2);
+                window.draw(target);
+            }
             if (regionController(region.id).empty())
             {
                 sf::CircleShape pin(4.0f);
@@ -3159,17 +3532,42 @@ private:
     void drawEventDeckPanel(sf::RenderWindow& window)
     {
         drawPanel(window, rect(588, 78, 192, 373));
-        drawText(window, font, joinedEvent() ? "Your Army" : "Starting Army", 18,
+        if (!joinedEvent() && !joinSetupActive)
+        {
+            drawText(window, font, "Campaign Preview", 17, {598, 90}, Accent);
+            drawBadge(window, font, {598, 119}, "NOT JOINED", Muted);
+            drawWrappedText(window, font,
+                "1. Prepare your army\n\n2. Choose starting regions\n\n3. Review and join",
+                15, {610, 157}, Ink, 158);
+            drawWrappedText(window, font, "Join with 1-2 decks. The rest wait in reserve.",
+                13, {602, 307}, Muted, 166);
+            drawText(window, font, "Entry: " + std::to_string(conquest_data::ConquestEntryFeeCoins) +
+                " coins at confirmation", 12, {598, 384}, Muted, 174);
+            const bool open = eventState.summary.phase == conquest_data::EventPhase::Registration;
+            drawButton(window, font, rect(606,414,158,36), open ? "Set Up & Join" : "Entry Closed",
+                hovered(rect(606,414,158,36),mousePosition), open && !busy(), true);
+            return;
+        }
+        drawText(window, font, joinedEvent() ? "Your Army" : "2. Place Your Decks", 17,
                  {598.0f, 88.0f}, Accent);
         const conquest_data::PlayerState* player = currentPlayer();
         if (player)
         {
+            drawBadge(window, font, {710, 87}, "YOU", playerColor(player->colorIndex), 10);
+            const auto reserveCount = std::count_if(eventState.decks.begin(), eventState.decks.end(), [&](const auto& deck) {
+                return deck.owner == username && !deck.deployed && !deck.eliminated;
+            });
             const std::string armyStatus = player->eliminated
                 ? "Army defeated"
                 : std::to_string(player->controlledRegions) + " regions held, " +
-                    std::to_string(player->reinforcementsAvailable) + " in reserve";
+                    std::to_string(reserveCount) + " in reserve";
             drawText(window, font, armyStatus, 12, {598.0f, 115.0f},
                      player->eliminated ? Bad : Muted);
+            drawText(window, font, ordersDirty ? "Unsaved orders" :
+                     eventState.summary.phase == conquest_data::EventPhase::Planning
+                         ? player->ordersSubmitted ? "Orders submitted" : "Choose moves, then submit"
+                         : "Joined - campaign active",
+                     11, {598, 130}, ordersDirty ? Accent : Good);
             if (!player->eliminated && player->nextReinforcementAt > 0)
             {
                 const std::int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
@@ -3178,19 +3576,21 @@ private:
                 {
                     drawText(window, font,
                              "Cooldown: " + remainingText(player->nextReinforcementAt),
-                             11, {598.0f, 130.0f}, Muted);
+                             11, {598.0f, 450.0f}, Muted);
                 }
             }
         }
         else
         {
-            drawText(window, font, "Choose 1-2 adjacent edges", 12, {598.0f, 115.0f}, Muted);
+            drawText(window, font, std::to_string(placements.size()) + " / 2 placed (1 required)",
+                     12, {598.0f, 115.0f}, placements.empty() ? Muted : Good);
+            drawText(window, font, "Select deck, then green ring", 11, {598, 130}, Muted);
         }
 
         if (joinedEvent())
         {
             const std::vector<const conquest_data::EventDeckState*> eventDecks = selectableEventDecks();
-            for (std::size_t row = 0; row < 7; ++row)
+            for (std::size_t row = 0; row < VisibleEventDeckRows; ++row)
             {
                 const std::size_t index = eventDeckOffset + row;
                 if (index >= eventDecks.size())
@@ -3200,10 +3600,10 @@ private:
                 const auto& deck = *eventDecks[index];
                 const bool isSelected = selectedEventDeckId == deck.id;
                 const sf::FloatRect bounds = rect(590, 146 + row * 42.0f, 188, 38);
-                drawBeveledPlate(
-                    window, bounds.position, bounds.size,
+                drawCompactPlate(
+                    window, bounds,
                     isSelected ? sf::Color(76, 49, 25, 240) : sf::Color(17, 24, 25, 228),
-                    isSelected ? Accent : sf::Color(96, 68, 38), isSelected, 4.0f);
+                    isSelected ? Accent : sf::Color(96, 68, 38), 4.0f);
 
                 // Region names, not "R5>R6": the shorthand was internal
                 // notation leaking into a player-facing panel.
@@ -3230,7 +3630,7 @@ private:
         else
         {
             const std::vector<const conquest_data::ConquestDeck*> armyDecks = armyDeckList();
-            for (std::size_t row = 0; row < 7; ++row)
+            for (std::size_t row = 0; row < VisibleEventDeckRows; ++row)
             {
                 const std::size_t index = eventDeckOffset + row;
                 if (index >= armyDecks.size())
@@ -3241,23 +3641,35 @@ private:
                 const bool isSelected =
                     selectedEventDeckId == static_cast<std::uint64_t>(deck.id);
                 const sf::FloatRect bounds = rect(590, 146 + row * 42.0f, 188, 38);
-                drawBeveledPlate(
-                    window, bounds.position, bounds.size,
+                drawCompactPlate(
+                    window, bounds,
                     isSelected ? sf::Color(76, 49, 25, 240) : sf::Color(17, 24, 25, 228),
-                    isSelected ? Accent : sf::Color(96, 68, 38), isSelected, 4.0f);
+                    isSelected ? Accent : sf::Color(96, 68, 38), 4.0f);
                 drawText(window, font, elide(font, deck.deck.name, 13, 172.0f), 13,
                          bounds.position + sf::Vector2f(8.0f, 4.0f));
-                drawText(window, font, std::to_string(deck.deck.cardTitles.size()) + " cards", 11,
-                         bounds.position + sf::Vector2f(8.0f, 21.0f), Muted);
+                const auto placed = std::find_if(placements.begin(), placements.end(), [&](const auto& p) {
+                    return p.deckId == static_cast<std::uint64_t>(deck.id);
+                });
+                drawText(window, font, placed == placements.end() ? "Not placed / reserve" :
+                         elide(font, "Placed: " + regionName(placed->regionId), 11, 172), 11,
+                         bounds.position + sf::Vector2f(8.0f, 21.0f), placed == placements.end() ? Muted : Good);
             }
+            if (armyDecks.empty())
+                drawWrappedText(window, font, "No army saved yet. Open Army Setup below: create a deck, add it, then Save Army.",
+                                15, {602, 165}, Ink, 166);
         }
 
         // The flags on the map are the only colour key there is, and nothing
         // said which colour was yours. The slack below the deck rows is enough
         // for a proper roster, which also carries who has locked in orders.
         const std::size_t rowsShown = std::min<std::size_t>(
-            7, joinedEvent() ? selectableEventDecks().size() : armyDeckList().size());
-        drawPlayerLegend(window, 146.0f + static_cast<float>(rowsShown) * 42.0f + 18.0f);
+            VisibleEventDeckRows, joinedEvent() ? selectableEventDecks().size() : armyDeckList().size());
+        if (joinedEvent()) drawPlayerLegend(window, 146.0f + static_cast<float>(rowsShown) * 42.0f + 18.0f);
+        const auto totalDecks = joinedEvent() ? selectableEventDecks().size() : armyDeckList().size();
+        if (totalDecks > VisibleEventDeckRows)
+            drawText(window, font, "< Prev     " + std::to_string(eventDeckOffset + 1) + "-" +
+                     std::to_string(std::min(totalDecks, eventDeckOffset + VisibleEventDeckRows)) + "/" +
+                     std::to_string(totalDecks) + "    Next >", 11, {598, 397}, Accent);
 
         std::string actionLabel;
         bool actionEnabled = !pendingCommand;
@@ -3265,7 +3677,7 @@ private:
         {
             actionLabel = joinedEvent()
                 ? "Waiting for Start"
-                : "Join - " + std::to_string(conquest_data::ConquestEntryFeeCoins) + " Coins";
+                : "Review & Join";
             actionEnabled = actionEnabled && !joinedEvent() && !placements.empty();
         }
         else if (eventState.summary.phase == conquest_data::EventPhase::Planning && joinedEvent())
@@ -3278,7 +3690,7 @@ private:
             }
             else
             {
-                actionLabel = "Submit Orders";
+                actionLabel = ordersDirty ? "Submit Orders" : me && me->ordersSubmitted ? "Orders Submitted" : "Submit Orders";
             }
         }
         else if (eventState.summary.phase == conquest_data::EventPhase::Resolving)
@@ -3370,6 +3782,41 @@ private:
     void drawBattlePanel(sf::RenderWindow& window)
     {
         drawPanel(window, rect(20, 462, 760, 101));
+        if (!joinedEvent())
+        {
+            const bool open = eventState.summary.phase == conquest_data::EventPhase::Registration;
+            const auto available = armyDeckList();
+            const std::string heading = !open ? "Registration closed - viewing only"
+                : !joinSetupActive ? "Join a campaign in three steps"
+                : available.empty() ? "1. Prepare your army"
+                : placements.empty() ? "Choose a starting region"
+                : placements.size() == 1 ? "Ready to join - or add a second deck"
+                : "Two decks placed - review your starting army";
+            drawText(window, font, heading, 17, {32, 471}, Accent);
+            const std::string guidance = !open ? "Choose an OPEN campaign from Back to Events."
+                : !joinSetupActive ? "Set Up & Join guides you through deployment before you pay."
+                : available.empty() ? "Army Setup > New deck > Add to Army > Save Army."
+                : placements.empty() ? "Select a deck on the right, then click a green ring on the map."
+                : placements.size() == 1 ? "Select another deck and a touching green ring, or use Review & Join."
+                : "Use Review & Join, or select a placed deck to move or remove it.";
+            drawText(window, font, guidance, 13, {44, 500}, Ink, 536);
+            drawText(window, font, "Preview only. Back to Events / Esc is free; no coins spent until you confirm.",
+                     12, {32, 534}, Muted, 548);
+            drawButton(window, font, rect(606, 460, 158, 32), "Army Setup",
+                       hovered(rect(606, 460, 158, 32), mousePosition), !busy());
+            if (joinSetupActive)
+            {
+                const bool placed = std::any_of(placements.begin(), placements.end(), [&](const auto& p) {
+                    return selectedEventDeckId == p.deckId;
+                });
+                drawButton(window, font, rect(606, 500, 158, 32), "Remove Placement",
+                           hovered(rect(606, 500, 158, 32), mousePosition), placed && !busy());
+            }
+            else if (accountIsAdmin && open)
+                drawButton(window, font, rect(606,520,158,32), "Force Start",
+                           hovered(rect(606,520,158,32),mousePosition), !pendingCommand && eventState.summary.participantCount >= 2);
+            return;
+        }
         const conquest_map::RegionDefinition* region = selectedRegionId
             ? conquest_map::region(*selectedRegionId) : nullptr;
         const std::string controller = selectedRegionId ? regionController(*selectedRegionId) : "";
@@ -3377,7 +3824,8 @@ private:
         // every territory by name, so the number told the player nothing.
         // This heading has to clear the panel's inner hairline above it *and*
         // the battle rows below, which start at 492. 14px at y=470 fits both.
-        drawText(window, font, region ? std::string(region->name) : "Ready Battles",
+        drawText(window, font, eventState.summary.phase == conquest_data::EventPhase::Registration
+                     ? "Joined - waiting for start" : region ? std::string(region->name) : "Ready Battles",
                  14, {30.0f, 470.0f}, Accent);
         if (region)
         {
@@ -3421,7 +3869,17 @@ private:
         const std::vector<const conquest_data::BattleState*> battles = joinableBattles();
         if (battles.empty())
         {
-            drawText(window, font, "No battles are waiting for you this turn.", 14, {30.0f, 502.0f}, Muted);
+            const auto* me = currentPlayer();
+            const bool planning = eventState.summary.phase == conquest_data::EventPhase::Planning;
+            const std::string hint = eventState.summary.phase == conquest_data::EventPhase::Registration
+                ? "You're joined. Your starting army is locked in until registration closes."
+                : planning && ordersDirty ? "Unsaved orders - use Submit Orders to send this plan."
+                : planning && me && me->ordersSubmitted ? "Orders submitted. You can update them until the deadline."
+                : planning ? "Select a deck, then a touching region. Submit Orders when ready."
+                : "No battles are waiting for you this turn.";
+            drawText(window, font, hint, 13, {44, 498}, planning && ordersDirty ? Accent : Ink, 544);
+            drawText(window, font, "Back to Events / Esc keeps your campaign active. Main Menu is on Events.",
+                     12, {30, 535}, Muted, 558);
             return;
         }
         for (std::size_t row = 0; row < 2; ++row)
