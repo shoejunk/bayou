@@ -237,6 +237,7 @@ std::string_view storyActShortGoal(StoryCampaign campaign, int missionIndex);
 std::string storyRequiredSurvivorNames(const StoryMission& mission);
 int storyAiSearchDepth(StoryCampaign campaign, std::string_view missionId);
 std::span<const StoryMission> storyMissions(StoryCampaign campaign);
+int storyNarrativeEntryCount(StoryCampaign campaign);
 StoryEnemyProgress storyDefeatAllEnemiesProgress(
     const StoryMission& mission,
     std::span<const std::pair<std::string_view, int>> rolePieceIds,
@@ -253,6 +254,9 @@ struct StoryProgress
     // its prerequisite rehearsals were already completed through play. A
     // defeat/ordinary skip continuation advances without setting this bit.
     std::vector<bool> completedByPlay;
+    // Keep stable-ID evidence beyond the next unread entry when a revision
+    // moves scenes or practices. Such entries remain locked until reached.
+    std::vector<bool> advancedEntries;
 
     [[nodiscard]] bool continuedWithoutMastery(int missionIndex) const noexcept
     {

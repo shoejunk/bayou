@@ -1,5 +1,7 @@
 # Gloomthorn Book One Story Mode Expansion Blueprint
 
+> Historical narrative record: this document describes the earlier source-led adaptation. The public-audience rewrite follows [Writing Story Mode for new players](GLOOMTHORN_STORY_MODE_WRITING_GUIDE.md). Dialogue, scene counts, route order, practice requirements, lore detail, and menu wording below are superseded where they differ from the active catalog. The September 11 clarity loop cuts story detours, moves extra drills after the endings, and uses familiar Mirewatch teams. Printed card rules and ordinary game commands still apply.
+
 Status: legacy detailed dossier; superseded where it conflicts with `GLOOMTHORN_TRILOGY_STORY_MODE_STRUCTURE.md`
 
 Canon source: `Gloomthorn - Book One - Revised Opus 2026-09-05.docx` (Chapters 1-30, Epilogue). Books Two and Three are reserved for later court campaigns; see the canonical trilogy structure document.

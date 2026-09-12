@@ -1668,7 +1668,7 @@ int main(int argc, char** argv)
         font);
     Button storyContinueButton({558.0f, 520.0f}, {194.0f, 48.0f}, "Continue", font);
     Button storySkipDrillButton(
-        {326.0f, 520.0f}, {216.0f, 48.0f}, "Skip (No Mastery)", font);
+        {326.0f, 520.0f}, {216.0f, 48.0f}, "Skip Practice", font);
     // Keep the popup controls above a dedicated keyboard-help row. The former
     // y=472 placement put the hint directly through the Previous button.
     Button storyPopupPreviousButton({312.0f, 456.0f}, {196.0f, 46.0f}, "Previous", font);
@@ -5152,7 +5152,7 @@ int main(int argc, char** argv)
 
     auto requestStoryCampaignSelection = [&](StoryCampaign campaign) {
         const int mirewatchMissionCount =
-            static_cast<int>(storyMissions(StoryCampaign::Mirewatch).size());
+            storyNarrativeEntryCount(StoryCampaign::Mirewatch);
         if (storyRequiresSeelieSpoilerConfirmation(
                 campaign,
                 storyCampaignProgress[storyProgressIndex(StoryCampaign::Mirewatch)],
@@ -5623,7 +5623,11 @@ int main(int argc, char** argv)
                 "Capture registry error: the optional timed ordinary match "
                 "requires pre-clock choice-screen evidence.");
         }
-        if (std::find(
+        const auto blackthornMissions = storyMissions(StoryCampaign::Blackthorn);
+        const bool hasRequiredCatchUp = std::any_of(
+            blackthornMissions.begin(), blackthornMissions.end(),
+            [](const StoryMission& mission) { return mission.catchUpForSkippedRehearsals; });
+        if (hasRequiredCatchUp && std::find(
                 ui_capture::knownScreens().begin(),
                 ui_capture::knownScreens().end(),
                 "story-blackthorn-synthesis-bypass") ==
@@ -5680,7 +5684,9 @@ int main(int argc, char** argv)
             storyCampaignProgress[storyProgressIndex(storyCampaign)];
         const bool hasNext =
             storyMissionIndex + 1 < static_cast<int>(storyMissions(storyCampaign).size());
-        if (hasNext)
+        const bool storyEnding = storyMissionIndex + 1 ==
+            storyNarrativeEntryCount(storyCampaign);
+        if (hasNext && !storyEnding)
         {
             showStoryIntro(storyMissionIndex + 1);
         }
@@ -7365,7 +7371,7 @@ int main(int argc, char** argv)
             storyCompleteAfterPopup = false;
             snapshot.status = !missingSurvivorName.empty()
                 ? "Mission failed: " + missingSurvivorName +
-                    " fell before the objective was secured."
+                    " fell before you reached the goal."
                 : storyCampaign == StoryCampaign::Blackthorn
                     ? "Mission failed: the Blackthorn force was defeated."
                     : storyCampaign == StoryCampaign::Mirewatch
@@ -7376,7 +7382,7 @@ int main(int argc, char** argv)
                     mission, storyGenuineDefeatCount))
             {
                 snapshot.status +=
-                    " Continue Anyway unlocks the next story entry without a completion stamp; replay this mission later to earn it.";
+                    " Choose Continue Anyway to move on. You can try this battle again from Missions.";
                 storyRestartButton.setVariant(ButtonVariant::Secondary);
                 storyRestartButton.setLabel("Continue Anyway");
                 if (usesCompactGameHud(window))
@@ -11912,14 +11918,14 @@ int main(int argc, char** argv)
                 else if (screen == "story-seelie-mirror-marrowind")
                 {
                     missionId = "se00_what_mirror_remembers";
-                    storyComicPage = 4;
+                    storyComicPage = 2;
                 }
                 else if (screen == "story-seelie-sella-pallid" ||
                          screen == "story-seelie-sella-name-eaten")
                 {
                     missionId = "se08a_sella_receives_herself";
                     storyComicPage =
-                        screen == "story-seelie-sella-name-eaten" ? 4 : 3;
+                        screen == "story-seelie-sella-name-eaten" ? 3 : 2;
                 }
                 else if (screen == "story-seelie-vow-web-cause" ||
                          screen == "story-seelie-vow-web-consequence")
@@ -11933,7 +11939,7 @@ int main(int argc, char** argv)
                 {
                     missionId = "se27_emperor_at_tree";
                     storyComicPage =
-                        screen == "story-seelie-pump-four-rules-boundary" ? 4 : 2;
+                        screen == "story-seelie-pump-four-rules-boundary" ? 3 : 2;
                 }
                 else if (screen == "story-seelie-before-next-dawn")
                 {
@@ -11982,12 +11988,12 @@ int main(int argc, char** argv)
                 {
                     missionId = "se29c2_separate_withdrawals";
                     storyComicPage =
-                        screen == "story-seelie-separate-withdrawals-coda" ? 5 : 1;
+                        screen == "story-seelie-separate-withdrawals-coda" ? 3 : 1;
                 }
                 else
                 {
                     missionId = "se30_names_we_keep";
-                    storyComicPage = 4;
+                    storyComicPage = 3;
                 }
             }
             storyMissionIndex = storyMissionIndexById(storyCampaign, missionId);
@@ -12287,11 +12293,27 @@ int main(int argc, char** argv)
         else if (screen == "story-seelie-story-long")
         {
             storyCampaign = StoryCampaign::Seelie;
-            storyMissionIndex = storyMissionIndexById(
-                storyCampaign, "se29_no_complete_bearer");
-            // The third panel is deliberately one of the campaign's longest;
-            // keep it in the review suite so wrapping regressions are visible.
-            storyComicPage = 2;
+            // Choose the longest current story panel, so this wrapping
+            // fixture remains useful when an editorial pass trims a scene.
+            std::size_t longestPanel = 0;
+            const auto missions = storyMissions(storyCampaign);
+            for (std::size_t index = 0; index < missions.size(); ++index)
+            {
+                if (missions[index].objectiveSpec.kind != StoryObjectiveKind::StoryOnly)
+                {
+                    continue;
+                }
+                for (std::size_t page = 0; page < missions[index].briefing.size(); ++page)
+                {
+                    const std::size_t length = missions[index].briefing[page].text.size();
+                    if (length > longestPanel)
+                    {
+                        longestPanel = length;
+                        storyMissionIndex = static_cast<int>(index);
+                        storyComicPage = static_cast<int>(page);
+                    }
+                }
+            }
             currentState = GameState::StoryIntro;
             title.setString("");
             centerText(title, 400.0f);
@@ -12419,7 +12441,7 @@ int main(int argc, char** argv)
                         return step.heading == heading;
                     });
             };
-            const auto raiseStep = stepByHeading("RAISE THE GUN");
+            const auto raiseStep = stepByHeading("SHARPSHOOTER - RAISE GUN");
             const auto fireStepIt = stepByHeading("SHARPSHOOTER - FIRE");
             if (raiseStep == mission.script.end() ||
                 fireStepIt == mission.script.end())
@@ -13175,30 +13197,22 @@ int main(int argc, char** argv)
                     "Capture replay error: River Teeth aftermath is not genuine.");
             }
         }
-        else if (screen == "story-mirewatch-intercept-aftermath-live" ||
-                 screen == "story-mirewatch-intercept-footprint-live" ||
-                 screen == "story-mirewatch-intercept-reset-live" ||
-                 screen == "story-mirewatch-intercept-exclusions-live")
+        else if (screen == "story-mirewatch-intercept-aftermath-live")
         {
-            if (replayVaultCostForCapture())
+            replayVaultCostForCapture();
+        }
+        else if (screen == "story-mirewatch-intercept-card")
+        {
+            storyCampaign = StoryCampaign::Mirewatch;
+            storyMissionIndex = storyMissionIndexById(
+                storyCampaign, "mw11_no_plan_saves_all");
+            beginStory();
+            inspectedPieceId = storyPieceIdForRole("juniper");
+            inspectedPieceScroll = 0.0f;
+            if (inspectedPieceId == 0)
             {
-                if (screen == "story-mirewatch-intercept-footprint-live")
-                {
-                    storyPopupPage = 1;
-                }
-                else if (screen == "story-mirewatch-intercept-reset-live")
-                {
-                    storyPopupPage = 2;
-                }
-                else if (screen == "story-mirewatch-intercept-exclusions-live")
-                {
-                    storyPopupPage = 3;
-                }
-                if (storyPopupPage >= storyPopupPanels.size())
-                {
-                    failCaptureValidation(
-                        "Capture replay error: requested Intercept explanation page is absent.");
-                }
+                failCaptureValidation(
+                    "Capture setup error: Juniper is absent from her Intercept lesson.");
             }
         }
         else if (screen.rfind("story-mirewatch-game-", 0) == 0)
@@ -13509,8 +13523,7 @@ int main(int argc, char** argv)
                     afterWrongChoice.foresightChoices.size() != 2 ||
                     afterWrongChoice.hand.size() != 0 ||
                     !storyEngine->hasPendingForesightChoice(1) ||
-                    storyCorrection.find("Fey Messenger is required") ==
-                        std::string::npos)
+                    storyCorrection != mission.script[2].correction)
                 {
                     failCaptureValidation(
                         "Capture replay error: the rejected Starbloom Knight choice did not preserve the modal with its Fey Messenger correction.");

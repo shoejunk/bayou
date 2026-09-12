@@ -15,7 +15,7 @@
         drawCenteredText(
             window,
             font,
-            "Start with Mirewatch; progress saves per path. Themes: coercion, injury, war, and death.",
+            "New here? Start with Mirewatch. Each story saves your progress. Contains injury, war, and death.",
             type::Caption,
             {400.0f, 94.0f},
             palette::InkMuted);
@@ -83,8 +83,8 @@
             else
             {
                 const std::string pathLabel = campaign == StoryCampaign::Seelie
-                    ? "BOOKS TWO & THREE - SPOILERS"
-                    : "TACTICAL - TRAPS AND DAMAGE";
+                    ? "SEQUEL - STORY SPOILERS"
+                    : "TRAPS, POWER, AND BETRAYAL";
                 drawText(
                     window,
                     font,
@@ -103,13 +103,13 @@
 
             const int completed = storyCampaignProgress[storyProgressIndex(campaign)];
             const int missionCount = static_cast<int>(storyMissions(campaign).size());
-            const std::string progress = completed >= missionCount
+            const std::string progress = completed >= storyNarrativeEntryCount(campaign)
                 ? "Story ending reached"
                 : completed == 0
                     ? (campaign == StoryCampaign::Mirewatch
-                        ? "River Teeth ready"
+                        ? "First battle ready"
                         : campaign == StoryCampaign::Seelie
-                            ? "Cathedral road ready"
+                            ? "Free the captive"
                             : "First mission ready")
                     : "Entry " + std::to_string(completed + 1) + " ready";
             drawText(
@@ -123,7 +123,7 @@
             drawText(
                 window,
                 font,
-                std::to_string(completed) + " / " + std::to_string(missionCount) + " entries advanced",
+                std::to_string(completed) + " / " + std::to_string(missionCount) + " entries reached",
                 type::Caption,
                 position + sf::Vector2f(18.0f, 334.0f),
                 palette::InkMuted,
@@ -142,21 +142,21 @@
             {32.0f, 112.0f},
             sf::Color(207, 151, 69),
             "cards/victorGreyshard.png",
-            "Audit Victor's Company. Learn traps, marks, and heavy attacks without changing the novel's outcomes.",
+            "Mog follows a cruel leader. Will he help the people he was sent to hurt? Learn to play Blackthorn cards.",
             storyBlackthornButton);
         drawCampaign(
             StoryCampaign::Mirewatch,
             {288.0f, 112.0f},
             sf::Color(103, 188, 153),
             "cards/reedBaelstone.png",
-            "Lead Reed's resistance. Win Mirewatch's freedom through healing, movement, and teamwork.",
+            "Gators surround your boat. Soldiers threaten your home. Help Reed and his friends fight back.",
             storyMirewatchButton);
         drawCampaign(
             StoryCampaign::Seelie,
             {544.0f, 112.0f},
             sf::Color(160, 139, 224),
             "cards/princeVesper.png",
-            "Contains the Book One ending. Begin with Vesper's surviving Cathedral road, then defend the small lights and Emberhaven.",
+            "Free a captive. Defend a burning city. Help a small band of friends face an army.",
             storySeelieButton);
 
         storySelectBackButton.draw(window, animationTime);
@@ -190,7 +190,7 @@
             drawWrappedText(
                 window,
                 font,
-                "Seelie contains Books Two and Three and explicitly reveals the Book One ending.",
+                "Seelie starts after Mirewatch. It reveals how that story ends.",
                 17,
                 {210.0f, 232.0f},
                 sf::Color(236, 226, 203),
@@ -199,7 +199,7 @@
             drawWrappedText(
                 window,
                 font,
-                "Play Mirewatch first to experience that ending in order, or continue anyway.",
+                "Play Mirewatch first to follow the story from the start, or begin Seelie now.",
                 15,
                 {210.0f, 304.0f},
                 sf::Color(190, 198, 214),

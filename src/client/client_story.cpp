@@ -377,254 +377,141 @@ std::string_view storyCampaignName(StoryCampaign campaign)
     return "Story Mode";
 }
 
+int storyNarrativeEntryCount(StoryCampaign campaign)
+{
+    const auto missions = storyMissions(campaign);
+    for (std::size_t index = missions.size(); index > 0; --index)
+    {
+        if (missions[index - 1].objectiveSpec.kind == StoryObjectiveKind::StoryOnly)
+        {
+            return static_cast<int>(index);
+        }
+    }
+    return static_cast<int>(missions.size());
+}
+
+namespace
+{
+struct StoryActInfo
+{
+    std::string_view firstMission;
+    std::string_view name;
+    std::string_view goal;
+    std::string_view shortGoal;
+};
+
+StoryActInfo storyActInfo(StoryCampaign campaign, int missionIndex)
+{
+    const auto missions = storyMissions(campaign);
+    if (missionIndex < 0 || missionIndex >= static_cast<int>(missions.size()))
+    {
+        return {};
+    }
+    if (missionIndex >= storyNarrativeEntryCount(campaign))
+    {
+        return {{}, "EXTRA PRACTICE", "Try more card moves. You have already reached the story ending.",
+            "Practice more card moves."};
+    }
+    static constexpr StoryActInfo mirewatch[] = {
+        {"mw01_river_teeth", "ACT I - TEETH IN THE WATER", "Survive the gators and reach Mirewatch.", "Protect the people on the river."},
+        {"s01_hospitality", "ACT II - FRIENDS UNDER FIRE", "Get the families to shelter before Victor finds them.", "Get the families to shelter."},
+        {"mw08_lesson_night", "ACT III - THE TRAP", "Get Reed and the prisoners out of Victor's trap.", "Get the prisoners out."},
+        {"s04_wounds_that_vote", "ACT IV - THE TOWN FIGHTS BACK", "Help the town stand together and escape Victor's attack.", "Help the town fight back."},
+        {"mw18_allies_dishonestly", "ACT V - THE ROAD TO THE TREE", "Help the people fleeing Victor, then follow him to the World Tree.", "Clear a road for the families."},
+        {"mw20_monster_rules", "ACT VI - FREE THE TREE", "Free the captives and stop Victor at the World Tree.", "Free the captives. Save the tree."},
+        {"mw25_deed_own_hand", "ACT VII - A NEW START", "Bring the survivors home and help the town rebuild.", "Help the town rebuild."},
+    };
+    static constexpr StoryActInfo blackthorn[] = {
+        {"bt01_harness_hunger", "ACT I - ORDERS AND DOUBTS", "Follow Mog as he starts to question Victor's orders.", "Mog must choose who to protect."},
+        {"s01_hospitality", "ACT II - FRIENDS UNDER FIRE", "Follow Mog as he helps the people Victor is hunting.", "Help the hunted families."},
+        {"bt08_north_lock", "ACT III - THE TRAP", "Help the rescuers get Reed and the prisoners out.", "Get the prisoners out."},
+        {"bt10_stolen_road", "ACT IV - THE TOWN FIGHTS BACK", "Stand with the town as Victor orders his soldiers to attack.", "Stand with the town."},
+        {"bt13a_poisoned_root_road", "ACT V - THE ROAD TO THE TREE", "Help the families on the road to Victor's hiding place.", "Clear a road for the families."},
+        {"bt15_monster_rules", "ACT VI - FREE THE TREE", "Follow the rescue as Mog turns against Victor at the World Tree.", "Free the captives. Save the tree."},
+        {"bt18_deed_own_hand", "ACT VII - A NEW START", "Bring the survivors home and help the town rebuild.", "Help the town rebuild."},
+    };
+    static constexpr StoryActInfo seelie[] = {
+        {"se00_what_mirror_remembers", "ACT I - FREE CALTHERIEL", "Reach Caltheriel and help her escape the cage.", "Help Caltheriel leave the cage."},
+        {"se12_first_boats_burn", "ACT II - SAVE THE HARBOR", "Protect the boats and get the families safely ashore.", "Get the families ashore."},
+        {"se18a_complete_is_a_label", "ACT III - FREE THE WORKERS", "Reach the workers trapped beneath the city and bring them up.", "Bring the trapped workers up."},
+        {"se27_emperor_at_tree", "ACT IV - KEEP THE EXIT OPEN", "Hold the escape route while your friends stop Lash.", "Get everyone out of the theater."},
+        {"se29d_reed_ends_the_house", "ACT V - STOP THE ENGINE", "Stop the engine from stealing people's strength.", "Stop the engine."},
+        {"se30_names_we_keep", "ACT VI - HOME AGAIN", "Bring your friends home and begin again together.", "Bring your friends home."},
+    };
+    const std::span<const StoryActInfo> acts = campaign == StoryCampaign::Mirewatch
+        ? std::span<const StoryActInfo>(mirewatch)
+        : campaign == StoryCampaign::Blackthorn
+        ? std::span<const StoryActInfo>(blackthorn)
+        : std::span<const StoryActInfo>(seelie);
+    StoryActInfo current = acts.front();
+    // Stable boundary IDs keep the goal attached to its scene when optional
+    // practice moves or a story detour is cut.
+    for (int index = 0; index <= missionIndex; ++index)
+    {
+        for (const StoryActInfo& act : acts)
+        {
+            if (missions[static_cast<std::size_t>(index)].id == act.firstMission)
+            {
+                current = act;
+                break;
+            }
+        }
+    }
+    return current;
+}
+} // namespace
+
 std::string_view storyActName(StoryCampaign campaign, int missionIndex)
 {
-    if (missionIndex < 0)
-    {
-        return {};
-    }
-    if (campaign == StoryCampaign::Mirewatch || campaign == StoryCampaign::Blackthorn)
-    {
-        const bool mirewatch = campaign == StoryCampaign::Mirewatch;
-        const int actTwo = 4;
-        const int actThree = 8;
-        const int actFour = mirewatch ? 14 : 12;
-        const int actFive = mirewatch ? 18 : 15;
-        const int actSix = mirewatch ? 22 : 19;
-        const int actSeven = mirewatch ? 28 : 25;
-        if (missionIndex < actTwo)
-        {
-            return "ACT I - HUNGER WITH A HARNESS";
-        }
-        if (missionIndex < actThree)
-        {
-            return "ACT II - THE COST OF RESCUE";
-        }
-        if (missionIndex < actFour)
-        {
-            return "ACT III - THE PUBLISHED TRAP";
-        }
-        if (missionIndex < actFive)
-        {
-            return "ACT IV - A SOCIETY IN PUBLIC";
-        }
-        if (missionIndex < actSix)
-        {
-            return "ACT V - ROADS WITH TERMS";
-        }
-        if (missionIndex < actSeven)
-        {
-            return "ACT VI - THE WOUNDED TREE";
-        }
-        return "ACT VII - A TOWN'S OWN HAND";
-    }
-    if (campaign != StoryCampaign::Seelie)
-    {
-        return {};
-    }
-    if (missionIndex < 15)
-    {
-        return "ACT I - THE STOLEN ROAD";
-    }
-    if (missionIndex < 25)
-    {
-        return "ACT II - THE SHAPE OF A SIEGE";
-    }
-    if (missionIndex < 31)
-    {
-        return "ACT III - THE COMPLETE BEARER";
-    }
-    if (missionIndex < 37)
-    {
-        return "ACT IV - WHAT THE ROADS COST";
-    }
-    if (missionIndex < 44)
-    {
-        return "ACT V - THE EMPTY-PLACE METHOD";
-    }
-    return "ACT VI - THE MEN WHO CANNOT RELEASE";
+    return storyActInfo(campaign, missionIndex).name;
 }
 
 std::string_view storyActGoal(StoryCampaign campaign, int missionIndex)
 {
-    if (missionIndex < 0)
-    {
-        return {};
-    }
-    if (campaign == StoryCampaign::Mirewatch)
-    {
-        if (missionIndex < 4)
-        {
-            return "Reach Mirewatch and learn who weaponized Pedros's craft.";
-        }
-        if (missionIndex < 8)
-        {
-            return "Turn shelter and evidence into a resistance before Victor prices every rescue.";
-        }
-        if (missionIndex < 14)
-        {
-            return "Save whom you can from Lash's published trap, then name every cost.";
-        }
-        if (missionIndex < 19)
-        {
-            return "Make the new Society answer in public while Blackthorn's charter breaks.";
-        }
-        if (missionIndex < 22)
-        {
-            return "Cross Feyward by terms that keep every ally free to refuse.";
-        }
-        if (missionIndex < 28)
-        {
-            return "Free Sylvara without replacing Blackthorn with another owner.";
-        }
-        return "Put inheritance and recovery in public hands so the town can govern itself.";
-    }
-    if (campaign == StoryCampaign::Blackthorn)
-    {
-        if (missionIndex < 4)
-        {
-            return "Trace how the Company turns hunger, customs, and sanctuary into leverage.";
-        }
-        if (missionIndex < 8)
-        {
-            return "Follow how Company accounts turn rescue, evidence, and retaliation into debt.";
-        }
-        if (missionIndex < 12)
-        {
-            return "See how Thaeron and Lash build the trap that destroys Bluewater.";
-        }
-        if (missionIndex < 15)
-        {
-            return "Watch Victor defend the charter as Mirewatch makes authority public.";
-        }
-        if (missionIndex < 19)
-        {
-            return "Track the Company across Feyward as bounded alliances resist ownership.";
-        }
-        if (missionIndex < 25)
-        {
-            return "See Victor's command system break at the wounded World Tree.";
-        }
-        return "Record what survives when Thaeron's inheritance offer enters public custody.";
-    }
-    if (campaign != StoryCampaign::Seelie)
-    {
-        return {};
-    }
-    if (missionIndex < 15)
-    {
-        return "Learn what Caltheriel wants, then honor the release she chooses.";
-    }
-    if (missionIndex < 25)
-    {
-        return "Carry the rescue's warning to Emberhaven and keep the siege from owning its defenders.";
-    }
-    if (missionIndex < 31)
-    {
-        return "Prove COMPLETE is only a machine's label, then replace absolute promises with handoffs.";
-    }
-    if (missionIndex < 37)
-    {
-        return "Bring the truth home without pretending lost homes, bodies, or memories can be restored.";
-    }
-    if (missionIndex < 44)
-    {
-        return "Build a defense that still works when its most tempting place remains empty.";
-    }
-    return "Let each person withdraw or testify separately so no complete bearer replaces either tyrant.";
+    return storyActInfo(campaign, missionIndex).goal;
 }
 
 std::string_view storyActShortGoal(StoryCampaign campaign, int missionIndex)
 {
-    if (missionIndex < 0)
-    {
-        return {};
-    }
-    if (campaign == StoryCampaign::Mirewatch)
-    {
-        if (missionIndex < 4)
-        {
-            return "Reach Mirewatch; trace the harness.";
-        }
-        if (missionIndex < 8)
-        {
-            return "Build trust before Victor prices it.";
-        }
-        if (missionIndex < 14)
-        {
-            return "Survive Lash's trap; name every cost.";
-        }
-        if (missionIndex < 19)
-        {
-            return "Make the Society answer in public.";
-        }
-        if (missionIndex < 22)
-        {
-            return "Cross Feyward without owning allies.";
-        }
-        if (missionIndex < 28)
-        {
-            return "Free Sylvara; break Victor's command.";
-        }
-        return "Put recovery in the town's hands.";
-    }
-    if (campaign == StoryCampaign::Blackthorn)
-    {
-        if (missionIndex < 4)
-        {
-            return "Trace the Company's first leverage.";
-        }
-        if (missionIndex < 8)
-        {
-            return "Follow how rescue becomes debt.";
-        }
-        if (missionIndex < 12)
-        {
-            return "Follow the trap that burns Bluewater.";
-        }
-        if (missionIndex < 15)
-        {
-            return "Watch the charter fail in public.";
-        }
-        if (missionIndex < 19)
-        {
-            return "Track Blackthorn across Feyward.";
-        }
-        if (missionIndex < 25)
-        {
-            return "See Victor's command system break.";
-        }
-        return "Record what survives the Company.";
-    }
-    if (campaign != StoryCampaign::Seelie)
-    {
-        return {};
-    }
-    if (missionIndex < 15)
-    {
-        return "Ask what Caltheriel wants.";
-    }
-    if (missionIndex < 25)
-    {
-        return "Keep Emberhaven's exits open.";
-    }
-    if (missionIndex < 31)
-    {
-        return "Replace COMPLETE with chosen handoffs.";
-    }
-    if (missionIndex < 37)
-    {
-        return "Carry truth without erasing loss.";
-    }
-    if (missionIndex < 44)
-    {
-        return "Defend the empty place.";
-    }
-    return "Let every voice withdraw separately.";
+    return storyActInfo(campaign, missionIndex).shortGoal;
 }
 
 std::string storyRequiredSurvivorNames(const StoryMission& mission)
 {
+    // A long list of nearly every starting ally hides the one useful
+    // distinction and can overflow the small-window goal card.
+    if (mission.requiredSurvivorRoles.size() > 6)
+    {
+        const bool onlyFriendlySurvivors = std::all_of(
+            mission.requiredSurvivorRoles.begin(), mission.requiredSurvivorRoles.end(),
+            [&](std::string_view role) {
+                return std::any_of(mission.pieces.begin(), mission.pieces.end(),
+                    [&](const StoryPiecePlacement& piece) {
+                        return piece.role == role && piece.owner == 1;
+                    });
+            });
+        if (onlyFriendlySurvivors)
+        {
+            std::vector<std::string_view> exceptions;
+            for (const StoryPiecePlacement& piece : mission.pieces)
+            {
+                if (piece.owner == 1 && std::find(mission.requiredSurvivorRoles.begin(),
+                        mission.requiredSurvivorRoles.end(), piece.role) ==
+                        mission.requiredSurvivorRoles.end())
+                {
+                    exceptions.push_back(piece.cardTitle);
+                }
+            }
+            if (exceptions.empty())
+            {
+                return "all starting allies";
+            }
+            if (exceptions.size() == 1)
+            {
+                return "all starting allies except " + std::string(exceptions.front());
+            }
+        }
+    }
     struct SurvivorCount
     {
         std::string_view title;
@@ -880,13 +767,18 @@ bool writeStoryProgress(
         progress.advancedCount, 0, static_cast<int>(missions.size()));
     std::ofstream stream(path, std::ios::trunc);
     stream << "GLOOMTHORN_STORY_PROGRESS_V2\n";
-    for (int index = 0; index < advancedCount; ++index)
+    for (std::size_t index = 0; index < missions.size(); ++index)
     {
-        const bool completedByPlay = static_cast<std::size_t>(index) <
-                progress.completedByPlay.size() &&
-            progress.completedByPlay[static_cast<std::size_t>(index)];
-        stream << (completedByPlay ? "completed=" : "continued=")
-               << missions[static_cast<std::size_t>(index)].id << '\n';
+        const bool completedByPlay = index < progress.completedByPlay.size() &&
+            progress.completedByPlay[index];
+        const bool advanced = static_cast<int>(index) < advancedCount ||
+            completedByPlay || (index < progress.advancedEntries.size() &&
+                progress.advancedEntries[index]);
+        if (advanced)
+        {
+            stream << (completedByPlay ? "completed=" : "continued=")
+                   << missions[index].id << '\n';
+        }
     }
     return static_cast<bool>(stream);
 }
@@ -898,6 +790,7 @@ StoryProgress loadStoryProgress(std::string_view username, StoryCampaign campaig
     const std::span<const StoryMission> missions = storyMissions(campaign);
     StoryProgress progress;
     progress.completedByPlay.resize(missions.size(), false);
+    progress.advancedEntries.resize(missions.size(), false);
 
     std::ifstream stream(storyProgressPath(username, campaign));
     if (!stream)
@@ -937,12 +830,13 @@ StoryProgress loadStoryProgress(std::string_view username, StoryCampaign campaig
     for (std::size_t index = 0; index < missions.size(); ++index)
     {
         const std::string missionId(missions[index].id);
-        const bool completedByPlay = completedIds.contains(missionId);
-        if (!completedByPlay && !continuedIds.contains(missionId))
-        {
-            break;
-        }
-        progress.completedByPlay[index] = completedByPlay;
+        progress.completedByPlay[index] = completedIds.contains(missionId);
+        progress.advancedEntries[index] = progress.completedByPlay[index] ||
+            continuedIds.contains(missionId);
+    }
+    while (progress.advancedCount < static_cast<int>(missions.size()) &&
+           progress.advancedEntries[static_cast<std::size_t>(progress.advancedCount)])
+    {
         ++progress.advancedCount;
     }
     return progress;
@@ -965,7 +859,13 @@ bool recordStoryMissionProgress(
     {
         return false;
     }
-    progress.advancedCount = std::max(progress.advancedCount, missionIndex + 1);
+    progress.advancedEntries.resize(missions.size(), false);
+    progress.advancedEntries[static_cast<std::size_t>(missionIndex)] = true;
+    while (progress.advancedCount < static_cast<int>(missions.size()) &&
+           progress.advancedEntries[static_cast<std::size_t>(progress.advancedCount)])
+    {
+        ++progress.advancedCount;
+    }
     progress.completedByPlay.resize(missions.size(), false);
     if (completedByPlay)
     {

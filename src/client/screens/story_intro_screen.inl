@@ -8,6 +8,9 @@
 
         drawTitlePlaque(window, font, std::string(mission.title), {400.0f, 38.0f}, {704.0f, 58.0f});
         const bool storyOnly = mission.objectiveSpec.kind == StoryObjectiveKind::StoryOnly;
+        const bool extraPractice = storyMissionIndex >= storyNarrativeEntryCount(storyCampaign);
+        const bool storyEnding = storyOnly && storyMissionIndex + 1 ==
+            storyNarrativeEntryCount(storyCampaign);
         // Narrative pages receive the full reading column. The compact goal
         // card appears only on the last briefing page, immediately before the
         // player chooses Start, so story prose never has to shrink merely to
@@ -24,15 +27,19 @@
         drawText(
             window,
             font,
-            "ENTRY " + std::to_string(storyMissionIndex + 1) + " OF " +
-                std::to_string(storyMissions(storyCampaign).size()),
+            extraPractice
+                ? "PRACTICE " + std::to_string(storyMissionIndex + 1 -
+                    storyNarrativeEntryCount(storyCampaign)) + " OF " +
+                    std::to_string(storyMissions(storyCampaign).size() -
+                        storyNarrativeEntryCount(storyCampaign))
+                : "STORY " + std::to_string(storyMissionIndex + 1) + " OF " +
+                    std::to_string(storyNarrativeEntryCount(storyCampaign)),
             14,
             {48.0f, actName.empty() ? 82.0f : 96.0f},
             sf::Color(236, 204, 132),
             260.0f);
-        // Campaign and source are separate metadata rows. Long source labels
-        // are elided on their own row instead of wrapping through the ACT GOAL
-        // frame directly beneath them.
+        // Show the current lesson here. Source chapter references belong in
+        // author metadata, where they cannot distract a first-time player.
         drawText(
             window,
             font,
@@ -45,7 +52,7 @@
             window,
             font,
             elideToWidth(
-                font, std::string(mission.sourceChapter), 10, 392.0f),
+                font, std::string(mission.lesson), 10, 392.0f),
             10,
             {360.0f, 90.0f},
             sf::Color(190, 198, 214),
@@ -195,20 +202,20 @@
                 storyGuidedPlayerActionCount(mission);
             const bool firstGuidedMission = mission.id == "mw01_river_teeth";
             const std::string goalHeading = firstGuidedMission
-                ? "REQUIRED - GUIDED FIRST MISSION"
+                ? "FIRST BATTLE - FOLLOW THE GUIDE"
                 : masteryCatchUpMayBeSkipped
-                ? "MASTERY VERIFIED - OPTIONAL REPLAY"
+                ? "PRACTICE COMPLETE - REPLAY IF YOU WANT"
                 : mission.optionalRehearsal
                 ? (mission.standardMatch
-                    ? "OPTIONAL TIMED ORDINARY MATCH"
+                    ? "OPTIONAL TIMED MATCH"
                     : mission.script.empty()
-                    ? "RECOMMENDED DRILL - OPEN TACTICAL"
-                    : "RECOMMENDED DRILL - " + std::to_string(playerInputCount) +
-                        " ACTIONS")
+                    ? "OPTIONAL PRACTICE - YOUR PLAN"
+                    : "OPTIONAL PRACTICE - " + std::to_string(playerInputCount) +
+                        " STEPS")
                 : mission.script.empty()
-                    ? "REQUIRED - OPEN TACTICAL MISSION"
+                    ? "BATTLE - CHOOSE YOUR OWN MOVES"
                     : "REQUIRED - " + std::to_string(playerInputCount) +
-                        " GUIDED ACTIONS";
+                        " GUIDED STEPS";
             const float lessonHeight = hasRequiredSurvivors ? 130.0f : 124.0f;
             constexpr float GoalTextWidth = 368.0f;
             constexpr float GoalTextBottomPadding = 8.0f;
@@ -218,22 +225,22 @@
             float survivorLineGap = 2.0f;
             float objectiveLineGap = 3.0f;
             const std::string survivorText = masteryCatchUpMayBeSkipped
-                ? "IF REPLAYED, MUST SURVIVE: every staged Blackthorn ally."
+                ? "IF YOU REPLAY, KEEP ALL ALLIES ALIVE."
                 : firstGuidedMission
                     ? "MUST SURVIVE: all four crew members"
                     : "MUST SURVIVE: " + survivorNames;
             const std::string objectiveText = masteryCatchUpMayBeSkipped
-                ? "Continue to Field Judgment, or replay this roster proof."
+                ? "Move on to the next battle, or practice these cards again."
                 : firstGuidedMission
-                    ? "Follow each glowing action. Yellow MUST SURVIVE marks are status reminders, not actions. The next instruction introduces each real rule when it matters."
+                    ? "Follow the glowing action. Keep all four friends alive. The guide will explain each move."
                     : std::string(mission.objective);
             const std::string guidanceNote = masteryCatchUpMayBeSkipped
-                ? "All seven drills carry play stamps; replay is optional."
+                ? "You finished all seven practice battles. You can move on."
                 : mission.optionalRehearsal
                 ? (mission.standardMatch
-                    ? "Optional. Mastery is a completion stamp; skip before clocks and continue without it."
-                    : "Optional rules practice. Mastery is its completion stamp; continue without it and replay from Missions.")
-                : "Required to continue the story. Exit leaves this entry incomplete.";
+                    ? "Try this match, or skip it before the clocks start."
+                    : "Try this practice, or skip it. You can return from Missions.")
+                : "Finish this battle to move on. Leaving now keeps it unfinished.";
             const auto wrappedBlockHeight = [&](const std::string& value,
                                                  unsigned int size,
                                                  float lineGap) {
@@ -371,10 +378,12 @@
                                : sf::Vector2f{216.0f, 48.0f});
         storySkipDrillButton.setLabel(
             masteryCatchUpMayBeSkipped
-                ? "Replay Synthesis"
+                ? "Practice Again"
+                : extraPractice
+                ? (timedOptionalMatch ? "Skip Match" : "Skip Practice")
                 : timedOptionalMatch
-                ? "Continue Story Without Mastery"
-                : "Continue Story (No Mastery)");
+                ? "Skip Match - Continue Story"
+                : "Skip Practice - Continue Story");
         storySkipDrillButton.setLabelSize(
             timedOptionalMatch || masteryCatchUpMayBeSkipped ? 14 : 12);
         storyBackButton.setFocused(
@@ -386,10 +395,10 @@
             storyKeyboardNavigationActive && storyIntroKeyboardFocus == 2);
         storyContinueButton.setLabel(
             storyComicPage + 1 >= panelCount
-                ? (storyOnly ? "Continue Story" :
+                ? (storyOnly ? (storyEnding ? "Finish Story" : "Continue Story") :
                     timedOptionalMatch ? "Start Timed Match" :
-                    masteryCatchUpMayBeSkipped ? "Continue Without Replay" :
-                    mission.optionalRehearsal ? "Start Recommended Drill" : "Start Required Mission")
+                    masteryCatchUpMayBeSkipped ? "Continue Story" :
+                    mission.optionalRehearsal ? "Start Practice" : "Start Battle")
                 : "Continue");
         storyContinueButton.setLabelSize(
             masteryCatchUpMayBeSkipped

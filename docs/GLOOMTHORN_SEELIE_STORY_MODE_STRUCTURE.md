@@ -1,5 +1,7 @@
 # Gloomthorn Seelie Story Mode
 
+> Historical narrative record: this document describes the earlier source-led adaptation. The public-audience rewrite follows [Writing Story Mode for new players](GLOOMTHORN_STORY_MODE_WRITING_GUIDE.md). Dialogue, scene counts, route order, practice requirements, lore detail, and menu wording below are superseded where they differ from the active catalog. The September 11 clarity loop cuts story detours, moves extra drills after the endings, and uses familiar Mirewatch teams. Printed card rules and ordinary game commands still apply.
+
 Status: implemented route and validation contract
 
 Date: 2026-09-10

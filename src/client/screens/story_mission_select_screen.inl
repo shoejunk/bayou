@@ -23,9 +23,11 @@
                 ? (storyCampaign == StoryCampaign::Mirewatch
                     ? "Start aboard Telos's skiff as three gators attack."
                     : storyCampaign == StoryCampaign::Seelie
-                        ? "Begin with the surviving Cathedral road, then defend the last lights."
-                        : "Start with the first playable Blackthorn mission.")
-                : "Replay an earlier entry, or continue the current one.",
+                        ? "Free Caltheriel, then help a city under attack."
+                        : "Follow Mog as he begins to question Victor.")
+                : completed >= storyNarrativeEntryCount(storyCampaign)
+                    ? "Story complete. Try extra practice, or replay a favorite scene."
+                    : "Replay an earlier entry, or continue the current one.",
             type::Body,
             {400.0f, 65.0f},
             palette::InkMuted);
@@ -110,7 +112,7 @@
                 masteryCatchUpMayBeSkipped;
             const std::string typeLabel =
                 storyScene ? "STORY" : masteryCatchUpMayBeSkipped ? "OPTIONAL REPLAY" :
-                    optionalDrill ? "RECOMMENDED DRILL" :
+                    optionalDrill ? "OPTIONAL PRACTICE" :
                     guided ? "GUIDED PLAY" : "OPEN BATTLE";
             const float typeWidth = storyScene ? 58.0f : masteryCatchUpMayBeSkipped ? 112.0f :
                 optionalDrill ? 128.0f :
@@ -181,9 +183,11 @@
         storyRestartCampaignButton.setLabel(
             completed < missionCount
                 ? completed == 0
-                    ? "Begin Entry 1"
-                    : "Continue Entry " + std::to_string(nextMission + 1)
-                : "Replay Finale");
+                    ? "Begin Story"
+                    : completed >= storyNarrativeEntryCount(storyCampaign)
+                        ? "Try Extra Practice"
+                        : "Continue Entry " + std::to_string(nextMission + 1)
+                : "Replay Last Practice");
         storyRestartCampaignButton.draw(window, animationTime);
         drawCenteredText(
             window,
