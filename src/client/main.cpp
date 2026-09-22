@@ -1508,6 +1508,8 @@ int main(int argc, char** argv)
     std::vector<std::pair<std::string_view, int>> storyRolePieceIds;
     std::vector<StoryPanel> storyPopupPanels;
     std::size_t storyPopupPage = 0;
+    sf::FloatRect storySpeechBubbleBounds;
+    std::optional<int> storyVisibleDetailsPieceId;
     bool storyCompleteAfterPopup = false;
     float storyScriptActionAt = 0.0f;
     int storyCompletedCount = 0;
@@ -11586,6 +11588,46 @@ int main(int argc, char** argv)
                 }
             }
         }
+        else if (screen.starts_with("story-ui-"))
+        {
+            storyCampaign = StoryCampaign::Mirewatch;
+            storyMissionIndex = storyMissionIndexById(storyCampaign, "mw01_river_teeth");
+            beginStory();
+            dismissStoryPanelsForCapture();
+            selectedPieceId.reset();
+            storyKeyboardNavigationActive = false;
+            captureHoverPoint = sf::Vector2f{-50.0f, -50.0f};
+            const int reedId = storyPieceIdForRole("reed");
+            if (screen == "story-ui-board-hover" || screen == "story-ui-board-hover-left")
+            {
+                if (const auto* reed = gamePieceById(reedId))
+                {
+                    const auto art = storyPieceArtBounds(*reed, 1);
+                    captureHoverPoint = art.position + sf::Vector2f{art.size.x * 0.5f, art.size.y * 0.6f};
+                }
+            }
+            else if (screen == "story-ui-board-selected" || screen == "story-ui-board-deselected")
+            {
+                if (const auto* reed = gamePieceById(reedId))
+                    handleGameClick(boardFootprintCenter(reed->row, reed->column, reed->width, reed->height, 1));
+                if (selectedPieceId != reedId)
+                    failCaptureValidation("Clicking a tutorial unit did not select it.");
+                if (screen == "story-ui-board-deselected")
+                    handleGameClick(boardFootprintCenter(7, 7, 1, 1, 1));
+                if (!storyCaptureSnapshotMatchesEngine())
+                    failCaptureValidation("Selecting a tutorial unit changed the battle state.");
+            }
+            else if (screen == "story-ui-dialogue-live")
+                queueStoryPanels({activeStoryMission().briefing[1]}, false);
+            else if (screen == "story-ui-dialogue-narrator")
+                queueStoryPanels({activeStoryMission().aftermath.back()}, false);
+            else if (screen == "story-ui-dialogue-off-board")
+            {
+                const auto& camp = storyMissions(storyCampaign)[static_cast<std::size_t>(
+                    storyMissionIndexById(storyCampaign, "s01_hospitality"))];
+                queueStoryPanels({camp.briefing.back()}, false);
+            }
+        }
         else if (screen == "story-select" ||
                  screen == "story-seelie-spoiler-warning")
         {
@@ -14585,15 +14627,7 @@ int main(int argc, char** argv)
 
         if (!storyPopupPanels.empty())
         {
-            drawCenteredText(
-                window,
-                font,
-                storyPopupPage > 0
-                    ? "LEFT/RIGHT: PAGE  |  TAB: BUTTON  |  ENTER: ACTIVATE"
-                    : "RIGHT: NEXT  |  ENTER: ACTIVATE",
-                12,
-                {400.0f, 519.0f},
-                sf::Color(190, 198, 214));
+            // The speech-bubble footer includes mouse and keyboard controls.
             return;
         }
 
@@ -14753,6 +14787,11 @@ int main(int argc, char** argv)
         animationTime += deltaTime;
         audioSystem.update();
         sf::Vector2f mousePos = window.mapPixelToCoords(sf::Mouse::getPosition(window));
+        if (captureRequest && captureRequest->screens[captureIndex] == "story-ui-board-hover-left" &&
+            captureFramesOnScreen >= 2)
+        {
+            captureHoverPoint = sf::Vector2f{-50.0f, -50.0f};
+        }
         if (captureHoverPoint)
         {
             // Capture runs have no real pointer, so a screen that wants to show a
@@ -15815,25 +15854,10 @@ int main(int argc, char** argv)
                             completeStoryChronicle();
                         }
                     }
-                    else if (storyContinueButton.isClicked(clickPos) &&
-                        storyComicPage + 1 >= static_cast<int>(
-                            storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)]
-                                .briefing.size()))
+                    else if (storyContinueButton.isClicked(clickPos) ||
+                        (storyComicPage > 0 && storySpeechBubbleBounds.contains(clickPos)))
                     {
-                        if (activeStoryMission().objectiveSpec.kind ==
-                                StoryObjectiveKind::StoryOnly ||
-                            activeStoryCatchUpMayBeSkipped())
-                        {
-                            completeStoryChronicle();
-                        }
-                        else
-                        {
-                            beginStory();
-                        }
-                    }
-                    else if (storyContinueButton.isClicked(clickPos))
-                    {
-                        ++storyComicPage;
+                        storyIntroContinue();
                     }
                 }
                 else if (currentState == GameState::Options)
@@ -16310,7 +16334,8 @@ int main(int argc, char** argv)
                         {
                             --storyPopupPage;
                         }
-                        else if (storyPopupContinueButton.isClicked(clickPos))
+                        else if (storyPopupContinueButton.isClicked(clickPos) ||
+                                 storySpeechBubbleBounds.contains(clickPos))
                         {
                             if (storyPopupPage + 1 < storyPopupPanels.size())
                             {
@@ -16745,6 +16770,14 @@ int main(int argc, char** argv)
                         selectedStarterDeckOffer = *offerIndex;
                     }
                 }
+            }
+
+            if (event->getIf<sf::Event::MouseMoved>() &&
+                currentState == GameState::Game && storyMode && !captureRequest)
+            {
+                // Moving the mouse takes over from automatic tutorial keyboard
+                // focus. Hovering a figure must not require a click first.
+                storyKeyboardNavigationActive = false;
             }
 
             if (const auto* mouseMoved = event->getIf<sf::Event::MouseMoved>();
@@ -18501,9 +18534,18 @@ int main(int argc, char** argv)
 
         if (captureRequest && captureScreenReady)
         {
+            if (captureRequest->screens[captureIndex] == "story-ui-board-hover-left")
+            {
+                const std::optional<int> expected = captureFramesOnScreen < 2
+                    ? std::optional<int>(storyPieceIdForRole("reed")) : std::nullopt;
+                if (storyVisibleDetailsPieceId != expected)
+                    failCaptureValidation("Tutorial detail card did not follow pointer enter/leave.");
+            }
             if (++captureFramesOnScreen >= captureRequest->warmupFrames)
             {
                 const std::string& screen = captureRequest->screens[captureIndex];
+                if (screen == "story-ui-board-hover-left" && storyVisibleDetailsPieceId)
+                    failCaptureValidation("Pointer-leave capture ended before the detail card disappeared.");
                 if (const std::optional<std::string> invariantError =
                         storyActionCaptureInvariantError())
                 {

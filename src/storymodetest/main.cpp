@@ -3582,6 +3582,75 @@ void validateDependentCards()
     }
 }
 
+void validateStoryDialoguePresentation()
+{
+    using namespace bayou::client;
+    std::vector<game_data::GameCard> cards;
+    for (std::string_view title : packagedStoryCardTitles())
+        if (auto card = packagedStoryCard(title)) cards.push_back(*card);
+    const auto* opening = missionById(StoryCampaign::Mirewatch, "mw01_river_teeth");
+    check(opening != nullptr, "dialogue fixture has a tactical opening");
+    if (!opening) return;
+    const auto preview = storyDialoguePreview(*opening, cards);
+    check(preview.pieces.size() == opening->pieces.size(), "battle preview preserves the entire starting cast");
+    for (std::size_t i = 0; i < preview.pieces.size(); ++i)
+    {
+        const auto& piece = preview.pieces[i];
+        const auto& placement = opening->pieces[i];
+        check(piece.id < 0 && piece.row == placement.row && piece.column == placement.column &&
+            piece.owner == placement.owner && piece.name == placement.cardTitle,
+            "preview uses detached IDs and the real starting positions and identities");
+        if (placement.initialHealth >= 0)
+            check(piece.health == placement.initialHealth, "preview preserves authored starting Health");
+    }
+    const auto donella = storySpeakingPiece(opening->briefing[1], preview.pieces);
+    check(donella.has_value(), "a short speaker name resolves to its full board character");
+    check(!storySpeakingPiece({"Narrator", "A scene.", "cards/reedBaelstone.png"}, preview.pieces),
+        "narration never attributes its words to its artwork's character");
+    check(!storySpeakingPiece({"Coach", "A lesson.", "cards/reedBaelstone.png"}, preview.pieces),
+        "coaching never attributes its words to a board character");
+    check(!storySpeakingPiece({"Controls", "A lesson.", "cards/reedBaelstone.png"}, preview.pieces),
+        "instruction headings never speak through the character in their artwork");
+    check(!storyPanelHasCharacterSpeaker({"Place your Heroes", "A lesson.", "cards/maggieMudroot.png"}),
+        "Hero placement instructions do not get a character portrait");
+    check(!storySpeakingPiece({"An absent voice", "Hello.", ""}, preview.pieces),
+        "off-board voices have no invented board anchor");
+    auto duplicates = preview.pieces;
+    if (donella)
+    {
+        auto duplicate = *std::find_if(duplicates.begin(), duplicates.end(),
+            [&](const auto& p) { return p.id == *donella; });
+        duplicate.id = -1000; duplicates.push_back(duplicate);
+        check(!storySpeakingPiece(opening->briefing[1], duplicates),
+            "duplicate matching figures use a portrait instead of a misleading tail");
+    }
+    const auto* camp = missionById(StoryCampaign::Mirewatch, "s01_hospitality");
+    if (camp)
+    {
+        const auto scene = storyDialoguePreview(*camp, cards);
+        check(camp->pieces.empty() && scene.pieces.size() >= 3,
+            "a story-only scene stages its known speakers without adding a battle");
+        check(storySpeakingPiece(camp->briefing[3], scene.pieces).has_value(),
+            "Reed has an on-board anchor in the camp conversation");
+        check(storyDialoguePreview(*camp, {}).pieces.empty(),
+            "missing visual definitions do not invent playable replacement units");
+    }
+    const auto* timedMatch = missionById(StoryCampaign::Blackthorn, "bt17b_open_mastery");
+    if (timedMatch)
+        check(storyDialoguePreview(*timedMatch, cards).pieces.empty(),
+            "full-match instructions do not stage fake units before Hero placement");
+    for (auto campaign : {StoryCampaign::Mirewatch, StoryCampaign::Blackthorn, StoryCampaign::Seelie})
+        for (const auto& mission : storyMissions(campaign))
+        {
+            const auto scene = storyDialoguePreview(mission, cards);
+            for (const auto& piece : scene.pieces)
+                check(piece.row >= 0 && piece.column >= 0 &&
+                    piece.row + piece.height <= game_data::BoardSize &&
+                    piece.column + piece.width <= game_data::BoardSize,
+                    "every dialogue preview character fits on the board");
+        }
+}
+
 } // namespace
 
 int main()
@@ -4095,6 +4164,7 @@ int main()
 
     validateAdvancedOutcomes();
     validateStoryKeyboardNavigation();
+    validateStoryDialoguePresentation();
     validateReorderedStoryProgress();
     validateWorldTreeTargetObjective();
     validateRiverTeethLineClear();

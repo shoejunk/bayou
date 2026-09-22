@@ -895,4 +895,150 @@ bool saveStoryCompletedCount(
         progress.completedByPlay.begin(), progress.advancedCount, true);
     return writeStoryProgress(username, campaign, progress);
 }
+// Existing panels use the speaker field for both names and guide headings.
+// Instructions may share card artwork without being spoken by that character.
+bool storyPanelHasCharacterSpeaker(const StoryPanel& panel)
+{
+    constexpr std::string_view guideHeadings[] = {
+        "Narrator", "Coach", "Controls", "How to place a card", "Optional practice",
+        "Practice battle", "Practice match", "Your deck", "Place your Heroes",
+        "Your hand", "Earn Resources", "Watch the clocks", "When time runs out",
+        "How to win", "Ready to start"};
+    return !panel.speaker.empty() && std::none_of(std::begin(guideHeadings), std::end(guideHeadings),
+        [&](std::string_view heading) {
+            return std::equal(panel.speaker.begin(), panel.speaker.end(), heading.begin(), heading.end(),
+                [](unsigned char a, unsigned char b) { return std::tolower(a) == std::tolower(b); });
+        });
+}
+
+int storySpeakerMatchScore(
+    const StoryPanel& panel, std::string_view name,
+    std::string_view imagePath, std::string_view tokenPath)
+{
+    if (!storyPanelHasCharacterSpeaker(panel)) return 0;
+    const auto lower = [](std::string_view value) {
+        std::string result(value);
+        std::transform(result.begin(), result.end(), result.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return result;
+    };
+    const std::string speaker = lower(panel.speaker);
+    const std::string title = lower(name);
+    int score = title == speaker ? 100 :
+        (title.starts_with(speaker + " ") || title.ends_with(" " + speaker)) ? 60 : 0;
+    if (!panel.artPath.empty() &&
+        (panel.artPath == imagePath || panel.artPath == tokenPath))
+    {
+        score += 80;
+    }
+    return score;
+}
+
+std::optional<int> storySpeakingPiece(
+    const StoryPanel& panel, std::span<const game_data::Piece> pieces)
+{
+    std::optional<int> result;
+    int bestScore = 0;
+    bool ambiguous = false;
+    for (const auto& piece : pieces)
+    {
+        const int score = storySpeakerMatchScore(
+            panel, piece.name, piece.imagePath, piece.tokenPath);
+        if (score > bestScore)
+        {
+            result = piece.id;
+            bestScore = score;
+            ambiguous = false;
+        }
+        else if (score > 0 && score == bestScore)
+        {
+            ambiguous = true;
+        }
+    }
+    return ambiguous ? std::nullopt : result;
+}
+
+game_data::Snapshot storyDialoguePreview(
+    const StoryMission& mission, std::span<const game_data::GameCard> cards)
+{
+    game_data::Snapshot scene;
+    scene.yourPlayer = 1;
+    scene.activePlayer = 1;
+    scene.phase = static_cast<std::uint8_t>(game_data::Phase::Playing);
+    const auto addPiece = [&](const game_data::GameCard& card, int owner,
+                              int row, int column, bool hero) {
+        game_data::Piece piece;
+        game_data::populatePieceFromCard(piece, card, hero);
+        // Negative preview IDs cannot pick up a real match's animation state.
+        piece.id = -1 - static_cast<int>(scene.pieces.size());
+        piece.owner = owner;
+        piece.row = row;
+        piece.column = column;
+        scene.pieces.push_back(std::move(piece));
+    };
+    if (!mission.pieces.empty())
+    {
+        for (const auto& placement : mission.pieces)
+        {
+            const auto card = std::find_if(cards.begin(), cards.end(),
+                [&](const auto& value) { return value.title == placement.cardTitle; });
+            if (card != cards.end())
+            {
+                addPiece(*card, placement.owner, placement.row, placement.column,
+                    placement.isHero);
+                if (placement.initialHealth >= 0)
+                    scene.pieces.back().health = std::min(placement.initialHealth, scene.pieces.back().maxHealth);
+            }
+        }
+        return scene;
+    }
+
+    // Story-only scenes stage their known speakers without creating playable
+    // units, costs, goals, or turns. Unavailable characters keep their portrait.
+    const std::pair<int, int> seats[] = {
+        {3, 2}, {3, 5}, {5, 1}, {5, 6}, {1, 1}, {1, 6}, {6, 3}, {1, 3}};
+    for (const StoryPanel& panel : mission.briefing)
+    {
+        const game_data::GameCard* candidate = nullptr;
+        int bestScore = 0;
+        bool ambiguous = false;
+        for (const auto& card : cards)
+        {
+            if (card.type != "Unit" && card.type != "Hero") continue;
+            const int score = storySpeakerMatchScore(
+                panel, card.title, card.imagePath, card.tokenPath);
+            if (score > bestScore)
+            {
+                candidate = &card;
+                bestScore = score;
+                ambiguous = false;
+            }
+            else if (score > 0 && score == bestScore)
+            {
+                ambiguous = true;
+            }
+        }
+        if (!candidate || ambiguous || std::any_of(scene.pieces.begin(), scene.pieces.end(),
+            [&](const auto& piece) { return piece.name == candidate->title; })) continue;
+        for (const auto& [row, column] : seats)
+        {
+            const int width = std::max(1, candidate->width);
+            const int height = std::max(1, candidate->height);
+            if (row + height > game_data::BoardSize || column + width > game_data::BoardSize)
+                continue;
+            const bool occupied = std::any_of(scene.pieces.begin(), scene.pieces.end(),
+                [&](const auto& p) {
+                    return row < p.row + p.height && row + height > p.row &&
+                        column < p.column + p.width && column + width > p.column;
+                });
+            if (!occupied)
+            {
+                addPiece(*candidate, 1, row, column, candidate->type == "Hero");
+                break;
+            }
+        }
+    }
+    return scene;
+}
+
 } // namespace bayou::client

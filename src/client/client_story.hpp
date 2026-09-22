@@ -28,6 +28,16 @@ struct StoryPanel
     std::string_view artPath;
 };
 
+bool storyPanelHasCharacterSpeaker(const StoryPanel& panel);
+
+// Presentation-only speaker resolution. Ambiguous or off-board voices have
+// no board anchor; a narrator must never borrow the character in its artwork.
+int storySpeakerMatchScore(
+    const StoryPanel& panel, std::string_view name,
+    std::string_view imagePath, std::string_view tokenPath = {});
+std::optional<int> storySpeakingPiece(
+    const StoryPanel& panel, std::span<const game_data::Piece> pieces);
+
 enum class StoryActionKind : std::uint8_t
 {
     None,
@@ -109,8 +119,8 @@ struct StoryMission
     std::string_view hint;
     std::vector<StoryPanel> briefing;
     std::string_view id;
-    // A commissioned mission-level illustration may replace the per-panel
-    // character cards in both briefing and in-mission story layouts.
+    // A mission illustration establishes the scene on its opening page.
+    // Later dialogue uses the board and the speaking character's portrait.
     std::string_view scenarioArtPath;
     std::vector<StoryPanel> aftermath;
     std::vector<StoryPiecePlacement> pieces;
@@ -154,6 +164,10 @@ struct StoryMission
     // extra click. Opponent actions remain automatic for every guided mission.
     bool autoResolvePlayerEndTurns = false;
 };
+
+// A detached scene preview, never loaded into a game engine or saved as progress.
+game_data::Snapshot storyDialoguePreview(
+    const StoryMission& mission, std::span<const game_data::GameCard> cards);
 
 struct StoryEnemyProgress
 {
