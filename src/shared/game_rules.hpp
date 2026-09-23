@@ -1085,6 +1085,10 @@ inline std::string pieceAbilityLabel(const Piece& piece)
     {
         return "Command";
     }
+    if (ability == "raise undead")
+    {
+        return "Raise Undead";
+    }
     if (ability == "transform")
     {
         return "Transform";
@@ -1505,7 +1509,8 @@ inline bool pieceAbilityAvailable(const Piece& piece)
     {
         return !piece.summonTitle.empty();
     }
-    return ability == "transform" || ability == "dematerialize" || ability == "command";
+    return ability == "transform" || ability == "dematerialize" || ability == "command" ||
+        ability == "raise undead";
 }
 
 inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece& piece)
@@ -1527,6 +1532,26 @@ inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece&
             [&](const Piece& target) { return pieceCanReceiveCommand(piece, target); });
     }
     return true;
+}
+
+inline bool pieceAbilityAvailable(const Snapshot& snapshot, const Piece& piece)
+{
+    if (!pieceAbilityAvailable(snapshot.pieces, piece))
+    {
+        return false;
+    }
+    if (normalizedAbility(piece.ability) != "raise undead")
+    {
+        return true;
+    }
+    return static_cast<int>(snapshot.hand.size()) < MaxHandSize &&
+        snapshot.raiseUndeadChoices.empty() &&
+        std::any_of(
+            snapshot.graveyard.begin(),
+            snapshot.graveyard.end(),
+            [](const GameCard& card) {
+                return card.type == "Unit" && hasKeyword(card.traits, "undead");
+            });
 }
 
 } // namespace game_data

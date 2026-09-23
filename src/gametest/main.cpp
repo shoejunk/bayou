@@ -2365,6 +2365,7 @@ int main(int argc, char** argv)
     serializedCard.rebirthTitle = "Serialized Rebirth";
     serializedCard.abilityLabels = {"Ready", "Lower"};
     serializedCard.abilityUses = 2;
+    serializedCard.raisedFromGraveyard = true;
     serializedCard.gatherResources = 6;
     serializedCard.tax = 4;
     serializedCard.healingAura = 6;
@@ -2408,6 +2409,7 @@ int main(int argc, char** argv)
               roundTrippedCard.rebirthTitle == "Serialized Rebirth" &&
               roundTrippedCard.abilityLabels.size() == 2 &&
               roundTrippedCard.abilityUses == 2 &&
+              roundTrippedCard.raisedFromGraveyard &&
               roundTrippedCard.gatherResources == 6 &&
               roundTrippedCard.tax == 4 && roundTrippedCard.healingAura == 6,
           "extended game card fields survive network serialization");
@@ -2446,6 +2448,7 @@ int main(int argc, char** argv)
     serializedPiece.infestationTitle = "Serialized Infestation";
     serializedPiece.infestationOwner = 1;
     serializedPiece.interceptUsedThisTurn = true;
+    serializedPiece.raisedFromGraveyard = true;
     serializedPiece.repeatActionIndex = 0;
     serializedPiece.repeatActionState = 3;
     serializedPiece.repeatActionUses = 1;
@@ -2504,6 +2507,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.infestationTitle == "Serialized Infestation" &&
               roundTrippedPiece.infestationOwner == 1 &&
               roundTrippedPiece.interceptUsedThisTurn &&
+              roundTrippedPiece.raisedFromGraveyard &&
               roundTrippedPiece.repeatActionIndex == 0 &&
               roundTrippedPiece.repeatActionState == 3 &&
               roundTrippedPiece.repeatActionUses == 1,
@@ -2532,6 +2536,16 @@ int main(int argc, char** argv)
     serializedForesight.title = "Serialized Foresight";
     serializedForesight.keywords = {"Foresight"};
     serializedSnapshot.foresightChoices.push_back(serializedForesight);
+    GameCard serializedGraveyard;
+    serializedGraveyard.title = "Serialized Graveyard";
+    serializedGraveyard.type = "Unit";
+    serializedGraveyard.traits = {"Undead"};
+    serializedSnapshot.graveyard.push_back(serializedGraveyard);
+    GameCard serializedExiled = serializedGraveyard;
+    serializedExiled.title = "Serialized Exiled";
+    serializedExiled.raisedFromGraveyard = true;
+    serializedSnapshot.exiled.push_back(serializedExiled);
+    serializedSnapshot.raiseUndeadChoices.push_back(serializedGraveyard);
     serializedSnapshot.status = "Command pending";
     sf::Packet snapshotPacket;
     writeSnapshot(snapshotPacket, serializedSnapshot);
@@ -2547,9 +2561,192 @@ int main(int argc, char** argv)
               roundTrippedSnapshot.enchantments[0].title == "Serialized Enchantment" &&
               roundTrippedSnapshot.foresightChoices.size() == 1 &&
               roundTrippedSnapshot.foresightChoices[0].title == "Serialized Foresight" &&
+              roundTrippedSnapshot.graveyard.size() == 1 &&
+              roundTrippedSnapshot.graveyard[0].title == "Serialized Graveyard" &&
+              roundTrippedSnapshot.exiled.size() == 1 &&
+              roundTrippedSnapshot.exiled[0].title == "Serialized Exiled" &&
+              roundTrippedSnapshot.exiled[0].raisedFromGraveyard &&
+              roundTrippedSnapshot.raiseUndeadChoices.size() == 1 &&
+              roundTrippedSnapshot.raiseUndeadChoices[0].title == "Serialized Graveyard" &&
               roundTrippedSnapshot.enchantments[0].targetPieceId == 99 &&
               roundTrippedSnapshot.status == "Command pending",
-          "pending actions, enchantments, and game timers survive snapshot serialization");
+          "pending actions, card zones, enchantments, and game timers survive snapshot serialization");
+
+    card_data::Card maggieDefinition;
+    maggieDefinition.title = "Maggie Mudroot";
+    maggieDefinition.type = "Hero";
+    maggieDefinition.traits = {"Arcane", "Undead", "Wild"};
+    maggieDefinition.integerValues = {{"health", 8}};
+    card_data::Card mangletoothDefinition = maggieDefinition;
+    mangletoothDefinition.title = "Old Mangletooth";
+    check(
+        toGameCard(maggieDefinition).ability == "raise undead" &&
+            toGameCard(mangletoothDefinition).ability == "raise undead",
+        "Maggie Mudroot and Old Mangletooth receive Raise Undead from the shared card conversion");
+
+    card_data::Card graveGhoulDefinition;
+    graveGhoulDefinition.title = "Grave Ghoul";
+    graveGhoulDefinition.type = "Unit";
+    graveGhoulDefinition.traits = {"Undead"};
+    graveGhoulDefinition.integerValues = {{"health", 2}};
+
+    card_data::Card livingGuardDefinition;
+    livingGuardDefinition.title = "Living Guard";
+    livingGuardDefinition.type = "Unit";
+    livingGuardDefinition.traits = {"Civilized"};
+    livingGuardDefinition.integerValues = {{"health", 2}};
+
+    card_data::Card graveReaperDefinition;
+    graveReaperDefinition.title = "Grave Reaper";
+    graveReaperDefinition.type = "Unit";
+    graveReaperDefinition.integerValues = {{"health", 5}};
+    card_data::Action reaperShot;
+    reaperShot.name = "Grave Reaper Shot";
+    reaperShot.kind = "ranged";
+    reaperShot.pattern = "omni";
+    reaperShot.minRange = 1;
+    reaperShot.maxRange = 7;
+    reaperShot.damage = 2;
+    reaperShot.canMove = false;
+    reaperShot.canAttack = true;
+    graveReaperDefinition.actions = {reaperShot};
+
+    card_data::Card graveBlastDefinition;
+    graveBlastDefinition.title = "Grave Test Blast";
+    graveBlastDefinition.type = "Spell";
+    graveBlastDefinition.integerValues = {{"cost", 0}, {"power", 5}};
+    graveBlastDefinition.stringValues = {{"effect", "damage"}, {"target", "enemy"}};
+
+    const GameCard maggieCard = toGameCard(maggieDefinition);
+    const GameCard graveGhoulCard = toGameCard(graveGhoulDefinition);
+    const GameCard livingGuardCard = toGameCard(livingGuardDefinition);
+    const GameCard graveReaperCard = toGameCard(graveReaperDefinition);
+    const GameCard graveBlastCard = toGameCard(graveBlastDefinition);
+    GameCard heldCard;
+    heldCard.title = "Held Raise Test Card";
+    heldCard.type = "Spell";
+    heldCard.effect = "resources";
+
+    GameEngine raiseUndeadEngine(
+        701,
+        {maggieDefinition,
+         graveGhoulDefinition,
+         livingGuardDefinition,
+         graveReaperDefinition,
+         graveBlastDefinition});
+    const bool loadedRaiseScenario = raiseUndeadEngine.loadScenario(
+        {
+            {1, maggieCard, 0, 0, true},
+            {1, livingGuardCard, 4, 3, false},
+            {1, graveGhoulCard, 3, 3, false},
+            {2, graveReaperCard, 0, 3, false},
+        },
+        {heldCard, heldCard, heldCard, heldCard},
+        {graveBlastCard, graveBlastCard},
+        0,
+        0,
+        2,
+        "Raise Undead test",
+        false);
+    check(loadedRaiseScenario, "Raise Undead test scenario loads");
+
+    const auto raisePieceNamed = [&](const std::string& name) -> const Piece* {
+        const auto found = std::find_if(
+            raiseUndeadEngine.boardPieces().begin(),
+            raiseUndeadEngine.boardPieces().end(),
+            [&](const Piece& piece) { return piece.name == name; });
+        return found == raiseUndeadEngine.boardPieces().end() ? nullptr : &*found;
+    };
+    const Piece* maggiePiece = raisePieceNamed("Maggie Mudroot");
+    const Piece* livingGuardPiece = raisePieceNamed("Living Guard");
+    const Piece* graveGhoulPiece = raisePieceNamed("Grave Ghoul");
+    const Piece* graveReaperPiece = raisePieceNamed("Grave Reaper");
+    check(
+        maggiePiece && livingGuardPiece && graveGhoulPiece && graveReaperPiece,
+        "Raise Undead test places the raiser, victims, and executioner");
+    if (maggiePiece && livingGuardPiece && graveGhoulPiece && graveReaperPiece)
+    {
+        const int maggieId = maggiePiece->id;
+        const int reaperId = graveReaperPiece->id;
+        const int livingGuardRow = livingGuardPiece->row;
+        const int livingGuardColumn = livingGuardPiece->column;
+        const int graveGhoulRow = graveGhoulPiece->row;
+        const int graveGhoulColumn = graveGhoulPiece->column;
+        const bool killedLiving = raiseUndeadEngine.playCard(
+            2, 0, livingGuardRow, livingGuardColumn);
+        const bool killedUndead = raiseUndeadEngine.playCard(
+            2, 0, graveGhoulRow, graveGhoulColumn);
+        const Snapshot graveyardView = raiseUndeadEngine.snapshotFor(1);
+        check(
+            killedLiving && killedUndead && graveyardView.graveyard.size() == 2 &&
+                graveyardView.graveyard[0].title == "Living Guard" &&
+                graveyardView.graveyard[1].title == "Grave Ghoul" &&
+                graveyardView.raiseUndeadChoices.empty(),
+            "destroyed Units enter the shared graveyard while no Raise Undead choice is pending");
+
+        check(
+            raiseUndeadEngine.endTurn(2) &&
+                !raiseUndeadEngine.useAbility(1, maggieId),
+            "Raise Undead is unavailable while the player's hand is full");
+        check(
+            raiseUndeadEngine.discardCard(1, 0) &&
+                raiseUndeadEngine.useAbility(1, maggieId),
+            "making room in hand enables Maggie's active Raise Undead ability");
+
+        const Snapshot pendingRaise = raiseUndeadEngine.snapshotFor(1);
+        check(
+            pendingRaise.raiseUndeadChoices.size() == 1 &&
+                pendingRaise.raiseUndeadChoices[0].title == "Grave Ghoul" &&
+                pendingRaise.graveyard.size() == 2 &&
+                !raiseUndeadEngine.endTurn(1),
+            "Raise Undead shows only killed Undead Units and remains modal until one is chosen");
+        check(
+            raiseUndeadEngine.chooseRaiseUndeadCard(1, 0),
+            "the player can choose an eligible Undead from the graveyard");
+
+        const auto& raisedHand = raiseUndeadEngine.playerState(1).hand;
+        const auto raisedCard = std::find_if(
+            raisedHand.begin(), raisedHand.end(), [](const GameCard& card) {
+                return card.title == "Grave Ghoul";
+            });
+        const Snapshot chosenRaise = raiseUndeadEngine.snapshotFor(1);
+        check(
+            raisedCard != raisedHand.end() && raisedCard->cost == 0 &&
+                raisedCard->health == 1 && raisedCard->raisedFromGraveyard &&
+                chosenRaise.graveyard.size() == 1 &&
+                chosenRaise.graveyard[0].title == "Living Guard" &&
+                chosenRaise.raiseUndeadChoices.empty(),
+            "the chosen Undead leaves the graveyard as a free one-Health hand card");
+
+        const int raisedHandIndex = raisedCard == raisedHand.end()
+            ? -1
+            : static_cast<int>(std::distance(raisedHand.begin(), raisedCard));
+        const bool deployedRaised = raisedHandIndex >= 0 &&
+            raiseUndeadEngine.playCard(1, raisedHandIndex, 0, 1);
+        const Piece* raisedGhoul = raisePieceNamed("Grave Ghoul");
+        check(
+            deployedRaised && raisedGhoul && raisedGhoul->maxHealth == 1 &&
+                raisedGhoul->health == 1 && raisedGhoul->raisedFromGraveyard,
+            "the raised card summons a one-Health Unit carrying its raised marker");
+
+        const int raisedGhoulRow = raisedGhoul ? raisedGhoul->row : -1;
+        const int raisedGhoulColumn = raisedGhoul ? raisedGhoul->column : -1;
+        check(
+            raisedGhoul && raiseUndeadEngine.endTurn(1) &&
+                raiseUndeadEngine.attackPiece(
+                    2, reaperId, raisedGhoulRow, raisedGhoulColumn),
+            "the opposing unit can destroy the raised Undead after it is summoned");
+        const Snapshot exiledView = raiseUndeadEngine.snapshotFor(1);
+        check(
+            exiledView.graveyard.size() == 1 &&
+                exiledView.graveyard[0].title == "Living Guard" &&
+                exiledView.exiled.size() == 1 &&
+                exiledView.exiled[0].title == "Grave Ghoul" &&
+                exiledView.exiled[0].raisedFromGraveyard &&
+                raiseUndeadEngine.endTurn(2) &&
+                !raiseUndeadEngine.useAbility(1, maggieId),
+            "a raised Undead's next death exiles it and it can never be raised again");
+    }
 
     card_data::Card rebirthSlayer;
     rebirthSlayer.title = "Rebirth Slayer";

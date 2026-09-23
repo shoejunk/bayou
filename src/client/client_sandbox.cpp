@@ -10,6 +10,52 @@
 namespace bayou::client
 {
 
+namespace
+{
+game_data::GameCard cardFromDestroyedPiece(const game_data::Piece& piece)
+{
+    game_data::GameCard card;
+    card.title = piece.name;
+    card.type = piece.isHero ? "Hero" : "Unit";
+    card.traits = piece.traits;
+    card.keywords = piece.keywords;
+    card.imagePath = piece.imagePath;
+    card.walkAnimPath = piece.walkAnimPath;
+    card.idleAnimPath = piece.idleAnimPath;
+    card.attackAnimPath = piece.attackAnimPath;
+    card.damagedAnimPath = piece.damagedAnimPath;
+    card.killedAnimPath = piece.killedAnimPath;
+    card.fidgetAnimPath = piece.fidgetAnimPath;
+    card.tokenPath = piece.tokenPath;
+    card.state1TokenPath = piece.state1TokenPath;
+    card.pieceBaseBluePath = piece.pieceBaseBluePath;
+    card.pieceBaseRedPath = piece.pieceBaseRedPath;
+    card.walkAnimFrames = piece.walkAnimFrames;
+    card.idleAnimFrames = piece.idleAnimFrames;
+    card.attackAnimFrames = piece.attackAnimFrames;
+    card.damagedAnimFrames = piece.damagedAnimFrames;
+    card.killedAnimFrames = piece.killedAnimFrames;
+    card.fidgetAnimFrames = piece.fidgetAnimFrames;
+    card.health = piece.maxHealth;
+    card.width = piece.width;
+    card.height = piece.height;
+    card.attack = piece.attack;
+    card.attackRange = piece.attackRange;
+    card.movePattern = piece.movePattern;
+    card.moveRange = piece.moveRange;
+    card.attackingMove = piece.attackingMove;
+    card.canControl = piece.canControl;
+    card.actions = piece.actions;
+    card.ability = piece.ability;
+    card.summonTitle = piece.summonTitle;
+    card.rebirthTitle = piece.rebirthTitle;
+    card.abilityLabels = piece.abilityLabels;
+    card.abilityUses = piece.abilityUses;
+    card.raisedFromGraveyard = piece.raisedFromGraveyard;
+    return card;
+}
+}
+
 const game_data::Piece* pieceByIdInSnapshot(const game_data::Snapshot& snapshot, int id)
 {
     for (const game_data::Piece& piece : snapshot.pieces)
@@ -150,6 +196,20 @@ PieceDestructionResult destroyPieceInSnapshot(
     result.replacementSpawned = replacementPieceId != 0;
     result.wasInfestation = replacementIsInfestation && result.replacementSpawned;
     result.wasRebirth = !replacementIsInfestation && result.replacementSpawned;
+    if (!result.replacementSpawned && !original.isHero)
+    {
+        game_data::GameCard destroyedCard = cardFromDestroyedPiece(original);
+        if (original.raisedFromGraveyard)
+        {
+            destroyedCard.cost = 0;
+            destroyedCard.health = 1;
+            snapshot.exiled.push_back(std::move(destroyedCard));
+        }
+        else
+        {
+            snapshot.graveyard.push_back(std::move(destroyedCard));
+        }
+    }
     return result;
 }
 

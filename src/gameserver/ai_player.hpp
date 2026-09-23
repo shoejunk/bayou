@@ -44,4 +44,8 @@ AiAction chooseAiAction(
 // choose between.
 int chooseAiForesightCard(const GameEngine& engine, int playerNumber);
 
+// Index of the eligible graveyard card worth raising, or 0 when there is no
+// choice. The engine still validates the selection authoritatively.
+int chooseAiRaiseUndeadCard(const GameEngine& engine, int playerNumber);
+
 void placeAiHeroes(GameEngine& engine, int aiPlayer);

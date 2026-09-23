@@ -448,6 +448,10 @@ struct GameCard
     std::string rebirthTitle;
     std::vector<std::string> abilityLabels;
     int abilityUses = 0;
+    // Raise Undead creates a one-health, zero-cost copy. Preserve that origin
+    // through hand/deck movement so its next death goes to exile instead of
+    // returning to the graveyard.
+    bool raisedFromGraveyard = false;
 };
 
 inline GameCard toGameCard(const card_data::Card& card)
@@ -488,6 +492,10 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.canControl = cardInt(card, "canControl", 1) != 0;
     g.growTurns = cardInt(card, "growTurns", 0);
     g.ability = normalizedAbility(cardStr(card, "ability"));
+    if (g.title == "Maggie Mudroot" || g.title == "Old Mangletooth")
+    {
+        g.ability = "raise undead";
+    }
     g.summonTitle = cardStr(card, "summon");
     if (g.summonTitle.empty())
     {
@@ -746,6 +754,7 @@ struct Piece
     bool isHero = false;
     bool hasActed = false;
     bool interceptUsedThisTurn = false;
+    bool raisedFromGraveyard = false;
 };
 
 inline bool pieceUsesState1Token(const Piece& piece)
@@ -800,6 +809,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.rebirthTitle = card.rebirthTitle;
     piece.abilityLabels = card.abilityLabels;
     piece.abilityUses = card.abilityUses;
+    piece.raisedFromGraveyard = card.raisedFromGraveyard;
     piece.isHero = isHero;
 }
 
@@ -983,6 +993,9 @@ struct Snapshot
     std::vector<Enchantment> enchantments;
     std::vector<GameCard> hand;  // recipient's hand
     std::vector<GameCard> foresightChoices;  // recipient's pending Foresight options
+    std::vector<GameCard> graveyard;  // destroyed Unit cards that have not been raised
+    std::vector<GameCard> exiled;  // raised Unit cards destroyed a second time
+    std::vector<GameCard> raiseUndeadChoices;  // recipient's pending graveyard choice
     std::string status;
 };
 
@@ -1016,7 +1029,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
     }
     packet << card.ability << card.summonTitle << card.rebirthTitle;
     card_data::writeStringVector(packet, card.abilityLabels);
-    packet << card.abilityUses;
+    packet << card.abilityUses << card.raisedFromGraveyard;
 }
 
 inline bool readGameCard(sf::Packet& packet, GameCard& card)
@@ -1065,7 +1078,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
     {
         return false;
     }
-    packet >> card.abilityUses;
+    packet >> card.abilityUses >> card.raisedFromGraveyard;
     return static_cast<bool>(packet);
 }
 
@@ -1088,7 +1101,8 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
             << piece.actionState << piece.repeatActionIndex << piece.repeatActionState << piece.repeatActionUses
             << piece.ability << piece.summonTitle << piece.rebirthTitle << piece.abilityUses << piece.hidden
             << piece.isHero << piece.hasActed << piece.controlTurnsRemaining
-            << piece.infestationTitle << piece.infestationOwner << piece.interceptUsedThisTurn;
+            << piece.infestationTitle << piece.infestationOwner << piece.interceptUsedThisTurn
+            << piece.raisedFromGraveyard;
     packet << static_cast<std::uint32_t>(piece.actions.size());
     for (const ActionProfile& action : piece.actions)
     {
@@ -1123,7 +1137,8 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
            >> piece.actionState >> piece.repeatActionIndex >> piece.repeatActionState >> piece.repeatActionUses
            >> piece.ability >> piece.summonTitle >> piece.rebirthTitle >> piece.abilityUses >> piece.hidden
            >> piece.isHero >> piece.hasActed >> piece.controlTurnsRemaining
-           >> piece.infestationTitle >> piece.infestationOwner >> piece.interceptUsedThisTurn;
+           >> piece.infestationTitle >> piece.infestationOwner >> piece.interceptUsedThisTurn
+           >> piece.raisedFromGraveyard;
     std::uint32_t actionCount = 0;
     packet >> actionCount;
     piece.actions.clear();
@@ -1223,6 +1238,17 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
     {
         writeGameCard(packet, card);
     }
+
+    const auto writeCardZone = [&](const std::vector<GameCard>& cards) {
+        packet << static_cast<std::uint32_t>(cards.size());
+        for (const GameCard& card : cards)
+        {
+            writeGameCard(packet, card);
+        }
+    };
+    writeCardZone(snapshot.graveyard);
+    writeCardZone(snapshot.exiled);
+    writeCardZone(snapshot.raiseUndeadChoices);
 
     packet << snapshot.status;
 }
@@ -1325,6 +1351,33 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot)
             return false;
         }
         snapshot.foresightChoices.push_back(card);
+    }
+
+    const auto readCardZone = [&](std::vector<GameCard>& cards) {
+        std::uint32_t count = 0;
+        packet >> count;
+        if (!packet || count > card_data::MaxSerializedItems)
+        {
+            return false;
+        }
+        cards.clear();
+        cards.reserve(count);
+        for (std::uint32_t i = 0; i < count; ++i)
+        {
+            GameCard card;
+            if (!readGameCard(packet, card))
+            {
+                return false;
+            }
+            cards.push_back(std::move(card));
+        }
+        return true;
+    };
+    if (!readCardZone(snapshot.graveyard) ||
+        !readCardZone(snapshot.exiled) ||
+        !readCardZone(snapshot.raiseUndeadChoices))
+    {
+        return false;
     }
     packet >> snapshot.status;
     return static_cast<bool>(packet);

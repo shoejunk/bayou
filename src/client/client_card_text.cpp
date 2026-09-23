@@ -431,6 +431,10 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             {
                 abilityText = "Ability: Command a ready adjacent friendly piece";
             }
+            else if (gameCard.ability == "raise undead")
+            {
+                abilityText = "Ability: Raise Undead. Choose any Undead Unit in the graveyard and add it to your hand for free at 1 Health. If it is destroyed again, exile it";
+            }
             else if (gameCard.ability == "dematerialize")
             {
                 abilityText = "Ability: cycle between materialized and hidden action states";
@@ -448,6 +452,12 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
                 gameCard.ability == "summon" && gameCard.summonTitle.empty()
                     ? sf::Color(225, 170, 150)
                     : sf::Color(210, 216, 228)});
+        }
+        if (gameCard.raisedFromGraveyard)
+        {
+            details.push_back({
+                "Raised: costs 0 Resources, has 1 Health, and is exiled when destroyed",
+                sf::Color(194, 150, 235)});
         }
         if (gameCard.actions.empty())
         {

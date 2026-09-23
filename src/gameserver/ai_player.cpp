@@ -914,6 +914,7 @@ std::vector<AiCandidate> generateCandidates(
     }
 
     const std::vector<Piece>& pieces = engine.boardPieces();
+    const Snapshot playerView = engine.snapshotFor(playerNumber);
     const std::array<std::uint8_t, BoardSquares>& holes = engine.boardHoles();
     // Plan against the board this player can see: an opposing dematerialized
     // piece neither blocks nor offers a target, and the engine adjudicates the
@@ -959,7 +960,7 @@ std::vector<AiCandidate> generateCandidates(
             continue;
         }
 
-        if (piece.repeatActionIndex < 0 && pieceAbilityAvailable(pieces, piece))
+        if (piece.repeatActionIndex < 0 && pieceAbilityAvailable(playerView, piece))
         {
             candidates.push_back({{AiActionKind::UseAbility, piece.id}, abilityOrderBonus(piece)});
         }
@@ -1389,7 +1390,16 @@ bool applyAiAction(GameEngine& engine, int playerNumber, const AiAction& action)
             return engine.attackPiece(
                 playerNumber, action.pieceId, action.row, action.column, action.actionIndex);
         case AiActionKind::UseAbility:
-            return engine.useAbility(playerNumber, action.pieceId);
+            if (!engine.useAbility(playerNumber, action.pieceId))
+            {
+                return false;
+            }
+            if (engine.hasPendingRaiseUndeadChoice(playerNumber))
+            {
+                engine.chooseRaiseUndeadCard(
+                    playerNumber, chooseAiRaiseUndeadCard(engine, playerNumber));
+            }
+            return true;
         case AiActionKind::PlayCard:
             return engine.playCard(playerNumber, action.handIndex, action.row, action.column);
         case AiActionKind::DrawCard:
@@ -1423,6 +1433,32 @@ int chooseAiForesightCard(const GameEngine& engine, int playerNumber)
     for (std::size_t index = 0; index < choices.size(); ++index)
     {
         const int value = cardKeepValue(choices[index], engine, playerNumber);
+        if (value > bestValue)
+        {
+            bestValue = value;
+            bestIndex = static_cast<int>(index);
+        }
+    }
+    return bestIndex;
+}
+
+int chooseAiRaiseUndeadCard(const GameEngine& engine, int playerNumber)
+{
+    if (playerNumber < 1 || playerNumber > 2)
+    {
+        return 0;
+    }
+    const std::vector<GameCard>& choices =
+        engine.snapshotFor(playerNumber).raiseUndeadChoices;
+    int bestIndex = 0;
+    int bestValue = std::numeric_limits<int>::min();
+    for (std::size_t index = 0; index < choices.size(); ++index)
+    {
+        GameCard raised = choices[index];
+        raised.cost = 0;
+        raised.health = 1;
+        raised.raisedFromGraveyard = true;
+        const int value = cardKeepValue(raised, engine, playerNumber);
         if (value > bestValue)
         {
             bestValue = value;

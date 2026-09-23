@@ -1219,6 +1219,13 @@ private:
                 engine.chooseForesightCard(playerNumber, choiceIndex);
                 return true;
             }
+            case MessageType::ChooseRaiseUndeadCard:
+            {
+                int choiceIndex = 0;
+                packet >> choiceIndex;
+                engine.chooseRaiseUndeadCard(playerNumber, choiceIndex);
+                return true;
+            }
             case MessageType::DrawCard:
                 engine.drawCard(playerNumber);
                 return true;

@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <exception>
+#include <iterator>
 #include <memory>
 #include <random>
 #include <string>
@@ -139,7 +140,23 @@ public:
         return playerNumber >= 1 && playerNumber <= 2 &&
             !playerRef(playerNumber).foresightChoices.empty();
     }
-
+    bool hasPendingRaiseUndeadChoice(int playerNumber) const
+    {
+        if (playerNumber < 1 || playerNumber > 2 || pendingRaiseUndeadPieceId == 0)
+        {
+            return false;
+        }
+        const auto found = std::find_if(
+            pieces.begin(), pieces.end(), [&](const Piece& piece) {
+                return piece.id == pendingRaiseUndeadPieceId && piece.owner == playerNumber;
+            });
+        return found != pieces.end();
+    }
+    bool hasPendingCardChoice(int playerNumber) const
+    {
+        return hasPendingForesightChoice(playerNumber) ||
+            hasPendingRaiseUndeadChoice(playerNumber);
+    }
     // Seeds an authored board while preserving the ordinary match rules for
     // every action taken after setup. This is used by Story Mode and by tests;
     // multiplayer setup continues through submitDeck/placeHero/beginPlay.
@@ -198,10 +215,13 @@ public:
         holes.fill(0);
         pieces.clear();
         enchantments.clear();
+        graveyard.clear();
+        exiled.clear();
         nextPieceId = 1;
         nextEnchantmentId = 1;
         commandingPieceId = 0;
         relentlessPieceId = 0;
+        pendingRaiseUndeadPieceId = 0;
         relentlessActionKeepsTurn = false;
         scenarioObjectiveValue = {};
         scenarioObjectiveProgressValue = {};
@@ -583,7 +603,7 @@ public:
 
     bool playCard(int playerNumber, int handIndex, int targetRow, int targetColumn)
     {
-        if (hasPendingForesightChoice(playerNumber))
+        if (hasPendingCardChoice(playerNumber))
         {
             return false;
         }
@@ -707,6 +727,10 @@ public:
                     }
                 }
                 player.resources -= card.cost;
+                if (card.raisedFromGraveyard)
+                {
+                    exiled.push_back(card);
+                }
                 player.hand.erase(player.hand.begin() + handIndex);
                 recordPlayerMove(playerNumber);
                 recomputeControl();
@@ -766,7 +790,7 @@ public:
     // Discarding sends the card to the bottom of the draw pile without ending the turn.
     bool discardCard(int playerNumber, int handIndex)
     {
-        if (hasPendingForesightChoice(playerNumber))
+        if (hasPendingCardChoice(playerNumber))
         {
             return false;
         }
@@ -863,7 +887,7 @@ public:
 private:
     bool useAbilityWithoutRecordingMove(int playerNumber, int pieceId)
     {
-        if (hasPendingForesightChoice(playerNumber))
+        if (hasPendingCardChoice(playerNumber))
         {
             return false;
         }
@@ -985,6 +1009,25 @@ private:
             }
             return true;
         }
+        else if (piece->ability == "raise undead")
+        {
+            EnginePlayer& player = playerRef(playerNumber);
+            if (static_cast<int>(player.hand.size()) >= MaxHandSize)
+            {
+                setStatusFor(playerNumber, "Raise Undead needs room in your hand.");
+                return false;
+            }
+            const bool hasUndead = std::any_of(
+                graveyard.begin(), graveyard.end(), [](const GameCard& card) {
+                    return card.type == "Unit" && hasKeyword(card.traits, "undead");
+                });
+            if (!hasUndead)
+            {
+                setStatusFor(playerNumber, "Raise Undead needs an Undead Unit in the graveyard.");
+                return false;
+            }
+            pendingRaiseUndeadPieceId = piece->id;
+        }
         else
         {
             return false;
@@ -1039,6 +1082,10 @@ private:
                           hiddenAbilityCollisionName);
             }
         }
+        if (pendingRaiseUndeadPieceId == actingPieceId && narrationEnabled)
+        {
+            status += " Choose an Undead Unit from the graveyard.";
+        }
         return true;
     }
 
@@ -1070,9 +1117,57 @@ public:
         return true;
     }
 
+    bool chooseRaiseUndeadCard(int playerNumber, int choiceIndex)
+    {
+        if (phaseValue != Phase::Playing || playerNumber != activePlayer ||
+            !hasPendingRaiseUndeadChoice(playerNumber))
+        {
+            return false;
+        }
+        EnginePlayer& player = playerRef(playerNumber);
+        if (static_cast<int>(player.hand.size()) >= MaxHandSize || choiceIndex < 0)
+        {
+            return false;
+        }
+
+        auto chosen = graveyard.end();
+        int eligibleIndex = 0;
+        for (auto candidate = graveyard.begin(); candidate != graveyard.end(); ++candidate)
+        {
+            if (candidate->type != "Unit" || !hasKeyword(candidate->traits, "undead"))
+            {
+                continue;
+            }
+            if (eligibleIndex++ == choiceIndex)
+            {
+                chosen = candidate;
+                break;
+            }
+        }
+        if (chosen == graveyard.end())
+        {
+            return false;
+        }
+        GameCard chosenCard = *chosen;
+        graveyard.erase(chosen);
+        chosenCard.cost = 0;
+        chosenCard.health = 1;
+        chosenCard.raisedFromGraveyard = true;
+        player.hand.push_back(chosenCard);
+        pendingRaiseUndeadPieceId = 0;
+        if (narrationEnabled)
+        {
+            status = fmt::format(
+                "Player {} raised {} into their hand at 1 Health for free.",
+                playerNumber,
+                chosenCard.title);
+        }
+        return true;
+    }
+
     bool drawCard(int playerNumber)
     {
-        if (hasPendingForesightChoice(playerNumber))
+        if (hasPendingCardChoice(playerNumber))
         {
             return false;
         }
@@ -1145,7 +1240,7 @@ public:
 
     bool endTurn(int playerNumber)
     {
-        if (hasPendingForesightChoice(playerNumber))
+        if (hasPendingCardChoice(playerNumber))
         {
             return false;
         }
@@ -1210,7 +1305,19 @@ public:
         if (phaseValue == Phase::Playing && playerNumber == activePlayer)
         {
             snapshot.foresightChoices = viewingPlayer.foresightChoices;
+            if (hasPendingRaiseUndeadChoice(playerNumber))
+            {
+                std::copy_if(
+                    graveyard.begin(),
+                    graveyard.end(),
+                    std::back_inserter(snapshot.raiseUndeadChoices),
+                    [](const GameCard& card) {
+                        return card.type == "Unit" && hasKeyword(card.traits, "undead");
+                    });
+            }
         }
+        snapshot.graveyard = graveyard;
+        snapshot.exiled = exiled;
         snapshot.status = status;
 
         for (int p = 0; p < 2; ++p)
@@ -1314,6 +1421,14 @@ public:
         {
             stripPresentation(card);
         }
+        for (GameCard& card : graveyard)
+        {
+            stripPresentation(card);
+        }
+        for (GameCard& card : exiled)
+        {
+            stripPresentation(card);
+        }
         for (GameCard& card : mutableSummonCatalog())
         {
             stripPresentation(card);
@@ -1341,6 +1456,8 @@ private:
     std::array<std::uint8_t, BoardSquares> holes{};
     std::vector<Piece> pieces;
     std::vector<Enchantment> enchantments;
+    std::vector<GameCard> graveyard;
+    std::vector<GameCard> exiled;
     std::array<EnginePlayer, 2> players{};
     // The summon catalog is the whole card library and stops changing once a
     // match is under way, so copies of the engine (the AI search makes many)
@@ -1351,6 +1468,7 @@ private:
     int nextEnchantmentId = 1;
     int commandingPieceId = 0;
     int relentlessPieceId = 0;
+    int pendingRaiseUndeadPieceId = 0;
     bool relentlessActionKeepsTurn = false;
     bool heroEliminationVictoryEnabled = true;
     ScenarioObjective scenarioObjectiveValue;
@@ -1489,6 +1607,16 @@ private:
         }
 
         const Piece original = *dying;
+        const GameCard* originalDefinition = summonCardByTitle(original.name);
+        const bool recordsDestroyedCard = !original.isHero && originalDefinition != nullptr &&
+            originalDefinition->type == "Unit";
+        GameCard destroyedCard = recordsDestroyedCard ? *originalDefinition : GameCard{};
+        destroyedCard.raisedFromGraveyard = original.raisedFromGraveyard;
+        if (destroyedCard.raisedFromGraveyard)
+        {
+            destroyedCard.cost = 0;
+            destroyedCard.health = 1;
+        }
         const GameCard* infestationDefinition = summonCardByTitle(original.infestationTitle);
         const bool hasValidInfestation = !original.isHero &&
             original.infestationOwner >= 1 && original.infestationOwner <= 2 &&
@@ -1563,6 +1691,17 @@ private:
         result.replacementSpawned = replacementPieceId != 0;
         result.wasInfestation = replacementIsInfestation && result.replacementSpawned;
         result.wasRebirth = !replacementIsInfestation && result.replacementSpawned;
+        if (!result.replacementSpawned && recordsDestroyedCard)
+        {
+            if (original.raisedFromGraveyard)
+            {
+                exiled.push_back(std::move(destroyedCard));
+            }
+            else
+            {
+                graveyard.push_back(std::move(destroyedCard));
+            }
+        }
         return result;
     }
 
@@ -1629,7 +1768,7 @@ private:
         int toColumn,
         int selectedActionIndex)
     {
-        if (hasPendingForesightChoice(playerNumber))
+        if (hasPendingCardChoice(playerNumber))
         {
             return false;
         }
@@ -2265,6 +2404,7 @@ private:
         }
         commandingPieceId = 0;
         relentlessPieceId = 0;
+        pendingRaiseUndeadPieceId = 0;
         relentlessActionKeepsTurn = false;
         endTurnFor(activePlayer);
         recomputeControl();

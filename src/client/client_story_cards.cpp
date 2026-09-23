@@ -860,6 +860,7 @@ GameCard supportingCard(std::string_view title)
         card.width = 2;
         card.height = 2;
         card.rebirthTitle = "Maggie Mudroot Unmounted";
+        card.ability = "raise undead";
         card.actions = {action(
             "Gator-House Charge", MovePattern::Ortho, 1, 4, true, true, 2)};
         return card;

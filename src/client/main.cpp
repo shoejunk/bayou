@@ -7211,13 +7211,23 @@ int main(int argc, char** argv)
         return std::nullopt;
     };
 
+    const auto pendingCardChoices = [&]() -> const std::vector<game_data::GameCard>& {
+        return gameSnapshot.raiseUndeadChoices.empty()
+            ? gameSnapshot.foresightChoices
+            : gameSnapshot.raiseUndeadChoices;
+    };
+    const auto choosingRaiseUndead = [&]() {
+        return !gameSnapshot.raiseUndeadChoices.empty();
+    };
+
     auto foresightChoiceAtPixel = [&](sf::Vector2f point) -> std::optional<std::size_t> {
-        if (gameSnapshot.foresightChoices.empty())
+        const std::vector<game_data::GameCard>& choices = pendingCardChoices();
+        if (choices.empty())
         {
             return std::nullopt;
         }
         const std::size_t totalRows =
-            (gameSnapshot.foresightChoices.size() + ForesightChoiceColumns - 1) /
+            (choices.size() + ForesightChoiceColumns - 1) /
             ForesightChoiceColumns;
         clampListOffset(foresightChoiceRowOffset, totalRows, ForesightVisibleRows);
         const std::size_t visibleRows = std::min(
@@ -7227,7 +7237,7 @@ int main(int argc, char** argv)
             const std::size_t row = foresightChoiceRowOffset + visibleRow;
             const std::size_t rowStart = row * ForesightChoiceColumns;
             const std::size_t rowCount = std::min(
-                ForesightChoiceColumns, gameSnapshot.foresightChoices.size() - rowStart);
+                ForesightChoiceColumns, choices.size() - rowStart);
             const float rowWidth = static_cast<float>(rowCount) * HandCardWidth +
                 static_cast<float>(rowCount - 1) * ForesightChoiceGap;
             const float startX = (ui_canvas::Width - rowWidth) * 0.5f;
@@ -8087,7 +8097,7 @@ int main(int argc, char** argv)
 
         game_data::Snapshot next = gameSnapshot;
         game_data::Piece* piece = pieceByIdInSnapshotMutable(next, pieceId);
-        if (!piece || !game_data::pieceAbilityAvailable(next.pieces, *piece))
+        if (!piece || !game_data::pieceAbilityAvailable(next, *piece))
         {
             return;
         }
@@ -8181,6 +8191,18 @@ int main(int argc, char** argv)
             commitSandboxSnapshot(std::move(next));
             return;
         }
+        else if (piece->ability == "raise undead")
+        {
+            next.raiseUndeadChoices.clear();
+            std::copy_if(
+                next.graveyard.begin(),
+                next.graveyard.end(),
+                std::back_inserter(next.raiseUndeadChoices),
+                [](const game_data::GameCard& card) {
+                    return card.type == "Unit" &&
+                        game_data::hasKeyword(card.traits, "undead");
+                });
+        }
         else
         {
             return;
@@ -8202,6 +8224,10 @@ int main(int argc, char** argv)
         else
         {
             next.status = pieceName + " used " + abilityLabel + ".";
+        }
+        if (piece->ability == "raise undead")
+        {
+            next.status += " Choose an Undead Unit from the graveyard.";
         }
         commitSandboxSnapshot(std::move(next));
     };
@@ -9036,6 +9062,61 @@ int main(int argc, char** argv)
         packet << static_cast<std::uint8_t>(network::MessageType::ChooseForesightCard) << choiceIndex;
         sendGamePacket(packet);
     };
+    auto sendChooseRaiseUndeadCard = [&](int choiceIndex) {
+        if (storyMode && storyEngine)
+        {
+            settleStoryAction(storyEngine->chooseRaiseUndeadCard(1, choiceIndex));
+            return;
+        }
+        if (sandboxMode)
+        {
+            game_data::Snapshot next = gameSnapshot;
+            if (choiceIndex < 0 ||
+                choiceIndex >= static_cast<int>(next.raiseUndeadChoices.size()) ||
+                static_cast<int>(next.hand.size()) >= game_data::MaxHandSize)
+            {
+                return;
+            }
+            const game_data::GameCard selected =
+                next.raiseUndeadChoices[static_cast<std::size_t>(choiceIndex)];
+            auto chosen = next.graveyard.end();
+            int eligibleIndex = 0;
+            for (auto candidate = next.graveyard.begin();
+                 candidate != next.graveyard.end();
+                 ++candidate)
+            {
+                if (candidate->type != "Unit" ||
+                    !game_data::hasKeyword(candidate->traits, "undead"))
+                {
+                    continue;
+                }
+                if (eligibleIndex++ == choiceIndex)
+                {
+                    chosen = candidate;
+                    break;
+                }
+            }
+            if (chosen == next.graveyard.end())
+            {
+                return;
+            }
+            next.graveyard.erase(chosen);
+            game_data::GameCard raised = selected;
+            raised.cost = 0;
+            raised.health = 1;
+            raised.raisedFromGraveyard = true;
+            next.hand.push_back(std::move(raised));
+            next.raiseUndeadChoices.clear();
+            next.status = "Raised " + selected.title +
+                " into your hand at 1 Health for free.";
+            commitSandboxSnapshot(std::move(next));
+            return;
+        }
+        sf::Packet packet;
+        packet << static_cast<std::uint8_t>(
+            network::MessageType::ChooseRaiseUndeadCard) << choiceIndex;
+        sendGamePacket(packet);
+    };
     auto sendDrawCard = [&]() {
         if (storyMode && storyEngine)
         {
@@ -9111,7 +9192,8 @@ int main(int argc, char** argv)
                 return piece.owner == me && piece.repeatActionIndex >= 0;
             });
         if (gameSnapshot.relentlessPieceId != 0 ||
-            gameSnapshot.commandingPieceId != 0 || pendingRepeat)
+            gameSnapshot.commandingPieceId != 0 || pendingRepeat ||
+            !pendingCardChoices().empty())
         {
             return false;
         }
@@ -9126,7 +9208,7 @@ int main(int argc, char** argv)
     auto playerCanDrawCard = [&]() {
         if (!haveSnapshot || sandboxMode ||
             static_cast<game_data::Phase>(gameSnapshot.phase) != game_data::Phase::Playing ||
-            !gameSnapshot.foresightChoices.empty())
+            !pendingCardChoices().empty())
         {
             return false;
         }
@@ -9704,11 +9786,18 @@ int main(int argc, char** argv)
             return;
         }
 
-        if (!gameSnapshot.foresightChoices.empty())
+        if (!pendingCardChoices().empty())
         {
             if (const std::optional<std::size_t> choiceIndex = foresightChoiceAtPixel(clickPos))
             {
-                sendChooseForesightCard(static_cast<int>(*choiceIndex));
+                if (choosingRaiseUndead())
+                {
+                    sendChooseRaiseUndeadCard(static_cast<int>(*choiceIndex));
+                }
+                else
+                {
+                    sendChooseForesightCard(static_cast<int>(*choiceIndex));
+                }
             }
             return;
         }
@@ -13882,6 +13971,9 @@ int main(int argc, char** argv)
             }
             validateCards(gameSnapshot.hand, "visible hand card");
             validateCards(gameSnapshot.foresightChoices, "visible Foresight card");
+            validateCards(gameSnapshot.graveyard, "graveyard card");
+            validateCards(gameSnapshot.exiled, "exiled card");
+            validateCards(gameSnapshot.raiseUndeadChoices, "Raise Undead choice");
 
             const auto validatePiece = [&](const game_data::Piece& piece,
                                            std::string_view kind) {
@@ -14288,7 +14380,7 @@ int main(int argc, char** argv)
         }
         const game_data::Piece* piece = gamePieceById(*selectedPieceId);
         return piece && pieceCanTakeGameAction(*piece) &&
-            game_data::pieceAbilityAvailable(gameSnapshot.pieces, *piece);
+            game_data::pieceAbilityAvailable(gameSnapshot, *piece);
     };
 
     const auto storyGameKeyboardTargets = [&]() {
@@ -14666,9 +14758,10 @@ int main(int argc, char** argv)
                 ? "ARROWS: SQUARE  |  ENTER: PLACE  |  TAB: NEXT  |  ESC: CANCEL"
                 : "LEFT/RIGHT: HERO  |  ENTER: SELECT  |  TAB: NEXT  |  ESC: BACK";
         }
-        else if (!gameSnapshot.foresightChoices.empty())
+        else if (!pendingCardChoices().empty())
         {
-            if (storyKeyboardForesightIndex < gameSnapshot.foresightChoices.size())
+            const auto& choices = pendingCardChoices();
+            if (storyKeyboardForesightIndex < choices.size())
             {
                 const std::size_t row =
                     storyKeyboardForesightIndex / ForesightChoiceColumns;
@@ -14680,7 +14773,7 @@ int main(int argc, char** argv)
                     const std::size_t rowStart = row * ForesightChoiceColumns;
                     const std::size_t rowCount = std::min(
                         ForesightChoiceColumns,
-                        gameSnapshot.foresightChoices.size() - rowStart);
+                        choices.size() - rowStart);
                     const float rowWidth = static_cast<float>(rowCount) * HandCardWidth +
                         static_cast<float>(rowCount - 1) * ForesightChoiceGap;
                     const float startX = (ui_canvas::Width - rowWidth) * 0.5f;
@@ -14694,8 +14787,9 @@ int main(int argc, char** argv)
                         {HandCardWidth + 8.0f, HandCardHeight + 38.0f});
                 }
             }
-            keyboardHint =
-                "ARROWS CHOOSE CARD  |  ENTER KEEP CARD";
+            keyboardHint = choosingRaiseUndead()
+                ? "ARROWS CHOOSE UNDEAD  |  ENTER RAISE CARD"
+                : "ARROWS CHOOSE CARD  |  ENTER KEEP CARD";
         }
         else if (storyGameKeyboardFocus == StoryGameKeyboardFocus::Board)
         {
@@ -16443,7 +16537,7 @@ int main(int argc, char** argv)
                     {
                         if (const game_data::Piece* piece = gamePieceById(*selectedPieceId);
                             piece && pieceCanTakeGameAction(*piece) &&
-                            game_data::pieceAbilityAvailable(gameSnapshot.pieces, *piece))
+                            game_data::pieceAbilityAvailable(gameSnapshot, *piece))
                         {
                             pendingHandClickIndex.reset();
                             sendUseAbility(piece->id);
@@ -16941,13 +17035,13 @@ int main(int argc, char** argv)
             }
             else if (const auto* wheel = event->getIf<sf::Event::MouseWheelScrolled>();
                      wheel && currentState == GameState::Game && haveSnapshot &&
-                     !gameSnapshot.foresightChoices.empty())
+                     !pendingCardChoices().empty())
             {
                 const sf::Vector2f wheelPos = window.mapPixelToCoords(wheel->position);
                 if (isInsideRect(wheelPos, 24.0f, 54.0f, 752.0f, 524.0f))
                 {
                     const std::size_t totalRows =
-                        (gameSnapshot.foresightChoices.size() + ForesightChoiceColumns - 1) /
+                        (pendingCardChoices().size() + ForesightChoiceColumns - 1) /
                         ForesightChoiceColumns;
                     scrollList(
                         foresightChoiceRowOffset,
@@ -17397,10 +17491,10 @@ int main(int argc, char** argv)
                         continue;
                     }
 
-                    if (!gameSnapshot.foresightChoices.empty())
+                    if (!pendingCardChoices().empty())
                     {
                         const int choiceCount = static_cast<int>(
-                            gameSnapshot.foresightChoices.size());
+                            pendingCardChoices().size());
                         int delta = 0;
                         if (keyPressed->code == sf::Keyboard::Key::Left ||
                             (keyPressed->code == sf::Keyboard::Key::Tab && keyPressed->shift))
@@ -17442,10 +17536,18 @@ int main(int argc, char** argv)
                         if ((keyPressed->code == sf::Keyboard::Key::Enter ||
                              keyPressed->code == sf::Keyboard::Key::Space) &&
                             storyKeyboardForesightIndex <
-                                gameSnapshot.foresightChoices.size())
+                                pendingCardChoices().size())
                         {
-                            sendChooseForesightCard(static_cast<int>(
-                                storyKeyboardForesightIndex));
+                            if (choosingRaiseUndead())
+                            {
+                                sendChooseRaiseUndeadCard(static_cast<int>(
+                                    storyKeyboardForesightIndex));
+                            }
+                            else
+                            {
+                                sendChooseForesightCard(static_cast<int>(
+                                    storyKeyboardForesightIndex));
+                            }
                         }
                         // The revealed-card choice is modal, just like the mouse
                         // path; no other keyboard command can leak through it.
@@ -18188,7 +18290,7 @@ int main(int argc, char** argv)
                 {
                     if (const game_data::Piece* piece = gamePieceById(*selectedPieceId);
                         piece && pieceCanTakeGameAction(*piece) &&
-                        game_data::pieceAbilityAvailable(gameSnapshot.pieces, *piece))
+                        game_data::pieceAbilityAvailable(gameSnapshot, *piece))
                     {
                         abilityButton.update(mousePos);
                     }

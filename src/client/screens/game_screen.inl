@@ -1263,7 +1263,8 @@
     };
 
     auto drawForesightChoices = [&]() {
-        if (gameSnapshot.foresightChoices.empty())
+        const std::vector<game_data::GameCard>& choices = pendingCardChoices();
+        if (choices.empty())
         {
             foresightChoiceRowOffset = 0;
             return;
@@ -1283,7 +1284,8 @@
             true,
             14.0f);
 
-        sf::Text title(font, "FORESIGHT", 23);
+        const bool raisingUndead = choosingRaiseUndead();
+        sf::Text title(font, raisingUndead ? "RAISE UNDEAD" : "FORESIGHT", 23);
         title.setLetterSpacing(1.8f);
         title.setFillColor(BoardBrassBright);
         centerText(title, {400.0f, 82.0f});
@@ -1293,7 +1295,7 @@
         // authored card is actually present. Ordinary Foresight stays truthful,
         // while malformed Story data fails closed.
         std::string requiredStoryCard;
-        if (storyMode && storyStage == StoryStage::Objective &&
+        if (!raisingUndead && storyMode && storyStage == StoryStage::Objective &&
             storyMissionStep >= 0)
         {
             const StoryMission& mission = activeStoryMission();
@@ -1303,8 +1305,8 @@
                     mission.script[static_cast<std::size_t>(storyMissionStep)];
                 const bool cardIsPresent = !step.cardTitle.empty() &&
                     std::any_of(
-                        gameSnapshot.foresightChoices.begin(),
-                        gameSnapshot.foresightChoices.end(),
+                        choices.begin(),
+                        choices.end(),
                         [&](const game_data::GameCard& card) {
                             return card.title == step.cardTitle;
                         });
@@ -1316,9 +1318,11 @@
             }
         }
 
-        const bool showingStoryCorrection = storyMode &&
+        const bool showingStoryCorrection = !raisingUndead && storyMode &&
             storyStage == StoryStage::Objective && !storyCorrection.empty();
-        const std::string guidance = showingStoryCorrection
+        const std::string guidance = raisingUndead
+            ? "Choose an Undead Unit from the graveyard. It enters your hand for free with 1 Health; when destroyed again, it is exiled."
+            : showingStoryCorrection
             ? "TRY AGAIN: " + storyCorrection
             : !requiredStoryCard.empty()
                 ? "STORY STEP: " + requiredStoryCard +
@@ -1346,7 +1350,7 @@
             1.0f);
 
         const std::size_t totalRows =
-            (gameSnapshot.foresightChoices.size() + ForesightChoiceColumns - 1) /
+            (choices.size() + ForesightChoiceColumns - 1) /
             ForesightChoiceColumns;
         clampListOffset(foresightChoiceRowOffset, totalRows, ForesightVisibleRows);
         const std::size_t visibleRows = std::min(
@@ -1356,7 +1360,7 @@
             const std::size_t row = foresightChoiceRowOffset + visibleRow;
             const std::size_t rowStart = row * ForesightChoiceColumns;
             const std::size_t rowCards = std::min(
-                ForesightChoiceColumns, gameSnapshot.foresightChoices.size() - rowStart);
+                ForesightChoiceColumns, choices.size() - rowStart);
             const float rowWidth = static_cast<float>(rowCards) * HandCardWidth +
                 static_cast<float>(rowCards - 1) * ForesightChoiceGap;
             const float startX = (ui_canvas::Width - rowWidth) * 0.5f;
@@ -1368,10 +1372,10 @@
                 const float x = startX + static_cast<float>(column) *
                     (HandCardWidth + ForesightChoiceGap);
                 const bool requiredChoice = !requiredStoryCard.empty() &&
-                    gameSnapshot.foresightChoices[index].title == requiredStoryCard;
+                    choices[index].title == requiredStoryCard;
                 drawGameCardFace(
                     {x, y},
-                    gameSnapshot.foresightChoices[index],
+                    choices[index],
                     requiredChoice,
                     true,
                     HandCardWidth,
@@ -3656,7 +3660,8 @@
             {
                 drawCaption = "HAND FULL";
             }
-            else if (!boardSnapshot.foresightChoices.empty())
+            else if (!boardSnapshot.foresightChoices.empty() ||
+                     !boardSnapshot.raiseUndeadChoices.empty())
             {
                 drawCaption = "CHOOSE CARD";
             }
@@ -3688,7 +3693,7 @@
         const bool abilityAvailable = phase == game_data::Phase::Playing &&
             (sandboxMode || boardSnapshot.activePlayer == me) && selectedPiece &&
             pieceCanTakeGameAction(*selectedPiece) &&
-            game_data::pieceAbilityAvailable(boardSnapshot.pieces, *selectedPiece);
+            game_data::pieceAbilityAvailable(boardSnapshot, *selectedPiece);
         if (!abilityAvailable && !drawStoryMode)
         {
             // The opponent's hand size was not surfaced anywhere before, and it
@@ -4612,7 +4617,8 @@
 
         if (drawStoryMode)
         {
-            if (boardSnapshot.foresightChoices.empty())
+            if (boardSnapshot.foresightChoices.empty() &&
+                boardSnapshot.raiseUndeadChoices.empty())
             {
                 drawPiecePopup();
             }
@@ -4745,7 +4751,8 @@
             leaveGameButton.draw(window);
         }
 
-        if (boardSnapshot.foresightChoices.empty())
+        if (boardSnapshot.foresightChoices.empty() &&
+            boardSnapshot.raiseUndeadChoices.empty())
         {
             drawPiecePopup();
         }
