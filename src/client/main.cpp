@@ -1148,7 +1148,6 @@ int main(int argc, char** argv)
     sf::Texture* mainMenuSettingsTexture = textures.load("ui/main-menu/settings_gear_icon.png");
     sf::Texture* mainMenuSmallHexTexture = textures.load("ui/main-menu/small_hex_frame.png");
     sf::Texture* mainMenuTitleFrameTexture = textures.load("ui/main-menu/title_frame.png");
-    sf::Texture* mainMenuWoodLeagueTexture = textures.load("ui/main-menu/wood_league_leaf.png");
     // Stands in for a player-chosen avatar until portraits are a real feature; an
     // empty portrait frame is the loudest "unfinished" signal on the menu.
     sf::Texture* mainMenuAvatarTexture = textures.load("characters/sylvara.png");
@@ -1198,6 +1197,7 @@ int main(int argc, char** argv)
     Button storyButton({300.0f, 152.0f}, {200.0f, 48.0f}, "GUIDED STORY", font);
     Button playButton({300.0f, 215.0f}, {200.0f, 48.0f}, "PLAY ONLINE", font);
     Button conquestButton({300.0f, 278.0f}, {200.0f, 48.0f}, "CONQUEST", font);
+    constexpr bool ShowConquestMenuEntry = false;
     Button deckEditorButton({300.0f, 341.0f}, {200.0f, 48.0f}, "DECK EDITOR", font);
     Button shopButton({300.0f, 404.0f}, {200.0f, 48.0f}, "SHOP", font);
     Button adminUsersButton({300.0f, 467.0f}, {200.0f, 48.0f}, "ADMIN", font);
@@ -1847,7 +1847,10 @@ int main(int argc, char** argv)
         };
 
         placeSecondary(playButton);
-        placeSecondary(conquestButton);
+        if (ShowConquestMenuEntry)
+        {
+            placeSecondary(conquestButton);
+        }
         placeSecondary(deckEditorButton);
         placeSecondary(shopButton);
 
@@ -2131,10 +2134,10 @@ int main(int argc, char** argv)
         // The role tag lives inside the plate, so the badge grows a row to hold
         // it. Hanging it underneath read as an element that had escaped its
         // container.
-        // Leave enough room for the Wood leaf and future longer league names
-        // without letting the rank row touch the plate's right border.
+        // Leave enough room for the name and currency readouts without crowding
+        // the plate's right border.
         const float BadgeWidth = compactBadge ? 166.0f : 210.0f;
-        const sf::Vector2f BadgeSize{BadgeWidth, loggedInIsAdmin ? 136.0f : 112.0f};
+        const sf::Vector2f BadgeSize{BadgeWidth, loggedInIsAdmin ? 112.0f : 90.0f};
 
         PlateStyle badge;
         badge.fill = sf::Color(11, 16, 17, 226);
@@ -2212,31 +2215,18 @@ int main(int argc, char** argv)
 
         drawSeparatorRule(window, {TextLeft, 45.0f}, column);
 
-        // ---- rank ---------------------------------------------------------
-        const sf::Color accent = leagueAccent(playerLeague);
-        drawLeagueSigil({TextLeft + 8.0f, 58.0f}, 8.0f, accent);
-        const float leagueWidth = drawLabelText(
-            window,
-            font,
-            std::string(ranking::leagueName(playerLeague)) + " league",
-            9,
-            {TextLeft + 20.0f, 54.0f},
-            accent,
-            1.5f);
-
-        if (playerLeague == ranking::League::Wood && mainMenuWoodLeagueTexture)
-        {
-            drawMainMenuTextureContained(
-                mainMenuWoodLeagueTexture,
-                {TextLeft + 23.0f + leagueWidth, 51.0f},
-                {14.0f, 15.0f});
-        }
+        const float ratingLabelWidth =
+            drawLabelText(window, font, "rating", 8, {TextLeft + 20.0f, 51.0f}, palette::InkFaint, 1.4f);
+        sf::Text rating(displayFontOr(font), std::to_string(playerRating), 14);
+        rating.setFillColor(palette::BrassBright);
+        rating.setPosition({TextLeft + 26.0f + ratingLabelWidth, 48.0f});
+        drawCrispText(window, rating);
 
         if (loggedInIsAdmin)
         {
             // A violet tag rather than "[Admin]" welded onto the name: a role is
             // metadata, not part of what the player calls themselves. It sits on
-            // its own row inside the plate, clear of the rank and the rating.
+            // its own row inside the plate, clear of the currency row.
             const sf::Vector2f tagSize{54.0f, 15.0f};
             const sf::Vector2f tagPosition{
                 TextLeft,
@@ -2259,22 +2249,8 @@ int main(int argc, char** argv)
                 1.4f);
         }
 
-        // Position the numerals off the measured label width rather than a magic
-        // offset, so a longer word can never run into the number.
-        const float ratingLabelWidth =
-            drawLabelText(window, font, "rating", 8, {TextLeft + 20.0f, 69.0f}, palette::InkFaint, 1.4f);
-        sf::Text rating(displayFontOr(font), std::to_string(playerRating), 14);
-        rating.setFillColor(palette::BrassBright);
-        rating.setPosition({TextLeft + 26.0f + ratingLabelWidth, 64.0f});
-        drawCrispText(window, rating);
-
         // ---- currency -----------------------------------------------------
-        // Spans the full text column: at 78px the numerals were squeezed into
-        // ~48px after the coin inset and read as an afterthought next to the
-        // rating above them.
-        // Clear of the rating numerals above: at y = 80 the pill's top edge cut
-        // through their descenders.
-        const sf::Vector2f coinPill{TextLeft, 87.0f};
+        const sf::Vector2f coinPill{TextLeft, 73.0f};
         const sf::Vector2f pillSize{column, 22.0f};
         drawValuePill(
             window,
@@ -14057,17 +14033,23 @@ int main(int argc, char** argv)
     }
 
     auto authenticatedMenuButtonCount = [&]() {
-        return loggedInIsAdmin ? 7 : 6;
+        return (loggedInIsAdmin ? 6 : 5) + (ShowConquestMenuEntry ? 1 : 0);
     };
 
     auto syncAuthenticatedMenuFocus = [&]() {
+        const int conquestMenuIndex = 2;
+        const int deckEditorMenuIndex = conquestMenuIndex + (ShowConquestMenuEntry ? 1 : 0);
+        const int shopMenuIndex = deckEditorMenuIndex + 1;
+        const int adminMenuIndex = shopMenuIndex + 1;
+        const int logoutMenuIndex = adminMenuIndex + (loggedInIsAdmin ? 1 : 0);
         storyButton.setFocused(authenticatedMenuFocus == 0);
         playButton.setFocused(authenticatedMenuFocus == 1);
-        conquestButton.setFocused(authenticatedMenuFocus == 2);
-        deckEditorButton.setFocused(authenticatedMenuFocus == 3);
-        shopButton.setFocused(authenticatedMenuFocus == 4);
-        adminUsersButton.setFocused(loggedInIsAdmin && authenticatedMenuFocus == 5);
-        logoutButton.setFocused(authenticatedMenuFocus == (loggedInIsAdmin ? 6 : 5));
+        conquestButton.setFocused(
+            ShowConquestMenuEntry && authenticatedMenuFocus == conquestMenuIndex);
+        deckEditorButton.setFocused(authenticatedMenuFocus == deckEditorMenuIndex);
+        shopButton.setFocused(authenticatedMenuFocus == shopMenuIndex);
+        adminUsersButton.setFocused(loggedInIsAdmin && authenticatedMenuFocus == adminMenuIndex);
+        logoutButton.setFocused(authenticatedMenuFocus == logoutMenuIndex);
     };
 
     auto activateAuthenticatedMenuButton = [&](int index) {
@@ -14076,6 +14058,11 @@ int main(int argc, char** argv)
             return;
         }
 
+        const int conquestMenuIndex = 2;
+        const int deckEditorMenuIndex = conquestMenuIndex + (ShowConquestMenuEntry ? 1 : 0);
+        const int shopMenuIndex = deckEditorMenuIndex + 1;
+        const int adminMenuIndex = shopMenuIndex + 1;
+        const int logoutMenuIndex = adminMenuIndex + (loggedInIsAdmin ? 1 : 0);
         playButtonClickSound();
         if (index == 0)
         {
@@ -14085,7 +14072,7 @@ int main(int argc, char** argv)
         {
             showDeckSelect();
         }
-        else if (index == 2)
+        else if (ShowConquestMenuEntry && index == conquestMenuIndex)
         {
             ++conquestScreenGeneration;
             conquestScreen.open(activeAccessToken, loggedInUsername, loggedInIsAdmin);
@@ -14093,20 +14080,20 @@ int main(int argc, char** argv)
             title.setString("");
             clearFocus();
         }
-        else if (index == 3)
+        else if (index == deckEditorMenuIndex)
         {
             loadDeckEditor();
         }
-        else if (index == 4)
+        else if (index == shopMenuIndex)
         {
             loadShop();
         }
-        else if (loggedInIsAdmin && index == 5)
+        else if (loggedInIsAdmin && index == adminMenuIndex)
         {
             adminUsersPage = 0;
             loadAdminUsersScreen();
         }
-        else if (index == (loggedInIsAdmin ? 6 : 5))
+        else if (index == logoutMenuIndex)
         {
             const std::string rememberTokenToRevoke = activeRememberToken;
             const std::string accessTokenToRevoke = activeAccessToken;
@@ -16160,7 +16147,7 @@ int main(int argc, char** argv)
                     {
                         showDeckSelect();
                     }
-                    else if (conquestButton.isClicked(clickPos))
+                    else if (ShowConquestMenuEntry && conquestButton.isClicked(clickPos))
                     {
                         ++conquestScreenGeneration;
                         conquestScreen.open(
@@ -18080,7 +18067,10 @@ int main(int argc, char** argv)
             {
                 storyButton.update(mousePos);
                 playButton.update(mousePos);
-                conquestButton.update(mousePos);
+                if (ShowConquestMenuEntry)
+                {
+                    conquestButton.update(mousePos);
+                }
                 deckEditorButton.update(mousePos);
                 shopButton.update(mousePos);
                 if (loggedInIsAdmin)
@@ -18559,7 +18549,10 @@ int main(int argc, char** argv)
             drawAuthenticatedMenuChrome();
             drawAuthenticatedMenuButton(storyButton, mainMenuStoryIconTexture);
             drawAuthenticatedMenuButton(playButton, mainMenuPlayIconTexture);
-            drawAuthenticatedMenuButton(conquestButton, mainMenuConquestIconTexture);
+            if (ShowConquestMenuEntry)
+            {
+                drawAuthenticatedMenuButton(conquestButton, mainMenuConquestIconTexture);
+            }
             drawAuthenticatedMenuButton(deckEditorButton, mainMenuDeckEditorIconTexture);
             drawAuthenticatedMenuButton(shopButton, mainMenuShopIconTexture);
             if (loggedInIsAdmin)
