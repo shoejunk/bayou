@@ -16,12 +16,12 @@ export module inputbox;
 export struct InputBoxStyle
 {
     sf::Color fieldFill = sf::Color(8, 13, 14, 235);
-    sf::Color inactiveOutline = sf::Color(154, 101, 49);
-    sf::Color activeOutline = sf::Color(239, 190, 98);
+    sf::Color inactiveOutline = sf::Color(78, 96, 104);
+    sf::Color activeOutline = sf::Color(202, 220, 226);
     sf::Color labelColor = sf::Color(246, 232, 200);
     sf::Color textColor = sf::Color(246, 238, 218);
-    sf::Color selectionColor = sf::Color(92, 77, 49, 170);
-    sf::Color cursorColor = sf::Color(239, 190, 98);
+    sf::Color selectionColor = sf::Color(104, 76, 134, 170);
+    sf::Color cursorColor = sf::Color(212, 231, 236);
     float outlineThickness = 2.0f;
     unsigned int labelSize = 18;
     unsigned int textSize = 20;
@@ -66,12 +66,12 @@ export struct InputBox
     {
         InputBoxStyle style;
         style.fieldFill = sf::Color(8, 15, 16, 242);
-        style.inactiveOutline = sf::Color(116, 82, 44);
-        style.activeOutline = sf::Color(239, 190, 98);
-        style.labelColor = sf::Color(212, 184, 135);
+        style.inactiveOutline = sf::Color(72, 90, 98);
+        style.activeOutline = sf::Color(202, 220, 226);
+        style.labelColor = sf::Color(190, 205, 209);
         style.textColor = sf::Color(244, 234, 208);
-        style.selectionColor = sf::Color(92, 77, 49, 170);
-        style.cursorColor = sf::Color(239, 190, 98);
+        style.selectionColor = sf::Color(104, 76, 134, 170);
+        style.cursorColor = sf::Color(212, 231, 236);
         style.outlineThickness = 1.0f;
         style.labelSize = 15;
         style.textSize = 18;
@@ -135,6 +135,12 @@ export struct InputBox
         {
             text->setPosition(position + style.textOffset);
         }
+    }
+
+    void setSize(sf::Vector2f size)
+    {
+        shape.setSize(size);
+        refreshText();
     }
 
     void setRightContentInset(float inset)
@@ -278,7 +284,7 @@ export struct InputBox
                 drawnLabel.setLetterSpacing(1.75f);
                 drawnLabel.setFillColor(
                     errored ? style.errorOutline
-                            : (active ? sf::Color(238, 206, 146) : sf::Color(168, 152, 124)));
+                            : (active ? sf::Color(218, 232, 236) : sf::Color(154, 169, 174)));
                 // Keep the baseline where the caller placed it despite the
                 // smaller size, so existing layouts do not shift.
                 drawnLabel.setPosition(
@@ -398,14 +404,14 @@ private:
 
         sf::RectangleShape topGlow({std::max(0.0f, size.x - 18.0f), 1.0f});
         topGlow.setPosition({position.x + 9.0f, position.y + 6.0f});
-        topGlow.setFillColor(sf::Color(255, 224, 154, active ? 95 : 42));
+        topGlow.setFillColor(sf::Color(221, 239, 244, active ? 95 : 42));
         window.draw(topGlow);
 
         // The caret alone is a weak focus cue on a dark field, and it is invisible
         // to anyone navigating by keyboard before they type.
         if (active)
         {
-            // Match the ring to the state: a brass focus halo over a red error
+            // Match the ring to the state: a steel focus halo over a red error
             // frame mixes into salmon and reads as neither.
             bayou::client::drawFocusRing(
                 window,

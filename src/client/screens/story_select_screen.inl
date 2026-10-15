@@ -32,7 +32,7 @@
                 position,
                 panelSize,
                 sf::Color(20, 29, 29, 246),
-                accent,
+                campaign == StoryCampaign::Mirewatch ? palette::SteelBright : palette::Steel,
                 campaign == StoryCampaign::Mirewatch,
                 8.0f);
 
@@ -43,6 +43,13 @@
                     *art,
                     {{position.x + 16.0f, position.y + 16.0f}, {192.0f, 112.0f}});
             }
+
+            // Keep the illustration clear while giving all story copy a stable,
+            // high-contrast surface over the shared menu backdrop.
+            sf::RectangleShape storyBody({200.0f, 222.0f});
+            storyBody.setPosition(position + sf::Vector2f(12.0f, 132.0f));
+            storyBody.setFillColor(sf::Color(8, 14, 17, 252));
+            window.draw(storyBody);
 
             drawWrappedText(
                 window,
@@ -59,7 +66,7 @@
                 std::string(summary),
                 14,
                 position + sf::Vector2f(18.0f, 213.0f),
-                palette::InkMuted,
+                sf::Color(220, 225, 216),
                 188.0f,
                 4.0f);
             if (campaign == StoryCampaign::Mirewatch)
@@ -91,7 +98,7 @@
                     pathLabel,
                     11,
                     position + sf::Vector2f(18.0f, 184.0f),
-                    palette::InkMuted,
+                    sf::Color(184, 194, 190),
                     188.0f);
             }
 
@@ -126,7 +133,7 @@
                 std::to_string(completed) + " / " + std::to_string(missionCount) + " entries reached",
                 type::Caption,
                 position + sf::Vector2f(18.0f, 334.0f),
-                palette::InkMuted,
+                sf::Color(184, 194, 190),
                 panelSize.x - 44.0f);
 
             button.setLabel(campaign == StoryCampaign::Blackthorn
@@ -164,9 +171,9 @@
             window,
             font,
             "ARROWS/TAB: MOVE  |  ENTER: CHOOSE  |  ESC: BACK",
-            13,
-            {400.0f, 588.0f},
-            palette::Ink);
+            12,
+            {466.0f, 557.0f},
+            sf::Color(205, 214, 207));
 
         if (storySpoilerConfirmationVisible)
         {
@@ -207,12 +214,11 @@
                 4.0f);
             storySpoilerMirewatchButton.draw(window, animationTime);
             storySpoilerContinueButton.draw(window, animationTime);
-            drawCenteredText(
+            drawKeyboardHintBar(
                 window,
                 font,
                 "TAB/ARROWS: CHOOSE  |  ENTER: CONFIRM  |  ESC: MIREWATCH",
-                12,
-                {400.0f, 444.0f},
-                palette::Ink);
+                {400.0f, 440.0f},
+                400.0f);
         }
     };

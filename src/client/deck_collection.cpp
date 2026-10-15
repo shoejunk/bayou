@@ -200,19 +200,19 @@ void rowPlate(sf::RenderWindow& window, sf::FloatRect rect, sf::Color fill, sf::
 
     sf::ConvexShape plate = cutRect(rect, cut);
     plate.setFillColor(fill);
-    plate.setOutlineThickness(1.4f);
-    plate.setOutlineColor(outline);
+    plate.setOutlineThickness(lit ? 1.4f : 1.0f);
+    plate.setOutlineColor(lit ? outline : withAlpha(outline, std::min(110, static_cast<int>(outline.a))));
     window.draw(plate);
 
     // Lit top edge, shaded bottom edge: enough to read as a raised plate.
     fillRect(
         window,
         {{rect.position.x + cut + 3.0f, rect.position.y + 1.5f}, {std::max(0.0f, rect.size.x - (cut + 3.0f) * 2.0f), 1.0f}},
-        sf::Color(255, 224, 154, lit ? 96 : 44));
+        sf::Color(222, 238, 242, lit ? 96 : 24));
     fillRect(
         window,
         {{rect.position.x + cut + 3.0f, rect.position.y + rect.size.y - 2.5f}, {std::max(0.0f, rect.size.x - (cut + 3.0f) * 2.0f), 1.0f}},
-        sf::Color(38, 24, 13, 150));
+        sf::Color(18, 28, 33, lit ? 150 : 90));
 }
 
 // A regular polygon used for gems and pips.
@@ -282,8 +282,8 @@ void hairline(sf::RenderWindow& window, sf::Vector2f position, float width)
 {
     const float half = width * 0.5f;
     sf::VertexArray strip(sf::PrimitiveType::TriangleStrip, 6);
-    const sf::Color edge = withAlpha(sf::Color(174, 117, 54), 0);
-    const sf::Color core = withAlpha(sf::Color(174, 117, 54), 165);
+    const sf::Color edge = withAlpha(palette::Steel, 0);
+    const sf::Color core = withAlpha(palette::Steel, 165);
     strip[0] = {{position.x, position.y}, edge};
     strip[1] = {{position.x, position.y + 1.0f}, edge};
     strip[2] = {{position.x + half, position.y}, core};
@@ -514,16 +514,16 @@ void drawScreenHeader(
     fillRect(ui.window, {{0.0f, 71.0f}, {800.0f, 1.0f}}, withAlpha(palette::Brass, 110));
     fillRect(ui.window, {{0.0f, 72.0f}, {800.0f, 1.0f}}, sf::Color(0, 0, 0, 120));
 
-    // A left-anchored plaque, drawn here rather than through drawTitlePlaque: that
-    // helper hangs a symmetric pipe and rivet off both ends, and once the plaque
-    // stopped being centred the right one floated unattached in open space.
+    // A left-anchored plaque, drawn here rather than through drawTitlePlaque:
+    // that helper adds symmetric thorn finials at both ends, and once the plaque
+    // stopped being centred the right finial floated unattached in open space.
     const sf::FloatRect plaque{{24.0f, 19.0f}, {titleWidth, 50.0f}};
 
     drawBeveledPlate(
         ui.window,
         plaque.position,
         plaque.size,
-        sf::Color(23, 21, 18, 246),
+        sf::Color(15, 20, 23, 246),
         palette::BrassBright,
         true,
         16.0f);
@@ -541,7 +541,7 @@ void drawScreenHeader(
     centerText(titleText, titleCenter);
     titleText.setFillColor(palette::Ink);
     titleText.setOutlineThickness(0.8f);
-    titleText.setOutlineColor(sf::Color(70, 43, 25, 190));
+    titleText.setOutlineColor(withAlpha(palette::SteelDeep, 220));
     drawCrispText(ui.window, titleText);
 
     // The wallet: struck coin in a framed pill, right-aligned before the Back
@@ -1145,7 +1145,7 @@ void drawDisabledButton(
         position,
         size,
         sf::Color(28, 28, 26, 208),
-        sf::Color(84, 79, 69, 190),
+        sf::Color(70, 83, 88, 190),
         false,
         std::clamp(size.y * 0.20f, 5.0f, 11.0f));
 
@@ -1219,9 +1219,9 @@ void drawCardRow(const UiContext& ui, const CardRow& row)
     rowPlate(
         ui.window,
         rect,
-        row.selected ? sf::Color(58, 40, 22, 240)
+        row.selected ? mix(palette::PlateDeep, palette::ArcaneDeep, 0.72f)
                      : (row.hovered ? sf::Color(26, 34, 35, 234) : sf::Color(15, 22, 23, 226)),
-        row.selected ? palette::BrassBright : (row.hovered ? withAlpha(palette::Brass, 225) : withAlpha(palette::Brass, 140)),
+        row.selected ? palette::ArcaneBright : (row.hovered ? withAlpha(palette::Brass, 225) : withAlpha(palette::Brass, 140)),
         row.selected,
         4.0f);
 
@@ -1302,13 +1302,12 @@ void drawDeckRosterRow(
 {
     const FactionStyle& style = summary.faction ? *summary.faction : unalignedStyle();
 
-    drawBeveledPlate(
+    rowPlate(
         ui.window,
-        rect.position,
-        rect.size,
-        selected ? mix(style.deep, sf::Color(64, 44, 22), 0.55f)
+        rect,
+        selected ? mix(style.deep, palette::ArcaneDeep, 0.64f)
                  : (hovered ? sf::Color(24, 32, 33, 236) : sf::Color(14, 21, 22, 228)),
-        selected ? palette::BrassBright : (hovered ? withAlpha(palette::Brass, 230) : withAlpha(palette::Brass, 145)),
+        selected ? palette::ArcaneBright : (hovered ? withAlpha(palette::Brass, 230) : withAlpha(palette::Brass, 145)),
         selected,
         5.0f);
 
@@ -1361,7 +1360,7 @@ void drawDeckRosterRow(
         ui,
         {{rect.position.x + rect.size.x - curveWidth - 12.0f, rect.position.y + rect.size.y - 24.0f}, {curveWidth, 16.0f}},
         summary.curve,
-        style.accent,
+        palette::ArcaneBright,
         false);
 }
 
@@ -1471,7 +1470,7 @@ void drawDeckDetailPanel(const UiContext& ui, sf::FloatRect rect, const DeckSumm
         ui,
         {{meterX, y + 14.0f}, {rect.size.x - 44.0f, curveHeight}},
         summary.curve,
-        style.accent,
+        palette::ArcaneBright,
         true);
 
     drawText(ui.window, ui.font, "TRAITS", 10, {meterX, traitsLabelY}, palette::MutedDim);
@@ -1571,13 +1570,13 @@ void drawFilterChip(
     unsigned int textSize)
 {
     const sf::FloatRect rect = chip.rect;
-    // Every chip frames in brass whatever it filters. Tinting the whole chip by
+    // Every chip frames in steel whatever it filters. Tinting the whole chip by
     // its trait turned nine enabled filters into a paint chart; the trait colour
     // survives as the gem in the well, which is where the eye needs it.
     rowPlate(
         ui.window,
         rect,
-        checked ? sf::Color(52, 36, 19, 244)
+        checked ? sf::Color(38, 31, 49, 244)
                 : (hovered ? sf::Color(24, 31, 32, 236) : sf::Color(11, 16, 17, 228)),
         checked ? palette::BrassBright
                 : (hovered ? withAlpha(palette::Brass, 220) : withAlpha(palette::BrassDim, 220)),
@@ -1617,7 +1616,7 @@ void drawPackObject(const UiContext& ui, sf::FloatRect rect, float time, bool ho
 
     // Arcane bloom behind the pack. One soft falloff, not stacked rings.
     radialGlow(ui.window, center, rect.size.x * (1.02f + breathe * 0.06f), withAlpha(palette::Arcane, hovered ? 84 : 62), 1.06f);
-    radialGlow(ui.window, center, rect.size.x * 0.62f, withAlpha(sf::Color(214, 168, 92), 44), 1.06f);
+    radialGlow(ui.window, center, rect.size.x * 0.62f, withAlpha(palette::ArcaneBright, 44), 1.06f);
 
     // Two backs peeking out behind the front card, so it reads as a sealed pack.
     for (int i = 2; i >= 1; --i)
@@ -1638,7 +1637,7 @@ void drawPackObject(const UiContext& ui, sf::FloatRect rect, float time, bool ho
         rect.position,
         rect.size,
         sf::Color(14, 13, 22, 250),
-        hovered ? palette::BrassBright : sf::Color(206, 152, 74),
+        hovered ? palette::BrassBright : palette::Steel,
         true,
         12.0f);
 
@@ -1648,7 +1647,7 @@ void drawPackObject(const UiContext& ui, sf::FloatRect rect, float time, bool ho
         {rect.size.x - 26.0f, rect.size.y - 26.0f}};
     gradientRect(ui.window, field, sf::Color(34, 22, 54, 240), sf::Color(10, 8, 16, 245));
     radialGlow(ui.window, center, field.size.x * 0.72f, withAlpha(palette::Arcane, 96));
-    strokeRect(ui.window, field, withAlpha(sf::Color(150, 110, 60), 200), 1.0f);
+    strokeRect(ui.window, field, withAlpha(palette::Steel, 200), 1.0f);
 
     // A lattice of fine diagonals so the field has woven texture rather than being
     // a flat violet plane.
@@ -1694,7 +1693,7 @@ void drawPackObject(const UiContext& ui, sf::FloatRect rect, float time, bool ho
             stroke.setOrigin({0.0f, thickness * 0.5f});
             stroke.setPosition(cursor);
             stroke.setRotation(sf::radians(std::atan2(next.y - cursor.y, next.x - cursor.x)));
-            stroke.setFillColor(withAlpha(sf::Color(214, 166, 92), static_cast<int>(238 - segment * 16)));
+            stroke.setFillColor(withAlpha(palette::VineBright, static_cast<int>(238 - segment * 16)));
             ui.window.draw(stroke);
 
             // A barb every other segment, on the outside of the curl.
@@ -1705,7 +1704,7 @@ void drawPackObject(const UiContext& ui, sf::FloatRect rect, float time, bool ho
                 barb.setPoint(0, next);
                 barb.setPoint(1, {next.x + std::cos(barbAngle) * 6.4f, next.y + std::sin(barbAngle) * 6.4f});
                 barb.setPoint(2, {next.x + std::cos(angle) * 3.4f, next.y + std::sin(angle) * 3.4f});
-                barb.setFillColor(withAlpha(sf::Color(228, 180, 102), 215));
+                barb.setFillColor(withAlpha(sf::Color(112, 150, 119), 215));
                 ui.window.draw(barb);
             }
             cursor = next;
@@ -1717,7 +1716,7 @@ void drawPackObject(const UiContext& ui, sf::FloatRect rect, float time, bool ho
     strokeRect(
         ui.window,
         {{field.position.x + 5.0f, field.position.y + 5.0f}, {field.size.x - 10.0f, field.size.y - 10.0f}},
-        withAlpha(sf::Color(206, 158, 86), 120),
+        withAlpha(palette::SteelBright, 120),
         1.0f);
 
     // Centre gem: faceted, breathing, the thing you want to click.
@@ -1725,9 +1724,9 @@ void drawPackObject(const UiContext& ui, sf::FloatRect rect, float time, bool ho
     radialGlow(ui.window, center, gemRadius * 2.5f, withAlpha(palette::ArcaneBright, 78));
 
     sf::ConvexShape setting = makeGem(center, gemRadius + 5.0f, 8, 0.3927f);
-    setting.setFillColor(sf::Color(46, 30, 16, 240));
+    setting.setFillColor(sf::Color(27, 38, 43, 240));
     setting.setOutlineThickness(1.4f);
-    setting.setOutlineColor(sf::Color(214, 164, 84));
+    setting.setOutlineColor(palette::SteelBright);
     ui.window.draw(setting);
 
     sf::ConvexShape gem = makeGem(center, gemRadius, 6, 1.5708f);
@@ -1762,8 +1761,8 @@ void drawPackObject(const UiContext& ui, sf::FloatRect rect, float time, bool ho
         const float cy = corner / 2 == 0 ? field.position.y + 7.0f : field.position.y + field.size.y - 7.0f;
         const float sx = corner % 2 == 0 ? 1.0f : -1.0f;
         const float sy = corner / 2 == 0 ? 1.0f : -1.0f;
-        fillRect(ui.window, {{cx, cy}, {13.0f * sx, 1.2f * sy}}, withAlpha(sf::Color(216, 168, 90), 210));
-        fillRect(ui.window, {{cx, cy}, {1.2f * sx, 13.0f * sy}}, withAlpha(sf::Color(216, 168, 90), 210));
+        fillRect(ui.window, {{cx, cy}, {13.0f * sx, 1.2f * sy}}, withAlpha(palette::SteelBright, 210));
+        fillRect(ui.window, {{cx, cy}, {1.2f * sx, 13.0f * sy}}, withAlpha(palette::SteelBright, 210));
         sf::ConvexShape pip = makeGem({cx + 4.0f * sx, cy + 4.0f * sy}, 2.0f, 4, 0.7854f);
         pip.setFillColor(withAlpha(palette::BrassPale, 190));
         ui.window.draw(pip);

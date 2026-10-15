@@ -21,7 +21,7 @@
                 {40.0f, top},
                 {720.0f, 96.0f},
                 sf::Color(17, 24, 25, 224),
-                sf::Color(96, 68, 38),
+                palette::SteelDim,
                 false,
                 6.0f);
             drawWrappedText(window, font, body, 15, {288.0f, top + 30.0f},
@@ -29,7 +29,7 @@
         };
 
         drawPanel(window, {24.0f, 78.0f}, {752.0f, 240.0f});
-        drawText(window, font, "TOOLS", 12, {46.0f, 88.0f}, sf::Color(150, 132, 104));
+        drawText(window, font, "TOOLS", 12, {46.0f, 88.0f}, sf::Color(154, 169, 174));
 
         drawToolCard(112.0f,
                      "Free-play board with every card in the database. Place any card for "
@@ -45,7 +45,7 @@
         // Card Editor button. On an operator screen the addresses are worth
         // showing, but as a labelled block rather than prose.
         drawPanel(window, {24.0f, 334.0f}, {752.0f, 152.0f});
-        drawText(window, font, "ENVIRONMENT", 12, {46.0f, 344.0f}, sf::Color(150, 132, 104));
+        drawText(window, font, "ENVIRONMENT", 12, {46.0f, 344.0f}, sf::Color(154, 169, 174));
         const auto drawEnvironmentRow = [&](float top, const std::string& key,
                                             const std::string& value) {
             drawText(window, font, key, 13, {46.0f, top}, sf::Color(181, 166, 137), 200.0f);
@@ -60,4 +60,3 @@
 
         window.draw(messageText);
     };
-

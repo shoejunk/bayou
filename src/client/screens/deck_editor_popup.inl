@@ -110,7 +110,7 @@
             {CardPopupAbilitiesX, CardPopupAbilitiesY},
             {CardPopupAbilitiesWidth, CardPopupAbilitiesHeight},
             sf::Color(8, 14, 15, 168),
-            sf::Color(96, 66, 35, 170),
+            sf::Color(67, 84, 92, 170),
             false,
             6.0f);
 
@@ -183,7 +183,7 @@
                 trackX,
                 track.getPosition().y +
                     (track.getSize().y - thumbHeight) * (inspectedDeckEditorCardScroll / maxScroll)});
-            thumb.setFillColor(sf::Color(198, 146, 70, 225));
+            thumb.setFillColor(sf::Color(147, 174, 184, 225));
             window.draw(thumb);
         }
 

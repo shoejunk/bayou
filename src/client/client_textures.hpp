@@ -2,6 +2,7 @@
 
 #include <SFML/Graphics.hpp>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -36,7 +37,12 @@ void drawTextureRectContain(
     sf::FloatRect target,
     sf::Color color = sf::Color::White,
     bool flipX = false);
-void drawBackdrop(sf::RenderWindow& window, sf::Texture* backdropTexture);
+void drawBackdrop(
+    sf::RenderWindow& window,
+    sf::Texture* backdropTexture,
+    std::uint8_t washAlpha = 145,
+    float vignetteStrength = 0.85f,
+    bool preserveSource = false);
 // Darkens the window edges so a full-bleed backdrop stops competing with the
 // interface. Draw it after drawBackdrop and before any UI.
 void drawVignette(sf::RenderWindow& window, float strength = 1.0f);

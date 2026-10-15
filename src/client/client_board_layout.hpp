@@ -44,11 +44,11 @@ constexpr float AttackLungePixels = 18.0f;
 constexpr float AttackShakePixels = 4.0f;
 constexpr float Pi = 3.14159265358979323846f;
 
-// The match screen's slice of the shared brass-and-swamp palette. Prefixed to
+// The match screen's slice of the shared steel-and-swamp palette. Prefixed to
 // avoid colliding with the identically named constants inside client_ui.cpp.
-inline constexpr sf::Color BoardBrass{174, 117, 54};
-inline constexpr sf::Color BoardBrassBright{239, 190, 98};
-inline constexpr sf::Color BoardBrassDim{96, 63, 33};
+inline constexpr sf::Color BoardBrass{112, 132, 141};
+inline constexpr sf::Color BoardBrassBright{202, 220, 226};
+inline constexpr sf::Color BoardBrassDim{49, 65, 72};
 inline constexpr sf::Color BoardParchment{246, 232, 200};
 inline constexpr sf::Color BoardParchmentMuted{208, 197, 174};
 inline constexpr sf::Color BoardPlate{12, 17, 18};

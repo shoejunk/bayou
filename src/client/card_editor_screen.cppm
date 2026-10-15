@@ -71,7 +71,10 @@ constexpr std::size_t VisibleCardRows = 7;
 constexpr std::size_t VisibleActionRows = 8;
 constexpr std::size_t VisibleActionDropdownRows = 5;
 constexpr std::size_t VisibleTargetFilterRows = 10;
-constexpr float ActionDropdownRowHeight = 32.0f;
+// Action rows carry both a name and a kind/pattern line. Forty-two logical
+// pixels keeps the metadata wholly inside its row instead of colliding with
+// the next separator or the owning field.
+constexpr float ActionDropdownRowHeight = 42.0f;
 constexpr std::size_t VisibleRarityDropdownRows = 6;
 constexpr float RarityDropdownRowHeight = 32.0f;
 constexpr float TargetFilterTop = 224.0f;
@@ -83,14 +86,16 @@ constexpr std::array<const char*, 6> CardRarityOptions = {
 constexpr std::array<const char*, 6> ActionKindOptions = {
     "slide", "ranged", "hop", "teleport", "tunnel", "capture"};
 
-const sf::Color Ink(244, 234, 208);
-const sf::Color Muted(181, 166, 137);
-const sf::Color Panel(9, 15, 16, 244);
-const sf::Color PanelAlt(18, 25, 25, 246);
-const sf::Color Accent(239, 190, 98);
-const sf::Color AccentDark(90, 58, 29);
+const sf::Color Ink(232, 240, 244);
+const sf::Color Muted(166, 183, 191);
+const sf::Color Panel(7, 14, 18, 248);
+const sf::Color PanelAlt(15, 25, 30, 248);
+const sf::Color Accent(202, 220, 226);
+const sf::Color AccentDark(49, 65, 72);
+const sf::Color Violet(113, 78, 145);
+const sf::Color VioletBright(205, 174, 235);
 const sf::Color Warn(213, 102, 79);
-const sf::Color Line(132, 91, 47);
+const sf::Color Line(78, 96, 104);
 
 bool isDeckLimitField(const std::string& key)
 {
@@ -124,10 +129,11 @@ void sortCardLibrary(std::vector<card_data::Card>& cards)
 
 void drawText(sf::RenderWindow& window, sf::Font& font, const std::string& value, unsigned int size, sf::Vector2f position, sf::Color color)
 {
+    size = std::max(size, 12u);
     sf::Text text(font, value, size);
     text.setFillColor(color);
     text.setPosition(position);
-    window.draw(text);
+    bayou::client::drawCrispText(window, text);
 }
 
 std::string elideToWidth(sf::Font& font, const std::string& value, unsigned int size, float maxWidth)
@@ -214,12 +220,115 @@ void drawText(
     sf::Color color,
     float maxWidth)
 {
+    size = std::max(size, 12u);
     drawText(window, font, elideToWidth(font, value, size, maxWidth), size, position, color);
 }
 
 void drawRoundedPanel(sf::RenderWindow& window, const sf::Vector2f& position, const sf::Vector2f& size, sf::Color fill, sf::Color outline = Line)
 {
-    bayou::client::drawBeveledPlate(window, position, size, fill, outline, false, 12.0f);
+    // The global compositor supplies the painted Gloomthorn backdrop. These
+    // surfaces should read as calm forged-steel workspaces, not stacked lines.
+    bayou::client::drawBeveledPlate(
+        window,
+        position + sf::Vector2f(4.0f, 5.0f),
+        size,
+        sf::Color(0, 0, 0, 92),
+        sf::Color(0, 0, 0, 0),
+        false,
+        12.0f);
+    bayou::client::drawMaterialPlate(
+        window,
+        position,
+        size,
+        bayou::client::PlateStyle{
+            .fill = fill,
+            .frame = outline,
+            .cut = 12.0f,
+            .state = bayou::client::PlateState::Normal,
+            .sheen = 0.30f,
+            .rivets = false,
+            .brackets = true,
+            .recessed = false,
+            .focused = false,
+            .focusKeyline = true,
+            .focusPhase = 0.0f});
+}
+
+void drawWorkspaceHeader(
+    sf::RenderWindow& window,
+    sf::Font& font,
+    sf::Vector2f panelPosition,
+    float panelWidth,
+    const std::string& title,
+    const std::string& context)
+{
+    const sf::Vector2f headerPosition = panelPosition + sf::Vector2f(9.0f, 8.0f);
+    const sf::Vector2f headerSize = {panelWidth - 18.0f, 44.0f};
+    bayou::client::drawMaterialPlate(
+        window,
+        headerPosition,
+        headerSize,
+        bayou::client::PlateStyle{
+            .fill = sf::Color(13, 23, 29, 250),
+            .frame = sf::Color(80, 101, 112, 220),
+            .cut = 7.0f,
+            .state = bayou::client::PlateState::Normal,
+            .sheen = 0.36f,
+            .rivets = false,
+            .brackets = false,
+            .recessed = false,
+            .focused = false,
+            .focusKeyline = false,
+            .focusPhase = 0.0f});
+
+    sf::RectangleShape violetKey({3.0f, 24.0f});
+    violetKey.setPosition(headerPosition + sf::Vector2f(10.0f, 10.0f));
+    violetKey.setFillColor(VioletBright);
+    window.draw(violetKey);
+    drawText(window, font, title, 24, headerPosition + sf::Vector2f(22.0f, 8.0f), Ink);
+
+    if (!context.empty())
+    {
+        sf::Text contextText(font, elideToWidth(font, context, 13, panelWidth * 0.46f), 13);
+        contextText.setFillColor(Muted);
+        const float right = headerPosition.x + headerSize.x - 14.0f;
+        contextText.setPosition({right - contextText.getLocalBounds().size.x, headerPosition.y + 15.0f});
+        bayou::client::drawCrispText(window, contextText);
+    }
+}
+
+void drawFieldCaption(
+    sf::RenderWindow& window,
+    sf::Font& font,
+    const std::string& label,
+    sf::Vector2f position,
+    float width = 150.0f)
+{
+    sf::RectangleShape backing({width, 16.0f});
+    backing.setPosition(position + sf::Vector2f(-2.0f, -1.0f));
+    backing.setFillColor(Panel);
+    window.draw(backing);
+    drawText(window, font, label, 12, position, Accent);
+}
+
+enum class EditorButtonRole
+{
+    Secondary,
+    Primary,
+    Destructive,
+};
+
+EditorButtonRole editorButtonRole(const std::string& label)
+{
+    if (label == "Save" || label == "Save Card" || label == "Save Action")
+    {
+        return EditorButtonRole::Primary;
+    }
+    if (label == "Delete" || label == "Discard" || label == "X")
+    {
+        return EditorButtonRole::Destructive;
+    }
+    return EditorButtonRole::Secondary;
 }
 
 void drawCroppedPreviewArt(
@@ -262,13 +371,21 @@ public:
     EditorButton() = default;
 
     EditorButton(sf::Font& font, std::string label, sf::Vector2f position, sf::Vector2f size, sf::Color color)
-        : shape(size), base(color)
+        : shape(size), base(color), role(editorButtonRole(label))
     {
+        if (role == EditorButtonRole::Primary)
+        {
+            base = sf::Color(61, 38, 82, 248);
+        }
+        else if (role == EditorButtonRole::Destructive)
+        {
+            base = sf::Color(82, 39, 43, 246);
+        }
         text.emplace(font, label, 18);
         shape.setPosition(position);
         shape.setFillColor(base);
         shape.setOutlineThickness(2.0f);
-        shape.setOutlineColor(sf::Color(181, 126, 60));
+        shape.setOutlineColor(sf::Color(112, 132, 141));
         text->setFillColor(Ink);
         bayou::client::centerButtonText(*text, {position.x + size.x / 2.0f, position.y + size.y / 2.0f});
     }
@@ -320,23 +437,44 @@ public:
 
     void draw(sf::RenderWindow& window) const
     {
-        bayou::client::drawBeveledPlate(
-            window,
-            shape.getPosition(),
-            shape.getSize(),
-            shape.getFillColor(),
-            enabled
-                ? (isHovered ? sf::Color(239, 190, 98) : sf::Color(181, 126, 60))
-                : sf::Color(77, 83, 83),
-            isHovered,
-            std::clamp(shape.getSize().y * 0.20f, 5.0f, 10.0f));
-        window.draw(*text);
+        bayou::client::PlateStyle style;
+        style.fill = shape.getFillColor();
+        style.frame = !enabled
+            ? sf::Color(77, 83, 83)
+            : role == EditorButtonRole::Primary
+                ? (isHovered ? sf::Color(230, 205, 250) : VioletBright)
+                : role == EditorButtonRole::Destructive
+                    ? (isHovered ? sf::Color(242, 140, 123) : Warn)
+                    : (isHovered ? Accent : sf::Color(112, 132, 141));
+        style.cut = std::clamp(shape.getSize().y * 0.20f, 5.0f, 10.0f);
+        style.state = !enabled
+            ? bayou::client::PlateState::Disabled
+            : isHovered ? bayou::client::PlateState::Hover : bayou::client::PlateState::Normal;
+        style.sheen = enabled ? (role == EditorButtonRole::Primary ? 0.82f : isHovered ? 0.68f : 0.34f) : 0.12f;
+        style.rivets = false;
+        style.brackets = role == EditorButtonRole::Primary || isHovered;
+        style.recessed = !enabled;
+        bayou::client::drawMaterialPlate(window, shape.getPosition(), shape.getSize(), style);
+        if (enabled && (role == EditorButtonRole::Primary || isHovered))
+        {
+            bayou::client::drawRadialGlow(
+                window,
+                shape.getPosition() + shape.getSize() * 0.5f,
+                std::max(shape.getSize().x, shape.getSize().y) * 0.62f,
+                role == EditorButtonRole::Primary
+                    ? sf::Color(174, 118, 220, isHovered ? 46 : 28)
+                    : sf::Color(170, 200, 215, 20));
+        }
+        bayou::client::drawCrispText(window, *text);
     }
 
 private:
-    std::optional<sf::Text> text;
+    // drawCrispText temporarily adjusts rasterization state even though drawing
+    // does not change the logical button, so the cached glyph object is mutable.
+    mutable std::optional<sf::Text> text;
     sf::RectangleShape shape;
     sf::Color base = AccentDark;
+    EditorButtonRole role = EditorButtonRole::Secondary;
     bool isHovered = false;
     bool enabled = true;
 };
@@ -382,9 +520,9 @@ public:
         std::filesystem::path assetRoot = "assets")
         : font(screenFont)
         , endpoint(std::move(screenEndpoint))
-        // drawTitlePlaque widens itself to its label and throws pipes and rivets
-        // ~50px past that, so the "Card Editor" plaque reached x=354 and its
-        // right rivet sat on the first tab at x=340.
+        // drawTitlePlaque widens itself to its label and adds authored thorn
+        // finials past both ends, so the left-anchored editor plaque needs a
+        // little extra clearance before the first tab.
         , editorTabs({392.0f, 14.0f}, {128.0f, 44.0f}, {"Cards", "Actions"}, screenFont)
     {
         setAssetRoot(std::move(assetRoot));
@@ -412,6 +550,12 @@ public:
     // its field groups, and the preview are all populated.
     void applyCaptureState(const std::string& key, const std::vector<card_data::Card>& library)
     {
+        closeActionDropdown();
+        selectedCard.reset();
+        selectedAction.reset();
+        actions.clear();
+        actionListOffset = 0;
+        editorScroll = 0.0f;
         unsavedChangesPopupVisible = false;
         instructionsVisible = false;
         pendingTransition = PendingTransition::None;
@@ -424,7 +568,17 @@ public:
         applyCardSearchFilter();
         listOffset = 0;
 
-        if (key == "card-editor-loaded" && !cards.empty())
+        if (key == "card-editor")
+        {
+            createNewCard();
+            return;
+        }
+
+        const bool populatedCardState =
+            key == "card-editor-loaded" || key == "card-editor-instructions" ||
+            key == "card-editor-unsaved" || key == "card-editor-rarity-dropdown" ||
+            key == "card-editor-action-dropdown";
+        if (populatedCardState && !cards.empty())
         {
             // Prefer a unit: it carries the fullest set of stat and text fields.
             const auto unit = std::find_if(cards.begin(), cards.end(),
@@ -432,6 +586,92 @@ public:
             selectCard(static_cast<std::size_t>(
                 (unit == cards.end() ? cards.begin() : unit) - cards.begin()));
             setStatus("Loaded from card server", Muted);
+        }
+
+        const bool needsActionLibrary =
+            key == "card-editor-actions" || key == "card-editor-action-dropdown" ||
+            key == "card-editor-action-kind-dropdown";
+        if (needsActionLibrary)
+        {
+            card_data::Action strike;
+            strike.name = "Thorn Lash";
+            strike.kind = "attack";
+            strike.pattern = "line";
+            strike.minRange = 1;
+            strike.maxRange = 3;
+            strike.damage = 2;
+            strike.canMove = false;
+            strike.canAttack = true;
+            strike.lineOfSight = true;
+            strike.targetFilter = {"enemy", "unit"};
+
+            card_data::Action pull;
+            pull.name = "Briar Snare";
+            pull.kind = "attack";
+            pull.pattern = "omni";
+            pull.minRange = 2;
+            pull.maxRange = 4;
+            pull.damage = 1;
+            pull.canMove = false;
+            pull.canAttack = true;
+            pull.pull = true;
+            pull.targetFilter = {"enemy"};
+
+            actions = {std::move(strike), std::move(pull)};
+        }
+
+        if (key == "card-editor-actions" || key == "card-editor-action-kind-dropdown")
+        {
+            editorMode = EditorMode::Actions;
+            actionListOffset = 0;
+            selectAction(0);
+            setStatus("Loaded from card server", Muted);
+            if (key == "card-editor-action-kind-dropdown")
+            {
+                activateField(&actionKindField);
+                openActionKindDropdown();
+            }
+        }
+        else if (key == "card-editor-rarity-dropdown")
+        {
+            const auto rarity = std::find_if(
+                stringKeyFields.begin(),
+                stringKeyFields.end(),
+                [](const InputBox& field) { return trim(field.getValue()) == "rarity"; });
+            if (rarity != stringKeyFields.end())
+            {
+                const std::size_t index =
+                    static_cast<std::size_t>(rarity - stringKeyFields.begin());
+                layoutArrayControls();
+                activateField(&stringValueFields[index]);
+                ensureActiveFieldVisible();
+                openRarityDropdown(index);
+            }
+        }
+        else if (key == "card-editor-action-dropdown")
+        {
+            if (!actionRefFields.empty())
+            {
+                layoutArrayControls();
+                activateField(&actionRefFields.front());
+                ensureActiveFieldVisible();
+                openActionDropdown(0, false);
+            }
+        }
+        else if (key == "card-editor-instructions")
+        {
+            instructionsVisible = true;
+            instructionScroll = 0.0f;
+        }
+        else if (key == "card-editor-unsaved" && selectedCard)
+        {
+            titleField.setValue(titleField.getValue() + " Revised");
+            pendingTransition = PendingTransition::CloseScreen;
+            unsavedChangesPopupVisible = true;
+            for (InputBox* field : focusOrder)
+            {
+                field->setActive(false);
+            }
         }
     }
 
@@ -841,9 +1081,9 @@ public:
     {
         const sf::View previousView = window.getView();
         window.setView(makeEditorView(window));
-        sf::RectangleShape background({EditorWidth, EditorHeight});
-        background.setFillColor(sf::Color(5, 13, 15, 232));
-        window.draw(background);
+        // The main compositor owns the supplied Gloomthorn reference backdrop.
+        // Do not paint an opaque editor-sized rectangle over it; the editor's
+        // mounted panels provide the local contrast it needs.
         drawHeader(window);
         if (instructionsVisible)
         {
@@ -1386,12 +1626,12 @@ private:
 
     void buildControls()
     {
-        backButton = EditorButton(font, "Back", {1124.0f, 22.0f}, {112.0f, 38.0f}, sf::Color(67, 48, 33));
+        backButton = EditorButton(font, "Back", {1124.0f, 22.0f}, {112.0f, 38.0f}, sf::Color(28, 39, 44));
         instructionsButton = EditorButton(font, "Instructions", {970.0f, 22.0f}, {142.0f, 38.0f}, AccentDark);
         instructionsBackButton = EditorButton(font, "Back to Editor", {1060.0f, 22.0f}, {176.0f, 38.0f}, AccentDark);
         editorTabs.setActive(static_cast<std::size_t>(editorMode));
-        newButton = EditorButton(font, "New", {42.0f, 690.0f}, {96.0f, 42.0f}, sf::Color(67, 48, 33));
-        refreshButton = EditorButton(font, "Refresh", {150.0f, 690.0f}, {120.0f, 42.0f}, sf::Color(67, 48, 33));
+        newButton = EditorButton(font, "New", {42.0f, 690.0f}, {96.0f, 42.0f}, sf::Color(28, 39, 44));
+        refreshButton = EditorButton(font, "Refresh", {150.0f, 690.0f}, {120.0f, 42.0f}, sf::Color(28, 39, 44));
         copyButton = EditorButton(font, "Copy Card", {42.0f, 642.0f}, {228.0f, 38.0f}, AccentDark);
         copyActionButton = EditorButton(font, "Copy Action", {42.0f, 642.0f}, {228.0f, 38.0f}, AccentDark);
         saveButton = EditorButton(font, "Save Card", {660.0f, 690.0f}, {156.0f, 42.0f}, AccentDark);
@@ -1407,7 +1647,7 @@ private:
         addActionTargetFilterButton = EditorButton(font, "+", {1184.0f, 164.0f}, {32.0f, 28.0f}, AccentDark);
         saveChangesButton = EditorButton(font, "Save", {414.0f, 412.0f}, {136.0f, 42.0f}, AccentDark);
         discardChangesButton = EditorButton(font, "Discard", {572.0f, 412.0f}, {136.0f, 42.0f}, Warn);
-        keepEditingButton = EditorButton(font, "Keep Editing", {730.0f, 412.0f}, {154.0f, 42.0f}, sf::Color(67, 48, 33));
+        keepEditingButton = EditorButton(font, "Keep Editing", {730.0f, 412.0f}, {154.0f, 42.0f}, sf::Color(28, 39, 44));
         titleField = InputBox(font, "Title", {340.0f, 168.0f}, {470.0f, 42.0f});
         imageField = InputBox(font, "Image Path", {340.0f, 238.0f}, {470.0f, 42.0f});
         typeField = InputBox(font, "Type", {340.0f, 308.0f}, {470.0f, 42.0f});
@@ -4018,8 +4258,12 @@ private:
     void drawHeader(sf::RenderWindow& window)
     {
         sf::RectangleShape bar({EditorWidth, 80.0f});
-        bar.setFillColor(sf::Color(5, 10, 11, 236));
+        bar.setFillColor(sf::Color(4, 9, 13, 248));
         window.draw(bar);
+        sf::RectangleShape lowerRail({EditorWidth, 2.0f});
+        lowerRail.setPosition({0.0f, 77.0f});
+        lowerRail.setFillColor(sf::Color(Violet.r, Violet.g, Violet.b, 190));
+        window.draw(lowerRail);
         bayou::client::drawTitlePlaque(window, font, "Card Editor", {158.0f, 44.0f}, {280.0f, 54.0f});
         if (instructionsVisible)
         {
@@ -4034,16 +4278,20 @@ private:
             // group rather than truncated mid-host.
             // Right-aligned to the same edge as the address below it. At a fixed
             // left edge the caption ran under the Actions tab and read "SERVER".
-            sf::Text caption(font, "CARD SERVER", 10);
-            caption.setFillColor(sf::Color(150, 132, 104));
-            caption.setPosition({952.0f - caption.getLocalBounds().size.x, 24.0f});
+            sf::Text caption(font, "CARD SERVER", 12);
+            caption.setFillColor(Accent);
+            caption.setPosition({952.0f - caption.getLocalBounds().size.x, 19.0f});
             bayou::client::drawCrispText(window, caption);
 
             sf::Text address(font, endpointText(), 14);
             address.setFillColor(Muted);
-            address.setPosition({952.0f - address.getLocalBounds().size.x, 40.0f});
+            address.setPosition({952.0f - address.getLocalBounds().size.x, 39.0f});
             bayou::client::drawCrispText(window, address);
             editorTabs.draw(window);
+            sf::RectangleShape activeTabKey({96.0f, 3.0f});
+            activeTabKey.setPosition({408.0f + static_cast<float>(editorMode == EditorMode::Actions ? 128 : 0), 62.0f});
+            activeTabKey.setFillColor(VioletBright);
+            window.draw(activeTabKey);
             instructionsButton.draw(window);
             backButton.draw(window);
         }
@@ -4259,10 +4507,15 @@ private:
     void drawListPanel(sf::RenderWindow& window)
     {
         drawRoundedPanel(window, {ListPanelX, ListPanelY}, {ListPanelWidth, PanelHeight}, Panel);
-        drawText(window, font, "Library", 22, {42.0f, editorMode == EditorMode::Cards ? 116.0f : 124.0f}, Ink);
         if (editorMode == EditorMode::Actions)
         {
-            drawText(window, font, fmt::format("{} actions", actions.size()), 14, {200.0f, 131.0f}, Muted);
+            drawWorkspaceHeader(
+                window,
+                font,
+                {ListPanelX, ListPanelY},
+                ListPanelWidth,
+                "Library",
+                fmt::format("{} ACTIONS", actions.size()));
             if (actions.empty())
             {
                 drawText(window, font, "No saved actions", 18, {66.0f, 254.0f}, Ink, 186.0f);
@@ -4279,11 +4532,11 @@ private:
                     window,
                     {42.0f, y},
                     {230.0f, 48.0f},
-                    selected ? sf::Color(76, 49, 25, 238) : hovered ? sf::Color(34, 42, 39, 246) : PanelAlt,
-                    selected ? Accent : hovered ? sf::Color(154, 112, 62) : sf::Color(91, 64, 37),
+                    selected ? sf::Color(38, 31, 49, 238) : hovered ? sf::Color(34, 42, 39, 246) : PanelAlt,
+                    selected ? Accent : hovered ? sf::Color(137, 159, 168) : sf::Color(49, 65, 72),
                     selected || hovered,
                     6.0f);
-                bayou::client::drawStud(window, {54.0f, y + 24.0f}, 4.0f, selected ? Accent : sf::Color(112, 91, 58));
+                bayou::client::drawStud(window, {54.0f, y + 24.0f}, 4.0f, selected ? Accent : sf::Color(112, 132, 141));
                 drawText(window, font, actions[i].name, 16, {66.0f, y + 7.0f}, Ink, 186.0f);
                 drawText(window, font, actions[i].kind + " / " + actions[i].pattern, 13, {66.0f, y + 29.0f}, Muted, 186.0f);
             }
@@ -4302,8 +4555,15 @@ private:
         const std::string cardCount = !hasCardSearch
             ? fmt::format("{} cards", cards.size())
             : fmt::format("{} of {} cards", visibleCardCount, cards.size());
-        drawText(window, font, cardCount, 14, {178.0f, 123.0f}, Muted, 94.0f);
+        drawWorkspaceHeader(
+            window,
+            font,
+            {ListPanelX, ListPanelY},
+            ListPanelWidth,
+            "Library",
+            cardCount);
         cardSearchField.draw(window);
+        drawFieldCaption(window, font, "FILTER CARDS", {44.0f, 146.0f}, 118.0f);
         if (cards.empty())
         {
             drawText(window, font, "No cards loaded", 18, {66.0f, 254.0f}, Ink, 186.0f);
@@ -4327,8 +4587,8 @@ private:
                 window,
                 {42.0f, y},
                 {230.0f, 48.0f},
-                selected ? sf::Color(76, 49, 25, 238) : hovered ? sf::Color(34, 42, 39, 246) : PanelAlt,
-                selected ? Accent : hovered ? sf::Color(154, 112, 62) : sf::Color(91, 64, 37),
+                selected ? sf::Color(38, 31, 49, 238) : hovered ? sf::Color(34, 42, 39, 246) : PanelAlt,
+                selected ? Accent : hovered ? sf::Color(137, 159, 168) : sf::Color(49, 65, 72),
                 selected || hovered,
                 6.0f);
             bayou::client::drawStud(window, {54.0f, y + 24.0f}, 4.0f, cardRarityColor(cards[cardIndex]));
@@ -4347,11 +4607,19 @@ private:
     void drawEditorPanel(sf::RenderWindow& window)
     {
         drawRoundedPanel(window, {EditorPanelX, EditorPanelY}, {EditorPanelWidth, PanelHeight}, Panel);
-        drawText(window, font, "Edit Card", 22, {340.0f, 124.0f}, Ink);
-        drawText(window, font, "Tab moves fields. Enter saves.", 14, {610.0f, 131.0f}, Muted, 206.0f);
+        drawWorkspaceHeader(
+            window,
+            font,
+            {EditorPanelX, EditorPanelY},
+            EditorPanelWidth,
+            "Edit Card",
+            "TAB: NEXT   ENTER: SAVE");
         titleField.draw(window);
         imageField.draw(window);
         typeField.draw(window);
+        drawFieldCaption(window, font, "TITLE", {342.0f, 150.0f}, 96.0f);
+        drawFieldCaption(window, font, "IMAGE PATH", {342.0f, 220.0f}, 120.0f);
+        drawFieldCaption(window, font, "CARD TYPE", {342.0f, 290.0f}, 110.0f);
         drawArrayEditor(window);
         deleteButton.draw(window);
         saveButton.draw(window);
@@ -4433,10 +4701,10 @@ private:
             bounds.position,
             bounds.size,
             enabled
-                ? (hovered ? sf::Color(112, 75, 35) : AccentDark)
+            ? (hovered ? sf::Color(67, 84, 92) : AccentDark)
                 : sf::Color(41, 45, 45, 220),
             enabled
-                ? (hovered ? sf::Color(239, 190, 98) : sf::Color(181, 126, 60))
+            ? (hovered ? sf::Color(202, 220, 226) : sf::Color(112, 132, 141))
                 : sf::Color(77, 83, 83),
             hovered,
             5.0f);
@@ -4471,12 +4739,22 @@ private:
         {
             return;
         }
-        sf::RectangleShape panel(layout->bounds.size);
-        panel.setPosition(layout->bounds.position);
-        panel.setFillColor(sf::Color(7, 13, 14, 252));
-        panel.setOutlineThickness(2.0f);
-        panel.setOutlineColor(Accent);
-        window.draw(panel);
+        bayou::client::drawMaterialPlate(
+            window,
+            layout->bounds.position,
+            layout->bounds.size,
+            bayou::client::PlateStyle{
+                .fill = sf::Color(7, 13, 14, 252),
+                .frame = sf::Color(136, 158, 168, 245),
+                .cut = 6.0f,
+                .state = bayou::client::PlateState::Normal,
+                .sheen = 0.32f,
+                .rivets = false,
+                .brackets = false,
+                .recessed = false,
+                .focused = false,
+                .focusKeyline = false,
+                .focusPhase = 0.0f});
 
         const std::vector<std::size_t> matches = filteredActionIndices();
         if (matches.empty())
@@ -4503,11 +4781,22 @@ private:
                 (hoveredActionDropdownItem && *hoveredActionDropdownItem == filteredIndex);
             if (highlighted)
             {
-                sf::RectangleShape highlight(
-                    {layout->bounds.size.x - 4.0f, ActionDropdownRowHeight - 2.0f});
-                highlight.setPosition({layout->bounds.position.x + 2.0f, y + 1.0f});
-                highlight.setFillColor(sf::Color(76, 49, 25, 248));
-                window.draw(highlight);
+                bayou::client::drawMaterialPlate(
+                    window,
+                    {layout->bounds.position.x + 3.0f, y + 2.0f},
+                    {layout->bounds.size.x - 6.0f, ActionDropdownRowHeight - 4.0f},
+                    bayou::client::PlateStyle{
+                        .fill = sf::Color(38, 31, 49, 248),
+                        .frame = sf::Color(126, 88, 165, 210),
+                        .cut = 4.0f,
+                        .state = bayou::client::PlateState::Normal,
+                        .sheen = 0.24f,
+                        .rivets = false,
+                        .brackets = false,
+                        .recessed = false,
+                        .focused = false,
+                        .focusKeyline = false,
+                        .focusPhase = 0.0f});
             }
             const card_data::Action& action = actions[matches[filteredIndex]];
             drawText(
@@ -4515,7 +4804,7 @@ private:
                 font,
                 action.name,
                 14,
-                {layout->bounds.position.x + 10.0f, y + 4.0f},
+                {layout->bounds.position.x + 11.0f, y + 5.0f},
                 Ink,
                 layout->bounds.size.x - 20.0f);
             drawText(
@@ -4523,14 +4812,14 @@ private:
                 font,
                 action.kind + " / " + action.pattern,
                 11,
-                {layout->bounds.position.x + 10.0f, y + 24.0f},
+                {layout->bounds.position.x + 11.0f, y + 24.0f},
                 Muted,
                 layout->bounds.size.x - 20.0f);
             if (row + 1 < layout->visibleRows)
             {
                 sf::RectangleShape separator({layout->bounds.size.x - 8.0f, 1.0f});
                 separator.setPosition({layout->bounds.position.x + 4.0f, y + ActionDropdownRowHeight - 1.0f});
-                separator.setFillColor(sf::Color(91, 64, 37));
+        separator.setFillColor(sf::Color(49, 65, 72));
                 window.draw(separator);
             }
         }
@@ -4560,12 +4849,22 @@ private:
             return;
         }
 
-        sf::RectangleShape panel(layout->bounds.size);
-        panel.setPosition(layout->bounds.position);
-        panel.setFillColor(sf::Color(7, 13, 14, 252));
-        panel.setOutlineThickness(2.0f);
-        panel.setOutlineColor(Accent);
-        window.draw(panel);
+        bayou::client::drawMaterialPlate(
+            window,
+            layout->bounds.position,
+            layout->bounds.size,
+            bayou::client::PlateStyle{
+                .fill = sf::Color(7, 13, 14, 252),
+                .frame = sf::Color(136, 158, 168, 245),
+                .cut = 6.0f,
+                .state = bayou::client::PlateState::Normal,
+                .sheen = 0.32f,
+                .rivets = false,
+                .brackets = false,
+                .recessed = false,
+                .focused = false,
+                .focusKeyline = false,
+                .focusPhase = 0.0f});
 
         for (std::size_t row = 0; row < layout->visibleRows; ++row)
         {
@@ -4579,11 +4878,22 @@ private:
                 (hoveredRarityDropdownItem && *hoveredRarityDropdownItem == optionIndex);
             if (highlighted)
             {
-                sf::RectangleShape highlight(
-                    {layout->bounds.size.x - 4.0f, RarityDropdownRowHeight - 2.0f});
-                highlight.setPosition({layout->bounds.position.x + 2.0f, y + 1.0f});
-                highlight.setFillColor(sf::Color(76, 49, 25, 248));
-                window.draw(highlight);
+                bayou::client::drawMaterialPlate(
+                    window,
+                    {layout->bounds.position.x + 3.0f, y + 2.0f},
+                    {layout->bounds.size.x - 6.0f, RarityDropdownRowHeight - 4.0f},
+                    bayou::client::PlateStyle{
+                        .fill = sf::Color(38, 31, 49, 248),
+                        .frame = sf::Color(126, 88, 165, 210),
+                        .cut = 4.0f,
+                        .state = bayou::client::PlateState::Normal,
+                        .sheen = 0.24f,
+                        .rivets = false,
+                        .brackets = false,
+                        .recessed = false,
+                        .focused = false,
+                        .focusKeyline = false,
+                        .focusPhase = 0.0f});
             }
             drawText(
                 window,
@@ -4597,7 +4907,7 @@ private:
             {
                 sf::RectangleShape separator({layout->bounds.size.x - 8.0f, 1.0f});
                 separator.setPosition({layout->bounds.position.x + 4.0f, y + RarityDropdownRowHeight - 1.0f});
-                separator.setFillColor(sf::Color(91, 64, 37));
+        separator.setFillColor(sf::Color(49, 65, 72));
                 window.draw(separator);
             }
         }
@@ -4628,12 +4938,22 @@ private:
             return;
         }
 
-        sf::RectangleShape panel(layout->bounds.size);
-        panel.setPosition(layout->bounds.position);
-        panel.setFillColor(sf::Color(7, 13, 14, 252));
-        panel.setOutlineThickness(2.0f);
-        panel.setOutlineColor(Accent);
-        window.draw(panel);
+        bayou::client::drawMaterialPlate(
+            window,
+            layout->bounds.position,
+            layout->bounds.size,
+            bayou::client::PlateStyle{
+                .fill = sf::Color(7, 13, 14, 252),
+                .frame = sf::Color(136, 158, 168, 245),
+                .cut = 6.0f,
+                .state = bayou::client::PlateState::Normal,
+                .sheen = 0.32f,
+                .rivets = false,
+                .brackets = false,
+                .recessed = false,
+                .focused = false,
+                .focusKeyline = false,
+                .focusPhase = 0.0f});
 
         for (std::size_t row = 0; row < layout->visibleRows; ++row)
         {
@@ -4647,25 +4967,36 @@ private:
                 (hoveredActionKindDropdownItem && *hoveredActionKindDropdownItem == optionIndex);
             if (highlighted)
             {
-                sf::RectangleShape highlight(
-                    {layout->bounds.size.x - 4.0f, ActionDropdownRowHeight - 2.0f});
-                highlight.setPosition({layout->bounds.position.x + 2.0f, y + 1.0f});
-                highlight.setFillColor(sf::Color(76, 49, 25, 248));
-                window.draw(highlight);
+                bayou::client::drawMaterialPlate(
+                    window,
+                    {layout->bounds.position.x + 3.0f, y + 2.0f},
+                    {layout->bounds.size.x - 6.0f, ActionDropdownRowHeight - 4.0f},
+                    bayou::client::PlateStyle{
+                        .fill = sf::Color(38, 31, 49, 248),
+                        .frame = sf::Color(126, 88, 165, 210),
+                        .cut = 4.0f,
+                        .state = bayou::client::PlateState::Normal,
+                        .sheen = 0.24f,
+                        .rivets = false,
+                        .brackets = false,
+                        .recessed = false,
+                        .focused = false,
+                        .focusKeyline = false,
+                        .focusPhase = 0.0f});
             }
             drawText(
                 window,
                 font,
                 ActionKindOptions[optionIndex],
                 14,
-                {layout->bounds.position.x + 10.0f, y + 7.0f},
+                {layout->bounds.position.x + 11.0f, y + 12.0f},
                 Ink,
                 layout->bounds.size.x - 20.0f);
             if (row + 1 < layout->visibleRows)
             {
                 sf::RectangleShape separator({layout->bounds.size.x - 8.0f, 1.0f});
                 separator.setPosition({layout->bounds.position.x + 4.0f, y + ActionDropdownRowHeight - 1.0f});
-                separator.setFillColor(sf::Color(91, 64, 37));
+        separator.setFillColor(sf::Color(49, 65, 72));
                 window.draw(separator);
             }
         }
@@ -4702,7 +5033,23 @@ private:
         {
             if (position.y >= ArrayViewportTop && position.y <= ArrayViewportBottom - 16.0f)
             {
-                drawText(window, font, label, 14, position, label.rfind("No ", 0) == 0 ? Muted : Ink, 320.0f);
+                const bool emptyLabel = label.rfind("No ", 0) == 0;
+                if (!emptyLabel)
+                {
+                    sf::RectangleShape key({3.0f, 17.0f});
+                    key.setPosition({position.x, position.y + 1.0f});
+                    key.setFillColor(VioletBright);
+                    window.draw(key);
+                    sf::RectangleShape rule({270.0f, 1.0f});
+                    rule.setPosition({position.x + 146.0f, position.y + 10.0f});
+                    rule.setFillColor(sf::Color(Line.r, Line.g, Line.b, 150));
+                    window.draw(rule);
+                    drawText(window, font, label, 15, position + sf::Vector2f(10.0f, 0.0f), Accent, 132.0f);
+                }
+                else
+                {
+                    drawText(window, font, label, 14, position, Muted, 320.0f);
+                }
             }
         }
 
@@ -4816,9 +5163,15 @@ private:
     void drawActionEditorPanel(sf::RenderWindow& window)
     {
         drawRoundedPanel(window, {EditorPanelX, EditorPanelY}, {ActionEditorPanelWidth, PanelHeight}, Panel);
-        drawText(window, font, "Edit Action", 22, {340.0f, 124.0f}, Ink);
-        drawText(window, font, "Boolean fields use 1 or 0.", 14, {610.0f, 131.0f}, Muted, 206.0f);
+        drawWorkspaceHeader(
+            window,
+            font,
+            {EditorPanelX, EditorPanelY},
+            ActionEditorPanelWidth,
+            "Edit Action",
+            "BOOLEAN FIELDS: 1 OR 0");
         actionNameField.draw(window);
+        drawFieldCaption(window, font, "ACTION NAME", {342.0f, 150.0f}, 132.0f);
         layoutActionFields();
         const std::vector<std::pair<std::string, sf::Vector2f>> labels = {
             {"State", {340.0f, 208.0f}},
@@ -4853,12 +5206,32 @@ private:
         }
         drawActionKindValueField(window);
 
-        sf::RectangleShape divider({1.0f, 524.0f});
+        sf::RectangleShape divider({2.0f, 524.0f});
         divider.setPosition({846.0f, 152.0f});
-        divider.setFillColor(Line);
+        divider.setFillColor(sf::Color(Line.r, Line.g, Line.b, 190));
         window.draw(divider);
 
-        drawText(window, font, "Target filter", 22, {870.0f, 164.0f}, Ink);
+        bayou::client::drawMaterialPlate(
+            window,
+            {858.0f, 154.0f},
+            {374.0f, 40.0f},
+            bayou::client::PlateStyle{
+                .fill = sf::Color(15, 24, 31, 248),
+                .frame = sf::Color(80, 101, 112, 210),
+                .cut = 6.0f,
+                .state = bayou::client::PlateState::Normal,
+                .sheen = 0.34f,
+                .rivets = false,
+                .brackets = false,
+                .recessed = false,
+                .focused = false,
+                .focusKeyline = false,
+                .focusPhase = 0.0f});
+        sf::RectangleShape targetKey({3.0f, 22.0f});
+        targetKey.setPosition({870.0f, 163.0f});
+        targetKey.setFillColor(VioletBright);
+        window.draw(targetKey);
+        drawText(window, font, "Target Filter", 20, {882.0f, 161.0f}, Ink);
         drawText(
             window,
             font,
@@ -4951,8 +5324,13 @@ private:
     void drawPreviewPanel(sf::RenderWindow& window)
     {
         drawRoundedPanel(window, {PreviewPanelX, PreviewPanelY}, {PreviewPanelWidth, PanelHeight}, Panel);
-        drawText(window, font, "Card Preview", 22, {878.0f, 124.0f}, Ink);
-        drawText(window, font, "Live preview.", 14, {1140.0f, 131.0f}, Muted, 84.0f);
+        drawWorkspaceHeader(
+            window,
+            font,
+            {PreviewPanelX, PreviewPanelY},
+            PreviewPanelWidth,
+            "Card Preview",
+            "LIVE RENDER");
         const card_data::Card card = cardFromForm();
         const sf::Color rarityColor = cardRarityColor(card);
         const bool creature = card.type == "Unit" || game_data::isHeroCard(card);
@@ -4967,7 +5345,7 @@ private:
         else
         {
             bayou::client::drawCenteredText(window, font, "NO IMAGE", 18, {1053.0f, 244.0f}, previewMessageColor);
-            bayou::client::drawCenteredText(window, font, previewMessage, 11, {1053.0f, 275.0f}, previewMessageColor);
+            bayou::client::drawCenteredText(window, font, previewMessage, 12, {1053.0f, 275.0f}, previewMessageColor);
         }
 
         bayou::client::drawBeveledPlate(
@@ -5023,8 +5401,27 @@ private:
             {1053.0f, statRuleY + 20.0f},
             sf::Color(248, 214, 112));
 
-        drawText(window, font, "CARD DETAILS", 17, {882.0f, 498.0f}, Ink);
-        bayou::client::drawSeparatorRule(window, {882.0f, 520.0f}, 336.0f, false);
+        bayou::client::drawMaterialPlate(
+            window,
+            {874.0f, 488.0f},
+            {344.0f, 34.0f},
+            bayou::client::PlateStyle{
+                .fill = sf::Color(14, 23, 29, 248),
+                .frame = sf::Color(80, 101, 112, 190),
+                .cut = 5.0f,
+                .state = bayou::client::PlateState::Normal,
+                .sheen = 0.30f,
+                .rivets = false,
+                .brackets = false,
+                .recessed = false,
+                .focused = false,
+                .focusKeyline = false,
+                .focusPhase = 0.0f});
+        sf::RectangleShape detailsKey({3.0f, 18.0f});
+        detailsKey.setPosition({884.0f, 496.0f});
+        detailsKey.setFillColor(VioletBright);
+        window.draw(detailsKey);
+        drawText(window, font, "CARD DETAILS", 17, {895.0f, 493.0f}, Ink);
 
         const auto drawStatBadge = [&](float x, const std::string& label, const std::string& value, sf::Color color) {
             bayou::client::drawBeveledPlate(
@@ -5035,7 +5432,7 @@ private:
                 sf::Color(color.r, color.g, color.b, 190),
                 false,
                 5.0f);
-            bayou::client::drawCenteredText(window, font, label, 9, {x + 39.0f, 540.0f}, Muted);
+            bayou::client::drawCenteredText(window, font, label, 12, {x + 39.0f, 540.0f}, Muted);
             bayou::client::drawCenteredText(window, font, value, 14, {x + 39.0f, 554.0f}, color);
         };
 

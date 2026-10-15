@@ -43,9 +43,9 @@ export struct Button
     {
         shape.setPosition(position);
         shape.setSize(size);
-        shape.setFillColor(sf::Color(35, 27, 21, 244));
+        shape.setFillColor(sf::Color(22, 29, 32, 244));
         shape.setOutlineThickness(2);
-        shape.setOutlineColor(sf::Color(176, 123, 59));
+        shape.setOutlineColor(bayou::client::palette::Steel);
 
         text.setFillColor(sf::Color(246, 232, 200));
         fitAndCenterLabel();
@@ -117,8 +117,8 @@ export struct Button
 
         hovered = shape.getGlobalBounds().contains(mousePos);
         pressed = hovered && sf::Mouse::isButtonPressed(sf::Mouse::Button::Left);
-        shape.setFillColor(hovered ? sf::Color(83, 50, 25, 248) : sf::Color(35, 27, 21, 244));
-        shape.setOutlineColor(hovered ? sf::Color(239, 190, 98) : sf::Color(176, 123, 59));
+        shape.setFillColor(hovered ? sf::Color(34, 45, 49, 248) : sf::Color(22, 29, 32, 244));
+        shape.setOutlineColor(hovered ? bayou::client::palette::SteelBright : bayou::client::palette::Steel);
         text.setFillColor(hovered ? sf::Color(255, 244, 215) : sf::Color(246, 232, 200));
     }
 
@@ -169,32 +169,16 @@ export struct Button
 
         if (variant == ButtonVariant::Primary && enabled)
         {
-            // Draw the warm bloom first: it should lift the plate from the
+            // Draw the violet bloom first: it should lift the plate from the
             // background, not wash over its engraved face.
             bayou::client::drawRadialGlow(
                 window,
                 {position.x + size.x * 0.5f, position.y + size.y * 0.5f},
                 size.x * 0.62f,
-                sf::Color(226, 164, 74, hovered ? 54 : 30));
+                sf::Color(132, 86, 176, hovered ? 54 : 30));
         }
 
         bayou::client::drawMaterialPlate(window, position, size, style);
-
-        if (size.x >= 120.0f && size.y >= 34.0f)
-        {
-            const float pipeAlpha = enabled ? 160.0f : 80.0f;
-            const float pipeOffsetY = pressed ? 1.0f : 0.0f;
-            sf::RectangleShape leftPipe({10.0f, size.y * 0.34f});
-            leftPipe.setPosition({position.x - 5.0f, position.y + size.y * 0.33f + pipeOffsetY});
-            leftPipe.setFillColor(sf::Color(74, 44, 22, static_cast<std::uint8_t>(pipeAlpha)));
-            leftPipe.setOutlineThickness(1.0f);
-            leftPipe.setOutlineColor(sf::Color(124, 76, 36, static_cast<std::uint8_t>(pipeAlpha)));
-            window.draw(leftPipe);
-
-            sf::RectangleShape rightPipe(leftPipe);
-            rightPipe.setPosition({position.x + size.x - 5.0f, position.y + size.y * 0.33f + pipeOffsetY});
-            window.draw(rightPipe);
-        }
 
         sf::Text label = text;
         label.setFillColor(labelColor());
@@ -215,15 +199,15 @@ private:
         switch (variant)
         {
         case ButtonVariant::Primary:
-            return hovered ? sf::Color(106, 66, 30, 250) : sf::Color(64, 42, 22, 248);
+            return hovered ? sf::Color(48, 39, 62, 250) : sf::Color(31, 28, 43, 248);
         case ButtonVariant::Quiet:
-            return hovered ? sf::Color(46, 40, 34, 236) : sf::Color(20, 24, 25, 228);
+            return hovered ? sf::Color(31, 43, 47, 236) : sf::Color(18, 27, 30, 228);
         case ButtonVariant::Danger:
             return hovered ? sf::Color(112, 38, 30, 249) : sf::Color(58, 26, 22, 244);
         case ButtonVariant::Secondary:
             break;
         }
-        return hovered ? sf::Color(84, 51, 25, 248) : sf::Color(31, 27, 23, 244);
+        return hovered ? sf::Color(38, 49, 54, 248) : sf::Color(22, 30, 34, 244);
     }
 
     sf::Color frameColor() const
@@ -231,15 +215,15 @@ private:
         switch (variant)
         {
         case ButtonVariant::Primary:
-            return hovered ? sf::Color(255, 214, 128) : sf::Color(224, 170, 84);
+            return hovered ? bayou::client::palette::SteelBright : bayou::client::palette::Steel;
         case ButtonVariant::Quiet:
-            return hovered ? sf::Color(178, 138, 84) : sf::Color(112, 86, 52);
+            return hovered ? bayou::client::palette::SteelBright : bayou::client::palette::SteelDim;
         case ButtonVariant::Danger:
             return hovered ? sf::Color(236, 140, 112) : sf::Color(170, 84, 62);
         case ButtonVariant::Secondary:
             break;
         }
-        return hovered ? sf::Color(239, 190, 98) : sf::Color(176, 123, 59);
+        return hovered ? bayou::client::palette::SteelBright : bayou::client::palette::Steel;
     }
 
     sf::Color labelColor() const

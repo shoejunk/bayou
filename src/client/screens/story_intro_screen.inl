@@ -69,7 +69,8 @@
                     {352.0f, 103.0f},
                     {408.0f, 27.0f},
                     sf::Color(12, 20, 21, 238),
-                    sf::Color(181, 126, 60),
+                    palette::Steel,
+
                     false,
                     6.0f);
                 drawWrappedText(
@@ -90,7 +91,8 @@
                 artPosition,
                 artSize,
                 sf::Color(28, 37, 35, 244),
-                sf::Color(181, 126, 60),
+                palette::Steel,
+
                 false,
                 10.0f);
             const std::string_view displayedArtPath = mission.scenarioArtPath.empty()
@@ -113,7 +115,8 @@
                 drawCenteredText(
                     window, font, "STORY SCENE", 16,
                     {artPosition.x + artSize.x * 0.5f, artPosition.y + artSize.y * 0.5f},
-                    sf::Color(181, 126, 60));
+                    palette::Steel);
+
             }
             drawStorySpeakerPortraitInset(
                 mission.scenarioArtPath,
@@ -129,7 +132,8 @@
                 bubblePosition,
                 bubbleSize,
                 sf::Color(238, 226, 198, 248),
-                sf::Color(105, 75, 40),
+                palette::SteelEdge,
+
                 false,
                 11.0f);
             if (hasPanelArt)
@@ -384,16 +388,16 @@
                                : timedOptionalMatch ? sf::Vector2f{604.0f, 520.0f}
                                : sf::Vector2f{558.0f, 520.0f});
         storyContinueButton.setSize(
-            masteryCatchUpMayBeSkipped ? sf::Vector2f{214.0f, 48.0f}
-                               : timedOptionalMatch ? sf::Vector2f{148.0f, 48.0f}
-                               : sf::Vector2f{194.0f, 48.0f});
+            masteryCatchUpMayBeSkipped ? sf::Vector2f{214.0f, 42.0f}
+                               : timedOptionalMatch ? sf::Vector2f{148.0f, 42.0f}
+                               : sf::Vector2f{194.0f, 42.0f});
         storySkipDrillButton.setPosition(
             timedOptionalMatch ? sf::Vector2f{298.0f, 520.0f}
                                : sf::Vector2f{326.0f, 520.0f});
         storySkipDrillButton.setSize(
-            masteryCatchUpMayBeSkipped ? sf::Vector2f{196.0f, 48.0f}
-                               : timedOptionalMatch ? sf::Vector2f{292.0f, 48.0f}
-                               : sf::Vector2f{216.0f, 48.0f});
+            masteryCatchUpMayBeSkipped ? sf::Vector2f{196.0f, 42.0f}
+                               : timedOptionalMatch ? sf::Vector2f{292.0f, 42.0f}
+                               : sf::Vector2f{216.0f, 42.0f});
         storySkipDrillButton.setLabel(
             masteryCatchUpMayBeSkipped
                 ? "Practice Again"
@@ -433,30 +437,33 @@
         }
         storyBackButton.setLabel(storyComicPage > 0 ? "Previous" : "Missions");
         storyBackButton.draw(window, animationTime);
-        const float progressCenterX = optionalSkipVisible ? 242.0f : 400.0f;
+        const float progressCenterX = optionalSkipVisible ? 226.0f : 400.0f;
         drawCenteredText(
             window,
             font,
             (storyComicPage == 0 ? "SETUP " : "DIALOGUE ") + std::to_string(storyComicPage + 1) + " OF " +
                 std::to_string(panelCount),
             type::Caption,
-            {progressCenterX, 548.0f},
+            {progressCenterX, 538.0f},
             palette::InkMuted);
-        const float dotsWidth = static_cast<float>(std::max(0, panelCount - 1)) * 14.0f;
+        const float dotSpacing = optionalSkipVisible ? 10.0f : 14.0f;
+        const float dotsWidth =
+            static_cast<float>(std::max(0, panelCount - 1)) * dotSpacing;
         for (int page = 0; page < panelCount; ++page)
         {
             sf::CircleShape dot(2.5f);
-            dot.setPosition({progressCenterX - dotsWidth * 0.5f + static_cast<float>(page) * 14.0f, 564.0f});
-            dot.setFillColor(page == storyComicPage ? sf::Color(218, 166, 78) : sf::Color(82, 88, 84));
+            dot.setPosition({
+                progressCenterX - dotsWidth * 0.5f + static_cast<float>(page) * dotSpacing,
+                553.0f});
+            dot.setFillColor(page == storyComicPage ? palette::JewelBright : sf::Color(82, 88, 84));
             window.draw(dot);
         }
-        drawCenteredText(
+        drawKeyboardHintBar(
             window,
             font,
             optionalSkipVisible
                 ? "LEFT/RIGHT: PAGE  |  TAB: CHOICE  |  ENTER: ACTIVATE  |  ESC: MISSIONS"
                 : "LEFT/RIGHT: PAGE  |  ENTER: CONTINUE  |  ESC: MISSIONS",
-            13,
-            {400.0f, 588.0f},
-            palette::Ink);
+            {400.0f, 573.0f},
+            640.0f);
     };

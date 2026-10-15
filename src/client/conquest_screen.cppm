@@ -41,8 +41,11 @@ const sf::Color Ink(246, 232, 200);
 const sf::Color Muted(181, 166, 137);
 const sf::Color Panel(12, 17, 18, 242);
 const sf::Color PanelAlt(25, 30, 29, 244);
-const sf::Color Accent(239, 190, 98);
-const sf::Color Line(145, 96, 46);
+const sf::Color Accent(202, 220, 226);
+const sf::Color Line(67, 84, 92);
+const sf::Color PrimaryViolet(88, 47, 132, 248);
+const sf::Color PrimaryVioletHover(116, 66, 168, 252);
+const sf::Color PrimaryVioletEdge(204, 151, 242);
 const sf::Color Good(111, 210, 137);
 const sf::Color Bad(225, 104, 88);
 
@@ -155,22 +158,27 @@ void drawButton(
         : destructive
             ? (hovered ? sf::Color(112, 48, 34, 248) : sf::Color(70, 33, 28, 242))
         : primary
-            ? (hovered ? sf::Color(111, 72, 30, 248) : sf::Color(76, 49, 25, 242))
-            : hovered ? sf::Color(88, 54, 27, 248) : sf::Color(39, 31, 24, 246);
+            ? (hovered ? PrimaryVioletHover : PrimaryViolet)
+            : hovered ? sf::Color(38, 49, 54, 248) : sf::Color(22, 30, 34, 246);
     const sf::Color outline = !enabled
-        ? sf::Color(82, 82, 78)
-        : destructive ? Bad : hovered || primary ? Accent : Line;
-    drawBeveledPlate(window, bounds.position, bounds.size, fill, outline, hovered && enabled, 7.0f);
+        ? sf::Color(76, 91, 98)
+        : destructive ? Bad
+        : primary ? (hovered ? sf::Color(232, 202, 252) : PrimaryVioletEdge)
+        : hovered ? Accent : Line;
+    drawBeveledPlate(
+        window, bounds.position, bounds.size, fill, outline,
+        enabled && (hovered || primary), 7.0f);
     sf::Text text(font, label, bounds.size.y <= 32.0f ? 15u : 18u);
     while (text.getCharacterSize() > 12 && text.getLocalBounds().size.x > bounds.size.x - 36.0f)
         text.setCharacterSize(text.getCharacterSize() - 1);
-    text.setFillColor(enabled ? Ink : sf::Color(126, 126, 120));
+    text.setFillColor(
+        enabled ? (primary ? sf::Color(252, 246, 255) : Ink) : sf::Color(126, 142, 148));
     centerButtonText(text, bounds.position + bounds.size * 0.5f);
     drawCrispText(window, text);
 }
 
 // Each phase gets its own identity colour so the list can be scanned by state
-// rather than read line by line: brass invites entry, violet marks the arcane
+// rather than read line by line: steel invites entry, violet marks the arcane
 // planning window, ember means battles are resolving, ash means it is over.
 sf::Color phaseColor(conquest_data::EventPhase phase)
 {
@@ -351,6 +359,11 @@ sf::Color brighten(sf::Color color, int amount)
 // through a full-window view instead keeps the tint edge to edge.
 void drawFullWindowTint(sf::RenderWindow& window, sf::Color color)
 {
+    if (color.a == 0)
+    {
+        return;
+    }
+
     const sf::View logicalView = window.getView();
     const sf::Vector2u windowSize = window.getSize();
     const sf::Vector2f fullSize{
@@ -676,6 +689,29 @@ public:
         army.deckIds = {100, 101, 102, 103, 104};
         savedArmyDeckIds = army.deckIds;
 
+        if (key == "conquest")
+        {
+            view = View::Events;
+            events.clear();
+            status.clear();
+            return;
+        }
+
+        if (key == "conquest-event-create")
+        {
+            view = View::EventCreate;
+            eventNameInput.setContent("Crown of the Hollow Briar");
+            eventNameInput.setActive(true);
+            registrationHoursInput.setContent("24");
+            registrationHoursInput.setActive(false);
+            turnHoursInput.setContent("18");
+            turnHoursInput.setActive(false);
+            reinforcementHoursInput.setContent("12");
+            reinforcementHoursInput.setActive(false);
+            status.clear();
+            return;
+        }
+
         if (key == "conquest-loadouts" || key == "conquest-loadouts-empty")
         {
             view = View::Loadout;
@@ -812,6 +848,7 @@ public:
         selectedRegionId = 6;
         selectedEventDeckId = 900;
         status.clear();
+        forceEndConfirmationVisible = key == "conquest-force-end";
         if (key == "conquest-deck-edit") beginEdit(decks.front());
         if (key == "conquest-orders-unsaved" || key == "conquest-orders-exit")
         {
@@ -982,23 +1019,19 @@ public:
     {
         // A tint rather than the near-opaque plate this used to draw: the swamp
         // backdrop every other screen shows should still read through here.
-        drawFullWindowTint(window, sf::Color(5, 8, 9, 76));
+        // The main compositor already paints the exact supplied menu reference;
+        // Conquest should add panels and controls without recolouring it.
+        drawFullWindowTint(window, sf::Color(0, 0, 0, 0));
 
         // The event detail view supplies its own two-line toolbar. Drawing the
         // generic Conquest banner behind it makes the title, phase, and nav
         // controls compete for the same pixels.
         if (view != View::Event && view != View::DeckEdit)
         {
-            // drawTitlePlaque widens itself to its label and throws pipes and
-            // rivets ~110px past its nominal box, which ran straight through
-            // the subtitle. A section header with a brass rule reads as
-            // deliberately designed here and leaves the width predictable.
-            // The display face, so this title belongs to the same family as every
-            // other screen's; the section-header treatment above stays.
-            drawText(window, displayFontOr(font), "Conquest", 30, {24.0f, 14.0f}, Accent);
-            drawText(window, font, "Long-running campaigns. Each card copy belongs to one Conquest deck.",
-                     13, {252.0f, 30.0f}, Muted, 520.0f);
-            drawSeparatorRule(window, {24.0f, 56.0f}, 752.0f);
+            // Use the same steel title lock-up as the other menu screens. Its
+            // compact height leaves the existing navigation row and hitboxes
+            // untouched while giving the mode a clear first level of hierarchy.
+            drawTitlePlaque(window, font, "Conquest", {400.0f, 30.0f}, {320.0f, 48.0f});
         }
 
         if (view == View::Events)
@@ -1072,7 +1105,7 @@ private:
             {cardWidth, 96.0f});
         drawCompactPlate(window, card, sf::Color(25, 30, 29, 248), Line, 8.0f);
         drawRadialGlow(window, card.position + sf::Vector2f(34.0f, 48.0f), 24.0f,
-                       sf::Color(239, 190, 98, 38));
+                       sf::Color(170, 200, 215, 38));
         drawStud(window, card.position + sf::Vector2f(34.0f, 48.0f), 8.0f, Accent);
         const float copyWidth = std::max(0.0f, card.size.x - 78.0f);
         drawText(window, font, heading, 18, card.position + sf::Vector2f(58.0f, 21.0f), Ink, copyWidth);
@@ -1085,7 +1118,7 @@ private:
         const bool working = busy();
         const sf::Color accent = working ? Accent : statusSuccess ? Good : Bad;
         const sf::Color fill = working
-            ? sf::Color(46, 36, 23, 246)
+            ? sf::Color(32, 28, 42, 246)
             : statusSuccess ? sf::Color(18, 39, 29, 246) : sf::Color(48, 24, 23, 246);
         drawCompactPlate(window, bounds, fill, accent, 6.0f);
         drawBadge(window, font, {30.0f, 571.0f},
@@ -2688,7 +2721,7 @@ private:
                    hovered(rect(20, 64, 112, 36), mousePosition));
         drawButton(window, font, rect(144, 64, 130, 36),
                    loadoutActive ? (returnToEventAfterLoadout ? "Campaign" : "Events") : "Army Setup",
-                   hovered(rect(144, 64, 130, 36), mousePosition));
+                   hovered(rect(144, 64, 130, 36), mousePosition), true, false);
         drawButton(window, font, rect(666, 64, 114, 36), "Refresh",
                    hovered(rect(666, 64, 114, 36), mousePosition),
                    !busy() && (!loadoutActive || army.deckIds == savedArmyDeckIds));
@@ -2700,7 +2733,7 @@ private:
         if (accountIsAdmin)
         {
             drawButton(window, font, rect(498, 64, 156, 36), "New Conquest",
-                       hovered(rect(498, 64, 156, 36), mousePosition), !busy(), true);
+                       hovered(rect(498, 64, 156, 36), mousePosition), !busy(), false);
         }
         drawPanel(window, rect(20, 104, 760, 444));
         if (events.empty() && !pendingEvents)
@@ -2780,7 +2813,7 @@ private:
         drawBeveledPlate(
             window, bounds.position, bounds.size,
             isHovered ? sf::Color(46, 38, 28, 242) : sf::Color(17, 24, 25, 232),
-            isHovered ? Accent : sf::Color(96, 68, 38),
+            isHovered ? Accent : sf::Color(49, 65, 72),
             isHovered, 6.0f);
 
         // A phase-coloured spine down the leading edge: the fastest read of
@@ -2798,13 +2831,13 @@ private:
         if (mapTexture)
         {
             drawMapThumbnail(window, thumbnail, event.id,
-                             ended ? sf::Color(120, 120, 120) : sf::Color(210, 210, 210));
+                             ended ? sf::Color(150, 150, 150) : sf::Color(238, 238, 238));
         }
         sf::RectangleShape thumbnailFrame(thumbnail.size);
         thumbnailFrame.setPosition(thumbnail.position);
         thumbnailFrame.setFillColor(sf::Color::Transparent);
         thumbnailFrame.setOutlineThickness(1.0f);
-        thumbnailFrame.setOutlineColor(sf::Color(103, 72, 39));
+        thumbnailFrame.setOutlineColor(sf::Color(67, 84, 92));
         window.draw(thumbnailFrame);
 
         const float textX = bounds.position.x + 112.0f;
@@ -2858,7 +2891,7 @@ private:
             return;
         }
         drawTextRight(window, font, deadlineCaption(event.phase), 11,
-                      {rightEdge, bounds.position.y + 13.0f}, sf::Color(150, 132, 104));
+                      {rightEdge, bounds.position.y + 13.0f}, sf::Color(154, 169, 174));
         // Under an hour the countdown turns urgent. Bright brass rather than a
         // UI warning red, which was the one pure red left in the palette.
         const bool urgent = duration.find('d') == std::string::npos &&
@@ -2917,7 +2950,7 @@ private:
         track.setPosition({center.x, center.y - BarHeight * 0.5f});
         track.setFillColor(sf::Color(58, 52, 43, 235));
         track.setOutlineThickness(1.0f);
-        track.setOutlineColor(sf::Color(88, 66, 40));
+        track.setOutlineColor(sf::Color(49, 65, 72));
         window.draw(track);
 
         sf::RectangleShape fill({BarWidth * filled, BarHeight});
@@ -2938,23 +2971,37 @@ private:
     void drawEventsEmptyState(sf::RenderWindow& window)
     {
         UiContext ui{window, font, font, textures};
-        const sf::FloatRect art(rect(190.0f, 120.0f, 420.0f, 280.0f));
-        drawBeveledPlate(window, art.position - sf::Vector2f(6.0f, 6.0f),
-                         art.size + sf::Vector2f(12.0f, 12.0f),
-                         sf::Color(10, 15, 16, 232), Line, false, 8.0f);
+        // Let the campaign art carry the empty state instead of floating as a
+        // small postcard in a mostly black panel. This stays inside the same
+        // panel and leaves the existing Army Setup hitbox exactly where it is.
+        const sf::FloatRect art(rect(74.0f, 114.0f, 652.0f, 430.0f));
+        drawBeveledPlate(window, art.position - sf::Vector2f(4.0f, 4.0f),
+                         art.size + sf::Vector2f(8.0f, 8.0f),
+                         sf::Color(10, 15, 16, 242), Accent, false, 9.0f);
         if (mapTexture)
         {
-            drawContainSprite(window, *mapTexture, art, sf::Color(172, 178, 174));
-        }
-        drawVerticalScrim(ui, art, sf::Color(5, 9, 10, 0), sf::Color(5, 9, 10, 128));
+            drawContainSprite(window, *mapTexture, art, sf::Color::White);
 
-        drawSectionHeading(ui, {248.0f, 416.0f}, "The Dark Realms lie quiet", 304.0f);
+            // The source painting is intentionally nocturnal. A restrained
+            // cool lift recovers territory labels and coastlines without
+            // changing the authored palette or washing out player markers.
+            sf::RectangleShape luminanceLift(art.size);
+            luminanceLift.setPosition(art.position);
+            luminanceLift.setFillColor(sf::Color(126, 148, 164, 24));
+            window.draw(luminanceLift);
+        }
+        drawVerticalScrim(ui, art, sf::Color(4, 8, 11, 0), sf::Color(4, 7, 10, 232));
+
+        drawText(window, font, "DARK REALMS  /  CAMPAIGN MAP", 11,
+                 {98.0f, 132.0f}, sf::Color(184, 204, 214));
+
+        drawSectionHeading(ui, {228.0f, 400.0f}, "The Dark Realms lie quiet", 344.0f);
 
         drawWrappedText(
             window, font,
             "No campaign is mustering right now. Build the army you will march "
             "with, and you will be ready the moment the next war is called.",
-            14, {220.0f, 446.0f}, Muted, 360.0f);
+            14, {220.0f, 432.0f}, sf::Color(210, 215, 213), 360.0f);
 
         drawButton(window, font, rect(310, 504, 180, 38), "Army Setup",
                    hovered(rect(310, 504, 180, 38), mousePosition), true, true);
@@ -2985,14 +3032,39 @@ private:
         turnHoursInput.draw(window);
         reinforcementHoursInput.draw(window);
 
-        drawText(window, font, "Map", 16, {48.0f, 348.0f}, Muted);
-        drawText(window, font, "Dark Realms", 22, {48.0f, 374.0f}, Ink);
+        // Turn the lower half into a realm dossier rather than leaving a large
+        // administrative void under the schedule fields.
+        drawBeveledPlate(
+            window,
+            {40.0f, 326.0f},
+            {712.0f, 130.0f},
+            sf::Color(10, 17, 20, 244),
+            sf::Color(78, 96, 104, 215),
+            false,
+            9.0f);
+        drawBeveledPlate(
+            window,
+            {48.0f, 334.0f},
+            {184.0f, 114.0f},
+            sf::Color(6, 12, 14, 248),
+            sf::Color(112, 132, 141, 220),
+            false,
+            6.0f);
+        drawMapThumbnail(
+            window,
+            rect(52.0f, 338.0f, 176.0f, 106.0f),
+            97,
+            sf::Color(176, 194, 198, 188));
+        drawText(window, font, "REALM DOSSIER", 12, {254.0f, 340.0f}, PrimaryVioletEdge);
+        drawText(window, font, "Dark Realms", 23, {254.0f, 361.0f}, Ink);
+        drawText(window, font, "20 regions  /  5-deck armies  /  up to 12 commanders",
+                 13, {254.0f, 393.0f}, Accent);
         drawText(window, font,
-                 "Registration opens immediately. Each event freezes the current card catalog",
-                 14, {48.0f, 418.0f}, Muted);
+                 "Registration opens immediately. The current card catalog is sealed",
+                 13, {254.0f, 418.0f}, Muted);
         drawText(window, font,
-                 "so later card edits do not change battles already in this conquest.",
-                 14, {48.0f, 440.0f}, Muted);
+                 "at muster so later edits cannot alter battles already underway.",
+                 13, {254.0f, 437.0f}, Muted);
         drawButton(window, font, rect(566, 464, 186, 42), "Create Conquest",
                     hovered(rect(566, 464, 186, 42), mousePosition), !pendingCommand, true);
     }
@@ -3013,10 +3085,10 @@ private:
                        hovered(rect(498, 64, 156, 36), mousePosition), !busy());
         // Headings sat exactly on the panel's top edge, so the border cut
         // through the glyphs. They now sit above their panels as captions.
-        drawText(window, font, "CONQUEST DECKS", 13, {24.0f, 106.0f}, sf::Color(150, 132, 104));
+        drawText(window, font, "CONQUEST DECKS", 13, {24.0f, 106.0f}, sf::Color(154, 169, 174));
         drawTextRight(window, font, std::to_string(decks.size()) + " saved", 13,
                       {376.0f, 106.0f}, Muted);
-        drawText(window, font, "MARCHING ARMY", 13, {404.0f, 106.0f}, sf::Color(150, 132, 104));
+        drawText(window, font, "MARCHING ARMY", 13, {404.0f, 106.0f}, sf::Color(154, 169, 174));
         drawTextRight(window, font,
                       std::to_string(army.deckIds.size()) + " of " +
                           std::to_string(conquest_data::MaxConquestArmyDecks),
@@ -3052,7 +3124,7 @@ private:
             drawWrappedText(window, font,
                             "Build one with New below. Conquest decks draw on their own "
                             "pool of card copies.",
-                            13, {36.0f, 176.0f}, sf::Color(150, 132, 104), 320.0f);
+                            13, {36.0f, 176.0f}, sf::Color(154, 169, 174), 320.0f);
         }
         else if (decks.empty() && pendingLoadout)
         {
@@ -3095,7 +3167,7 @@ private:
             drawWrappedText(window, font,
                             "Select a Conquest deck and add it to your army. Every deck you "
                             "commit marches as a separate force on the map.",
-                            13, {416.0f, 176.0f}, sf::Color(150, 132, 104), 340.0f);
+                            13, {416.0f, 176.0f}, sf::Color(154, 169, 174), 340.0f);
         }
 
         drawButton(window, font, rect(24, 492, 100, 38), "New",
@@ -3256,7 +3328,7 @@ private:
                 const std::string caption = deadlineCaption(phase);
                 const bool urgent = duration.find('d') == std::string::npos &&
                     duration.find('h') == std::string::npos;
-                drawText(window, font, caption, 11, {detailX, 40.0f}, sf::Color(150, 132, 104));
+                drawText(window, font, caption, 11, {detailX, 40.0f}, sf::Color(154, 169, 174));
                 drawText(window, font, duration, 15, {detailX, 53.0f}, urgent ? Bad : Ink);
             }
         }
@@ -3274,7 +3346,12 @@ private:
         drawPanel(window, rect(MapPosition.x, MapPosition.y, MapSize.x, MapSize.y));
         if (mapTexture)
         {
-            drawContainSprite(window, *mapTexture, mapArtBounds(), sf::Color(225, 225, 225));
+            const sf::FloatRect art = mapArtBounds();
+            drawContainSprite(window, *mapTexture, art, sf::Color::White);
+            sf::RectangleShape luminanceLift(art.size);
+            luminanceLift.setPosition(art.position);
+            luminanceLift.setFillColor(sf::Color(126, 148, 164, 18));
+            window.draw(luminanceLift);
         }
         drawOwnership(window);
         drawRegionMarkers(window);
@@ -3441,7 +3518,7 @@ private:
                 pin.setPosition(center + sf::Vector2f(0.0f, -4.0f));
                 pin.setFillColor(sf::Color(14, 16, 16, 215));
                 pin.setOutlineThickness(1.25f);
-                pin.setOutlineColor(sf::Color(196, 174, 130, 225));
+                pin.setOutlineColor(sf::Color(202, 220, 226, 225));
                 window.draw(pin);
             }
             if (selectedRegionId == region.id)
@@ -3602,8 +3679,8 @@ private:
                 const sf::FloatRect bounds = rect(590, 146 + row * 42.0f, 188, 38);
                 drawCompactPlate(
                     window, bounds,
-                    isSelected ? sf::Color(76, 49, 25, 240) : sf::Color(17, 24, 25, 228),
-                    isSelected ? Accent : sf::Color(96, 68, 38), 4.0f);
+                    isSelected ? sf::Color(38, 31, 49, 240) : sf::Color(17, 24, 25, 228),
+                    isSelected ? Accent : sf::Color(49, 65, 72), 4.0f);
 
                 // Region names, not "R5>R6": the shorthand was internal
                 // notation leaking into a player-facing panel.
@@ -3643,8 +3720,8 @@ private:
                 const sf::FloatRect bounds = rect(590, 146 + row * 42.0f, 188, 38);
                 drawCompactPlate(
                     window, bounds,
-                    isSelected ? sf::Color(76, 49, 25, 240) : sf::Color(17, 24, 25, 228),
-                    isSelected ? Accent : sf::Color(96, 68, 38), 4.0f);
+                    isSelected ? sf::Color(38, 31, 49, 240) : sf::Color(17, 24, 25, 228),
+                    isSelected ? Accent : sf::Color(49, 65, 72), 4.0f);
                 drawText(window, font, elide(font, deck.deck.name, 13, 172.0f), 13,
                          bounds.position + sf::Vector2f(8.0f, 4.0f));
                 const auto placed = std::find_if(placements.begin(), placements.end(), [&](const auto& p) {
@@ -3734,7 +3811,7 @@ private:
             return;
         }
 
-        drawText(window, font, "WARLORDS", 10, {598.0f, top}, sf::Color(150, 132, 104));
+        drawText(window, font, "WARLORDS", 10, {598.0f, top}, sf::Color(154, 169, 174));
         float y = top + 15.0f;
         for (const conquest_data::PlayerState& player : eventState.players)
         {

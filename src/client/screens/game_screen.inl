@@ -2156,15 +2156,9 @@
                     from + outward * 9.0f,
                     to + outward * 9.0f,
                     1.2f,
-                    sf::Color(28, 18, 10, 220));
+                    withAlpha(palette::SteelDeep, 220));
             }
-            sf::CircleShape rivet(2.6f, 14);
-            rivet.setOrigin({2.6f, 2.6f});
-            rivet.setPosition(from);
-            rivet.setFillColor(sf::Color(206, 152, 74));
-            rivet.setOutlineThickness(1.0f);
-            rivet.setOutlineColor(sf::Color(46, 28, 14, 210));
-            window.draw(rivet);
+            drawStud(window, from, 2.6f, withAlpha(palette::SteelBright, 220));
         }
 
         // Pieces.
@@ -3662,6 +3656,7 @@
             }
             else if (!boardSnapshot.foresightChoices.empty() ||
                      !boardSnapshot.raiseUndeadChoices.empty())
+
             {
                 drawCaption = "CHOOSE CARD";
             }
@@ -3694,6 +3689,7 @@
             (sandboxMode || boardSnapshot.activePlayer == me) && selectedPiece &&
             pieceCanTakeGameAction(*selectedPiece) &&
             game_data::pieceAbilityAvailable(boardSnapshot, *selectedPiece);
+
         if (!abilityAvailable && !drawStoryMode)
         {
             // The opponent's hand size was not surfaced anywhere before, and it
@@ -4619,6 +4615,7 @@
         {
             if (boardSnapshot.foresightChoices.empty() &&
                 boardSnapshot.raiseUndeadChoices.empty())
+
             {
                 drawPiecePopup();
             }
@@ -4753,6 +4750,7 @@
 
         if (boardSnapshot.foresightChoices.empty() &&
             boardSnapshot.raiseUndeadChoices.empty())
+
         {
             drawPiecePopup();
         }

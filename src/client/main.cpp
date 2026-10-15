@@ -599,6 +599,7 @@ struct PasswordVisibilityIcon
     sf::Texture* showTexture = nullptr;
     sf::Texture* hideTexture = nullptr;
     bool hovered = false;
+    bool focused = false;
 
     PasswordVisibilityIcon() = default;
 
@@ -618,6 +619,11 @@ struct PasswordVisibilityIcon
         hovered = bounds().contains(mousePos);
     }
 
+    void setFocused(bool next)
+    {
+        focused = next;
+    }
+
     bool isClicked(sf::Vector2f mousePos) const
     {
         return bounds().contains(mousePos);
@@ -626,21 +632,25 @@ struct PasswordVisibilityIcon
     void draw(sf::RenderWindow& window, bool passwordVisible) const
     {
         const sf::FloatRect hitBounds = bounds();
-        if (hovered)
+        if (hovered || focused)
         {
             drawBeveledPlate(
                 window,
                 hitBounds.position,
                 hitBounds.size,
-                sf::Color(60, 39, 22, 120),
-                sf::Color(239, 190, 98, 180),
+                sf::Color(27, 38, 43, 120),
+                focused ? palette::FocusKeyline : sf::Color(202, 220, 226, 180),
                 true,
                 4.0f);
+        }
+        if (focused)
+        {
+            drawFocusRing(window, hitBounds.position, hitBounds.size, 4.0f, 0.0f);
         }
 
         sf::RectangleShape divider({1.0f, hitBounds.size.y - 10.0f});
         divider.setPosition({hitBounds.position.x - 4.0f, hitBounds.position.y + 5.0f});
-        divider.setFillColor(sf::Color(154, 112, 61, hovered ? 190 : 125));
+        divider.setFillColor(sf::Color(112, 132, 141, hovered ? 190 : 125));
         window.draw(divider);
 
         sf::Texture* texture = passwordVisible ? hideTexture : showTexture;
@@ -655,7 +665,7 @@ struct PasswordVisibilityIcon
             window,
             *texture,
             iconTarget,
-            hovered ? sf::Color(255, 244, 215) : sf::Color(238, 212, 159, 232));
+                hovered || focused ? sf::Color(255, 255, 255) : sf::Color(218, 228, 230, 232));
     }
 };
 
@@ -665,6 +675,7 @@ struct CheckboxControl
     sf::Text label;
     sf::Texture* checkTexture = nullptr;
     bool hovered = false;
+    bool focused = false;
 
     CheckboxControl(
         sf::Vector2f position,
@@ -681,7 +692,7 @@ struct CheckboxControl
         box.setSize({boxSize, boxSize});
         box.setFillColor(sf::Color(8, 13, 14, 236));
         box.setOutlineThickness(2.0f);
-        box.setOutlineColor(sf::Color(154, 101, 49));
+        box.setOutlineColor(palette::Steel);
 
         label.setFillColor(sf::Color(246, 232, 200));
         label.setPosition({position.x + labelOffset, position.y - 1.0f});
@@ -710,8 +721,15 @@ struct CheckboxControl
     void update(sf::Vector2f mousePos)
     {
         hovered = bounds().contains(mousePos);
-        box.setOutlineColor(hovered ? sf::Color(239, 190, 98) : sf::Color(154, 112, 61));
-        label.setFillColor(hovered ? sf::Color(255, 244, 215) : sf::Color(246, 232, 200));
+        box.setOutlineColor(
+            hovered || focused ? palette::SteelBright : palette::Steel);
+        label.setFillColor(
+            hovered || focused ? sf::Color(255, 244, 215) : sf::Color(246, 232, 200));
+    }
+
+    void setFocused(bool next)
+    {
+        focused = next;
     }
 
     bool isClicked(sf::Vector2f mousePos) const
@@ -725,10 +743,15 @@ struct CheckboxControl
             window,
             box.getPosition(),
             box.getSize(),
-            checked ? sf::Color(63, 43, 24, 238) : sf::Color(8, 13, 14, 236),
-            hovered || checked ? sf::Color(239, 190, 98) : sf::Color(154, 101, 49),
-            hovered || checked,
+            checked ? sf::Color(38, 31, 49, 238) : sf::Color(8, 13, 14, 236),
+            hovered || focused || checked ? palette::SteelBright : palette::Steel,
+            hovered || focused || checked,
             4.0f);
+
+        if (focused)
+        {
+            drawFocusRing(window, box.getPosition(), box.getSize(), 4.0f, 0.0f);
+        }
 
         if (checked)
         {
@@ -745,7 +768,8 @@ struct CheckboxControl
             }
         }
 
-        window.draw(label);
+        sf::Text drawnLabel = label;
+        drawCrispText(window, drawnLabel);
     }
 };
 
@@ -1053,6 +1077,9 @@ void resetForm(InputBox& usernameInput, InputBox& passwordInput, InputBox& confi
     usernameInput.clear();
     passwordInput.clear();
     confirmInput.clear();
+    usernameInput.setError(false);
+    passwordInput.setError(false);
+    confirmInput.setError(false);
     setMessage(messageText, "", sf::Color::Red);
 }
 }
@@ -1118,6 +1145,10 @@ int main(int argc, char** argv)
 
     TextureStore textures;
     sf::Texture* backdropTexture = textures.load("ui/gloomthorn-backdrop.png");
+    // The supplied reference is kept as provenance; this clean plate removes
+    // its baked-in logo/buttons so runtime chrome can stay crisp and reusable.
+    sf::Texture* mainMenuBackdropTexture =
+        textures.load("ui/gloomthorn-menu-backdrop-clean.png");
     sf::Texture* boardSurfaceTexture = textures.load("ui/board-surface-v2.png");
     sf::Texture* pieceBaseBlueArtwork = textures.load(PieceBaseBlueArtworkPath);
     sf::Texture* pieceBaseRedArtwork = textures.load(PieceBaseRedArtworkPath);
@@ -1129,12 +1160,31 @@ int main(int argc, char** argv)
         textures.load("bases/gem3.png"),
         textures.load("bases/gem4.png")};
     sf::Texture* gloomthornTitleTexture = textures.load("ui/gloomthorn-title.png");
+    // The authenticated main menu uses the wider supplied banner artwork;
+    // keep the compact title art above for the login/create-account headers.
+    sf::Texture* mainMenuLogoBannerTexture = textures.load("ui/logo banner.png");
+    sf::Texture* menuCornerThornTexture =
+        textures.load("ui/ornaments/gloomthorn-corner-thorn-v2.png");
+    sf::Texture* menuTitleFinialTexture =
+        textures.load("ui/ornaments/gloomthorn-title-finial-v3.png");
+    sf::Texture* menuRivetTexture =
+        textures.load("ui/ornaments/gloomthorn-rivet-micro-v4.png");
+    if (captureRequest &&
+        (!mainMenuBackdropTexture || !mainMenuLogoBannerTexture ||
+         !menuCornerThornTexture || !menuTitleFinialTexture || !menuRivetTexture))
+    {
+        fmt::println(
+            stderr,
+            "UI capture requires the clean backdrop, logo banner, corner thorn, "
+            "title finial, and rivet textures");
+        return 1;
+    }
+    setUiOrnamentTextures(menuCornerThornTexture, menuTitleFinialTexture, menuRivetTexture);
     sf::Texture* showPasswordTexture = textures.load("ui/password-eye-open.png");
     sf::Texture* hidePasswordTexture = textures.load("ui/password-eye-off.png");
     sf::Texture* rememberCheckTexture = textures.load("ui/remember-checkmark.png");
     sf::Texture* mainMenuProfileFrameTexture =
         textures.load("ui/main-menu/account_profile_circle_frame.png");
-    sf::Texture* mainMenuButtonTexture = textures.load("ui/main-menu/button_blank.png");
     sf::Texture* mainMenuCoinTexture = textures.load("ui/main-menu/gold_coin.png");
     sf::Texture* mainMenuAdminIconTexture = textures.load("ui/main-menu/icon_admin.png");
     sf::Texture* mainMenuConquestIconTexture = textures.load("ui/main-menu/icon_conquest.png");
@@ -1144,13 +1194,73 @@ int main(int argc, char** argv)
     sf::Texture* mainMenuPlayIconTexture = textures.load("ui/main-menu/icon_play.png");
     sf::Texture* mainMenuShopIconTexture = textures.load("ui/main-menu/icon_shop.png");
     sf::Texture* mainMenuStoryIconTexture = textures.load("ui/main-menu/icon_story.png");
-    sf::Texture* mainMenuExitTexture = textures.load("ui/main-menu/red_banner_x.png");
     sf::Texture* mainMenuSettingsTexture = textures.load("ui/main-menu/settings_gear_icon.png");
     sf::Texture* mainMenuSmallHexTexture = textures.load("ui/main-menu/small_hex_frame.png");
     sf::Texture* mainMenuTitleFrameTexture = textures.load("ui/main-menu/title_frame.png");
     // Stands in for a player-chosen avatar until portraits are a real feature; an
     // empty portrait frame is the loudest "unfinished" signal on the menu.
     sf::Texture* mainMenuAvatarTexture = textures.load("characters/sylvara.png");
+
+    // Several supplied UI cutouts have bronze painted directly into their
+    // pixels, so changing the shared material palette cannot reach them.
+    // Convert only warm metal hues to blue steel at load time. Violet gems,
+    // neutral ink, danger red, the authored logo, rank colours, and currency
+    // remain untouched.
+    const auto coolForgedUiMetal = [](sf::Texture* texture) {
+        if (texture == nullptr)
+        {
+            return;
+        }
+
+        sf::Image image = texture->copyToImage();
+        const sf::Vector2u size = image.getSize();
+        for (unsigned int y = 0; y < size.y; ++y)
+        {
+            for (unsigned int x = 0; x < size.x; ++x)
+            {
+                sf::Color pixel = image.getPixel({x, y});
+                const int red = pixel.r;
+                const int green = pixel.g;
+                const int blue = pixel.b;
+                const int high = std::max({red, green, blue});
+                const int low = std::min({red, green, blue});
+                const bool warmMetal =
+                    pixel.a > 0 &&
+                    red > blue + 12 &&
+                    green > blue + 4 &&
+                    red >= green - 10 &&
+                    high - low > 12;
+                if (!warmMetal)
+                {
+                    continue;
+                }
+
+                const int luminance =
+                    static_cast<int>(std::lround(red * 0.36 + green * 0.50 + blue * 0.14));
+                const int steel = std::clamp(
+                    static_cast<int>(std::lround(luminance * 1.08 + 5.0)),
+                    12,
+                    242);
+                pixel.r = static_cast<std::uint8_t>(std::clamp(steel * 78 / 100, 0, 255));
+                pixel.g = static_cast<std::uint8_t>(std::clamp(steel * 93 / 100 + 3, 0, 255));
+                pixel.b = static_cast<std::uint8_t>(std::clamp(steel + 9, 0, 255));
+                image.setPixel({x, y}, pixel);
+            }
+        }
+        texture->update(image);
+    };
+
+    for (sf::Texture* texture : {
+             mainMenuProfileFrameTexture,
+             mainMenuSettingsTexture,
+             mainMenuSmallHexTexture,
+             mainMenuTitleFrameTexture,
+             showPasswordTexture,
+             hidePasswordTexture,
+             rememberCheckTexture})
+    {
+        coolForgedUiMetal(texture);
+    }
 
     sf::Text title(font, "Gloomthorn", 48);
     title.setFillColor(sf::Color(248, 224, 172));
@@ -1268,9 +1378,11 @@ int main(int argc, char** argv)
         {EnableCoinPurchases ? 168.0f : 200.0f, 46.0f},
         "Buy Card",
         font);
+    buyCardButton.setVariant(ButtonVariant::Primary);
     Button dismissRevealedCardButton({300.0f, 492.0f}, {200.0f, 46.0f}, "Dismiss", font);
     Button starterDeckBackButton({664.0f, 22.0f}, {112.0f, 38.0f}, "Back", font);
     Button claimStarterDeckButton({220.0f, 502.0f}, {360.0f, 46.0f}, "Claim Deck", font);
+    claimStarterDeckButton.setVariant(ButtonVariant::Primary);
     // The Tools tab collects the admin-only screens that used to sit on the main
     // menu. Tabs are a little narrower than three at the old width would be so
     // the signed-in text still fits between the strip and the Back button.
@@ -1332,7 +1444,9 @@ int main(int argc, char** argv)
     GameState lastFrameState = GameState::Menu;
     GameState currentState = GameState::Menu;
     GameState optionsReturnState = GameState::Menu;
+    int menuFocus = -1;
     int authenticatedMenuFocus = -1;
+    int optionsFocus = -1;
     OptionsTab activeOptionsTab = OptionsTab::Graphics;
     DisplaySettings pendingDisplaySettings = displaySettings;
     std::size_t selectedResolution = displayResolutionIndex(
@@ -1466,6 +1580,7 @@ int main(int argc, char** argv)
     std::size_t deckCardListOffset = 0;
     std::size_t libraryOffset = 0;
     int focusedInput = 0;
+    int formFocus = -1;
 
     // Play / in-game state.
     std::optional<std::future<DeckEditorLoadResult>> pendingPlayLoad;
@@ -1668,21 +1783,21 @@ int main(int argc, char** argv)
         {GameLeaveButtonWidth, GameActionButtonHeight},
         "Resign",
         font);
-    Button storyContinueButton({558.0f, 520.0f}, {194.0f, 48.0f}, "Continue", font);
+    Button storyContinueButton({558.0f, 520.0f}, {194.0f, 42.0f}, "Continue", font);
     Button storySkipDrillButton(
-        {326.0f, 520.0f}, {216.0f, 48.0f}, "Skip Practice", font);
+        {326.0f, 520.0f}, {216.0f, 42.0f}, "Skip Practice", font);
     // Keep the popup controls above a dedicated keyboard-help row. The former
     // y=472 placement put the hint directly through the Previous button.
     Button storyPopupPreviousButton({312.0f, 456.0f}, {196.0f, 46.0f}, "Previous", font);
     Button storyPopupContinueButton({524.0f, 456.0f}, {196.0f, 46.0f}, "Continue", font);
-    Button storyBackButton({48.0f, 526.0f}, {112.0f, 40.0f}, "Back", font);
+    Button storyBackButton({48.0f, 522.0f}, {112.0f, 40.0f}, "Back", font);
     Button storyBlackthornButton({42.0f, 466.0f}, {204.0f, 42.0f}, "Begin", font);
     Button storyMirewatchButton({298.0f, 466.0f}, {204.0f, 42.0f}, "Begin", font);
     Button storySeelieButton({554.0f, 466.0f}, {204.0f, 42.0f}, "Begin", font);
     Button storySpoilerMirewatchButton(
-        {220.0f, 390.0f}, {176.0f, 44.0f}, "Play Mirewatch First", font);
+        {220.0f, 378.0f}, {176.0f, 44.0f}, "Play Mirewatch First", font);
     Button storySpoilerContinueButton(
-        {412.0f, 390.0f}, {168.0f, 44.0f}, "Continue Anyway", font);
+        {412.0f, 378.0f}, {168.0f, 44.0f}, "Continue Anyway", font);
     Button storySelectBackButton({48.0f, 536.0f}, {112.0f, 40.0f}, "Back", font);
     std::array<Button, 8> storyMissionButtons{
         Button({58.0f, 132.0f}, {326.0f, 72.0f}, "Mission 1", font),
@@ -1695,10 +1810,10 @@ int main(int argc, char** argv)
         Button({416.0f, 402.0f}, {326.0f, 72.0f}, "Mission 8", font),
     };
     Button storyRestartCampaignButton(
-        {570.0f, 526.0f}, {172.0f, 40.0f}, "Replay Mission 1", font);
-    Button storyMissionSelectBackButton({58.0f, 526.0f}, {112.0f, 40.0f}, "Back", font);
-    Button storyMissionPreviousPageButton({188.0f, 526.0f}, {94.0f, 40.0f}, "Prev Page", font);
-    Button storyMissionNextPageButton({292.0f, 526.0f}, {94.0f, 40.0f}, "Next Page", font);
+        {570.0f, 520.0f}, {172.0f, 40.0f}, "Replay Mission 1", font);
+    Button storyMissionSelectBackButton({58.0f, 520.0f}, {112.0f, 40.0f}, "Back", font);
+    Button storyMissionPreviousPageButton({188.0f, 520.0f}, {94.0f, 40.0f}, "Prev Page", font);
+    Button storyMissionNextPageButton({292.0f, 520.0f}, {94.0f, 40.0f}, "Next Page", font);
     Button storyRestartButton(
         {GamePlayerBannerLeftX + 12.0f, 198.0f}, {156.0f, 32.0f}, "Restart Mission", font);
     storyContinueButton.setVariant(ButtonVariant::Primary);
@@ -1743,6 +1858,8 @@ int main(int argc, char** argv)
                              "Discard to deck bottom", font);
 
     auto clearFocus = [&]() {
+        formFocus = -1;
+        optionsFocus = -1;
         usernameInput.setActive(false);
         passwordInput.setActive(false);
         confirmInput.setActive(false);
@@ -1753,10 +1870,22 @@ int main(int argc, char** argv)
         adminSearchInput.setActive(false);
         adminGoldInput.setActive(false);
         adminCardInput.setActive(false);
+        passwordVisibilityIcon.setFocused(false);
+        confirmVisibilityIcon.setFocused(false);
+        currentPasswordVisibilityIcon.setFocused(false);
+        newPasswordVisibilityIcon.setFocused(false);
+        confirmNewPasswordVisibilityIcon.setFocused(false);
+        rememberMeCheckbox.setFocused(false);
+        loginSubmitButton.setFocused(false);
+        createSubmitButton.setFocused(false);
+        changePasswordSubmitButton.setFocused(false);
+        changePasswordBackButton.setFocused(false);
+        backButton.setFocused(false);
     };
 
     auto focusLoginInput = [&](int index) {
         focusedInput = (index + 2) % 2;
+        formFocus = focusedInput;
         usernameInput.setActive(focusedInput == 0);
         passwordInput.setActive(focusedInput == 1);
         confirmInput.setActive(false);
@@ -1766,6 +1895,7 @@ int main(int argc, char** argv)
 
     auto focusCreateInput = [&](int index) {
         focusedInput = (index + 3) % 3;
+        formFocus = focusedInput;
         usernameInput.setActive(focusedInput == 0);
         passwordInput.setActive(focusedInput == 1);
         confirmInput.setActive(focusedInput == 2);
@@ -1774,6 +1904,7 @@ int main(int argc, char** argv)
 
     auto focusChangePasswordInput = [&](int index) {
         focusedInput = (index + 3) % 3;
+        formFocus = focusedInput;
         usernameInput.setActive(false);
         passwordInput.setActive(false);
         confirmInput.setActive(false);
@@ -1836,9 +1967,9 @@ int main(int argc, char** argv)
 
         storyButton.setVariant(ButtonVariant::Primary);
         storyButton.setSize({primaryWidth, primaryHeight});
-        storyButton.setPosition({centerX - primaryWidth * 0.5f, 168.0f});
+        storyButton.setPosition({centerX - primaryWidth * 0.5f, 180.0f});
 
-        float y = 256.0f;
+        float y = 268.0f;
         auto placeSecondary = [&](Button& button) {
             button.setVariant(ButtonVariant::Secondary);
             button.setSize({secondaryWidth, secondaryHeight});
@@ -1993,7 +2124,7 @@ int main(int argc, char** argv)
         // The footer pair is deliberately plain metal: reusing the ornate
         // button_blank plaque at that size would put Log Out on the same visual
         // footing as Play.
-        if (footer || !mainMenuButtonTexture)
+        if (footer)
         {
             button.draw(window, animationTime);
             return;
@@ -2001,48 +2132,60 @@ int main(int argc, char** argv)
 
         if (primary)
         {
-            // Warm bloom under the primary plaque, so Play reads first even
+            // Violet bloom under the primary plaque, so Play reads first even
             // before the eye resolves any text.
             drawRadialGlow(
                 window,
                 center,
                 size.x * 0.72f,
-                sf::Color(232, 168, 76, active ? 62 : 34));
+                sf::Color(132, 86, 176, active ? 62 : 34));
         }
 
-        // Scale button_blank slightly past the hitbox so the plaque reads larger.
-        const float bgPadX = primary ? 20.0f : 14.0f;
-        const float bgPadY = primary ? 11.0f : 8.0f;
-        drawTextureRectContain(
-            window,
-            *mainMenuButtonTexture,
-            sf::IntRect({48, 312}, {1435, 306}),
-            {
-                {position.x - bgPadX, position.y - bgPadY + pressOffset},
-                {size.x + bgPadX * 2.0f, size.y + bgPadY * 2.0f}},
-            button.pressed
-                ? sf::Color(214, 202, 184)
-                : active
-                    ? sf::Color::White
-                    : sf::Color(primary ? 244 : 226, primary ? 244 : 226, primary ? 244 : 226));
+        // Use the shared forged plate instead of the legacy bitmap whose
+        // four-point endcaps read as starbursts at menu scale.
+        const float platePadX = primary ? 12.0f : 8.0f;
+        const float platePadY = primary ? 4.0f : 3.0f;
+        const sf::Vector2f platePosition{
+            position.x - platePadX,
+            position.y - platePadY + pressOffset};
+        const sf::Vector2f plateSize{
+            size.x + platePadX * 2.0f,
+            size.y + platePadY * 2.0f};
+        PlateStyle menuPlate;
+        menuPlate.fill = primary
+            ? sf::Color(46, 27, 61, 246)
+            : sf::Color(15, 21, 24, 246);
+        menuPlate.frame = active ? palette::SteelBright : palette::Steel;
+        menuPlate.cut = primary ? 15.0f : 12.0f;
+        menuPlate.state = button.pressed
+            ? PlateState::Pressed
+            : active ? PlateState::Hover : PlateState::Normal;
+        menuPlate.rivets = true;
+        menuPlate.brackets = false;
+        menuPlate.sheen = primary ? 0.78f : 0.48f;
+        drawMaterialPlate(window, platePosition, plateSize, menuPlate);
 
         if (focused)
         {
             drawFocusRing(
                 window,
-                {position.x - bgPadX - 3.0f, position.y - bgPadY - 3.0f},
-                {size.x + bgPadX * 2.0f + 6.0f, size.y + bgPadY * 2.0f + 6.0f},
+                platePosition - sf::Vector2f(3.0f, 3.0f),
+                plateSize + sf::Vector2f(6.0f, 6.0f),
                 11.0f,
                 animationTime);
         }
 
+        const bool hasIcon = iconTexture != nullptr;
         const float iconSize = primary ? 30.0f : 23.0f;
         const float iconLeft = position.x + (primary ? 24.0f : 18.0f);
-        drawMainMenuTextureContained(
-            iconTexture,
-            {iconLeft, position.y + (size.y - iconSize) * 0.5f + pressOffset},
-            {iconSize, iconSize},
-            active ? sf::Color::White : sf::Color(235, 225, 202));
+        if (hasIcon)
+        {
+            drawMainMenuTextureContained(
+                iconTexture,
+                {iconLeft, position.y + (size.y - iconSize) * 0.5f + pressOffset},
+                {iconSize, iconSize},
+                active ? sf::Color::White : sf::Color(218, 228, 230));
+        }
 
         // Menu labels take the display face: a main menu is exactly where
         // display type belongs, and it separates navigation from body copy.
@@ -2052,21 +2195,24 @@ int main(int argc, char** argv)
             primary ? 27u : 19u);
         label.setFillColor(active ? palette::InkBright : palette::Ink);
         label.setOutlineThickness(primary ? 1.0f : 0.0f);
-        label.setOutlineColor(sf::Color(58, 33, 14, 190));
-        // The ornate texture has a tall crest above its inset face, so its text
-        // needs a lower anchor than the geometrically centred metal buttons.
-        const float faceCenterOffsetY = primary ? 4.0f : 3.0f;
+        label.setOutlineColor(sf::Color(17, 24, 28, 210));
         centerButtonText(
             label,
-            {center.x + (primary ? 12.0f : 8.0f), center.y + faceCenterOffsetY + pressOffset});
+            {center.x + (hasIcon ? (primary ? 12.0f : 8.0f) : 0.0f),
+             center.y + pressOffset});
         drawCrispText(window, label);
     };
 
     auto drawAuthenticatedMenuTitle = [&]() {
+        const float viewWidth = window.getView().getSize().x;
+        const bool narrowWidescreen = viewWidth > ui_canvas::LegacyWidth + 0.5f &&
+            viewWidth < 1000.0f;
         if (mainMenuTitleFrameTexture)
         {
             // Stretch the frame to the dest rect (contain letterboxes and won't grow padding).
-            const sf::FloatRect frameRect{{190.0f, 26.0f}, {420.0f, 130.0f}};
+            const sf::FloatRect frameRect = narrowWidescreen
+                ? sf::FloatRect{{190.0f, 24.0f}, {420.0f, 128.0f}}
+                : sf::FloatRect{{171.0f, 18.0f}, {458.0f, 140.0f}};
             const sf::IntRect textureRect({86, 307}, {1368, 403});
             sf::Sprite frame(*mainMenuTitleFrameTexture);
             frame.setTextureRect(textureRect);
@@ -2077,8 +2223,27 @@ int main(int argc, char** argv)
             window.draw(frame);
         }
 
-        // Slightly smaller than the frame so the wordmark has breathing room inside.
-        drawGloomthornWordmark({400.0f, 75.0f}, {310.0f, 54.0f});
+        if (mainMenuLogoBannerTexture)
+        {
+            // The supplied art already carries the complete Gloomthorn banner.
+            // Contain it inside the existing frame so its transparent edges stay
+            // intact at both the legacy canvas and narrow-widescreen layouts.
+            const sf::FloatRect logoRect = narrowWidescreen
+                ? sf::FloatRect{{190.0f, 24.0f}, {420.0f, 128.0f}}
+                : sf::FloatRect{{171.0f, 18.0f}, {458.0f, 140.0f}};
+            drawMainMenuTextureContained(
+                mainMenuLogoBannerTexture,
+                logoRect.position,
+                logoRect.size);
+        }
+        else
+        {
+            // Keep the previous wordmark as a safe fallback if the optional
+            // supplied artwork is unavailable in a packaged build.
+            drawGloomthornWordmark(
+                {400.0f, narrowWidescreen ? 78.0f : 82.0f},
+                {narrowWidescreen ? 335.0f : 365.0f, narrowWidescreen ? 58.0f : 64.0f});
+        }
     };
 
     // League identity colours. A rank is the one place a cool accent belongs on
@@ -2127,9 +2292,12 @@ int main(int argc, char** argv)
     auto drawPlayerBadge = [&]() {
         // Width is bounded by the title frame, which starts at x = 190 and cannot
         // move: the wordmark is centred on the screen.
-        const bool compactBadge = window.getView().getSize().x <=
-            ui_canvas::LegacyWidth + 0.5f;
-        const float BadgeLeft = compactBadge ? 12.0f : -122.0f;
+        const float viewWidth = window.getView().getSize().x;
+        const bool compactBadge = viewWidth <= ui_canvas::LegacyWidth + 0.5f ||
+            (viewWidth > ui_canvas::LegacyWidth + 0.5f && viewWidth < 1000.0f);
+        const float viewLeft =
+            window.getView().getCenter().x - window.getView().getSize().x * 0.5f;
+        const float BadgeLeft = compactBadge ? 12.0f : std::max(viewLeft + 12.0f, -122.0f);
         const sf::Vector2f BadgePosition{BadgeLeft, 14.0f};
         // The role tag lives inside the plate, so the badge grows a row to hold
         // it. Hanging it underneath read as an element that had escaped its
@@ -2195,7 +2363,7 @@ int main(int argc, char** argv)
         portraitRing.setPosition(PortraitCenter);
         portraitRing.setFillColor(sf::Color::Transparent);
         portraitRing.setOutlineThickness(1.5f);
-        portraitRing.setOutlineColor(sf::Color(158, 112, 56, 220));
+        portraitRing.setOutlineColor(sf::Color(143, 166, 175, 220));
         window.draw(portraitRing);
 
         // ---- identity -----------------------------------------------------
@@ -2267,82 +2435,92 @@ int main(int argc, char** argv)
     // itself, rather than bare text in the corner.
     auto drawBuildStamp = [&]() {
         const float StampRight =
-            window.getView().getCenter().x + window.getView().getSize().x * 0.5f - 11.0f;
+            window.getView().getCenter().x + window.getView().getSize().x * 0.5f - 112.0f;
         constexpr float StampY = 578.0f;
         sf::Text version(font, "BUILD 1.0.0", type::Micro);
         version.setLetterSpacing(1.6f);
-        version.setFillColor(sf::Color(156, 140, 112, 215));
+        version.setFillColor(sf::Color(154, 169, 174, 215));
         const float versionWidth = version.getLocalBounds().size.x;
         version.setPosition({StampRight - versionWidth, StampY});
         drawCrispText(window, version);
 
         sf::RectangleShape stampRule({28.0f, 1.0f});
         stampRule.setPosition({StampRight - versionWidth - 34.0f, StampY + 5.0f});
-        stampRule.setFillColor(sf::Color(146, 104, 52, 130));
+        stampRule.setFillColor(sf::Color(112, 132, 141, 130));
         window.draw(stampRule);
     };
 
     auto drawAuthenticatedMenuChrome = [&]() {
         // Motes first: ambient life belongs behind the interface, never over it.
         drawAmbientMotes(window, animationTime, 40, sf::Color(178, 138, 224, 138));
+        drawRadialGlow(window, {400.0f, 316.0f}, 238.0f, sf::Color(8, 17, 18, 46));
 
         drawPlayerBadge();
         drawAuthenticatedMenuTitle();
 
         const bool compactChrome = window.getView().getSize().x <=
             ui_canvas::LegacyWidth + 0.5f;
-        const float settingsX = compactChrome ? 704.0f : 817.0f;
+        const float viewRight =
+            window.getView().getCenter().x + window.getView().getSize().x * 0.5f;
+        const float authenticatedExitX = compactChrome
+            ? 742.0f
+            : std::min(864.0f, viewRight - 58.0f - 10.0f);
+        const float settingsX = compactChrome ? 704.0f : authenticatedExitX - 47.0f;
         drawMainMenuTextureContained(
             mainMenuSmallHexTexture,
             {settingsX, 14.0f},
             {36.0f, 38.0f},
-            authenticatedSettingsHovered ? sf::Color::White : sf::Color(225, 218, 202));
+            authenticatedSettingsHovered ? sf::Color::White : sf::Color(222, 233, 237));
         drawMainMenuTextureContained(
             mainMenuSettingsTexture,
             {settingsX + 8.0f, 22.0f},
             {20.0f, 20.0f},
-            authenticatedSettingsHovered ? sf::Color::White : sf::Color(235, 225, 202));
+            authenticatedSettingsHovered ? sf::Color::White : sf::Color(232, 241, 244));
 
         drawBuildStamp();
     };
 
     auto authenticatedSettingsButtonClicked = [&](sf::Vector2f point) {
-        const float settingsX = window.getView().getSize().x <=
-                ui_canvas::LegacyWidth + 0.5f
-            ? 704.0f
-            : 817.0f;
+        const bool compactChrome = window.getView().getSize().x <=
+            ui_canvas::LegacyWidth + 0.5f;
+        const float viewRight =
+            window.getView().getCenter().x + window.getView().getSize().x * 0.5f;
+        const float exitX = compactChrome
+            ? 742.0f
+            : std::min(864.0f, viewRight - 58.0f - 10.0f);
+        const float settingsX = compactChrome ? 704.0f : exitX - 47.0f;
         return isInsideRect(point, settingsX - 1.0f, 13.0f, 38.0f, 40.0f);
     };
 
     auto drawExitDesktopCloseButton = [&]() {
         const bool authenticatedExit = currentState == GameState::Authenticated;
-        const float authenticatedExitX = window.getView().getSize().x <=
-                ui_canvas::LegacyWidth + 0.5f
+        const bool compactChrome = window.getView().getSize().x <=
+            ui_canvas::LegacyWidth + 0.5f;
+        const float viewRight =
+            window.getView().getCenter().x + window.getView().getSize().x * 0.5f;
+        const float authenticatedExitX = compactChrome
             ? 742.0f
-            : 864.0f;
-        if (currentState == GameState::Authenticated && mainMenuExitTexture)
-        {
-            drawMainMenuTextureStretched(
-                mainMenuExitTexture,
-                {authenticatedExitX, -2.0f},
-                {58.0f, 90.0f},
-                exitDesktopCloseHovered ? sf::Color::White : sf::Color(224, 214, 202));
-            return;
-        }
-
+            : std::min(864.0f, viewRight - 58.0f - 10.0f);
         const sf::Vector2f position = authenticatedExit
             ? sf::Vector2f{authenticatedExitX + 3.0f, 18.0f}
             : sf::Vector2f{724.0f, 18.0f};
         const sf::Vector2f size{52.0f, 52.0f};
 
-        drawBeveledPlate(
-            window,
-            position,
-            size,
-            exitDesktopCloseHovered ? sf::Color(134, 38, 28, 248) : sf::Color(75, 31, 25, 244),
-            exitDesktopCloseHovered ? sf::Color(255, 178, 120) : sf::Color(176, 92, 59),
-            exitDesktopCloseHovered,
-            10.0f);
+        PlateStyle closePlate;
+        closePlate.fill = exitDesktopCloseHovered
+            ? sf::Color(126, 35, 39, 248)
+            : sf::Color(68, 26, 31, 246);
+        closePlate.frame = exitDesktopCloseHovered
+            ? palette::SteelBright
+            : palette::Steel;
+        closePlate.cut = 10.0f;
+        closePlate.state = exitDesktopCloseHovered
+            ? PlateState::Hover
+            : PlateState::Normal;
+        closePlate.rivets = false;
+        closePlate.brackets = false;
+        closePlate.sheen = 0.42f;
+        drawMaterialPlate(window, position, size, closePlate);
 
         sf::RectangleShape slashA({32.0f, 6.0f});
         slashA.setOrigin({16.0f, 3.0f});
@@ -2362,10 +2540,13 @@ int main(int argc, char** argv)
     auto exitDesktopCloseButtonClicked = [&](sf::Vector2f point) {
         if (currentState == GameState::Authenticated)
         {
-            const float exitX = window.getView().getSize().x <=
-                    ui_canvas::LegacyWidth + 0.5f
+            const bool compactChrome = window.getView().getSize().x <=
+                ui_canvas::LegacyWidth + 0.5f;
+            const float viewRight =
+                window.getView().getCenter().x + window.getView().getSize().x * 0.5f;
+            const float exitX = compactChrome
                 ? 742.0f
-                : 864.0f;
+                : std::min(864.0f, viewRight - 58.0f - 10.0f);
             return isInsideRect(point, exitX, 0.0f, 58.0f, 72.0f);
         }
         return isInsideRect(point, 724.0f, 18.0f, 52.0f, 52.0f);
@@ -2834,6 +3015,7 @@ int main(int argc, char** argv)
 
     auto returnToMenu = [&]() {
         currentState = GameState::Menu;
+        menuFocus = -1;
         if (activeGameSocket)
         {
             activeGameSocket->disconnect();
@@ -3604,8 +3786,13 @@ int main(int argc, char** argv)
     };
 
     auto submitLogin = [&]() {
-        if (usernameInput.getContent().empty() || passwordInput.getContent().empty())
+        const bool usernameEmpty = usernameInput.getContent().empty();
+        const bool passwordEmpty = passwordInput.getContent().empty();
+        usernameInput.setError(usernameEmpty);
+        passwordInput.setError(passwordEmpty);
+        if (usernameEmpty || passwordEmpty)
         {
+            focusLoginInput(usernameEmpty ? 0 : 1);
             setMessage(messageText, "Username and password cannot be empty", sf::Color::Red);
         }
         else
@@ -3620,16 +3807,27 @@ int main(int argc, char** argv)
     };
 
     auto submitCreateAccount = [&]() {
-        if (usernameInput.getContent().empty() || passwordInput.getContent().empty())
+        const bool usernameEmpty = usernameInput.getContent().empty();
+        const bool passwordEmpty = passwordInput.getContent().empty();
+        usernameInput.setError(usernameEmpty);
+        passwordInput.setError(passwordEmpty);
+        confirmInput.setError(false);
+        if (usernameEmpty || passwordEmpty)
         {
+            focusCreateInput(usernameEmpty ? 0 : 1);
             setMessage(messageText, "Username and password cannot be empty", sf::Color::Red);
         }
         else if (!isValidNewPassword(passwordInput.getContent()))
         {
+            passwordInput.setError(true);
+            focusCreateInput(1);
             setMessage(messageText, PasswordRequirementMessage, sf::Color::Red);
         }
         else if (passwordInput.getContent() != confirmInput.getContent())
         {
+            passwordInput.setError(true);
+            confirmInput.setError(true);
+            focusCreateInput(2);
             setMessage(messageText, "Passwords do not match", sf::Color::Red);
         }
         else
@@ -3639,20 +3837,33 @@ int main(int argc, char** argv)
     };
 
     auto submitPasswordChange = [&]() {
-        if (currentPasswordInput.getContent().empty() || newPasswordInput.getContent().empty())
+        const bool currentEmpty = currentPasswordInput.getContent().empty();
+        const bool newEmpty = newPasswordInput.getContent().empty();
+        currentPasswordInput.setError(currentEmpty);
+        newPasswordInput.setError(newEmpty);
+        confirmNewPasswordInput.setError(false);
+        if (currentEmpty || newEmpty)
         {
+            focusChangePasswordInput(currentEmpty ? 0 : 1);
             setMessage(messageText, "Current and new passwords cannot be empty", sf::Color::Red);
         }
         else if (!isValidNewPassword(newPasswordInput.getContent()))
         {
+            newPasswordInput.setError(true);
+            focusChangePasswordInput(1);
             setMessage(messageText, NewPasswordRequirementMessage, sf::Color::Red);
         }
         else if (newPasswordInput.getContent() != confirmNewPasswordInput.getContent())
         {
+            newPasswordInput.setError(true);
+            confirmNewPasswordInput.setError(true);
+            focusChangePasswordInput(2);
             setMessage(messageText, "New passwords do not match", sf::Color::Red);
         }
         else if (currentPasswordInput.getContent() == newPasswordInput.getContent())
         {
+            newPasswordInput.setError(true);
+            focusChangePasswordInput(1);
             setMessage(messageText, "New password must be different", sf::Color::Red);
         }
         else
@@ -3671,14 +3882,17 @@ int main(int argc, char** argv)
     // Both entry forms are laid out from one place: a floating column of fields
     // on the backdrop reads as an unfinished form, and the reserved notice row is
     // what stops the layout jumping when validation fails.
-    const sf::Vector2f LoginPanelPosition{252.0f, 116.0f};
-    const sf::Vector2f LoginPanelSize{296.0f, 352.0f};
-    const sf::Vector2f CreatePanelPosition{252.0f, 108.0f};
-    const sf::Vector2f CreatePanelSize{296.0f, 412.0f};
+    const sf::Vector2f LoginPanelPosition{212.0f, 112.0f};
+    const sf::Vector2f LoginPanelSize{376.0f, 370.0f};
+    const sf::Vector2f CreatePanelPosition{212.0f, 92.0f};
+    const sf::Vector2f CreatePanelSize{376.0f, 448.0f};
+    const sf::Vector2f ChangePasswordPanelPosition{212.0f, 104.0f};
+    const sf::Vector2f ChangePasswordPanelSize{376.0f, 440.0f};
     constexpr float LoginNoticeY = 358.0f;
-    constexpr float CreateNoticeY = 406.0f;
-    constexpr float FormFieldX = 300.0f;
-    constexpr float FormFieldWidth = 200.0f;
+    constexpr float CreateNoticeY = 414.0f;
+    constexpr float ChangePasswordNoticeY = 474.0f;
+    constexpr float FormFieldX = 270.0f;
+    constexpr float FormFieldWidth = 260.0f;
 
     // ---- options screen geometry -------------------------------------------
     // Label on the left, control on the right, separated by rules. Centred
@@ -3736,33 +3950,331 @@ int main(int argc, char** argv)
         loginSubmitButton.setVariant(ButtonVariant::Primary);
         createSubmitButton.setVariant(ButtonVariant::Primary);
         backButton.setVariant(ButtonVariant::Quiet);
+        loginSubmitButton.setEnabled(!pendingRequest);
+        createSubmitButton.setEnabled(!pendingRequest);
+        backButton.setEnabled(!pendingRequest);
 
+        usernameInput.setSize({FormFieldWidth, 40.0f});
+        passwordInput.setSize({FormFieldWidth, 40.0f});
+        confirmInput.setSize({FormFieldWidth, 40.0f});
         loginSubmitButton.setSize({FormFieldWidth, 46.0f});
         createSubmitButton.setSize({FormFieldWidth, 46.0f});
-        backButton.setSize({132.0f, 34.0f});
+        backButton.setSize({164.0f, 36.0f});
         backButton.setLabelSize(type::Body);
     };
 
     auto layoutLoginForm = [&]() {
         layoutEntryForms();
-        usernameInput.setPosition({FormFieldX, 214.0f});
-        passwordInput.setPosition({FormFieldX, 286.0f});
+        usernameInput.setPosition({FormFieldX, 202.0f});
+        passwordInput.setPosition({FormFieldX, 274.0f});
         passwordVisibilityIcon.fieldBounds = passwordInput.bounds();
-        rememberMeCheckbox.setPosition({FormFieldX, 336.0f});
+        rememberMeCheckbox.setPosition({FormFieldX, 324.0f});
         loginSubmitButton.setPosition({FormFieldX, 402.0f});
-        backButton.setPosition({334.0f, 480.0f});
+        backButton.setPosition({318.0f, 494.0f});
     };
 
     auto layoutCreateAccountForm = [&]() {
         layoutEntryForms();
-        usernameInput.setPosition({FormFieldX, 186.0f});
-        passwordInput.setPosition({FormFieldX, 254.0f});
-        confirmInput.setPosition({FormFieldX, 322.0f});
+        usernameInput.setPosition({FormFieldX, 172.0f});
+        passwordInput.setPosition({FormFieldX, 244.0f});
+        confirmInput.setPosition({FormFieldX, 316.0f});
         passwordVisibilityIcon.fieldBounds = passwordInput.bounds();
         confirmVisibilityIcon.fieldBounds = confirmInput.bounds();
         createSubmitButton.setLabelSize(type::Heading);
-        createSubmitButton.setPosition({FormFieldX, 456.0f});
-        backButton.setPosition({334.0f, 532.0f});
+        createSubmitButton.setPosition({FormFieldX, 462.0f});
+        backButton.setPosition({318.0f, 538.0f});
+    };
+
+    auto layoutChangePasswordForm = [&]() {
+        currentPasswordInput.setSize({FormFieldWidth, 40.0f});
+        newPasswordInput.setSize({FormFieldWidth, 40.0f});
+        confirmNewPasswordInput.setSize({FormFieldWidth, 40.0f});
+        currentPasswordInput.setPosition({FormFieldX, 186.0f});
+        newPasswordInput.setPosition({FormFieldX, 252.0f});
+        confirmNewPasswordInput.setPosition({FormFieldX, 318.0f});
+        currentPasswordVisibilityIcon.fieldBounds = currentPasswordInput.bounds();
+        newPasswordVisibilityIcon.fieldBounds = newPasswordInput.bounds();
+        confirmNewPasswordVisibilityIcon.fieldBounds = confirmNewPasswordInput.bounds();
+
+        changePasswordSubmitButton.setVariant(ButtonVariant::Primary);
+        changePasswordSubmitButton.setEnabled(!pendingPasswordChange);
+        changePasswordSubmitButton.setSize({FormFieldWidth, 46.0f});
+        changePasswordSubmitButton.setPosition({FormFieldX, 414.0f});
+        changePasswordSubmitButton.setLabelSize(type::Subheading);
+        changePasswordBackButton.setVariant(ButtonVariant::Quiet);
+        changePasswordBackButton.setEnabled(!pendingPasswordChange);
+        changePasswordBackButton.setSize({164.0f, 36.0f});
+        changePasswordBackButton.setPosition({318.0f, 526.0f});
+        changePasswordBackButton.setLabelSize(type::Body);
+    };
+
+    auto syncFormFocus = [&]() {
+        const bool login = currentState == GameState::Login;
+        const bool create = currentState == GameState::CreateAccount;
+        const bool change = currentState == GameState::ChangePassword && !passwordChangedPopupVisible;
+
+        passwordVisibilityIcon.setFocused(login && formFocus == 2);
+        confirmVisibilityIcon.setFocused(create && formFocus == 2);
+        currentPasswordVisibilityIcon.setFocused(change && formFocus == 3);
+        newPasswordVisibilityIcon.setFocused(false);
+        confirmNewPasswordVisibilityIcon.setFocused(false);
+        rememberMeCheckbox.setFocused(login && formFocus == 3);
+        loginSubmitButton.setFocused(login && formFocus == 4);
+        createSubmitButton.setFocused(create && formFocus == 4);
+        changePasswordSubmitButton.setFocused(change && formFocus == 4);
+        backButton.setFocused((login || create) && formFocus == 5);
+        changePasswordBackButton.setFocused(change && formFocus == 5);
+        dismissPasswordChangedButton.setFocused(
+            currentState == GameState::ChangePassword && passwordChangedPopupVisible);
+    };
+
+    auto optionsFocusCount = [&]() {
+        if (activeOptionsTab == OptionsTab::Graphics)
+        {
+            return 9;
+        }
+        if (activeOptionsTab == OptionsTab::Audio)
+        {
+            return 10;
+        }
+        return optionsReturnState == GameState::Authenticated ? 5 : 4;
+    };
+
+    auto syncOptionsFocus = [&]() {
+        const bool options = currentState == GameState::Options;
+        optionsTabs.setFocused(
+            options && optionsFocus >= 0 && optionsFocus < 3
+                ? std::optional<std::size_t>(static_cast<std::size_t>(optionsFocus))
+                : std::nullopt);
+
+        displayModeButton.setFocused(options && activeOptionsTab == OptionsTab::Graphics && optionsFocus == 3);
+        previousResolutionButton.setFocused(options && activeOptionsTab == OptionsTab::Graphics && optionsFocus == 4);
+        resolutionButton.setFocused(options && activeOptionsTab == OptionsTab::Graphics && optionsFocus == 5);
+        nextResolutionButton.setFocused(options && activeOptionsTab == OptionsTab::Graphics && optionsFocus == 6);
+        applyOptionsButton.setFocused(options && activeOptionsTab == OptionsTab::Graphics && optionsFocus == 7);
+
+        allAudioSlider.setFocused(options && activeOptionsTab == OptionsTab::Audio && optionsFocus == 3);
+        musicAudioSlider.setFocused(options && activeOptionsTab == OptionsTab::Audio && optionsFocus == 4);
+        soundFxAudioSlider.setFocused(options && activeOptionsTab == OptionsTab::Audio && optionsFocus == 5);
+        muteAllAudioCheckbox.setFocused(options && activeOptionsTab == OptionsTab::Audio && optionsFocus == 6);
+        muteMusicCheckbox.setFocused(options && activeOptionsTab == OptionsTab::Audio && optionsFocus == 7);
+        muteSoundFxCheckbox.setFocused(options && activeOptionsTab == OptionsTab::Audio && optionsFocus == 8);
+
+        changePasswordOptionButton.setFocused(
+            options && activeOptionsTab == OptionsTab::Account &&
+            optionsReturnState == GameState::Authenticated && optionsFocus == 3);
+        const int backFocus = activeOptionsTab == OptionsTab::Graphics
+            ? 8
+            : activeOptionsTab == OptionsTab::Audio
+                ? 9
+                : optionsReturnState == GameState::Authenticated ? 4 : 3;
+        optionsBackButton.setFocused(options && optionsFocus == backFocus);
+    };
+
+    auto moveOptionsFocus = [&](int delta) {
+        const int count = optionsFocusCount();
+        if (count <= 0)
+        {
+            return;
+        }
+        if (optionsFocus < 0)
+        {
+            optionsFocus = delta < 0 ? count - 1 : 0;
+        }
+        else
+        {
+            optionsFocus = (optionsFocus + delta + count) % count;
+        }
+        syncOptionsFocus();
+    };
+
+    auto activateOptionsFocus = [&]() {
+        if (optionsFocus < 0)
+        {
+            optionsFocus = 0;
+        }
+        if (optionsFocus < 3)
+        {
+            setActiveOptionsTab(static_cast<OptionsTab>(optionsFocus));
+            return;
+        }
+
+        if (activeOptionsTab == OptionsTab::Graphics)
+        {
+            if (optionsFocus == 3)
+            {
+                pendingDisplaySettings.fullscreen = !pendingDisplaySettings.fullscreen;
+                updateOptionsLabels();
+            }
+            else if (optionsFocus == 4)
+            {
+                selectedResolution = selectedResolution == 0
+                    ? displayResolutions.size() - 1
+                    : selectedResolution - 1;
+                updateOptionsLabels();
+            }
+            else if (optionsFocus == 6)
+            {
+                selectedResolution = (selectedResolution + 1) % displayResolutions.size();
+                updateOptionsLabels();
+            }
+            else if (optionsFocus == 7)
+            {
+                const sf::Vector2u size = displayResolutions[selectedResolution];
+                pendingDisplaySettings.width = size.x;
+                pendingDisplaySettings.height = size.y;
+                createDisplayWindow(window, pendingDisplaySettings, desktopMode, fullscreenModes);
+                displaySettings = pendingDisplaySettings;
+                selectedResolution = displayResolutionIndex(
+                    displayResolutions,
+                    {displaySettings.width, displaySettings.height});
+                updateOptionsLabels();
+                const bool saved = saveDisplaySettings(displaySettings);
+                setMessage(
+                    messageText,
+                    saved ? "Display settings applied and saved." : "Settings applied, but could not be saved.",
+                    saved ? sf::Color(120, 220, 150) : sf::Color::Red);
+            }
+            else if (optionsFocus == 8)
+            {
+                leaveOptionsScreen();
+            }
+        }
+        else if (activeOptionsTab == OptionsTab::Audio)
+        {
+            if (optionsFocus == 6)
+            {
+                audioSystem.setAllMuted(!audioSystem.isAllMuted());
+                queueAudioSettingsSave();
+            }
+            else if (optionsFocus == 7)
+            {
+                audioSystem.setMusicMuted(!audioSystem.isMusicMuted());
+                queueAudioSettingsSave();
+            }
+            else if (optionsFocus == 8)
+            {
+                audioSystem.setSoundEffectsMuted(!audioSystem.isSoundEffectsMuted());
+                queueAudioSettingsSave();
+            }
+            else if (optionsFocus == 9)
+            {
+                leaveOptionsScreen();
+            }
+        }
+        else if (optionsReturnState == GameState::Authenticated && optionsFocus == 3)
+        {
+            showChangePasswordScreen();
+        }
+        else
+        {
+            leaveOptionsScreen();
+        }
+    };
+
+    auto focusLoginTarget = [&](int target) {
+        target = (target + 6) % 6;
+        clearFocus();
+        if (target < 2)
+        {
+            focusLoginInput(target);
+        }
+        else
+        {
+            formFocus = target;
+            syncFormFocus();
+        }
+    };
+
+    auto focusCreateTarget = [&](int target) {
+        target = (target + 6) % 6;
+        clearFocus();
+        if (target == 0 || target == 1)
+        {
+            focusCreateInput(target);
+        }
+        else if (target == 3)
+        {
+            focusCreateInput(2);
+            formFocus = 3;
+            syncFormFocus();
+        }
+        else
+        {
+            formFocus = target;
+            syncFormFocus();
+        }
+    };
+
+    auto focusChangePasswordTarget = [&](int target) {
+        target = (target + 6) % 6;
+        clearFocus();
+        if (target < 3)
+        {
+            focusChangePasswordInput(target);
+        }
+        else
+        {
+            formFocus = target;
+            syncFormFocus();
+        }
+    };
+
+    auto activateFormFocus = [&]() {
+        if (currentState == GameState::Login)
+        {
+            if (formFocus == 2)
+            {
+                passwordVisible = !passwordVisible;
+                updatePasswordVisibility();
+            }
+            else if (formFocus == 3)
+            {
+                rememberMeChecked = !rememberMeChecked;
+            }
+            else if (formFocus == 5)
+            {
+                returnToMenu();
+            }
+            else
+            {
+                submitLogin();
+            }
+        }
+        else if (currentState == GameState::CreateAccount)
+        {
+            if (formFocus == 2)
+            {
+                passwordVisible = !passwordVisible;
+                updatePasswordVisibility();
+            }
+            else if (formFocus == 5)
+            {
+                returnToMenu();
+            }
+            else
+            {
+                submitCreateAccount();
+            }
+        }
+        else if (currentState == GameState::ChangePassword &&
+                 !passwordChangedPopupVisible &&
+                 !pendingPasswordChange)
+        {
+            if (formFocus == 3)
+            {
+                changePasswordsVisible = !changePasswordsVisible;
+                updateChangePasswordVisibility();
+            }
+            else if (formFocus == 5)
+            {
+                leaveChangePasswordScreen();
+            }
+            else
+            {
+                submitPasswordChange();
+            }
+        }
     };
 
     // A validation notice that belongs to the form rather than floating loose at
@@ -3901,7 +4413,7 @@ int main(int argc, char** argv)
             window,
             center,
             Radius * 1.65f,
-            unknown ? sf::Color(123, 79, 168, 62) : sf::Color(196, 138, 62, 52));
+            unknown ? sf::Color(123, 79, 168, 62) : sf::Color(170, 200, 215, 52));
 
         sf::CircleShape well(Radius, 44);
         well.setOrigin({Radius, Radius});
@@ -4020,7 +4532,7 @@ int main(int argc, char** argv)
                 mainMenuPlayIconTexture,
                 {centerX - 17.0f, slotY - 17.0f},
                 {34.0f, 34.0f},
-                sf::Color(232, 198, 140, 210));
+                sf::Color(214, 229, 234, 210));
         }
 
         const int elapsedSeconds =
@@ -4480,7 +4992,7 @@ int main(int argc, char** argv)
         const float progress = static_cast<float>(offset) / static_cast<float>(totalRows - visibleRows);
         sf::RectangleShape thumb({3.0f, thumbHeight});
         thumb.setPosition({x, y + travel * progress});
-        thumb.setFillColor(sf::Color(198, 146, 70, 225));
+        thumb.setFillColor(sf::Color(147, 174, 184, 225));
         window.draw(thumb);
     };
 
@@ -6727,7 +7239,7 @@ int main(int argc, char** argv)
             position,
             size,
             sf::Color(18, 23, 23, 244),
-            game_data::isHeroCard(card) ? sf::Color(232, 187, 83) : sf::Color(176, 123, 59),
+            game_data::isHeroCard(card) ? sf::Color(232, 187, 83) : palette::Steel,
             game_data::isHeroCard(card),
             12.0f);
 
@@ -6736,7 +7248,7 @@ int main(int argc, char** argv)
             {position.x + 15.0f, position.y + 16.0f},
             {size.x - 30.0f, 150.0f},
             sf::Color(8, 14, 15),
-            sf::Color(116, 86, 52),
+            palette::SteelEdge,
             false,
             7.0f);
         if (sf::Texture* art = cardArtTexture(card.imagePath))
@@ -7103,7 +7615,7 @@ int main(int argc, char** argv)
             position,
             {TooltipWidth, tooltipHeight},
             sf::Color(8, 14, 15, 250),
-            sf::Color(198, 146, 70, 235),
+            sf::Color(147, 174, 184, 235),
             false,
             6.0f);
         drawText(
@@ -9878,9 +10390,9 @@ int main(int argc, char** argv)
         sf::CircleShape bezel(radius, 48);
         bezel.setOrigin({radius, radius});
         bezel.setPosition(center);
-        bezel.setFillColor(sf::Color(53, 39, 25, 255));
+        bezel.setFillColor(sf::Color(27, 38, 43, 255));
         bezel.setOutlineThickness(2.0f);
-        bezel.setOutlineColor(sf::Color(232, 190, 102, 245));
+        bezel.setOutlineColor(sf::Color(202, 220, 226, 245));
         window.draw(bezel);
 
         const float portraitRadius = radius - 5.0f;
@@ -9917,7 +10429,7 @@ int main(int argc, char** argv)
         innerRing.setPosition(center);
         innerRing.setFillColor(sf::Color::Transparent);
         innerRing.setOutlineThickness(1.5f);
-        innerRing.setOutlineColor(sf::Color(255, 225, 157, 190));
+        innerRing.setOutlineColor(sf::Color(231, 241, 244, 190));
         window.draw(innerRing);
     };
 
@@ -10003,7 +10515,7 @@ int main(int argc, char** argv)
             {ActionChoiceDialogX, dialogY},
             {ActionChoiceDialogWidth, dialogHeight},
             sf::Color(20, 25, 27, 252),
-            sf::Color(213, 170, 84),
+            palette::SteelBright,
             true,
             11.0f);
 
@@ -10064,13 +10576,13 @@ int main(int argc, char** argv)
                 hovered
                     ? sf::Color(148, 230, 204)
                     : focused
-                        ? sf::Color(226, 192, 111)
+                        ? palette::SteelBright
                         : sf::Color(95, 110, 108),
                 hovered || focused,
                 7.0f);
 
             const sf::Vector2f numberCenter{rowX + 24.0f, rowY + 27.0f};
-            drawLeagueSigil(numberCenter, 13.0f, sf::Color(184, 137, 71));
+            drawLeagueSigil(numberCenter, 13.0f, palette::Jewel);
             drawCenteredText(
                 window,
                 font,
@@ -10117,14 +10629,14 @@ int main(int argc, char** argv)
 
         const sf::FloatRect cancel = actionChoiceCancelRect();
         const bool cancelHovered = cancel.contains(pointer);
-        drawBeveledPlate(
-            window,
-            cancel.position,
-            cancel.size,
-            cancelHovered ? sf::Color(68, 46, 43) : sf::Color(38, 39, 40),
-            cancelHovered ? sf::Color(235, 145, 126) : sf::Color(130, 125, 116),
-            cancelHovered,
-            6.0f);
+            drawBeveledPlate(
+                window,
+                cancel.position,
+                cancel.size,
+                cancelHovered ? sf::Color(68, 46, 43) : sf::Color(38, 39, 40),
+                cancelHovered ? sf::Color(235, 145, 126) : sf::Color(91, 108, 116),
+                cancelHovered,
+                6.0f);
         drawCenteredText(
             window,
             font,
@@ -11416,15 +11928,29 @@ int main(int argc, char** argv)
     };
 
     auto applyCaptureScreen = [&](const std::string& screen) {
+        // Every key starts from the same service-backed fixture. This makes the
+        // gallery independent of request order instead of inheriting mutations
+        // from the screen captured immediately before it.
+        seedCaptureState();
         captureValidationScreen = screen;
         storyActionCaptureInvariant.reset();
         setMessage(messageText, "", sf::Color::Red);
         title.setString("Gloomthorn");
         centerText(title, 400.0f);
+        menuFocus = -1;
+        formFocus = -1;
+        authenticatedMenuFocus = -1;
+        optionsFocus = -1;
         captureHoverPoint.reset();
+        passwordVisible = false;
+        changePasswordsVisible = false;
+        rememberMeChecked = false;
+        updatePasswordVisibility();
+        updateChangePasswordVisibility();
         usernameInput.setError(false);
         passwordInput.setError(false);
         confirmInput.setError(false);
+        clearFocus();
         exitDesktopPopupVisible = false;
         deckUnsavedChangesPopupVisible = false;
         resignConfirmPopupVisible = false;
@@ -11432,6 +11958,8 @@ int main(int argc, char** argv)
         passwordChangedPopupVisible = false;
         addCardPopupVisible = false;
         giveStarterDeckPopupVisible = false;
+        deleteUserPopupVisible = false;
+        adminUserDeleteTarget.clear();
         deckEditorMode = DeckEditorMode::DeckList;
         starterDeckMode = false;
         // Screens are visited in one process, so anything a previous screen turned
@@ -11445,57 +11973,172 @@ int main(int argc, char** argv)
         deckListOffset = 0;
         deckCardListOffset = 0;
         libraryOffset = 0;
+        draggingLibraryCard.reset();
+        draggingDeckCard.reset();
+        dragActive = false;
+        dragStartPos = {};
+        dragCurrentPos = {};
 
         if (screen == "title-screen")
         {
-            // The pre-sign-in screen had no capture key at all, so nobody had
-            // ever reviewed it.
             currentState = GameState::Menu;
         }
-        else if (screen == "login")
+        else if (screen == "title-screen-hover")
+        {
+            currentState = GameState::Menu;
+            captureHoverPoint = sf::Vector2f{400.0f, 243.0f};
+        }
+        else if (screen == "title-screen-focus")
+        {
+            currentState = GameState::Menu;
+            menuFocus = 0;
+        }
+        else if (screen == "login" || screen == "login-password-visible" ||
+                 screen == "login-remembered")
         {
             currentState = GameState::Login;
+            title.setString("Login");
+            centerText(title, 400.0f);
             usernameInput.setContent("Thistlewisp");
-            passwordInput.setContent("marshlight");
-            usernameInput.setActive(true);
-            passwordInput.setActive(false);
+            passwordInput.setContent("Marshlight7!");
+            passwordVisible = screen == "login-password-visible";
+            rememberMeChecked = screen == "login-remembered";
+            updatePasswordVisibility();
+            focusLoginInput(0);
+        }
+        else if (screen == "login-hover")
+        {
+            currentState = GameState::Login;
+            title.setString("Login");
+            centerText(title, 400.0f);
+            usernameInput.setContent("Thistlewisp");
+            passwordInput.setContent("Marshlight7!");
+            clearFocus();
+            // Keep a stable point on the primary action for hover-state review.
+            captureHoverPoint = sf::Vector2f{400.0f, 425.0f};
+        }
+        else if (screen == "login-focus")
+        {
+            currentState = GameState::Login;
+            title.setString("Login");
+            centerText(title, 400.0f);
+            usernameInput.setContent("Thistlewisp");
+            passwordInput.setContent("Marshlight7!");
+            focusLoginInput(1);
         }
         else if (screen == "login-error")
         {
             currentState = GameState::Login;
+            title.setString("Login");
+            centerText(title, 400.0f);
             usernameInput.setContent("Thistlewisp");
             passwordInput.setContent("wrongpass");
-            usernameInput.setActive(false);
-            passwordInput.setActive(true);
+            focusLoginInput(1);
             passwordInput.setError(true);
             setMessage(messageText, "That username and password do not match.", palette::DangerBright);
         }
-        else if (screen == "create-account")
+        else if (screen == "create-account" ||
+                 screen == "create-account-password-visible")
         {
             currentState = GameState::CreateAccount;
-            usernameInput.setActive(true);
+            title.setString("Create Account");
+            centerText(title, 400.0f);
+            usernameInput.setContent("Thistlewisp");
+            passwordInput.setContent("Marshlight7!");
+            confirmInput.setContent("Marshlight7!");
+            passwordVisible = screen == "create-account-password-visible";
+            updatePasswordVisibility();
+            focusCreateInput(0);
+        }
+        else if (screen == "create-account-hover")
+        {
+            currentState = GameState::CreateAccount;
+            title.setString("Create Account");
+            centerText(title, 400.0f);
+            usernameInput.setContent("Thistlewisp");
+            passwordInput.setContent("Marshlight7!");
+            confirmInput.setContent("Marshlight7!");
+            clearFocus();
+            captureHoverPoint = sf::Vector2f{400.0f, 485.0f};
+        }
+        else if (screen == "create-account-focus")
+        {
+            currentState = GameState::CreateAccount;
+            title.setString("Create Account");
+            centerText(title, 400.0f);
+            usernameInput.setContent("Thistlewisp");
+            passwordInput.setContent("Marshlight7!");
+            confirmInput.setContent("Marshlight7!");
+            focusCreateInput(2);
         }
         else if (screen == "create-account-invalid")
         {
             currentState = GameState::CreateAccount;
+            title.setString("Create Account");
+            centerText(title, 400.0f);
             usernameInput.setContent("Thistlewisp");
-            passwordInput.setContent("marsh");
-            confirmInput.setContent("marshlight");
-            confirmInput.setActive(true);
+            passwordInput.setContent("Marshlight7!");
+            confirmInput.setContent("Marshlight8!");
+            focusCreateInput(2);
             passwordInput.setError(true);
             confirmInput.setError(true);
             setMessage(messageText, "Passwords do not match.", palette::DangerBright);
         }
-        else if (screen == "options" || screen == "options-audio" || screen == "options-account")
+        else if (screen == "change-password" ||
+                 screen == "change-password-focus" ||
+                 screen == "change-password-success" ||
+                 screen == "change-password-visible")
+        {
+            currentState = GameState::ChangePassword;
+            title.setString("Change Password");
+            centerText(title, 400.0f);
+            currentPasswordInput.setContent("marshlight");
+            newPasswordInput.setContent("Nightbloom7!");
+            confirmNewPasswordInput.setContent("Nightbloom7!");
+            changePasswordsVisible = screen == "change-password-visible";
+            updateChangePasswordVisibility();
+            passwordChangedPopupVisible = screen == "change-password-success";
+            focusChangePasswordInput(screen == "change-password-focus" ? 1 : 0);
+        }
+        else if (screen == "options" || screen == "options-audio" ||
+                 screen == "options-account" || screen == "options-account-logged-out")
         {
             currentState = GameState::Options;
-            optionsReturnState = GameState::Authenticated;
+            title.setString("Options");
+            centerText(title, 400.0f);
+            optionsReturnState = screen == "options-account-logged-out"
+                ? GameState::Menu
+                : GameState::Authenticated;
             activeOptionsTab = screen == "options-audio" ? OptionsTab::Audio
-                : screen == "options-account"           ? OptionsTab::Account
-                                                        : OptionsTab::Graphics;
+                : (screen == "options-account" || screen == "options-account-logged-out")
+                    ? OptionsTab::Account
+                    : OptionsTab::Graphics;
             optionsTabs.setActive(static_cast<std::size_t>(activeOptionsTab));
             // Without this the graphics tab captures with empty value plates: the
             // labels are only refreshed when a human opens the screen.
+            updateOptionsLabels();
+        }
+        else if (screen == "options-hover")
+        {
+            currentState = GameState::Options;
+            title.setString("Options");
+            centerText(title, 400.0f);
+            optionsReturnState = GameState::Authenticated;
+            activeOptionsTab = OptionsTab::Graphics;
+            optionsTabs.setActive(static_cast<std::size_t>(activeOptionsTab));
+            updateOptionsLabels();
+            // Keep a stable point on the tab strip for hover-state review.
+            captureHoverPoint = sf::Vector2f{226.0f, 133.0f};
+        }
+        else if (screen == "options-focus")
+        {
+            currentState = GameState::Options;
+            title.setString("Options");
+            centerText(title, 400.0f);
+            optionsReturnState = GameState::Authenticated;
+            activeOptionsTab = OptionsTab::Graphics;
+            optionsTabs.setActive(static_cast<std::size_t>(activeOptionsTab));
+            optionsFocus = 3;
             updateOptionsLabels();
         }
         else if (screen == "main-menu")
@@ -11507,6 +12150,11 @@ int main(int argc, char** argv)
             currentState = GameState::Authenticated;
             // Centre of the primary Guided Story plate.
             captureHoverPoint = sf::Vector2f{400.0f, 199.0f};
+        }
+        else if (screen == "main-menu-focus")
+        {
+            currentState = GameState::Authenticated;
+            authenticatedMenuFocus = 0;
         }
         else if (screen == "main-menu-exit")
         {
@@ -11524,6 +12172,14 @@ int main(int argc, char** argv)
             centerText(title, 400.0f);
             setMessage(messageText, "Searching for an opponent...", sf::Color(226, 196, 118));
         }
+        else if (screen == "sandbox-loading")
+        {
+            currentState = GameState::SandboxLoading;
+            title.setString("Sandbox");
+            centerText(title, 400.0f);
+            setMessageY(messageText, 450.0f);
+            setMessage(messageText, "Preparing the sandbox...", palette::Ink);
+        }
         else if (screen == "deck-editor")
         {
             currentState = GameState::DeckEditor;
@@ -11536,7 +12192,8 @@ int main(int argc, char** argv)
             selectedDeck.reset();
         }
         else if (screen == "deck-editor-cards" || screen == "deck-editor-full" ||
-                 screen == "deck-editor-popup" || screen == "deck-editor-unsaved")
+                 screen == "deck-editor-popup" || screen == "deck-editor-unsaved" ||
+                 screen == "deck-editor-drag-add" || screen == "deck-editor-drag-remove")
         {
             currentState = GameState::DeckEditor;
             deckEditorMode = DeckEditorMode::EditDeck;
@@ -11551,9 +12208,18 @@ int main(int argc, char** argv)
             selectedLibraryCard = 0;
             if (screen == "deck-editor-popup")
             {
-                inspectedDeckEditorCardTitle = editingDeck.cardTitles.empty()
-                    ? allCardLibrary.front().title
-                    : editingDeck.cardTitles.front();
+                if (!editingDeck.cardTitles.empty())
+                {
+                    inspectedDeckEditorCardTitle = editingDeck.cardTitles.front();
+                }
+                else if (!allCardLibrary.empty())
+                {
+                    inspectedDeckEditorCardTitle = allCardLibrary.front().title;
+                }
+                else
+                {
+                    inspectedDeckEditorCardTitle.reset();
+                }
                 inspectedDeckEditorCardScroll = 0.0f;
             }
             else if (screen == "deck-editor-unsaved")
@@ -11562,6 +12228,25 @@ int main(int argc, char** argv)
                 editingDeck.name += " v2";
                 deckNameInput.setContent(editingDeck.name);
                 deckUnsavedChangesPopupVisible = true;
+            }
+            else if (screen == "deck-editor-drag-add" && !filteredCardLibrary.empty())
+            {
+                draggingLibraryCard = 0;
+                dragActive = true;
+                dragStartPos = {LibraryX + 80.0f, LibraryY + 18.0f};
+                dragCurrentPos = {
+                    CurrentDeckPanelX + CurrentDeckPanelWidth * 0.5f,
+                    DeckEditorPanelY + DeckEditorPanelHeight * 0.5f};
+            }
+            else if (screen == "deck-editor-drag-remove" &&
+                     !editingDeck.cardTitles.empty())
+            {
+                draggingDeckCard = 0;
+                dragActive = true;
+                dragStartPos = {DeckCardsX + 80.0f, DeckCardsY + 18.0f};
+                dragCurrentPos = {
+                    LibraryPanelX + LibraryPanelWidth * 0.5f,
+                    DeckEditorPanelY + DeckEditorPanelHeight * 0.5f};
             }
         }
         else if (screen == "shop")
@@ -11588,7 +12273,16 @@ int main(int argc, char** argv)
                     ? 0
                     : (i == 0 ? 0 : starter_decks::StarterDeckPrice);
             }
-            selectedStarterDeckOffer = starterDeckPickRequired ? 2 : 1;
+            if (starterDeckOffers.empty())
+            {
+                selectedStarterDeckOffer.reset();
+            }
+            else
+            {
+                selectedStarterDeckOffer = std::min<std::size_t>(
+                    starterDeckPickRequired ? 2 : 1,
+                    starterDeckOffers.size() - 1);
+            }
         }
         else if (screen == "admin-users")
         {
@@ -11605,10 +12299,12 @@ int main(int argc, char** argv)
         else if (screen == "card-editor")
         {
             currentState = GameState::CardEditor;
+            cardEditorScreen.applyCaptureState(screen, allCardLibrary);
         }
         else if (screen == "conquest")
         {
             currentState = GameState::Conquest;
+            conquestScreen.applyCaptureState(screen, allCardLibrary);
         }
         // ---- admin / card-editor / Conquest review states ------------------
         // These screens draw from services the harness cannot reach, so each
@@ -11617,20 +12313,58 @@ int main(int argc, char** argv)
         {
             currentState = GameState::AdminUsers;
             adminTabs.setActive(0);
-            selectedAdminUser = 3;
+            selectedAdminUser = adminUsers.empty()
+                ? std::optional<std::size_t>()
+                : std::optional<std::size_t>(
+                    std::min<std::size_t>(3, adminUsers.size() - 1));
             adminGoldInput.setContent("250");
         }
         else if (screen == "admin-users-popup")
         {
             currentState = GameState::AdminUsers;
             adminTabs.setActive(0);
-            selectedAdminUser = 3;
+            selectedAdminUser = adminUsers.empty()
+                ? std::optional<std::size_t>()
+                : std::optional<std::size_t>(
+                    std::min<std::size_t>(3, adminUsers.size() - 1));
             addCardPopupVisible = true;
             // A partial query, so the suggestion list has several rows and the
             // dialog's content sizing is actually exercised.
             adminCardInput.setContent("th");
         }
-        else if (screen == "card-editor-loaded")
+        else if (screen == "admin-users-delete-popup")
+        {
+            currentState = GameState::AdminUsers;
+            adminTabs.setActive(0);
+            selectedAdminUser = adminUsers.empty()
+                ? std::optional<std::size_t>()
+                : std::optional<std::size_t>(
+                    std::min<std::size_t>(3, adminUsers.size() - 1));
+            if (selectedAdminUser)
+            {
+                adminUserDeleteTarget = adminUsers[*selectedAdminUser].username;
+                deleteUserPopupVisible = true;
+            }
+        }
+        else if (screen == "admin-users-starter-popup")
+        {
+            currentState = GameState::AdminUsers;
+            adminTabs.setActive(0);
+            selectedAdminUser = adminUsers.empty()
+                ? std::optional<std::size_t>()
+                : std::optional<std::size_t>(
+                    std::min<std::size_t>(3, adminUsers.size() - 1));
+            giveStarterDeckPopupVisible = selectedAdminUser.has_value();
+            selectedAdminStarterDeck = starterDeckOffers.empty()
+                ? std::optional<std::size_t>()
+                : std::optional<std::size_t>(
+                    std::min<std::size_t>(1, starterDeckOffers.size() - 1));
+        }
+        else if (screen == "card-editor-loaded" || screen == "card-editor-actions" ||
+                 screen == "card-editor-rarity-dropdown" ||
+                 screen == "card-editor-action-dropdown" ||
+                 screen == "card-editor-action-kind-dropdown" ||
+                 screen == "card-editor-instructions" || screen == "card-editor-unsaved")
         {
             currentState = GameState::CardEditor;
             cardEditorScreen.applyCaptureState(screen, allCardLibrary);
@@ -14017,7 +14751,6 @@ int main(int argc, char** argv)
 
     if (captureRequest)
     {
-        seedCaptureState();
         applyCaptureScreen(captureRequest->screens.front());
         captureScreenReady = true;
     }
@@ -14050,6 +14783,48 @@ int main(int argc, char** argv)
         shopButton.setFocused(authenticatedMenuFocus == shopMenuIndex);
         adminUsersButton.setFocused(loggedInIsAdmin && authenticatedMenuFocus == adminMenuIndex);
         logoutButton.setFocused(authenticatedMenuFocus == logoutMenuIndex);
+    };
+
+    auto syncMenuFocus = [&]() {
+        loginButton.setFocused(menuFocus == 0);
+        createButton.setFocused(menuFocus == 1);
+        menuOptionsButton.setFocused(menuFocus == 2);
+    };
+
+    auto activateMenuButton = [&](int index) {
+        if (currentState != GameState::Menu || exitDesktopPopupVisible)
+        {
+            return;
+        }
+
+        menuFocus = -1;
+        if (index == 0)
+        {
+            currentState = GameState::Login;
+            title.setString("Login");
+            centerText(title, 400.0f);
+            setMessageY(messageText, 450.0f);
+            resetForm(usernameInput, passwordInput, confirmInput, messageText);
+            rememberMeChecked = false;
+            passwordVisible = false;
+            updatePasswordVisibility();
+            focusLoginInput(0);
+        }
+        else if (index == 1)
+        {
+            currentState = GameState::CreateAccount;
+            title.setString("Create Account");
+            centerText(title, 400.0f);
+            setMessageY(messageText, 450.0f);
+            resetForm(usernameInput, passwordInput, confirmInput, messageText);
+            passwordVisible = false;
+            updatePasswordVisibility();
+            focusCreateInput(0);
+        }
+        else if (index == 2)
+        {
+            showOptionsScreen(GameState::Menu);
+        }
     };
 
     auto activateAuthenticatedMenuButton = [&](int index) {
@@ -14873,11 +15648,13 @@ int main(int argc, char** argv)
         {
             captureHoverPoint = sf::Vector2f{-50.0f, -50.0f};
         }
-        if (captureHoverPoint)
+        if (captureRequest)
         {
-            // Capture runs have no real pointer, so a screen that wants to show a
-            // hover treatment pins one here.
-            mousePos = *captureHoverPoint;
+            // Base captures must never inherit an arbitrary host cursor. A key
+            // that intentionally demonstrates hover supplies a stable point;
+            // every other capture pins the pointer safely off-canvas.
+            mousePos = captureHoverPoint.value_or(
+                sf::Vector2f{-10000.0f, -10000.0f});
         }
         currentPointer = mousePos;
 
@@ -15793,30 +16570,15 @@ int main(int argc, char** argv)
                 {
                     if (loginButton.isClicked(clickPos))
                     {
-                        currentState = GameState::Login;
-                        title.setString("Login");
-                        centerText(title, 400.0f);
-                        setMessageY(messageText, 450.0f);
-                        resetForm(usernameInput, passwordInput, confirmInput, messageText);
-                        rememberMeChecked = false;
-                        passwordVisible = false;
-                        updatePasswordVisibility();
-                        focusLoginInput(0);
+                        activateMenuButton(0);
                     }
                     else if (createButton.isClicked(clickPos))
                     {
-                        currentState = GameState::CreateAccount;
-                        title.setString("Create Account");
-                        centerText(title, 400.0f);
-                        setMessageY(messageText, 450.0f);
-                        resetForm(usernameInput, passwordInput, confirmInput, messageText);
-                        passwordVisible = false;
-                        updatePasswordVisibility();
-                        focusCreateInput(0);
+                        activateMenuButton(1);
                     }
                     else if (menuOptionsButton.isClicked(clickPos))
                     {
-                        showOptionsScreen(GameState::Menu);
+                        activateMenuButton(2);
                     }
                 }
                 else if (currentState == GameState::StorySelect)
@@ -15945,15 +16707,18 @@ int main(int argc, char** argv)
                 {
                     if (const std::optional<std::size_t> tabIndex = optionsTabs.clickedIndex(clickPos))
                     {
+                        optionsFocus = static_cast<int>(*tabIndex);
                         setActiveOptionsTab(static_cast<OptionsTab>(*tabIndex));
                     }
                     else if (activeOptionsTab == OptionsTab::Graphics && displayModeButton.isClicked(clickPos))
                     {
+                        optionsFocus = 3;
                         pendingDisplaySettings.fullscreen = !pendingDisplaySettings.fullscreen;
                         updateOptionsLabels();
                     }
                     else if (activeOptionsTab == OptionsTab::Graphics && previousResolutionButton.isClicked(clickPos))
                     {
+                        optionsFocus = 4;
                         selectedResolution = selectedResolution == 0
                             ? displayResolutions.size() - 1
                             : selectedResolution - 1;
@@ -15961,11 +16726,13 @@ int main(int argc, char** argv)
                     }
                     else if (activeOptionsTab == OptionsTab::Graphics && nextResolutionButton.isClicked(clickPos))
                     {
+                        optionsFocus = 6;
                         selectedResolution = (selectedResolution + 1) % displayResolutions.size();
                         updateOptionsLabels();
                     }
                     else if (activeOptionsTab == OptionsTab::Graphics && applyOptionsButton.isClicked(clickPos))
                     {
+                        optionsFocus = 7;
                         const sf::Vector2u size = displayResolutions[selectedResolution];
                         pendingDisplaySettings.width = size.x;
                         pendingDisplaySettings.height = size.y;
@@ -15983,34 +16750,40 @@ int main(int argc, char** argv)
                     }
                     else if (activeOptionsTab == OptionsTab::Audio && allAudioSlider.beginDrag(clickPos))
                     {
+                        optionsFocus = 3;
                         audioSystem.setAllVolume(allAudioSlider.getValue());
                         updateOptionsLabels();
                         queueAudioSettingsSave();
                     }
                     else if (activeOptionsTab == OptionsTab::Audio && musicAudioSlider.beginDrag(clickPos))
                     {
+                        optionsFocus = 4;
                         audioSystem.setMusicVolume(musicAudioSlider.getValue());
                         updateOptionsLabels();
                         queueAudioSettingsSave();
                     }
                     else if (activeOptionsTab == OptionsTab::Audio && soundFxAudioSlider.beginDrag(clickPos))
                     {
+                        optionsFocus = 5;
                         audioSystem.setSoundEffectsVolume(soundFxAudioSlider.getValue());
                         updateOptionsLabels();
                         queueAudioSettingsSave();
                     }
                     else if (activeOptionsTab == OptionsTab::Audio && muteAllAudioCheckbox.isClicked(clickPos))
                     {
+                        optionsFocus = 6;
                         audioSystem.setAllMuted(!audioSystem.isAllMuted());
                         queueAudioSettingsSave();
                     }
                     else if (activeOptionsTab == OptionsTab::Audio && muteMusicCheckbox.isClicked(clickPos))
                     {
+                        optionsFocus = 7;
                         audioSystem.setMusicMuted(!audioSystem.isMusicMuted());
                         queueAudioSettingsSave();
                     }
                     else if (activeOptionsTab == OptionsTab::Audio && muteSoundFxCheckbox.isClicked(clickPos))
                     {
+                        optionsFocus = 8;
                         audioSystem.setSoundEffectsMuted(!audioSystem.isSoundEffectsMuted());
                         queueAudioSettingsSave();
                     }
@@ -16018,10 +16791,16 @@ int main(int argc, char** argv)
                              optionsReturnState == GameState::Authenticated &&
                              changePasswordOptionButton.isClicked(clickPos))
                     {
+                        optionsFocus = 3;
                         showChangePasswordScreen();
                     }
                     else if (optionsBackButton.isClicked(clickPos))
                     {
+                        optionsFocus = activeOptionsTab == OptionsTab::Graphics
+                            ? 8
+                            : activeOptionsTab == OptionsTab::Audio
+                                ? 9
+                                : optionsReturnState == GameState::Authenticated ? 4 : 3;
                         leaveOptionsScreen();
                     }
                 }
@@ -16036,16 +16815,21 @@ int main(int argc, char** argv)
                     }
                     else if (changePasswordBackButton.isClicked(clickPos) && !pendingPasswordChange)
                     {
+                        formFocus = 5;
                         leaveChangePasswordScreen();
                     }
                     else if (changePasswordSubmitButton.isClicked(clickPos) && !pendingPasswordChange)
                     {
+                        formFocus = 4;
                         submitPasswordChange();
                     }
                     else if (currentPasswordVisibilityIcon.isClicked(clickPos) ||
                              newPasswordVisibilityIcon.isClicked(clickPos) ||
                              confirmNewPasswordVisibilityIcon.isClicked(clickPos))
                     {
+                        clearFocus();
+                        formFocus = 3;
+                        syncFormFocus();
                         changePasswordsVisible = !changePasswordsVisible;
                         updateChangePasswordVisibility();
                     }
@@ -16070,18 +16854,26 @@ int main(int argc, char** argv)
                 {
                     if (backButton.isClicked(clickPos))
                     {
+                        formFocus = 5;
                         returnToMenu();
                     }
                     else if (loginSubmitButton.isClicked(clickPos))
                     {
+                        formFocus = 4;
                         submitLogin();
                     }
                     else if (rememberMeCheckbox.isClicked(clickPos))
                     {
+                        clearFocus();
+                        formFocus = 3;
+                        syncFormFocus();
                         rememberMeChecked = !rememberMeChecked;
                     }
                     else if (passwordVisibilityIcon.isClicked(clickPos))
                     {
+                        clearFocus();
+                        formFocus = 2;
+                        syncFormFocus();
                         passwordVisible = !passwordVisible;
                         updatePasswordVisibility();
                     }
@@ -16102,14 +16894,19 @@ int main(int argc, char** argv)
                 {
                     if (backButton.isClicked(clickPos))
                     {
+                        formFocus = 5;
                         returnToMenu();
                     }
                     else if (createSubmitButton.isClicked(clickPos))
                     {
+                        formFocus = 4;
                         submitCreateAccount();
                     }
                     else if (passwordVisibilityIcon.isClicked(clickPos) || confirmVisibilityIcon.isClicked(clickPos))
                     {
+                        clearFocus();
+                        formFocus = 2;
+                        syncFormFocus();
                         passwordVisible = !passwordVisible;
                         updatePasswordVisibility();
                     }
@@ -17224,6 +18021,40 @@ int main(int argc, char** argv)
                 }
 
                 if (!pendingRequest && !pendingMatchmaking && !pendingSandboxLoad &&
+                    currentState == GameState::Menu && !exitDesktopPopupVisible)
+                {
+                    const bool moveUp = keyPressed->code == sf::Keyboard::Key::Up ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && keyPressed->shift);
+                    const bool moveDown = keyPressed->code == sf::Keyboard::Key::Down ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && !keyPressed->shift);
+                    if (moveUp || moveDown)
+                    {
+                        constexpr int menuButtonCount = 3;
+                        if (menuFocus < 0)
+                        {
+                            menuFocus = moveUp ? menuButtonCount - 1 : 0;
+                        }
+                        else
+                        {
+                            const int delta = moveUp ? -1 : 1;
+                            menuFocus = (menuFocus + delta + menuButtonCount) % menuButtonCount;
+                        }
+                        syncMenuFocus();
+                        continue;
+                    }
+                    if ((keyPressed->code == sf::Keyboard::Key::Enter ||
+                         keyPressed->code == sf::Keyboard::Key::Space) &&
+                        menuFocus >= 0)
+                    {
+                        playButtonClickSound();
+                        const int index = menuFocus;
+                        activateMenuButton(index);
+                        syncMenuFocus();
+                        continue;
+                    }
+                }
+
+                if (!pendingRequest && !pendingMatchmaking && !pendingSandboxLoad &&
                     currentState == GameState::Authenticated && !exitDesktopPopupVisible)
                 {
                     const bool moveUp = keyPressed->code == sf::Keyboard::Key::Up ||
@@ -17814,43 +18645,111 @@ int main(int argc, char** argv)
                         returnToMenu();
                     }
                 }
+                else if (!pendingRequest && !pendingMatchmaking && !pendingSandboxLoad && currentState == GameState::Options)
+                {
+                    const bool moveBackward =
+                        keyPressed->code == sf::Keyboard::Key::Up ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && keyPressed->shift);
+                    const bool moveForward =
+                        keyPressed->code == sf::Keyboard::Key::Down ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && !keyPressed->shift);
+                    const bool adjustLeft = keyPressed->code == sf::Keyboard::Key::Left;
+                    const bool adjustRight = keyPressed->code == sf::Keyboard::Key::Right;
+
+                    if (activeOptionsTab == OptionsTab::Audio &&
+                        optionsFocus >= 3 && optionsFocus <= 5 &&
+                        (adjustLeft || adjustRight))
+                    {
+                        const float delta = adjustRight ? 0.05f : -0.05f;
+                        if (optionsFocus == 3)
+                        {
+                            allAudioSlider.setValue(allAudioSlider.getValue() + delta);
+                        }
+                        else if (optionsFocus == 4)
+                        {
+                            musicAudioSlider.setValue(musicAudioSlider.getValue() + delta);
+                        }
+                        else
+                        {
+                            soundFxAudioSlider.setValue(soundFxAudioSlider.getValue() + delta);
+                        }
+                        updateOptionsLabels();
+                        queueAudioSettingsSave();
+                    }
+                    else if (moveBackward || moveForward || adjustLeft || adjustRight)
+                    {
+                        moveOptionsFocus((moveBackward || adjustLeft) ? -1 : 1);
+                    }
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter ||
+                             keyPressed->code == sf::Keyboard::Key::Space)
+                    {
+                        activateOptionsFocus();
+                        syncOptionsFocus();
+                    }
+                }
                 else if (!pendingRequest && !pendingMatchmaking && !pendingSandboxLoad && currentState == GameState::Login)
                 {
-                    if (keyPressed->code == sf::Keyboard::Key::Tab)
+                    const bool moveBackward =
+                        keyPressed->code == sf::Keyboard::Key::Up ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && keyPressed->shift);
+                    const bool moveForward =
+                        keyPressed->code == sf::Keyboard::Key::Down ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && !keyPressed->shift);
+                    if (moveBackward || moveForward)
                     {
-                        focusLoginInput(focusedInput + (keyPressed->shift ? -1 : 1));
+                        const int start = formFocus < 0 ? (moveBackward ? 5 : 0) : formFocus;
+                        focusLoginTarget(start + (formFocus < 0 ? 0 : (moveBackward ? -1 : 1)));
                     }
-                    else if (keyPressed->code == sf::Keyboard::Key::Enter)
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter ||
+                             keyPressed->code == sf::Keyboard::Key::Space)
                     {
-                        submitLogin();
+                        activateFormFocus();
                     }
                 }
                 else if (!pendingRequest && !pendingMatchmaking && !pendingSandboxLoad && currentState == GameState::CreateAccount)
                 {
-                    if (keyPressed->code == sf::Keyboard::Key::Tab)
+                    const bool moveBackward =
+                        keyPressed->code == sf::Keyboard::Key::Up ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && keyPressed->shift);
+                    const bool moveForward =
+                        keyPressed->code == sf::Keyboard::Key::Down ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && !keyPressed->shift);
+                    if (moveBackward || moveForward)
                     {
-                        focusCreateInput(focusedInput + (keyPressed->shift ? -1 : 1));
+                        const int start = formFocus < 0 ? (moveBackward ? 5 : 0) : formFocus;
+                        focusCreateTarget(start + (formFocus < 0 ? 0 : (moveBackward ? -1 : 1)));
                     }
-                    else if (keyPressed->code == sf::Keyboard::Key::Enter)
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter ||
+                             keyPressed->code == sf::Keyboard::Key::Space)
                     {
-                        submitCreateAccount();
+                        activateFormFocus();
                     }
                 }
                 else if (currentState == GameState::ChangePassword &&
                          passwordChangedPopupVisible &&
-                         keyPressed->code == sf::Keyboard::Key::Enter)
+                         (keyPressed->code == sf::Keyboard::Key::Enter ||
+                          keyPressed->code == sf::Keyboard::Key::Space))
                 {
                     dismissPasswordChangedPopup();
                 }
                 else if (currentState == GameState::ChangePassword && !pendingPasswordChange)
                 {
-                    if (keyPressed->code == sf::Keyboard::Key::Tab)
+                    const bool moveBackward =
+                        keyPressed->code == sf::Keyboard::Key::Up ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && keyPressed->shift);
+                    const bool moveForward =
+                        keyPressed->code == sf::Keyboard::Key::Down ||
+                        (keyPressed->code == sf::Keyboard::Key::Tab && !keyPressed->shift);
+                    if (moveBackward || moveForward)
                     {
-                        focusChangePasswordInput(focusedInput + (keyPressed->shift ? -1 : 1));
+                        const int start = formFocus < 0 ? (moveBackward ? 5 : 0) : formFocus;
+                        focusChangePasswordTarget(
+                            start + (formFocus < 0 ? 0 : (moveBackward ? -1 : 1)));
                     }
-                    else if (keyPressed->code == sf::Keyboard::Key::Enter)
+                    else if (keyPressed->code == sf::Keyboard::Key::Enter ||
+                             keyPressed->code == sf::Keyboard::Key::Space)
                     {
-                        submitPasswordChange();
+                        activateFormFocus();
                     }
                 }
                 else if (currentState == GameState::AdminUsers &&
@@ -17931,15 +18830,16 @@ int main(int argc, char** argv)
             {
                 // Keep the hit boxes in step with the tiered layout the draw
                 // pass applies.
-                loginButton.setSize({236.0f, 58.0f});
-                loginButton.setPosition({282.0f, 232.0f});
-                createButton.setSize({204.0f, 46.0f});
-                createButton.setPosition({298.0f, 314.0f});
-                menuOptionsButton.setSize({150.0f, 38.0f});
-                menuOptionsButton.setPosition({325.0f, 378.0f});
+                loginButton.setSize({228.0f, 54.0f});
+                loginButton.setPosition({286.0f, 216.0f});
+                createButton.setSize({228.0f, 54.0f});
+                createButton.setPosition({286.0f, 286.0f});
+                menuOptionsButton.setSize({228.0f, 54.0f});
+                menuOptionsButton.setPosition({286.0f, 356.0f});
                 loginButton.update(mousePos);
                 createButton.update(mousePos);
                 menuOptionsButton.update(mousePos);
+                syncMenuFocus();
             }
         }
         else if (currentState == GameState::SandboxLoading)
@@ -18014,6 +18914,7 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::ChangePassword)
         {
+            layoutChangePasswordForm();
             if (passwordChangedPopupVisible)
             {
                 dismissPasswordChangedButton.update(mousePos);
@@ -18302,9 +19203,45 @@ int main(int argc, char** argv)
             }
         }
 
+        syncFormFocus();
+        syncOptionsFocus();
         window.clear(sf::Color(9, 17, 19));
-        drawBackdrop(window, backdropTexture);
-        if (currentState != GameState::DeckEditor &&
+        const bool referenceMenuSurface =
+            currentState == GameState::Menu ||
+            currentState == GameState::Login ||
+            currentState == GameState::CreateAccount ||
+            currentState == GameState::Options ||
+            currentState == GameState::ChangePassword ||
+            currentState == GameState::Authenticated ||
+            currentState == GameState::AdminUsers ||
+            currentState == GameState::AdminTools ||
+            currentState == GameState::DeckSelect ||
+            currentState == GameState::Matchmaking ||
+            currentState == GameState::DeckEditor ||
+            currentState == GameState::Shop ||
+            currentState == GameState::StarterDecks ||
+            currentState == GameState::CardEditor ||
+            currentState == GameState::Conquest ||
+            currentState == GameState::StorySelect ||
+            currentState == GameState::StoryMissionSelect ||
+            currentState == GameState::StoryIntro ||
+            currentState == GameState::SandboxLoading;
+        // The authenticated state is the only main menu. Every other menu,
+        // including the signed-out title screen, gets the same legibility wash
+        // so navigation away from the hero surface is unmistakable.
+        const bool undimmedHeroSurface = currentState == GameState::Authenticated;
+        drawBackdrop(
+            window,
+            referenceMenuSurface && mainMenuBackdropTexture ? mainMenuBackdropTexture : backdropTexture,
+            referenceMenuSurface ? (undimmedHeroSurface ? 0 : 96) : 145,
+            referenceMenuSurface ? (undimmedHeroSurface ? 0.0f : 0.48f) : 0.85f,
+            undimmedHeroSurface);
+        if (referenceMenuSurface)
+        {
+            drawMenuFrame(window);
+        }
+        if (currentState != GameState::DeckSelect &&
+            currentState != GameState::DeckEditor &&
             currentState != GameState::Shop &&
             currentState != GameState::StarterDecks &&
             currentState != GameState::AdminUsers &&
@@ -18317,9 +19254,16 @@ int main(int argc, char** argv)
             const std::string titleValue = title.getString().toAnsiString();
             if (titleValue == "Gloomthorn")
             {
-                // Slightly larger than the wordmark so the title has a few px of padding.
-                drawTitlePlaque(window, font, " ", {400.0f, 64.0f}, {384.0f, 82.0f});
-                drawGloomthornWordmark({400.0f, 64.0f}, {326.0f, 60.0f});
+                if (currentState == GameState::Menu)
+                {
+                    drawAuthenticatedMenuTitle();
+                }
+                else
+                {
+                    // Slightly larger than the wordmark so the title has a few px of padding.
+                    drawTitlePlaque(window, font, " ", {400.0f, 64.0f}, {384.0f, 82.0f});
+                    drawGloomthornWordmark({400.0f, 64.0f}, {326.0f, 60.0f});
+                }
             }
             else
             {
@@ -18329,24 +19273,27 @@ int main(int argc, char** argv)
 
         if (currentState == GameState::Menu)
         {
-            // Sign in is the only reason to be on this screen, so it is the only
-            // plate at full weight; Options is quiet metal.
+            // The title screen mirrors the reference's deliberate three-action
+            // stack: one strong entry point, then two equally sized companion
+            // actions with generous breathing room.
             loginButton.setVariant(ButtonVariant::Primary);
-            loginButton.setSize({236.0f, 58.0f});
-            loginButton.setPosition({282.0f, 232.0f});
+            loginButton.setSize({228.0f, 54.0f});
+            loginButton.setPosition({286.0f, 216.0f});
             loginButton.setLabelSize(type::Hero);
-            createButton.setSize({204.0f, 46.0f});
-            createButton.setPosition({298.0f, 314.0f});
+            createButton.setVariant(ButtonVariant::Secondary);
+            createButton.setSize({228.0f, 54.0f});
+            createButton.setPosition({286.0f, 286.0f});
             createButton.setLabelSize(type::Subheading);
-            menuOptionsButton.setVariant(ButtonVariant::Quiet);
-            menuOptionsButton.setSize({150.0f, 38.0f});
-            menuOptionsButton.setPosition({325.0f, 378.0f});
-            menuOptionsButton.setLabelSize(type::Body);
+            menuOptionsButton.setVariant(ButtonVariant::Secondary);
+            menuOptionsButton.setSize({228.0f, 54.0f});
+            menuOptionsButton.setPosition({286.0f, 356.0f});
+            menuOptionsButton.setLabelSize(type::Subheading);
 
-            drawAmbientMotes(window, animationTime, 36, sf::Color(178, 138, 224, 132));
-            loginButton.draw(window, animationTime);
-            createButton.draw(window, animationTime);
-            menuOptionsButton.draw(window, animationTime);
+            drawRadialGlow(window, {400.0f, 316.0f}, 226.0f, sf::Color(8, 17, 18, 38));
+            drawAmbientMotes(window, animationTime, 18, sf::Color(204, 238, 170, 92), 0.85f);
+            drawAuthenticatedMenuButton(loginButton, nullptr);
+            drawAuthenticatedMenuButton(createButton, nullptr);
+            drawAuthenticatedMenuButton(menuOptionsButton, nullptr);
             drawBuildStamp();
             drawExitDesktopCloseButton();
             if (exitDesktopPopupVisible)
@@ -18362,6 +19309,11 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Options)
         {
             layoutOptionsScreen();
+            drawRadialGlow(
+                window,
+                {400.0f, 304.0f},
+                300.0f,
+                sf::Color(31, 64, 47, 30));
             drawPanel(window, OptionsPanelPosition, OptionsPanelSize);
             optionsTabs.draw(window);
 
@@ -18468,16 +19420,28 @@ int main(int argc, char** argv)
         }
         else if (currentState == GameState::ChangePassword)
         {
+            layoutChangePasswordForm();
+            drawRadialGlow(
+                window,
+                {400.0f, 330.0f},
+                244.0f,
+                sf::Color(31, 64, 47, 34));
+            drawPanel(window, ChangePasswordPanelPosition, ChangePasswordPanelSize);
+            drawEntryFormHeader(
+                ChangePasswordPanelPosition,
+                ChangePasswordPanelSize,
+                "Change Password",
+                "Renew the key to your lantern.");
             currentPasswordInput.draw(window);
             newPasswordInput.draw(window);
             confirmNewPasswordInput.draw(window);
-            drawPasswordRequirementHint(358.0f);
+            drawPasswordRequirementHint(370.0f);
             currentPasswordVisibilityIcon.draw(window, changePasswordsVisible);
             newPasswordVisibilityIcon.draw(window, changePasswordsVisible);
             confirmNewPasswordVisibilityIcon.draw(window, changePasswordsVisible);
             changePasswordSubmitButton.draw(window);
             changePasswordBackButton.draw(window);
-            window.draw(messageText);
+            drawFormNotice(ChangePasswordNoticeY);
             if (passwordChangedPopupVisible)
             {
                 sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
@@ -18515,6 +19479,11 @@ int main(int argc, char** argv)
         else if (currentState == GameState::Login)
         {
             layoutLoginForm();
+            drawRadialGlow(
+                window,
+                {400.0f, 300.0f},
+                230.0f,
+                sf::Color(31, 64, 47, 34));
             drawPanel(window, LoginPanelPosition, LoginPanelSize);
             drawEntryFormHeader(
                 LoginPanelPosition,
@@ -18532,6 +19501,11 @@ int main(int argc, char** argv)
         else if (currentState == GameState::CreateAccount)
         {
             layoutCreateAccountForm();
+            drawRadialGlow(
+                window,
+                {400.0f, 306.0f},
+                244.0f,
+                sf::Color(31, 64, 47, 34));
             drawPanel(window, CreatePanelPosition, CreatePanelSize);
             drawEntryFormHeader(CreatePanelPosition, CreatePanelSize, "Create Account", "");
             usernameInput.draw(window);

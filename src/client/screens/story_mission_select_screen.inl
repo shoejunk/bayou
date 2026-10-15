@@ -49,7 +49,7 @@
                     {84.0f, 96.0f},
                     {632.0f, 30.0f},
                     sf::Color(12, 20, 21, 238),
-                    sf::Color(181, 126, 60),
+                    palette::Steel,
                     false,
                     7.0f);
                 drawCenteredText(
@@ -83,10 +83,30 @@
                 storyKeyboardNavigationActive &&
                 storyMissionKeyboardFocus == slot);
             button.setVariant(current ? ButtonVariant::Primary : ButtonVariant::Secondary);
+            std::string entryTitle(missions[static_cast<std::size_t>(index)].title);
+            constexpr std::string_view OptionalPracticeSuffix = " - Optional Practice";
+            if (entryTitle.size() >= OptionalPracticeSuffix.size() &&
+                entryTitle.compare(
+                    entryTitle.size() - OptionalPracticeSuffix.size(),
+                    OptionalPracticeSuffix.size(),
+                    OptionalPracticeSuffix) == 0)
+            {
+                // The badge immediately above the title already communicates
+                // this state. Removing the repeated suffix keeps the authored
+                // title clear of the mechanical fasteners at native 800px.
+                entryTitle.erase(entryTitle.size() - OptionalPracticeSuffix.size());
+            }
             button.setLabel(unlocked
-                ? std::to_string(index + 1) + ". " +
-                    std::string(missions[static_cast<std::size_t>(index)].title)
+                ? std::to_string(index + 1) + ". " + entryTitle
                 : std::to_string(index + 1) + ". LOCKED ENTRY");
+            unsigned int entryLabelSize = type::Body;
+            button.setLabelSize(entryLabelSize);
+            const float safeLabelWidth = button.shape.getSize().x - 52.0f;
+            while (entryLabelSize > 12u &&
+                   button.text.getLocalBounds().size.x > safeLabelWidth)
+            {
+                button.setLabelSize(--entryLabelSize);
+            }
             button.draw(window, animationTime);
             if (!unlocked)
             {
@@ -189,11 +209,10 @@
                         : "Continue Entry " + std::to_string(nextMission + 1)
                 : "Replay Last Practice");
         storyRestartCampaignButton.draw(window, animationTime);
-        drawCenteredText(
+        drawKeyboardHintBar(
             window,
             font,
             "ARROWS/TAB: ENTRY  |  ENTER: OPEN  |  PAGE UP/DOWN: PAGE",
-            13,
-            {400.0f, 588.0f},
-            palette::Ink);
+            {400.0f, 573.0f},
+            640.0f);
     };

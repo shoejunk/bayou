@@ -1,4 +1,10 @@
     auto drawDeckSelect = [&]() {
+        drawScreenHeader(
+            collectionUi,
+            "Choose Deck",
+            signedInLabel(),
+            playerCoins,
+            244.0f);
         // Same roster and portrait as the deck editor: choosing which deck to take
         // into a match is the moment a player most needs to see its hero and curve,
         // and it used to be the screen that showed the least.

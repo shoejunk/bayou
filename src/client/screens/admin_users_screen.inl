@@ -12,8 +12,8 @@
             window,
             {RowX, y},
             {RowWidth, RowHeight},
-            selected ? sf::Color(76, 49, 25, 240) : sf::Color(19, 29, 30, 226),
-            selected ? sf::Color(239, 190, 98) : sf::Color(103, 72, 39),
+            selected ? sf::Color(38, 31, 49, 240) : sf::Color(19, 29, 30, 226),
+            selected ? palette::SteelBright : palette::SteelDim,
             selected,
             5.0f);
 
@@ -38,7 +38,7 @@
         }
 
         sf::Text gold(font, std::to_string(user.gold), 15);
-        gold.setFillColor(sf::Color(239, 190, 98));
+        gold.setFillColor(palette::Gold);
         gold.setPosition(
             {RowX + RowWidth - 24.0f - gold.getLocalBounds().size.x, y + 11.0f});
         drawCrispText(window, gold);
@@ -75,9 +75,9 @@
         // plate was exactly as tall as its rows and any caption placed inside
         // was cut by the top border.
         drawPanel(window, {24.0f, 152.0f}, {752.0f, 286.0f});
-        drawText(window, font, "ACCOUNT", 11, {46.0f, 158.0f}, sf::Color(150, 132, 104));
+        drawText(window, font, "ACCOUNT", 11, {46.0f, 158.0f}, sf::Color(154, 169, 174));
         sf::Text goldCaption(font, "GOLD", 11);
-        goldCaption.setFillColor(sf::Color(150, 132, 104));
+        goldCaption.setFillColor(sf::Color(154, 169, 174));
         goldCaption.setPosition({718.0f - goldCaption.getLocalBounds().size.x, 158.0f});
         drawCrispText(window, goldCaption);
         const std::size_t lastUser =
@@ -106,7 +106,7 @@
                 font,
                 "Page " + std::to_string(adminUsersPage + 1) + " of " + std::to_string(pageCount),
                 11);
-            pageLabel.setFillColor(sf::Color(150, 132, 104));
+            pageLabel.setFillColor(sf::Color(154, 169, 174));
             // Centred in the list's caption band. At y=137 it lay across the
             // bottom border of the search plate.
             pageLabel.setPosition(
@@ -125,10 +125,10 @@
                 "MANAGE " + adminUsers[*selectedAdminUser].username,
                 11,
                 {46.0f, 460.0f},
-                sf::Color(150, 132, 104),
+                sf::Color(154, 169, 174),
                 180.0f);
             drawText(window, font, "GOLD AMOUNT", 11, {236.0f, 460.0f},
-                     sf::Color(150, 132, 104));
+                     sf::Color(154, 169, 174));
             adminGoldInput.draw(window);
             adminGrantGoldButton.draw(window);
             adminRemoveGoldButton.draw(window);
@@ -211,7 +211,7 @@
                 sf::Color(220, 224, 230),
                 360.0f);
             drawText(window, font, "CARD NAME", 11, {240.0f, 208.0f},
-                     sf::Color(150, 132, 104));
+                     sf::Color(154, 169, 174));
             adminCardInput.draw(window);
 
             if (pendingAdminCardListLoad)
@@ -250,8 +250,8 @@
                         window,
                         {220.0f, rowY},
                         {360.0f, 32.0f},
-                        selected ? sf::Color(76, 49, 25, 240) : sf::Color(19, 29, 30, 226),
-                        selected ? sf::Color(239, 190, 98) : sf::Color(103, 72, 39),
+                        selected ? sf::Color(38, 31, 49, 240) : sf::Color(19, 29, 30, 226),
+                        selected ? palette::SteelBright : palette::SteelDim,
                         selected,
                         5.0f);
                     drawText(window, font, cardTitles[i], 15, {240.0f, rowY + 7.0f},

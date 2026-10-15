@@ -369,13 +369,13 @@
                 window,
                 position,
                 size,
-                sf::Color(42, 41, 38, 192),
-                sf::Color(91, 86, 75, 180),
+                sf::Color(24, 30, 33, 220),
+                sf::Color(85, 103, 111, 190),
                 false,
                 std::clamp(size.y * 0.20f, 5.0f, 11.0f));
 
             sf::Text label = saveDeckButton.text;
-            label.setFillColor(sf::Color(168, 172, 172, 210));
+            label.setFillColor(sf::Color(151, 164, 170, 210));
             window.draw(label);
         }
 

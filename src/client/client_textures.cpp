@@ -90,6 +90,11 @@ void drawContainSprite(
 {
     sf::Sprite sprite(texture);
     const sf::Vector2u imageSize = texture.getSize();
+    if (imageSize.x == 0 || imageSize.y == 0 || target.size.x <= 0.0f || target.size.y <= 0.0f)
+    {
+        return;
+    }
+
     const float sourceWidth = static_cast<float>(imageSize.x);
     const float sourceHeight = static_cast<float>(imageSize.y);
     const float scale = std::min(target.size.x / static_cast<float>(imageSize.x),
@@ -111,6 +116,13 @@ void drawTextureRectContain(
     bool flipX)
 {
     sf::Sprite sprite(texture);
+    if (texture.getSize().x == 0 || texture.getSize().y == 0 ||
+        textureRect.size.x <= 0 || textureRect.size.y <= 0 ||
+        target.size.x <= 0.0f || target.size.y <= 0.0f)
+    {
+        return;
+    }
+
     sprite.setTextureRect(textureRect);
     const float sourceWidth = static_cast<float>(textureRect.size.x);
     const float sourceHeight = static_cast<float>(textureRect.size.y);
@@ -246,7 +258,12 @@ void drawAmbientMotes(
     });
 }
 
-void drawBackdrop(sf::RenderWindow& window, sf::Texture* backdropTexture)
+void drawBackdrop(
+    sf::RenderWindow& window,
+    sf::Texture* backdropTexture,
+    std::uint8_t washAlpha,
+    float vignetteStrength,
+    bool preserveSource)
 {
     // The interface owns a fixed 16:9 canvas. Render the art only through that
     // canvas' viewport so non-16:9 windows retain clean pillarbox/letterbox bars
@@ -272,20 +289,42 @@ void drawBackdrop(sf::RenderWindow& window, sf::Texture* backdropTexture)
         window.draw(fallback);
     }
 
-    sf::RectangleShape wash(contentSize);
-    wash.setFillColor(sf::Color(3, 8, 10, 145));
+    if (!preserveSource)
+    {
+    // Keep the supplied artwork intact in the middle of the frame. The grade
+    // is a transparent two-stop film wash: darker at the top for title chrome,
+    // lighter through the centre so the example background still reads, and a
+    // deeper teal-black at the bottom where dense menus tend to land.
+    const auto topAlpha = static_cast<std::uint8_t>(
+        std::clamp(std::lround(static_cast<float>(washAlpha) * 0.86f), 0L, 255L));
+    const auto bottomAlpha = static_cast<std::uint8_t>(
+        std::clamp(std::lround(static_cast<float>(washAlpha) * 0.58f), 0L, 255L));
+    sf::VertexArray wash(sf::PrimitiveType::TriangleStrip, 4);
+    wash[0] = {{0.0f, 0.0f}, sf::Color(3, 8, 10, topAlpha)};
+    wash[1] = {{contentSize.x, 0.0f}, sf::Color(3, 8, 10, topAlpha)};
+    wash[2] = {{0.0f, contentSize.y}, sf::Color(3, 8, 10, bottomAlpha)};
+    wash[3] = {{contentSize.x, contentSize.y}, sf::Color(3, 8, 10, bottomAlpha)};
     window.draw(wash);
 
-    sf::RectangleShape bottomShade({contentSize.x, contentSize.y * 0.16f});
-    bottomShade.setPosition({0.0f, contentSize.y * 0.84f});
-    bottomShade.setFillColor(sf::Color(2, 5, 6, 92));
+    const float shadeHeight = contentSize.y * 0.18f;
+    const auto bottomShadeAlpha = static_cast<std::uint8_t>(
+        std::clamp(std::lround(108.0f * (0.55f + vignetteStrength * 0.35f)), 0L, 255L));
+    sf::VertexArray bottomShade(sf::PrimitiveType::TriangleStrip, 4);
+    bottomShade[0] = {{0.0f, contentSize.y - shadeHeight}, sf::Color(2, 5, 6, 0)};
+    bottomShade[1] = {{contentSize.x, contentSize.y - shadeHeight}, sf::Color(2, 5, 6, 0)};
+    bottomShade[2] = {{0.0f, contentSize.y}, sf::Color(2, 5, 6, bottomShadeAlpha)};
+    bottomShade[3] = {{contentSize.x, contentSize.y}, sf::Color(2, 5, 6, bottomShadeAlpha)};
     window.draw(bottomShade);
+    }
 
     window.setView(logicalView);
 
     // Every screen wants the edges pulled down: without it a full-bleed
     // backdrop fights the interface for attention at the frame's corners.
-    drawVignette(window, 0.85f);
+    if (!preserveSource)
+    {
+        drawVignette(window, vignetteStrength);
+    }
 }
 
 } // namespace bayou::client
