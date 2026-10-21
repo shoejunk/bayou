@@ -965,6 +965,15 @@ std::vector<AiCandidate> generateCandidates(
             candidates.push_back({{AiActionKind::UseAbility, piece.id}, abilityOrderBonus(piece)});
         }
 
+        if (piece.repeatActionIndex < 0 && pieceAbilityAvailable(playerView, piece, true))
+        {
+            AiAction action{AiActionKind::UseAbility, piece.id};
+            action.sacrifice = true;
+            Piece sacrificeActor = piece;
+            sacrificeActor.ability = piece.sacrifice;
+            candidates.push_back({action, abilityOrderBonus(sacrificeActor)});
+        }
+
         const int reach = pieceSquareReach(piece);
         const int firstRow = std::max(0, piece.row - reach);
         const int lastRow = std::min(BoardSize - 1, piece.row + reach);
@@ -1390,7 +1399,7 @@ bool applyAiAction(GameEngine& engine, int playerNumber, const AiAction& action)
             return engine.attackPiece(
                 playerNumber, action.pieceId, action.row, action.column, action.actionIndex);
         case AiActionKind::UseAbility:
-            if (!engine.useAbility(playerNumber, action.pieceId))
+            if (!engine.useAbility(playerNumber, action.pieceId, action.sacrifice))
             {
                 return false;
             }

@@ -1279,6 +1279,8 @@ const std::vector<std::string>& knownScreens()
         "game-swap",
         "game-hand-hover",
         "game-selected",
+        "game-sacrifice",
+        "game-sacrifice-both",
         "game-popup",
         "game-popup-tooltip",
         "game-action-choice",

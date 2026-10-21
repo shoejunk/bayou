@@ -117,7 +117,7 @@ bool isHiddenCardDetailKey(const std::string& key)
     return key == "Deck Limit" || key == "deckLimit" || key == "cost" || key == "heroCost" || key == "health" || key == "attack" || key == "Tax" || key == "tax" ||
         key == "range" || key == "move" || key == "attackingMove" || key == "power" ||
         key == "canControl" || key == "growTurns" || key == "abilityUses" || key == "gatherResources" ||
-        key == "ability" || key == "summon" || key == "summonUnit" || key == "abilityLabels" ||
+        key == "ability" || key == "Sacrifice" || key == "sacrifice" || key == "summon" || key == "summonUnit" || key == "abilityLabels" ||
         key == game_data::HealingAuraField || key == game_data::CounterstrikeField ||
         key == "WalkAnimFrames" || key == "IdleAnimFrames" ||
         key == "AttackAnimFrames" || key == "DamagedAnimFrames" || key == "KilledAnimFrames" ||
@@ -419,47 +419,54 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             details.push_back({"Rebirth: " + gameCard.rebirthTitle,
                                sf::Color(194, 150, 235)});
         }
-        if (!gameCard.ability.empty())
+        for (bool sacrifice : {false, true})
         {
+            const std::string& ability = sacrifice ? gameCard.sacrifice : gameCard.ability;
+            if (ability.empty()) continue;
             std::string abilityText;
-            if (gameCard.ability == "summon")
+            if (ability == "summon")
             {
                 abilityText = gameCard.summonTitle.empty()
                     ? "Ability unavailable: Summon has no Unit defined on this live card"
                     : "Ability: Summon " + gameCard.summonTitle +
                         " into the square directly in front. If an opposing hidden piece occupies it, the ability is spent, creates no Unit, and materializes that piece Disabled for its next owner-turn activation";
             }
-            else if (gameCard.ability == "dig")
+            else if (ability == "dig")
             {
                 abilityText = "Ability: Dig a hole on this piece's square";
             }
-            else if (gameCard.ability == "command")
+            else if (ability == "command")
             {
                 abilityText = "Ability: Command a ready adjacent friendly piece";
             }
-            else if (gameCard.ability == "raise undead")
+            else if (ability == "raise undead")
             {
                 abilityText = "Ability: Raise Undead. Choose any Undead Unit in the graveyard and add it to your hand for free at 1 Health. If it is destroyed again, exile it";
             }
-            else if (gameCard.ability == "swap")
+            else if (ability == "swap")
             {
                 abilityText = "Ability: Swap. Requires a card in hand. Choose a hand card to discard to the bottom of your deck, then draw up to 2 cards, limited by hand space";
             }
-            else if (gameCard.ability == "dematerialize")
+            else if (ability == "dematerialize")
             {
                 abilityText = "Ability: cycle between materialized and hidden action states";
             }
-            else if (gameCard.ability == "transform")
+            else if (ability == "transform")
             {
                 abilityText = "Ability: cycle to the next action state";
             }
             else
             {
-                abilityText = "Ability: " + gameCard.ability;
+                abilityText = "Ability: " + ability;
+            }
+            if (sacrifice)
+            {
+                abilityText.replace(0, 7, "Sacrifice");
+                abilityText += ". After the effect resolves, this unit is killed";
             }
             details.push_back({
                 std::move(abilityText),
-                gameCard.ability == "summon" && gameCard.summonTitle.empty()
+                ability == "summon" && gameCard.summonTitle.empty()
                     ? sf::Color(225, 170, 150)
                     : sf::Color(210, 216, 228)});
         }

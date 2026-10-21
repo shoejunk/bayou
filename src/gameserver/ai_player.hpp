@@ -24,6 +24,7 @@ struct AiAction
     // -1 is retained only for legacy callers that intentionally request the
     // resolver's automatic choice.
     int actionIndex = -1;
+    bool sacrifice = false;
 };
 
 // How many whole turns the planner looks ahead by default: its own turn and

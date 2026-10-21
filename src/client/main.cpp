@@ -825,6 +825,7 @@ enum class StoryGameKeyboardFocus
     PlayerTwo,
     DrawPile,
     Ability,
+    Sacrifice,
     EndTurn,
     Restart,
     Exit
@@ -1761,6 +1762,10 @@ int main(int argc, char** argv)
         backButton.setPosition({510.0f, 500.0f});
         backButton.setLabelSize(type::Body);
     };
+    Button sacrificeButton(
+        {GameActionButtonX, GameAbilityButtonY},
+        {GameAbilityButtonWidth, GameActionButtonHeight},
+        "Sacrifice", font);
     Button abilityButton(
         {GameActionButtonX, GameAbilityButtonY},
         {GameAbilityButtonWidth, GameActionButtonHeight},
@@ -5531,7 +5536,9 @@ int main(int argc, char** argv)
         }
     };
 
+    std::function<void(game_data::Snapshot&)> resolveSandboxSacrifices;
     auto commitSandboxSnapshot = [&](game_data::Snapshot nextSnapshot) {
+        if (resolveSandboxSacrifices) resolveSandboxSacrifices(nextSnapshot);
         recomputeSandboxControl(nextSnapshot);
         refreshSandboxPlayerSnapshots(nextSnapshot);
         commitLocalSnapshot(std::move(nextSnapshot));
@@ -7992,6 +7999,17 @@ int main(int argc, char** argv)
             &originalCard);
     };
 
+    resolveSandboxSacrifices = [&](game_data::Snapshot& snapshot) {
+        if (snapshot.commandingPieceId != 0 || !snapshot.raiseUndeadChoices.empty() ||
+            snapshot.swapChoicePending) return;
+        std::vector<int> pending;
+        for (const game_data::Piece& piece : snapshot.pieces)
+        {
+            if (piece.sacrificePending) pending.push_back(piece.id);
+        }
+        for (int id : pending) destroySandboxPiece(snapshot, id);
+    };
+
     auto sandboxPlayCard = [&](int handIndex, int row, int column) {
         if (!sandboxMode || !haveSnapshot ||
             static_cast<game_data::Phase>(gameSnapshot.phase) != game_data::Phase::Playing ||
@@ -8602,7 +8620,7 @@ int main(int argc, char** argv)
         commitSandboxSnapshot(std::move(next));
     };
 
-    auto sandboxUseAbility = [&](int pieceId) {
+    auto sandboxUseAbility = [&](int pieceId, bool sacrifice) {
         if (!sandboxMode || !haveSnapshot ||
             static_cast<game_data::Phase>(gameSnapshot.phase) != game_data::Phase::Playing)
         {
@@ -8615,11 +8633,13 @@ int main(int argc, char** argv)
 
         game_data::Snapshot next = gameSnapshot;
         game_data::Piece* piece = pieceByIdInSnapshotMutable(next, pieceId);
-        if (!piece || !game_data::pieceAbilityAvailable(next, *piece))
+        if (!piece || !game_data::pieceAbilityAvailable(next, *piece, sacrifice))
         {
             return;
         }
-        if (piece->ability == "swap")
+        const std::string ability = game_data::normalizedAbility(
+            sacrifice ? piece->sacrifice : piece->ability);
+        if (ability == "swap")
         {
             next.status = "Swap requires a match draw pile. Use it in Story or a regular match.";
             commitSandboxSnapshot(std::move(next));
@@ -8653,12 +8673,12 @@ int main(int argc, char** argv)
             return;
         }
 
-        const std::string abilityLabel = game_data::pieceAbilityLabel(*piece);
+        const std::string abilityLabel = game_data::pieceAbilityLabel(*piece, sacrifice);
         const std::string pieceName = piece->name;
         const std::string commanderName = commandedAction ? commander->name : std::string();
         const int pieceOwner = piece->owner;
         const int actingPieceId = piece->id;
-        if (piece->ability == "dig")
+        if (ability == "dig")
         {
             if (piece->abilityUses == 0)
             {
@@ -8672,7 +8692,7 @@ int main(int argc, char** argv)
                 --piece->abilityUses;
             }
         }
-        else if (piece->ability == "transform" || piece->ability == "dematerialize")
+        else if (ability == "transform" || ability == "dematerialize")
         {
             int stateCount = 1;
             for (const game_data::ActionProfile& action : piece->actions)
@@ -8683,7 +8703,7 @@ int main(int argc, char** argv)
             game_data::setPieceActionState(
                 *piece, (piece->actionState + 1) % stateCount);
         }
-        else if (piece->ability == "summon")
+        else if (ability == "summon")
         {
             const auto found = std::find_if(
                 next.hand.begin(),
@@ -8706,16 +8726,17 @@ int main(int argc, char** argv)
             }
             spawnSandboxPiece(next, nextSandboxPieceId, pieceOwner, *found, row, column, false);
         }
-        else if (piece->ability == "command")
+        else if (ability == "command")
         {
             piece->hasActed = true;
             next.relentlessPieceId = 0;
             next.commandingPieceId = piece->id;
+            piece->sacrificePending = sacrifice;
             next.status = pieceName + " used Command. Activate one adjacent friendly piece.";
             commitSandboxSnapshot(std::move(next));
             return;
         }
-        else if (piece->ability == "raise undead")
+        else if (ability == "raise undead")
         {
             next.raiseUndeadChoices.clear();
             std::copy_if(
@@ -8735,6 +8756,7 @@ int main(int argc, char** argv)
         if (game_data::Piece* actingPiece = pieceByIdInSnapshotMutable(next, actingPieceId))
         {
             actingPiece->hasActed = storyMode;
+            actingPiece->sacrificePending = sacrifice;
         }
         if (next.relentlessPieceId == actingPieceId)
         {
@@ -8749,7 +8771,7 @@ int main(int argc, char** argv)
         {
             next.status = pieceName + " used " + abilityLabel + ".";
         }
-        if (piece->ability == "raise undead")
+        if (ability == "raise undead")
         {
             next.status += " Choose an Undead Unit from the graveyard.";
         }
@@ -9519,7 +9541,7 @@ int main(int argc, char** argv)
         }
     };
 
-    auto sendUseAbility = [&](int pieceId) {
+    auto sendUseAbility = [&](int pieceId, bool sacrifice = false) {
         if (storyMode && storyEngine)
         {
             if (!storyActionAllowed(StoryActionKind::UseAbility, 1, pieceId, -1, -1))
@@ -9535,12 +9557,12 @@ int main(int argc, char** argv)
                 : found->name;
             const std::string ability = found == storyEngine->boardPieces().end()
                 ? std::string()
-                : found->ability;
+                : (sacrifice ? found->sacrifice : found->ability);
             const std::optional<game_data::Piece> abilityActorBefore =
                 found == storyEngine->boardPieces().end()
                 ? std::nullopt
                 : std::optional<game_data::Piece>(*found);
-            const bool accepted = storyEngine->useAbility(1, pieceId);
+            const bool accepted = storyEngine->useAbility(1, pieceId, sacrifice);
             if (accepted)
             {
                 storyUsedAim = storyUsedAim ||
@@ -9555,11 +9577,12 @@ int main(int argc, char** argv)
         }
         if (sandboxMode)
         {
-            sandboxUseAbility(pieceId);
+            sandboxUseAbility(pieceId, sacrifice);
             return;
         }
         sf::Packet packet;
-        packet << static_cast<std::uint8_t>(network::MessageType::UseAbility) << pieceId;
+        packet << static_cast<std::uint8_t>(sacrifice
+            ? network::MessageType::UseSacrifice : network::MessageType::UseAbility) << pieceId;
         sendGamePacket(packet);
     };
 
@@ -14539,6 +14562,22 @@ int main(int argc, char** argv)
                     HandY + 46.0f};
             }
         }
+        else if (screen == "game-sacrifice" || screen == "game-sacrifice-both")
+        {
+            seedCaptureMatch("selected");
+            if (selectedPieceId)
+            {
+                if (game_data::Piece* piece = pieceByIdInSnapshotMutable(gameSnapshot, *selectedPieceId))
+                {
+                    piece->ability = screen == "game-sacrifice-both" ? "transform" : "";
+                    piece->sacrifice = "dig";
+                    piece->abilityUses = 1;
+                    piece->hasActed = false;
+                    piece->disabledTurns = 0;
+                    piece->growTurnsRemaining = 0;
+                }
+            }
+        }
         else if (screen == "game-selected")
         {
             seedCaptureMatch("selected");
@@ -15208,7 +15247,7 @@ int main(int argc, char** argv)
             step.kind == StoryActionKind::EndTurn;
     };
 
-    const auto storyAbilityAvailable = [&]() {
+    const auto storyAbilityAvailable = [&](bool sacrifice = false) {
         if (!storyMode || !haveSnapshot || !selectedPieceId ||
             static_cast<game_data::Phase>(gameSnapshot.phase) !=
                 game_data::Phase::Playing ||
@@ -15218,7 +15257,7 @@ int main(int argc, char** argv)
         }
         const game_data::Piece* piece = gamePieceById(*selectedPieceId);
         return piece && pieceCanTakeGameAction(*piece) &&
-            game_data::pieceAbilityAvailable(gameSnapshot, *piece);
+            game_data::pieceAbilityAvailable(gameSnapshot, *piece, sacrifice);
     };
 
     const auto storyGameKeyboardTargets = [&]() {
@@ -15249,6 +15288,10 @@ int main(int argc, char** argv)
         if (storyAbilityAvailable())
         {
             targets.push_back(StoryGameKeyboardFocus::Ability);
+        }
+        if (storyAbilityAvailable(true))
+        {
+            targets.push_back(StoryGameKeyboardFocus::Sacrifice);
         }
         if (storyEndTurnAvailable())
         {
@@ -15504,6 +15547,15 @@ int main(int argc, char** argv)
                 selectedHandIndex.reset();
             }
             break;
+        case StoryGameKeyboardFocus::Sacrifice:
+            if (storyAbilityAvailable(true))
+            {
+                const int pieceId = *selectedPieceId;
+                sendUseAbility(pieceId, true);
+                selectedPieceId.reset();
+                selectedHandIndex.reset();
+            }
+            break;
         case StoryGameKeyboardFocus::EndTurn:
             activateStoryEndTurnKeyboard();
             break;
@@ -15536,6 +15588,9 @@ int main(int argc, char** argv)
         abilityButton.setFocused(
             active && storyPopupPanels.empty() && storyAbilityAvailable() &&
             storyGameKeyboardFocus == StoryGameKeyboardFocus::Ability);
+        sacrificeButton.setFocused(
+            active && storyPopupPanels.empty() && storyAbilityAvailable(true) &&
+            storyGameKeyboardFocus == StoryGameKeyboardFocus::Sacrifice);
         endTurnButton.setFocused(
             active && storyPopupPanels.empty() && storyEndTurnAvailable() &&
             storyGameKeyboardFocus == StoryGameKeyboardFocus::EndTurn);
@@ -17388,6 +17443,21 @@ int main(int argc, char** argv)
                         else
                         {
                             sendEndTurn();
+                        }
+                    }
+                    else if (haveSnapshot && selectedPieceId &&
+                             static_cast<game_data::Phase>(gameSnapshot.phase) == game_data::Phase::Playing &&
+                             (sandboxMode || gameSnapshot.activePlayer == gameSnapshot.yourPlayer) &&
+                             sacrificeButton.isClicked(clickPos))
+                    {
+                        if (const game_data::Piece* piece = gamePieceById(*selectedPieceId);
+                            piece && pieceCanTakeGameAction(*piece) &&
+                            game_data::pieceAbilityAvailable(gameSnapshot, *piece, true))
+                        {
+                            pendingHandClickIndex.reset();
+                            sendUseAbility(piece->id, true);
+                            selectedPieceId.reset();
+                            selectedHandIndex.reset();
                         }
                     }
                     else if (haveSnapshot && selectedPieceId &&
@@ -19264,6 +19334,12 @@ int main(int argc, char** argv)
                         game_data::pieceAbilityAvailable(gameSnapshot, *piece))
                     {
                         abilityButton.update(mousePos);
+                    }
+                    if (const game_data::Piece* piece = gamePieceById(*selectedPieceId);
+                        piece && pieceCanTakeGameAction(*piece) &&
+                        game_data::pieceAbilityAvailable(gameSnapshot, *piece, true))
+                    {
+                        sacrificeButton.update(mousePos);
                     }
                 }
                 if (sandboxMode && !storyMode)

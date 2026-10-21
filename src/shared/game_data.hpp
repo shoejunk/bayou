@@ -446,6 +446,7 @@ struct GameCard
     int growTurns = 0;
     std::vector<ActionProfile> actions;
     std::string ability;
+    std::string sacrifice;
     std::string summonTitle;
     std::string rebirthTitle;
     std::vector<std::string> abilityLabels;
@@ -495,6 +496,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.canControl = cardInt(card, "canControl", 1) != 0;
     g.growTurns = cardInt(card, "growTurns", 0);
     g.ability = normalizedAbility(cardStr(card, "ability"));
+    g.sacrifice = normalizedAbility(cardStr(card, "Sacrifice", cardStr(card, "sacrifice")));
     if (g.title == "Maggie Mudroot" || g.title == "Old Mangletooth")
     {
         g.ability = "raise undead";
@@ -750,6 +752,8 @@ struct Piece
     int repeatActionState = 0;
     int repeatActionUses = 0;
     std::string ability;
+    std::string sacrifice;
+    bool sacrificePending = false;
     std::string summonTitle;
     std::string rebirthTitle;
     std::vector<std::string> abilityLabels;
@@ -810,6 +814,8 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.growTurnsRemaining = card.growTurns;
     piece.actions = card.actions;
     piece.ability = normalizedAbility(card.ability);
+    piece.sacrifice = normalizedAbility(card.sacrifice);
+    piece.sacrificePending = false;
     piece.summonTitle = card.summonTitle;
     piece.rebirthTitle = card.rebirthTitle;
     piece.abilityLabels = card.abilityLabels;
@@ -1033,7 +1039,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
         card_data::writeStringVector(packet, action.targetFilter);
         packet << action.infest << action.pull;
     }
-    packet << card.ability << card.summonTitle << card.rebirthTitle;
+    packet << card.ability << card.sacrifice << card.summonTitle << card.rebirthTitle;
     card_data::writeStringVector(packet, card.abilityLabels);
     packet << card.abilityUses << card.raisedFromGraveyard;
 }
@@ -1079,7 +1085,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
         }
         card.actions.push_back(action);
     }
-    packet >> card.ability >> card.summonTitle >> card.rebirthTitle;
+    packet >> card.ability >> card.sacrifice >> card.summonTitle >> card.rebirthTitle;
     if (!packet || !card_data::readStringVector(packet, card.abilityLabels))
     {
         return false;
@@ -1105,7 +1111,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
            << piece.movePattern << piece.moveRange << piece.attackingMove
            << piece.canControl << piece.growTurnsRemaining << piece.disabledTurns << piece.sleepTurnsRemaining
             << piece.actionState << piece.repeatActionIndex << piece.repeatActionState << piece.repeatActionUses
-            << piece.ability << piece.summonTitle << piece.rebirthTitle << piece.abilityUses << piece.hidden
+            << piece.ability << piece.sacrifice << piece.sacrificePending << piece.summonTitle << piece.rebirthTitle << piece.abilityUses << piece.hidden
             << piece.isHero << piece.hasActed << piece.controlTurnsRemaining
             << piece.infestationTitle << piece.infestationOwner << piece.interceptUsedThisTurn
             << piece.raisedFromGraveyard;
@@ -1141,7 +1147,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
            >> piece.movePattern >> piece.moveRange >> piece.attackingMove
            >> piece.canControl >> piece.growTurnsRemaining >> piece.disabledTurns >> piece.sleepTurnsRemaining
            >> piece.actionState >> piece.repeatActionIndex >> piece.repeatActionState >> piece.repeatActionUses
-           >> piece.ability >> piece.summonTitle >> piece.rebirthTitle >> piece.abilityUses >> piece.hidden
+           >> piece.ability >> piece.sacrifice >> piece.sacrificePending >> piece.summonTitle >> piece.rebirthTitle >> piece.abilityUses >> piece.hidden
            >> piece.isHero >> piece.hasActed >> piece.controlTurnsRemaining
            >> piece.infestationTitle >> piece.infestationOwner >> piece.interceptUsedThisTurn
            >> piece.raisedFromGraveyard;

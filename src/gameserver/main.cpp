@@ -1198,11 +1198,12 @@ private:
                     network::decodeActionProfileSelection(actionProfileSelection));
                 return true;
             }
+            case MessageType::UseSacrifice:
             case MessageType::UseAbility:
             {
                 int pieceId = 0;
                 packet >> pieceId;
-                engine.useAbility(playerNumber, pieceId);
+                engine.useAbility(playerNumber, pieceId, static_cast<MessageType>(msgType) == MessageType::UseSacrifice);
                 return true;
             }
             case MessageType::DiscardCard:

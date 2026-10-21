@@ -26,6 +26,7 @@ inline bool supported(network::MessageType type)
         case network::MessageType::PlayCard:
         case network::MessageType::MovePiece:
         case network::MessageType::AttackPiece:
+        case network::MessageType::UseSacrifice:
         case network::MessageType::UseAbility:
         case network::MessageType::DiscardCard:
         case network::MessageType::EndTurn:
@@ -87,6 +88,7 @@ inline bool decodePayload(
                 return false;
             }
             break;
+        case network::MessageType::UseSacrifice:
         case network::MessageType::UseAbility:
         case network::MessageType::DiscardCard:
         case network::MessageType::ChooseForesightCard:
@@ -217,8 +219,10 @@ inline bool apply(
                 action.argumentThree,
                 network::decodeActionProfileSelection(action.argumentFour));
             break;
+        case network::MessageType::UseSacrifice:
         case network::MessageType::UseAbility:
-            accepted = engine.useAbility(action.playerNumber, action.argumentOne);
+            accepted = engine.useAbility(action.playerNumber, action.argumentOne,
+                type == network::MessageType::UseSacrifice);
             break;
         case network::MessageType::DiscardCard:
             accepted = engine.discardCard(action.playerNumber, action.argumentOne);

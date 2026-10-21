@@ -140,7 +140,8 @@ enum class MessageType : std::uint8_t
     ChooseForesightCard,
     DrawCard,
     ChooseRaiseUndeadCard,
-    ChooseSwapCard
+    ChooseSwapCard,
+    UseSacrifice
 };
 
 // MovePiece and AttackPiece keep their original three-int payload

@@ -597,6 +597,180 @@ void testShelter()
     }
 }
 
+void testSacrifice()
+{
+    card_data::Card source;
+    source.title = "Sacrifice test unit";
+    source.type = "Unit";
+    source.integerValues = {{"health", 10}, {"abilityUses", 1}};
+    source.stringValues = {{"ability", "transform"}, {"Sacrifice", "  DiG  "}};
+    GameCard actor = toGameCard(source);
+    check(actor.sacrifice == "dig" && actor.ability == "transform",
+          "Sacrifice is normalized independently of Ability");
+    sf::Packet cardPacket;
+    writeGameCard(cardPacket, actor);
+    GameCard decoded;
+    check(readGameCard(cardPacket, decoded) && cardPacket.endOfPacket() &&
+              decoded.sacrifice == "dig" && decoded.ability == "transform",
+          "Sacrifice survives game card serialization");
+    Piece piece;
+    populatePieceFromCard(piece, actor, false);
+    piece.sacrificePending = true;
+    sf::Packet piecePacket;
+    writePiece(piecePacket, piece);
+    Piece decodedPiece;
+    check(readPiece(piecePacket, decodedPiece) && piecePacket.endOfPacket() &&
+              decodedPiece.sacrifice == "dig" && decodedPiece.sacrificePending,
+          "Sacrifice and pending resolution survive piece serialization");
+
+    const auto present = [](const GameEngine& engine, int id) {
+        return std::any_of(engine.boardPieces().begin(), engine.boardPieces().end(),
+            [=](const Piece& candidate) { return candidate.id == id; });
+    };
+    const auto load = [&](GameEngine& engine, const GameCard& card) {
+        return engine.loadScenario({{1, card, 3, 3, false}}, {}, {}, 0, 0, 1,
+                                   "Sacrifice test", false);
+    };
+    GameEngine ordinary(91, {});
+    check(load(ordinary, actor) && ordinary.useAbility(1, ordinary.boardPieces()[0].id) &&
+              ordinary.boardPieces().size() == 1 && ordinary.snapshotFor(1).graveyard.empty(),
+          "normal Ability on a card with Sacrifice does not kill the actor");
+    for (const std::string effect : {"dig", "transform", "dematerialize"})
+    {
+        GameEngine engine(92, {});
+        actor.sacrifice = effect;
+        check(load(engine, actor), "immediate sacrifice scenario loads");
+        const int id = engine.boardPieces()[0].id;
+        check(!engine.useAbility(2, id, true) && present(engine, id),
+              "wrong player cannot sacrifice a unit");
+        check(engine.useAbility(1, id, true) && !present(engine, id) &&
+                  engine.snapshotFor(1).graveyard.size() == 1 &&
+                  engine.playerState(1).pieceActionUsedThisTurn,
+              "each immediate sacrifice resolves and kills the actor");
+        if (effect == "dig")
+            check(engine.boardHoles()[squareIndex(3, 3)] == 1,
+                  "Sacrifice Dig creates the hole before killing its unit");
+        check(!engine.useAbility(1, id, true), "a sacrificed unit cannot act again");
+    }
+    for (const std::string effect : {"dig", "summon", "command", "swap", "raise undead", "unknown"})
+    {
+        GameEngine engine(93, {});
+        actor.sacrifice = effect;
+        actor.abilityUses = 0;
+        check(load(engine, actor), "unavailable sacrifice scenario loads");
+        check(!engine.useAbility(1, engine.boardPieces()[0].id, true) &&
+                  engine.boardPieces().size() == 1 && !engine.boardPieces()[0].hasActed &&
+                  !engine.playerState(1).pieceActionUsedThisTurn,
+              "invalid sacrifice preserves the unit and action");
+    }
+    actor.abilityUses = 1;
+    actor.sacrifice = "summon";
+    actor.summonTitle = "Sacrifice child";
+    card_data::Card child;
+    child.title = actor.summonTitle;
+    child.type = "Unit";
+    child.integerValues = {{"health", 3}};
+    GameEngine summon(94, {child});
+    check(load(summon, actor) && summon.useAbility(1, summon.boardPieces()[0].id, true) &&
+              summon.boardPieces().size() == 1 && summon.boardPieces()[0].name == child.title &&
+              summon.boardPieces()[0].column == 4 && summon.boardPieces()[0].hasActed &&
+              summon.snapshotFor(1).graveyard.size() == 1,
+          "Sacrifice Summon leaves its exhausted summon and puts the actor in the graveyard");
+    actor.sacrifice = "dig";
+    actor.rebirthTitle = child.title;
+    GameEngine rebirth(95, {child});
+    check(load(rebirth, actor) && rebirth.useAbility(1, rebirth.boardPieces()[0].id, true) &&
+              rebirth.boardHoles()[squareIndex(3, 3)] == 1 &&
+              rebirth.boardPieces().size() == 1 && rebirth.boardPieces()[0].name == child.title &&
+              !rebirth.boardPieces()[0].sacrificePending,
+          "Sacrifice uses normal Rebirth without sacrificing the replacement");
+    actor.rebirthTitle.clear();
+    actor.raisedFromGraveyard = true;
+    GameEngine exile(96, {});
+    check(load(exile, actor) && exile.useAbility(1, exile.boardPieces()[0].id, true) &&
+              exile.snapshotFor(1).exiled.size() == 1 && exile.snapshotFor(1).graveyard.empty(),
+          "a raised unit is exiled when sacrificed");
+    actor.raisedFromGraveyard = false;
+
+    actor.sacrifice = "swap";
+    GameCard held = toGameCard(child);
+    for (bool timeout : {false, true})
+    {
+        GameEngine swap(97, {});
+        check(swap.loadScenario({{1, actor, 3, 3, false}}, {held}, {}, 0, 0, 1,
+                               "Sacrifice Swap", false, {held, held}),
+              "Sacrifice Swap scenario loads");
+        swap.enableTimers();
+        const int id = swap.boardPieces()[0].id;
+        check(swap.useAbility(1, id, true) && present(swap, id) && swap.hasPendingSwapChoice(1) &&
+                  !swap.chooseSwapCard(1, -1) && present(swap, id),
+              "Sacrifice Swap waits for a valid hand choice before death");
+        if (timeout)
+            check(swap.updateTimers(GameEngine::FullTurnTimerMs) && !present(swap, id),
+                  "timing out a pending sacrifice still kills its actor");
+        else
+            check(swap.chooseSwapCard(1, 0) && !present(swap, id) &&
+                      swap.playerState(1).hand.size() == 2,
+                  "Sacrifice Swap finishes discarding and drawing before death");
+    }
+    actor.sacrifice = "command";
+    GameCard worker = held;
+    worker.ability = "dig";
+    worker.abilityUses = 1;
+    GameEngine command(98, {});
+    check(command.loadScenario({{1, actor, 3, 3, false}, {1, worker, 2, 3, false}},
+                               {}, {}, 0, 0, 1, "Sacrifice Command", false),
+          "Sacrifice Command scenario loads");
+    const int commanderId = command.boardPieces()[0].id;
+    const int workerId = command.boardPieces()[1].id;
+    check(command.useAbility(1, commanderId, true) && present(command, commanderId) &&
+              command.commandingPiece() == commanderId && command.useAbility(1, workerId) &&
+              !present(command, commanderId) && present(command, workerId) &&
+              command.boardHoles()[squareIndex(2, 3)] == 1 &&
+              !command.playerState(1).pieceActionUsedThisTurn,
+          "Sacrifice Command completes the commanded ability before killing the commander");
+
+    actor.sacrifice = "raise undead";
+    actor.traits = {"Undead"};
+    GameCard victim = held;
+    victim.traits = {"Undead"};
+    GameCard blast;
+    blast.type = "Spell";
+    blast.effect = "damage";
+    blast.target = "enemy";
+    blast.power = 20;
+    blast.cost = 0;
+    GameEngine raise(99, {});
+    check(raise.loadScenario({{1, actor, 3, 3, false}, {2, victim, 2, 3, false}},
+                             {blast}, {}, 0, 0, 1, "Sacrifice Raise", false) &&
+              raise.playCard(1, 0, 2, 3), "Sacrifice Raise graveyard is prepared");
+    const int raiserId = raise.boardPieces()[0].id;
+    check(raise.useAbility(1, raiserId, true) && present(raise, raiserId) &&
+              raise.snapshotFor(1).raiseUndeadChoices.size() == 1 &&
+              raise.chooseRaiseUndeadCard(1, 0) && !present(raise, raiserId) &&
+              raise.playerState(1).hand[0].title == victim.title &&
+              raise.playerState(1).hand[0].raisedFromGraveyard &&
+              raise.snapshotFor(1).graveyard[0].title == actor.title,
+          "Sacrifice Raise chooses an existing Undead before its own unit enters the graveyard");
+
+    actor.sacrifice = "dig";
+    GameEngine wire(100, {});
+    check(load(wire, actor), "Sacrifice protocol scenario loads");
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::UseSacrifice)
+            << wire.boardPieces()[0].id;
+    conquest_data::BattleAction action;
+    std::string error;
+    check(game_action::decode(request, 1, 1, action, error) && game_action::apply(wire, action) &&
+              wire.boardPieces().empty(), "Sacrifice is decoded and applied by the shared tactical protocol");
+    GameEngine ai(101, {});
+    check(load(ai, actor), "Sacrifice AI scenario loads");
+    AiAction aiAction{AiActionKind::UseAbility, ai.boardPieces()[0].id};
+    aiAction.sacrifice = true;
+    check(applyAiAction(ai, 1, aiAction) && ai.boardPieces().empty(),
+          "AI actions can select Sacrifice independently of Ability");
+}
+
 void testSwap()
 {
     card_data::Card source;
@@ -751,6 +925,7 @@ int main(int argc, char** argv)
     testEvacuate();
     testShelter();
     testSwap();
+    testSacrifice();
     bayou::client::ClockWarningTracker clockWarnings;
     check(!clockWarnings.observe(1, 121'000).has_value(),
           "clock warnings establish a baseline without firing");

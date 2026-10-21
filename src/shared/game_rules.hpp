@@ -1067,6 +1067,7 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
 inline bool pieceHasDematerialize(const Piece& piece)
 {
     return normalizedAbility(piece.ability) == "dematerialize" ||
+        normalizedAbility(piece.sacrifice) == "dematerialize" ||
         hasKeyword(piece.keywords, "dematerialize");
 }
 
@@ -1088,9 +1089,10 @@ inline void materializeRevealedPiece(Piece& piece)
     applyDamageStatus(piece, 0, HiddenRevealStunTurns);
 }
 
-inline std::string pieceAbilityLabel(const Piece& piece)
+inline std::string pieceAbilityLabel(const Piece& piece, bool sacrifice = false)
 {
-    const std::string ability = normalizedAbility(piece.ability);
+    const std::string ability = normalizedAbility(sacrifice ? piece.sacrifice : piece.ability);
+    const std::string prefix = sacrifice ? "Sacrifice: " : "";
     if (ability.empty())
     {
         return "";
@@ -1099,37 +1101,37 @@ inline std::string pieceAbilityLabel(const Piece& piece)
     {
         const std::size_t index = static_cast<std::size_t>(
             piece.actionState % static_cast<int>(piece.abilityLabels.size()));
-        return piece.abilityLabels[index];
+        return prefix + piece.abilityLabels[index];
     }
     if (ability == "dig")
     {
-        return "Dig";
+        return prefix + "Dig";
     }
     if (ability == "summon")
     {
-        return "Summon";
+        return prefix + "Summon";
     }
     if (ability == "command")
     {
-        return "Command";
+        return prefix + "Command";
     }
     if (ability == "raise undead")
     {
-        return "Raise Undead";
+        return prefix + "Raise Undead";
     }
     if (ability == "swap")
     {
-        return "Swap";
+        return prefix + "Swap";
     }
     if (ability == "transform")
     {
-        return "Transform";
+        return prefix + "Transform";
     }
     if (ability == "dematerialize")
     {
-        return piece.actionState == 0 ? "Dematerialize" : "Materialize";
+        return prefix + (piece.actionState == 0 ? "Dematerialize" : "Materialize");
     }
-    return "Use Ability";
+    return prefix + "Use Ability";
 }
 
 inline bool pieceHasTrailAbility(const Piece& piece)
@@ -1595,10 +1597,10 @@ inline bool pieceSummonDestinationFree(const std::vector<Piece>& pieces, const P
     return inBounds(row, column) && findPieceAt(pieces, row, column) == nullptr;
 }
 
-inline bool pieceAbilityAvailable(const Piece& piece)
+inline bool pieceAbilityAvailable(const Piece& piece, bool sacrifice = false)
 {
-    const std::string ability = normalizedAbility(piece.ability);
-    if (ability.empty() || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
+    const std::string ability = normalizedAbility(sacrifice ? piece.sacrifice : piece.ability);
+    if (piece.sacrificePending || ability.empty() || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
     {
         return false;
     }
@@ -1614,13 +1616,13 @@ inline bool pieceAbilityAvailable(const Piece& piece)
         ability == "raise undead" || ability == "swap";
 }
 
-inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece& piece)
+inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece& piece, bool sacrifice = false)
 {
-    if (!pieceAbilityAvailable(piece))
+    if (!pieceAbilityAvailable(piece, sacrifice))
     {
         return false;
     }
-    const std::string ability = normalizedAbility(piece.ability);
+    const std::string ability = normalizedAbility(sacrifice ? piece.sacrifice : piece.ability);
     if (ability == "summon")
     {
         return pieceSummonDestinationFree(pieces, piece);
@@ -1635,9 +1637,9 @@ inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece&
     return true;
 }
 
-inline bool pieceAbilityAvailable(const Snapshot& snapshot, const Piece& piece)
+inline bool pieceAbilityAvailable(const Snapshot& snapshot, const Piece& piece, bool sacrifice = false)
 {
-    if (!pieceAbilityAvailable(snapshot.pieces, piece))
+    if (!pieceAbilityAvailable(snapshot.pieces, piece, sacrifice))
     {
         return false;
     }
@@ -1645,12 +1647,12 @@ inline bool pieceAbilityAvailable(const Snapshot& snapshot, const Piece& piece)
     {
         return false;
     }
-    if (normalizedAbility(piece.ability) == "swap")
+    if (normalizedAbility(sacrifice ? piece.sacrifice : piece.ability) == "swap")
     {
         return !snapshot.hand.empty() && snapshot.foresightChoices.empty() &&
             snapshot.raiseUndeadChoices.empty();
     }
-    if (normalizedAbility(piece.ability) != "raise undead")
+    if (normalizedAbility(sacrifice ? piece.sacrifice : piece.ability) != "raise undead")
     {
         return true;
     }

@@ -98,6 +98,7 @@ bool supportedBattleActionType(std::uint8_t actionType)
         case network::MessageType::PlayCard:
         case network::MessageType::MovePiece:
         case network::MessageType::AttackPiece:
+        case network::MessageType::UseSacrifice:
         case network::MessageType::UseAbility:
         case network::MessageType::DiscardCard:
         case network::MessageType::EndTurn:

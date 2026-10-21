@@ -857,6 +857,7 @@ public:
             playerNumber, pieceId, toRow, toColumn, selectedActionIndex);
         if (accepted)
         {
+            resolvePendingSacrifices();
             recordPlayerMove(playerNumber);
             evaluateScenarioObjective();
         }
@@ -874,17 +875,23 @@ public:
             playerNumber, attackerId, targetRow, targetColumn, selectedActionIndex);
         if (accepted)
         {
+            resolvePendingSacrifices();
             recordPlayerMove(playerNumber);
             evaluateScenarioObjective();
         }
         return accepted;
     }
 
-    bool useAbility(int playerNumber, int pieceId)
+    bool useAbility(int playerNumber, int pieceId, bool sacrifice = false)
     {
-        const bool accepted = useAbilityWithoutRecordingMove(playerNumber, pieceId);
+        const bool accepted = useAbilityWithoutRecordingMove(playerNumber, pieceId, sacrifice);
         if (accepted)
         {
+            if (sacrifice)
+            {
+                if (Piece* actor = pieceById(pieceId)) actor->sacrificePending = true;
+            }
+            resolvePendingSacrifices();
             recordPlayerMove(playerNumber);
             evaluateScenarioObjective();
         }
@@ -892,7 +899,7 @@ public:
     }
 
 private:
-    bool useAbilityWithoutRecordingMove(int playerNumber, int pieceId)
+    bool useAbilityWithoutRecordingMove(int playerNumber, int pieceId, bool sacrifice)
     {
         if (hasPendingCardChoice(playerNumber))
         {
@@ -904,10 +911,12 @@ private:
         }
 
         Piece* piece = pieceById(pieceId);
+        const std::string ability = piece != nullptr
+            ? normalizedAbility(sacrifice ? piece->sacrifice : piece->ability) : std::string();
         bool hiddenSummonCollision = false;
         if (piece != nullptr && piece->owner == playerNumber &&
-            !piece->hasActed && pieceAbilityAvailable(*piece) &&
-            normalizedAbility(piece->ability) == "summon")
+            !piece->hasActed && pieceAbilityAvailable(*piece, sacrifice) &&
+            ability == "summon")
         {
             const auto [summonRow, summonColumn] = summonDestination(*piece);
             const Piece* blocker = inBounds(summonRow, summonColumn)
@@ -917,7 +926,7 @@ private:
                 blocker->owner != playerNumber;
         }
         if (piece == nullptr || piece->owner != playerNumber || piece->hasActed ||
-            (!pieceAbilityAvailable(pieces, *piece) && !hiddenSummonCollision))
+            (!pieceAbilityAvailable(pieces, *piece, sacrifice) && !hiddenSummonCollision))
         {
             return false;
         }
@@ -947,12 +956,12 @@ private:
             return false;
         }
 
-        const std::string abilityLabel = pieceAbilityLabel(*piece);
+        const std::string abilityLabel = pieceAbilityLabel(*piece, sacrifice);
         const std::string actingPieceName = piece->name;
         const int actingPieceId = piece->id;
         const std::string commanderName = commandedAction ? commander->name : std::string();
         std::string hiddenAbilityCollisionName;
-        if (piece->ability == "dig")
+        if (ability == "dig")
         {
             if (piece->abilityUses == 0)
             {
@@ -965,7 +974,7 @@ private:
                 --piece->abilityUses;
             }
         }
-        else if (piece->ability == "transform" || piece->ability == "dematerialize")
+        else if (ability == "transform" || ability == "dematerialize")
         {
             int stateCount = 1;
             for (const ActionProfile& action : piece->actions)
@@ -975,7 +984,7 @@ private:
             }
             setPieceActionState(*piece, (piece->actionState + 1) % stateCount);
         }
-        else if (piece->ability == "summon")
+        else if (ability == "summon")
         {
             const GameCard* summonCard = summonCardByTitle(piece->summonTitle);
             if (summonCard == nullptr || summonCard->type != "Unit")
@@ -1002,7 +1011,7 @@ private:
                 pieces.back().hasActed = true;
             }
         }
-        else if (piece->ability == "command")
+        else if (ability == "command")
         {
             piece->hasActed = true;
             relentlessPieceId = 0;
@@ -1016,7 +1025,7 @@ private:
             }
             return true;
         }
-        else if (piece->ability == "swap")
+        else if (ability == "swap")
         {
             if (playerRef(playerNumber).hand.empty())
             {
@@ -1025,7 +1034,7 @@ private:
             }
             pendingSwapPlayer = playerNumber;
         }
-        else if (piece->ability == "raise undead")
+        else if (ability == "raise undead")
         {
             EnginePlayer& player = playerRef(playerNumber);
             if (static_cast<int>(player.hand.size()) >= MaxHandSize)
@@ -1138,6 +1147,8 @@ public:
                 "Player {} swapped {} to the bottom of the deck and drew {} card(s).",
                 playerNumber, card.title, player.hand.size() - handSizeAfterDiscard);
         }
+        resolvePendingSacrifices();
+        evaluateScenarioObjective();
         return true;
     }
 
@@ -1213,6 +1224,8 @@ public:
                 playerNumber,
                 chosenCard.title);
         }
+        resolvePendingSacrifices();
+        evaluateScenarioObjective();
         return true;
     }
 
@@ -1762,6 +1775,33 @@ private:
             }
         }
         return result;
+    }
+
+    void resolvePendingSacrifices()
+    {
+        if (commandingPieceId != 0 || pendingRaiseUndeadPieceId != 0 || pendingSwapPlayer != 0)
+        {
+            return;
+        }
+        // Destruction can erase/reallocate pieces (Rebirth, infestation). Keep IDs,
+        // not pointers or iterators, across each normal death resolution.
+        std::vector<int> pending;
+        for (const Piece& piece : pieces)
+        {
+            if (piece.sacrificePending) pending.push_back(piece.id);
+        }
+        for (int id : pending)
+        {
+            const Piece* piece = pieceById(id);
+            if (piece == nullptr) continue;
+            const int owner = pieceOriginalOwner(*piece);
+            const bool wasHero = piece->isHero;
+            const std::string name = piece->name;
+            destroyPiece(id);
+            if (narrationEnabled) status += " " + name + " was sacrificed.";
+            if (wasHero) checkForWinner(owner);
+        }
+        if (!pending.empty()) recomputeControl();
     }
 
     std::vector<GameCard>& mutableSummonCatalog()
@@ -2497,6 +2537,8 @@ private:
         pendingRaiseUndeadPieceId = 0;
         relentlessActionKeepsTurn = false;
         pendingSwapPlayer = 0;
+        resolvePendingSacrifices();
+        if (phaseValue == Phase::GameOver) return;
         endTurnFor(activePlayer);
         recomputeControl();
         if (phaseValue == Phase::GameOver)

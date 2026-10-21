@@ -339,7 +339,8 @@
                                             const std::string& summonTitle,
                                             const std::vector<std::string>& labels,
                                             int state,
-                                            int abilityUses) {
+                                            int abilityUses,
+                                            bool sacrifice = false) {
         const std::string ability = game_data::normalizedAbility(abilityValue);
         if (ability.empty())
         {
@@ -369,7 +370,7 @@
             if (summonTitle.empty())
             {
                 descriptions.push_back({
-                    "Ability unavailable: this live card names Summon but defines no Unit to create.",
+                    std::string(sacrifice ? "Sacrifice" : "Ability") + " unavailable: this live card names Summon but defines no Unit to create.",
                     sf::Color(225, 170, 150)});
                 return;
             }
@@ -400,8 +401,9 @@
                 : " Uses remaining: " + std::to_string(std::max(0, abilityUses)) + ".";
         }
         descriptions.push_back({
-            "Ability - " + label + ": " + rule +
-                ". This counts as a piece action." + uses,
+            std::string(sacrifice ? "Sacrifice - " : "Ability - ") + label + ": " + rule +
+                ". This counts as a piece action." + uses +
+                (sacrifice ? " After the effect resolves, this unit is killed." : ""),
             color});
     };
 
@@ -553,6 +555,9 @@
         appendAbilityRuleDescription(
             descriptions, piece.ability, piece.summonTitle, piece.abilityLabels,
             piece.actionState, piece.abilityUses);
+        appendAbilityRuleDescription(
+            descriptions, piece.sacrifice, piece.summonTitle, piece.abilityLabels,
+            piece.actionState, piece.abilityUses, true);
         appendKeywordRuleDescriptions(descriptions, piece.keywords, piece.summonTitle);
         appendPassiveRuleDescriptions(
             descriptions, piece.tax, piece.gatherResources, piece.healingAura, piece.counterstrike,
@@ -719,6 +724,9 @@
             appendAbilityRuleDescription(
                 descriptions, card.ability, card.summonTitle, card.abilityLabels,
                 0, card.abilityUses);
+            appendAbilityRuleDescription(
+                descriptions, card.sacrifice, card.summonTitle, card.abilityLabels,
+                0, card.abilityUses, true);
             appendKeywordRuleDescriptions(descriptions, card.keywords, card.summonTitle);
             appendPassiveRuleDescriptions(
                 descriptions, card.tax, card.gatherResources, card.healingAura, card.counterstrike,
@@ -3712,7 +3720,21 @@
             pieceCanTakeGameAction(*selectedPiece) &&
             game_data::pieceAbilityAvailable(boardSnapshot, *selectedPiece);
 
-        if (!abilityAvailable && !drawStoryMode)
+        const bool sacrificeAvailable = phase == game_data::Phase::Playing &&
+            (sandboxMode || boardSnapshot.activePlayer == me) && selectedPiece &&
+            pieceCanTakeGameAction(*selectedPiece) &&
+            game_data::pieceAbilityAvailable(boardSnapshot, *selectedPiece, true);
+        const bool bothAbilities = abilityAvailable && sacrificeAvailable;
+        const float abilityWidth = bothAbilities
+            ? (GameAbilityButtonWidth - GameActionButtonGap) * 0.5f : GameAbilityButtonWidth;
+        abilityButton.setSize({abilityWidth, GameActionButtonHeight});
+        sacrificeButton.setSize({abilityWidth, GameActionButtonHeight});
+        sacrificeButton.setPosition({GameActionButtonX +
+            (bothAbilities ? abilityWidth + GameActionButtonGap : 0.0f), GameAbilityButtonY});
+        abilityButton.setEnabled(abilityAvailable);
+        sacrificeButton.setEnabled(sacrificeAvailable);
+
+        if (!abilityAvailable && !sacrificeAvailable && !drawStoryMode)
         {
             // The opponent's hand size was not surfaced anywhere before, and it
             // keeps the ability slot from reading as a hole in the bar.
@@ -3748,6 +3770,12 @@
             {
                 abilityButton.setLabel(game_data::pieceAbilityLabel(*selectedPiece));
                 abilityButton.draw(window);
+            }
+            if (sacrificeAvailable)
+            {
+                sacrificeButton.setLabel(bothAbilities ? "Sacrifice"
+                    : game_data::pieceAbilityLabel(*selectedPiece, true));
+                sacrificeButton.draw(window);
             }
             bool endTurnAvailable = true;
             bool automaticStoryStep = false;
