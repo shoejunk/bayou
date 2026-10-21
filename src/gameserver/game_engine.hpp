@@ -1660,6 +1660,7 @@ private:
         }
 
         const Piece original = *dying;
+        const bool canEvacuate = pieceHasEvacuateSupport(pieces, original);
         const GameCard* originalDefinition = summonCardByTitle(original.name);
         const bool recordsDestroyedCard = !original.isHero && originalDefinition != nullptr &&
             originalDefinition->type == "Unit";
@@ -1749,6 +1750,11 @@ private:
             if (original.raisedFromGraveyard)
             {
                 exiled.push_back(std::move(destroyedCard));
+            }
+            else if (canEvacuate &&
+                     static_cast<int>(playerRef(pieceOriginalOwner(original)).hand.size()) < MaxHandSize)
+            {
+                playerRef(pieceOriginalOwner(original)).hand.push_back(std::move(destroyedCard));
             }
             else
             {

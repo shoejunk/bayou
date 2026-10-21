@@ -7981,12 +7981,15 @@ int main(int argc, char** argv)
         }
         const game_data::GameCard* infestationCard =
             infestationCardValue.type == "Unit" ? &infestationCardValue : nullptr;
+        const game_data::GameCard originalCard = piece != nullptr
+            ? sandboxCardNamed(snapshot, piece->name) : game_data::GameCard{};
         return destroyPieceInSnapshot(
             snapshot,
             nextSandboxPieceId,
             pieceId,
             rebirthCard,
-            infestationCard);
+            infestationCard,
+            &originalCard);
     };
 
     auto sandboxPlayCard = [&](int handIndex, int row, int column) {

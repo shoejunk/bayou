@@ -109,7 +109,8 @@ PieceDestructionResult destroyPieceInSnapshot(
     int& nextPieceId,
     int id,
     const game_data::GameCard* rebirthCard,
-    const game_data::GameCard* infestationCard)
+    const game_data::GameCard* infestationCard,
+    const game_data::GameCard* originalCard)
 {
     PieceDestructionResult result;
     const game_data::Piece* found = pieceByIdInSnapshot(snapshot, id);
@@ -119,6 +120,7 @@ PieceDestructionResult destroyPieceInSnapshot(
     }
 
     const game_data::Piece original = *found;
+    const bool canEvacuate = game_data::pieceHasEvacuateSupport(snapshot.pieces, original);
     snapshot.pieces.erase(
         std::remove_if(
             snapshot.pieces.begin(),
@@ -198,12 +200,19 @@ PieceDestructionResult destroyPieceInSnapshot(
     result.wasRebirth = !replacementIsInfestation && result.replacementSpawned;
     if (!result.replacementSpawned && !original.isHero)
     {
-        game_data::GameCard destroyedCard = cardFromDestroyedPiece(original);
+        game_data::GameCard destroyedCard = originalCard != nullptr && originalCard->type == "Unit"
+            ? *originalCard : cardFromDestroyedPiece(original);
+        destroyedCard.raisedFromGraveyard = original.raisedFromGraveyard;
         if (original.raisedFromGraveyard)
         {
             destroyedCard.cost = 0;
             destroyedCard.health = 1;
             snapshot.exiled.push_back(std::move(destroyedCard));
+        }
+        else if (canEvacuate && game_data::pieceOriginalOwner(original) == snapshot.yourPlayer &&
+                 static_cast<int>(snapshot.hand.size()) < game_data::MaxHandSize)
+        {
+            snapshot.hand.push_back(std::move(destroyedCard));
         }
         else
         {

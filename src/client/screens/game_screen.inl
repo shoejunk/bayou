@@ -299,6 +299,12 @@
                 "Intercept: when a positive-damage enemy piece attack targets an adjacent friendly piece, this piece automatically swaps in and takes that attack if it has not intercepted since its last owner-turn start. If several legal Interceptors qualify, one is chosen uniformly at random. Both full footprints must exchange legally; otherwise the original target is hit. Acting, Disable, Sleep, and Growth do not prevent Intercept. It cannot protect a Bodyguard or another Intercept, and zero-damage attacks and spells do not trigger it.",
                 keywordColor});
         }
+        if (game_data::hasKeyword(keywords, "evacuate"))
+        {
+            descriptions.push_back({
+                "Evacuate: when an adjacent friendly Unit is killed, return its base card to its owner's hand if there is room. Includes diagonals. Does not save this piece itself or Heroes. Rebirth, infestation, and raised-Undead exile resolve first.",
+                keywordColor});
+        }
         if (game_data::hasKeyword(keywords, "trail"))
         {
             descriptions.push_back({

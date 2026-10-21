@@ -1150,6 +1150,18 @@ inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
     return std::max(rowGap, columnGap) == 1;
 }
 
+// Check before removing the casualty or spawning a death replacement. Only
+// living allies can evacuate it; the casualty cannot evacuate itself.
+inline bool pieceHasEvacuateSupport(const std::vector<Piece>& pieces, const Piece& casualty)
+{
+    return !casualty.isHero && std::any_of(
+        pieces.begin(), pieces.end(), [&](const Piece& candidate) {
+            return candidate.id != casualty.id && candidate.owner == casualty.owner &&
+                candidate.health > 0 && hasKeyword(candidate.keywords, "evacuate") &&
+                piecesAreAdjacent(candidate, casualty);
+        });
+}
+
 struct PullResult
 {
     int movedSquares = 0;

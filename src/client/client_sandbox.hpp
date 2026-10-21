@@ -20,7 +20,8 @@ PieceDestructionResult destroyPieceInSnapshot(
     int& nextPieceId,
     int id,
     const game_data::GameCard* rebirthCard,
-    const game_data::GameCard* infestationCard);
+    const game_data::GameCard* infestationCard,
+    const game_data::GameCard* originalCard = nullptr);
 int controlledCountInSnapshot(const game_data::Snapshot& snapshot, int playerNumber);
 int heroesAliveInSnapshot(const game_data::Snapshot& snapshot, int playerNumber);
 void refreshSandboxPlayerSnapshots(game_data::Snapshot& snapshot);

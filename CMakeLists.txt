@@ -282,6 +282,7 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
         PUBLIC
             src/gametest/main.cpp
             src/gameserver/ai_player.cpp
+            src/client/client_sandbox.cpp
     )
 
     target_link_libraries(gametest PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network bayou_transport)

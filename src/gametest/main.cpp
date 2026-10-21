@@ -18,6 +18,10 @@
 #include <thread>
 #include <vector>
 
+#if defined(_MSC_VER) && defined(_DEBUG)
+#include <crtdbg.h>
+#endif
+
 #include "../shared/card_data.hpp"
 #include "../shared/account_data.hpp"
 #include "../shared/deck_data.hpp"
@@ -27,6 +31,7 @@
 #include "../gameserver/game_action.hpp"
 #include "../gameserver/ai_player.hpp"
 #include "../client/client_clock_warning.hpp"
+#include "../client/client_sandbox.hpp"
 
 #include "../shared/network.hpp"
 
@@ -274,6 +279,161 @@ void sendDiscardCard(bayou::tls::Socket& socket, int handIndex)
     packet << static_cast<std::uint8_t>(MessageType::DiscardCard) << handIndex;
     send(socket, packet);
 }
+}
+
+void testEvacuate()
+{
+    GameCard provider;
+    provider.title = "Evacuator";
+    provider.type = "Unit";
+    provider.health = 10;
+    provider.keywords = {"eVaCuAtE"};
+    GameCard ally = provider;
+    ally.title = "Evacuated Ally";
+    ally.keywords.clear();
+    ally.health = 3;
+    ally.cost = 75;
+    GameCard attacker = ally;
+    attacker.title = "Evacuate Attacker";
+    attacker.health = 10;
+    ActionProfile attack;
+    attack.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+    attack.canAttack = true;
+    attack.maxRange = 7;
+    attack.damage = 10;
+    attacker.actions = {attack};
+
+    for (int owner : {1, 2})
+    {
+        for (int handSize : {0, MaxHandSize - 1, MaxHandSize})
+        {
+            for (bool spell : {false, true})
+            {
+                GameCard damageSpell;
+                damageSpell.title = "Evacuate Damage";
+                damageSpell.type = "Spell";
+                damageSpell.cost = 0;
+                damageSpell.effect = "damage";
+                damageSpell.target = "enemy";
+                damageSpell.power = 10;
+                std::vector<GameCard> defenderHand(handSize, ally);
+                std::vector<GameCard> attackerHand = spell
+                    ? std::vector<GameCard>{damageSpell} : std::vector<GameCard>{};
+                GameEngine engine(71, {});
+                check(engine.loadScenario(
+                    {{3 - owner, attacker, 3, 0, false}, {owner, ally, 3, 3, false},
+                     {owner, provider, 2, 4, false}, {owner, provider, 4, 4, false}},
+                    owner == 1 ? defenderHand : attackerHand,
+                    owner == 2 ? defenderHand : attackerHand,
+                    0, 0, 3 - owner, "Evacuate", false), "Evacuate scenario loads");
+                const int attackerId = engine.boardPieces().front().id;
+                check(spell ? engine.playCard(3 - owner, 0, 3, 3)
+                            : engine.attackPiece(3 - owner, attackerId, 3, 3),
+                      "Evacuate resolves after lethal attacks and spells for either player");
+                const Snapshot result = engine.snapshotFor(owner);
+                const bool returned = handSize < MaxHandSize;
+                check(result.pieces.size() == 3 &&
+                          result.hand.size() == static_cast<std::size_t>(handSize + (returned ? 1 : 0)) &&
+                          result.graveyard.size() == (returned ? 0u : 1u) && result.exiled.empty() &&
+                          engine.playerState(3 - owner).hand.empty(),
+                      "Evacuate returns exactly one card with multiple providers, or uses the graveyard at hand limit");
+                if (returned)
+                {
+                    check(!result.hand.empty() && result.hand.back().title == ally.title && result.hand.back().health == 3 &&
+                              result.hand.back().cost == 75 && !result.hand.back().raisedFromGraveyard,
+                          "Evacuate restores the base card's health and cost");
+                }
+            }
+        }
+    }
+
+    Piece casualty;
+    casualty.id = 1;
+    casualty.owner = 1;
+    casualty.row = casualty.column = 3;
+    casualty.health = 0;
+    Piece rescuer = casualty;
+    rescuer.id = 2;
+    rescuer.row = rescuer.column = 2;
+    rescuer.health = 10;
+    rescuer.keywords = provider.keywords;
+    check(pieceHasEvacuateSupport({casualty, rescuer}, casualty),
+          "Evacuate accepts diagonal adjacency and mixed-case keywords");
+    rescuer.owner = 2;
+    check(!pieceHasEvacuateSupport({casualty, rescuer}, casualty), "Evacuate ignores enemy providers");
+    rescuer.owner = 1;
+    rescuer.health = 0;
+    check(!pieceHasEvacuateSupport({casualty, rescuer}, casualty),
+          "a provider killed in the same damage resolution cannot evacuate allies");
+    rescuer.health = 10;
+    rescuer.row = rescuer.column = 0;
+    check(!pieceHasEvacuateSupport({casualty, rescuer}, casualty), "Evacuate ignores distant providers");
+    rescuer.width = rescuer.height = 3;
+    check(pieceHasEvacuateSupport({casualty, rescuer}, casualty),
+          "Evacuate checks the full footprint of large providers");
+    casualty.isHero = true;
+    check(!pieceHasEvacuateSupport({casualty, rescuer}, casualty), "Evacuate does not return Heroes");
+    casualty.isHero = false;
+    casualty.keywords = provider.keywords;
+    check(!pieceHasEvacuateSupport({casualty}, casualty), "Evacuate does not return itself");
+
+    // Preserve the existing priority of on-death replacements and exile.
+    for (int deathRule : {0, 1, 2})
+    {
+        GameCard victim = ally;
+        GameCard replacement = ally;
+        replacement.title = "Evacuate Rebirth";
+        if (deathRule == 0)
+            victim.raisedFromGraveyard = true;
+        else if (deathRule == 1)
+            victim.rebirthTitle = replacement.title;
+        GameCard infester = attacker;
+        if (deathRule == 2)
+            infester.actions[0].infest = replacement.title;
+        GameEngine engine(72, {});
+        engine.loadScenario(
+            {{1, infester, 3, 0, false}, {2, victim, 3, 3, false},
+             {2, provider, 2, 4, false}},
+            {replacement}, {}, 0, 0, 1, "Evacuate death priority", false);
+        check(engine.attackPiece(1, engine.boardPieces().front().id, 3, 3),
+              "Evacuate death-priority attack resolves");
+        const Snapshot result = engine.snapshotFor(2);
+        check(result.hand.empty() && result.graveyard.empty() &&
+                  result.exiled.size() == (deathRule == 0 ? 1u : 0u) &&
+                  result.pieces.size() == (deathRule == 0 ? 2u : 3u),
+              "raised-Undead exile, Rebirth, and infestation retain priority over Evacuate");
+    }
+
+    // Counterstrike deaths use the same evacuation and still consume the attack.
+    GameCard counter = ally;
+    counter.counterstrike = 10;
+    GameEngine counterEngine(73, {});
+    counterEngine.loadScenario(
+        {{1, attacker, 3, 2, false}, {2, counter, 3, 3, false},
+         {1, provider, 2, 1, false}}, {}, {}, 0, 0, 1, "Evacuate Counterstrike", false);
+    check(counterEngine.attackPiece(1, counterEngine.boardPieces().front().id, 3, 3) &&
+              counterEngine.playerState(1).hand.size() == 1 &&
+              counterEngine.playerState(1).hand.front().title == attacker.title &&
+              counterEngine.playerState(1).pieceActionUsedThisTurn,
+          "Evacuate returns a Counterstrike casualty while consuming its action");
+
+    for (bool fullHand : {false, true})
+    {
+        Snapshot snapshot;
+        int nextId = 1;
+        bayou::client::spawnSandboxPiece(snapshot, nextId, 1, ally, 3, 3, false);
+        bayou::client::spawnSandboxPiece(snapshot, nextId, 1, provider, 2, 4, false);
+        snapshot.pieces.front().health = 0;
+        if (fullHand)
+            snapshot.hand.assign(MaxHandSize, ally);
+        const auto result = bayou::client::destroyPieceInSnapshot(
+            snapshot, nextId, snapshot.pieces.front().id, nullptr, nullptr, &ally);
+        check(!result.replacementSpawned && snapshot.pieces.size() == 1 &&
+                  snapshot.hand.size() == (fullHand ? static_cast<std::size_t>(MaxHandSize) : 1u) &&
+                  snapshot.graveyard.size() == (fullHand ? 1u : 0u) &&
+                  !snapshot.hand.empty() && snapshot.hand.back().cost == ally.cost && snapshot.hand.back().health == ally.health,
+              "sandbox Evacuate preserves the base card and honors the hand limit");
+    }
 }
 
 void testShelter()
@@ -582,6 +742,13 @@ void testSwap()
 
 int main(int argc, char** argv)
 {
+#if defined(_MSC_VER) && defined(_DEBUG)
+    // Automated checks must report assertions in the log rather than opening
+    // a modal dialog on the developer's desktop.
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
+    testEvacuate();
     testShelter();
     testSwap();
     bayou::client::ClockWarningTracker clockWarnings;
