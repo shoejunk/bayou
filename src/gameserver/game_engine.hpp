@@ -1871,6 +1871,7 @@ private:
         std::vector<std::string> healedTargetNames;
         std::vector<std::string> controlledTargetNames;
         std::vector<int> defeatedOwners;
+        std::vector<DamageAssignment> counterstrikeDamage;
         bool anyTargetDestroyed = false;
         bool anyTargetReborn = false;
         bool anyTargetInfestationSpawned = false;
@@ -1920,9 +1921,12 @@ private:
                 }
                 else
                 {
-                    const DamageResolution damageResolution =
-                        resolveDamageWithBodyguardsAndIntercepts(
-                            pieces, targetId, attackDamage, action.statusTurns, rng, true);
+                    const PieceAttackDamageResolution attackResolution = resolvePieceAttackDamage(
+                        pieces, attackerId, targetId, attackDamage, action.statusTurns,
+                        action.stagingRow, action.stagingColumn, rng);
+                    const DamageResolution& damageResolution = attackResolution.attack;
+                    counterstrikeDamage.insert(counterstrikeDamage.end(),
+                        attackResolution.counterstrike.begin(), attackResolution.counterstrike.end());
                     const int effectiveTargetId = damageResolution.effectiveTargetId;
                     const Piece* effectiveTarget = pieceById(effectiveTargetId);
                     const std::string effectiveTargetName = effectiveTarget == nullptr
@@ -2008,9 +2012,32 @@ private:
             }
         }
 
+        for (const DamageAssignment& assignment : counterstrikeDamage)
+        {
+            if (Piece* victim = pieceById(assignment.pieceId);
+                victim != nullptr && victim->health <= 0)
+            {
+                defeatedOwners.push_back(pieceOriginalOwner(*victim));
+                destroyPiece(victim->id);
+            }
+        }
         Piece* survivingAttacker = pieceById(attackerId);
         if (survivingAttacker == nullptr)
         {
+            if (!commandedAction)
+                playerRef(playerNumber).pieceActionUsedThisTurn = true;
+            commandingPieceId = 0;
+            relentlessPieceId = 0;
+            relentlessActionKeepsTurn = false;
+            recomputeControl();
+            if (narrationEnabled)
+                status = fmt::format("{} attacked and fell to Counterstrike.", attackerName);
+            for (int defeatedOwner : defeatedOwners)
+            {
+                checkForWinner(defeatedOwner);
+                if (phaseValue == Phase::GameOver)
+                    break;
+            }
             return true;
         }
 
@@ -2190,6 +2217,10 @@ private:
             result = fmt::format("{} moved.", attackerName);
         }
 
+        if (narrationEnabled && !counterstrikeDamage.empty())
+        {
+            result += " Counterstrike dealt return damage.";
+        }
         if (narrationEnabled && repeatRemaining)
         {
             result += fmt::format(

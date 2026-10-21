@@ -335,7 +335,27 @@ inline bool pieceMatchesActionTargetFilter(
         hasKeyword(target.keywords, canonicalRequired);
 }
 
+// Each side faces away from its home column. Shelter covers only the one-column
+// strip touching the provider's rear edge, across its full height. Occupying any
+// square in that strip protects the entire friendly piece.
+inline bool pieceIsSheltered(const std::vector<Piece>& pieces, const Piece& target)
+{
+    return std::any_of(pieces.begin(), pieces.end(), [&](const Piece& provider) {
+        if (provider.id == target.id || provider.owner != target.owner ||
+            provider.health <= 0 || !hasKeyword(provider.keywords, "shelter"))
+        {
+            return false;
+        }
+        const int rearColumn = provider.owner == 1
+            ? provider.column - 1 : provider.column + provider.width;
+        return rearColumn >= target.column && rearColumn < target.column + target.width &&
+            target.row < provider.row + provider.height &&
+            provider.row < target.row + target.height;
+    });
+}
+
 inline bool actionCanTarget(
+    const std::vector<Piece>& pieces,
     const Piece& piece,
     const Piece& target,
     int damage,
@@ -356,6 +376,10 @@ inline bool actionCanTarget(
     if (target.owner == piece.owner)
     {
         return heal > 0 && target.health < target.maxHealth;
+    }
+    if (pieceIsSheltered(pieces, target))
+    {
+        return false;
     }
     // Heroes can never be taken over, so a controlling action has no legal
     // enemy hero target at all.
@@ -532,9 +556,11 @@ inline ActionResolution resolvePieceAction(
     int toRow,
     int toColumn,
     bool attackingMovesOnly = false,
-    int requiredActionIndex = -1)
+    int requiredActionIndex = -1,
+    const std::vector<Piece>* shelterBoard = nullptr)
 {
     ActionResolution best;
+    const std::vector<Piece>& protectionPieces = shelterBoard != nullptr ? *shelterBoard : pieces;
     if (requiredActionIndex < -1 ||
         requiredActionIndex >= static_cast<int>(piece.actions.size()) ||
         !inBounds(toRow, toColumn) || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
@@ -612,7 +638,7 @@ inline ActionResolution resolvePieceAction(
                     candidate.moves = true;
                     if (action.canAttack &&
                         actionCanTarget(
-                            piece, *pivot, action.damage, action.heal, action.control,
+                            protectionPieces, piece, *pivot, action.damage, action.heal, action.control,
                             action.targetFilter))
                     {
                         candidate.attacks = true;
@@ -625,7 +651,7 @@ inline ActionResolution resolvePieceAction(
         {
             if (action.canAttack && destination != nullptr &&
                 actionCanTarget(
-                    piece, *destination, action.damage, action.heal, action.control,
+                    protectionPieces, piece, *destination, action.damage, action.heal, action.control,
                     action.targetFilter) &&
                 rangedActionReachesTarget(pieces, piece, *destination, action))
             {
@@ -659,7 +685,7 @@ inline ActionResolution resolvePieceAction(
                     footprintTargets.begin(), footprintTargets.end(),
                     [&](const Piece* target) {
                         return !actionCanTarget(
-                            piece, *target, action.damage, action.heal, action.control,
+                            protectionPieces, piece, *target, action.damage, action.heal, action.control,
                             action.targetFilter);
                     }))
             {
@@ -704,7 +730,7 @@ inline ActionResolution resolvePieceAction(
                 footprintTargets.begin(), footprintTargets.end(),
                 [&](const Piece* target) {
                     return !actionCanTarget(
-                        piece, *target, action.damage, action.heal, action.control,
+                        protectionPieces, piece, *target, action.damage, action.heal, action.control,
                         action.targetFilter);
                 });
             if (!invalidTargetOverlap && action.canAttack && !footprintTargets.empty())
@@ -727,9 +753,9 @@ inline ActionResolution resolvePieceAction(
                 candidate.legal = true;
                 candidate.moves = true;
             }
-            else if (destination != nullptr && action.canAttack &&
+            else if (!invalidTargetOverlap && destination != nullptr && action.canAttack &&
                      actionCanTarget(
-                         piece, *destination, action.damage, action.heal, action.control,
+                         protectionPieces, piece, *destination, action.damage, action.heal, action.control,
                          action.targetFilter))
             {
                 candidate.legal = true;
@@ -918,8 +944,10 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
     outcome.destinationColumn = toColumn;
 
     const std::vector<Piece> visible = piecesVisibleTo(pieces, piece.owner);
+    // Hidden pieces still supply passive protection; only path/occupancy checks
+    // use the filtered board. This also preserves harmless hops over allies.
     outcome.action = resolvePieceAction(
-        visible, holes, piece, toRow, toColumn, false, requiredActionIndex);
+        visible, holes, piece, toRow, toColumn, false, requiredActionIndex, &pieces);
     if (!outcome.action.legal || !outcome.action.moves)
     {
         return outcome;
@@ -1371,7 +1399,7 @@ inline DamageResolution resolveDamageWithBodyguardsAndIntercepts(
         std::vector<int> bodyguardIds;
         for (const Piece& candidate : pieces)
         {
-            if (candidate.id != target.id && candidate.owner == target.owner &&
+            if (candidate.id != target.id && candidate.owner == target.owner && candidate.health > 0 &&
                 hasKeyword(candidate.keywords, "bodyguard") &&
                 piecesAreAdjacent(target, candidate))
             {
@@ -1474,6 +1502,63 @@ inline std::vector<DamageAssignment> applyDamageWithBodyguards(
     return resolveDamageWithBodyguardsAndIntercepts(
                pieces, targetId, damage, statusTurns, randomEngine, false)
         .assignments;
+}
+
+struct PieceAttackDamageResolution
+{
+    DamageResolution attack;
+    std::vector<DamageAssignment> counterstrike;
+};
+
+// Resolve retaliation before removing casualties, so even a lethal hit triggers
+// Counterstrike. Intercept changes the attacked unit; Bodyguard only redirects
+// damage. Retaliation uses normal Bodyguard protection but is not another attack.
+template <typename RandomEngine>
+inline PieceAttackDamageResolution resolvePieceAttackDamage(
+    std::vector<Piece>& pieces,
+    int attackerId,
+    int targetId,
+    int damage,
+    int statusTurns,
+    int stagingRow,
+    int stagingColumn,
+    RandomEngine& randomEngine)
+{
+    PieceAttackDamageResolution result;
+    result.attack = resolveDamageWithBodyguardsAndIntercepts(
+        pieces, targetId, damage, statusTurns, randomEngine, true);
+    const auto attacker = std::find_if(pieces.begin(), pieces.end(),
+        [attackerId](const Piece& piece) { return piece.id == attackerId; });
+    const auto defender = std::find_if(pieces.begin(), pieces.end(),
+        [&](const Piece& piece) { return piece.id == result.attack.effectiveTargetId; });
+    if (attacker == pieces.end() || defender == pieces.end() ||
+        attacker->owner == defender->owner || defender->counterstrike <= 0)
+    {
+        return result;
+    }
+    Piece strikingPiece = *attacker;
+    strikingPiece.row = stagingRow;
+    strikingPiece.column = stagingColumn;
+    // The action staging anchor is one square short of the destination; a
+    // multi-square mover can already touch/overlap its target at that anchor.
+    const bool movingContact =
+        (stagingRow != attacker->row || stagingColumn != attacker->column) &&
+        pieceFootprintsOverlap(strikingPiece, stagingRow, stagingColumn,
+            *defender, defender->row, defender->column);
+    if (piecesAreAdjacent(strikingPiece, *defender) || movingContact)
+    {
+        // Protection is also measured at the strike position. This resolver
+        // only changes damage/status; it never inserts or removes pieces.
+        const int originRow = attacker->row;
+        const int originColumn = attacker->column;
+        attacker->row = stagingRow;
+        attacker->column = stagingColumn;
+        result.counterstrike = applyDamageWithBodyguards(
+            pieces, attackerId, defender->counterstrike, 0, randomEngine);
+        attacker->row = originRow;
+        attacker->column = originColumn;
+    }
+    return result;
 }
 
 inline bool pieceCanReceiveCommand(const Piece& commander, const Piece& target)

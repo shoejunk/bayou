@@ -281,6 +281,12 @@
                 "Relentless: after this piece destroys a piece, only it may take one immediate extra action. Card plays, draws, discards, other pieces, and other abilities wait; another destruction can chain, or End Turn may stop the chain.",
                 keywordColor});
         }
+        if (game_data::hasKeyword(keywords, "shelter"))
+        {
+            descriptions.push_back({
+                "Shelter: friendly pieces occupying a square immediately behind this piece cannot be attacked by enemy pieces. Behind is toward its owner's home edge and spans its full rear edge for large pieces. Spells and friendly healing are unaffected.",
+                keywordColor});
+        }
         if (game_data::hasKeyword(keywords, "bodyguard"))
         {
             descriptions.push_back({
@@ -397,6 +403,7 @@
                                              int tax,
                                              int gatherResources,
                                              int healingAura,
+                                             int counterstrike,
                                              bool canControl,
                                              int growTurns,
                                              const std::string& rebirthTitle) {
@@ -419,6 +426,13 @@
             descriptions.push_back({
                 "Healing aura: restore " + std::to_string(healingAura) +
                     " health to every other adjacent piece at this piece's owner's turn end, regardless of side.",
+                sf::Color(190, 198, 214)});
+        }
+        if (counterstrike > 0)
+        {
+            descriptions.push_back({
+                "Counterstrike: deal " + std::to_string(counterstrike) +
+                    " damage back when attacked by an adjacent enemy, including diagonals.",
                 sf::Color(190, 198, 214)});
         }
         if (!canControl)
@@ -535,7 +549,7 @@
             piece.actionState, piece.abilityUses);
         appendKeywordRuleDescriptions(descriptions, piece.keywords, piece.summonTitle);
         appendPassiveRuleDescriptions(
-            descriptions, piece.tax, piece.gatherResources, piece.healingAura,
+            descriptions, piece.tax, piece.gatherResources, piece.healingAura, piece.counterstrike,
             piece.canControl, piece.growTurnsRemaining, piece.rebirthTitle);
         for (const game_data::Enchantment& enchantment : gameSnapshot.enchantments)
         {
@@ -701,7 +715,7 @@
                 0, card.abilityUses);
             appendKeywordRuleDescriptions(descriptions, card.keywords, card.summonTitle);
             appendPassiveRuleDescriptions(
-                descriptions, card.tax, card.gatherResources, card.healingAura,
+                descriptions, card.tax, card.gatherResources, card.healingAura, card.counterstrike,
                 card.canControl, card.growTurns, card.rebirthTitle);
             if (card.actions.empty())
             {

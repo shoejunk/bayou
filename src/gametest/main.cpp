@@ -276,8 +276,170 @@ void sendDiscardCard(bayou::tls::Socket& socket, int handIndex)
 }
 }
 
+void testShelter()
+{
+    const std::array<std::uint8_t, BoardSquares> holes{};
+    for (int owner : {1, 2})
+    {
+        for (int size : {1, 2})
+        {
+            Piece provider;
+            provider.id = 1;
+            provider.owner = owner;
+            provider.row = 3;
+            provider.column = 3;
+            provider.width = size;
+            provider.height = size;
+            provider.health = provider.maxHealth = 10;
+            provider.keywords = {"sHeLtEr"};
+            Piece ally = provider;
+            ally.id = 2;
+            ally.width = ally.height = 1;
+            ally.keywords.clear();
+            const int rearColumn = owner == 1 ? 2 : 3 + size;
+            bool geometryMatches = true;
+            for (int row = 0; row < BoardSize; ++row)
+            {
+                for (int column = 0; column < BoardSize; ++column)
+                {
+                    ally.row = row;
+                    ally.column = column;
+                    const bool expected = column == rearColumn && row >= 3 && row < 3 + size;
+                    geometryMatches &= pieceIsSheltered({provider, ally}, ally) == expected;
+                }
+            }
+            check(geometryMatches, "Shelter covers exactly the immediate rear strip for owner " +
+                std::to_string(owner) + " and footprint " + std::to_string(size));
+            ally.row = 3;
+            ally.column = rearColumn;
+            check(!pieceIsSheltered({provider, ally}, provider), "Shelter does not protect itself");
+            ally.owner = 3 - owner;
+            check(!pieceIsSheltered({provider, ally}, ally), "Shelter does not protect enemies");
+            ally.owner = owner;
+            ally.row = 2;
+            ally.height = 2;
+            check(pieceIsSheltered({provider, ally}, ally),
+                  "Shelter protects a large ally whose non-anchor square touches the rear strip");
+        }
+    }
+
+    Piece provider;
+    provider.id = 1;
+    provider.owner = 2;
+    provider.row = 3;
+    provider.column = 3;
+    provider.health = provider.maxHealth = 10;
+    provider.keywords = {"Shelter"};
+    Piece ally = provider;
+    ally.id = 2;
+    ally.column = 4;
+    ally.keywords.clear();
+    Piece attacker = ally;
+    attacker.id = 3;
+    attacker.owner = 1;
+    attacker.row = 2;
+    ActionProfile attack;
+    attack.canAttack = true;
+    attack.damage = 3;
+    attack.maxRange = 7;
+    for (ActionKind kind : {ActionKind::Ranged, ActionKind::Slide, ActionKind::Capture})
+    {
+        attack.kind = static_cast<std::uint8_t>(kind);
+        attack.canMove = kind != ActionKind::Ranged;
+        attacker.actions = {attack};
+        std::vector<Piece> board = {provider, ally, attacker};
+        check(!resolvePieceAction(board, holes, attacker, 3, 4).legal &&
+                  resolvePieceAction({ally, attacker}, holes, attacker, 3, 4).legal,
+              "Shelter prevents ranged, slide, and capture attacks until the provider leaves");
+        board[0].hidden = true;
+        check(!resolvePieceActionThroughHidden(board, holes, attacker, 3, 4).action.legal,
+              "a hidden Shelter provider still prevents attacks");
+        board[0].health = 0;
+        check(resolvePieceActionThroughHidden(board, holes, attacker, 3, 4).action.legal,
+              "a defeated Shelter provider no longer prevents attacks");
+    }
+    attack.kind = static_cast<std::uint8_t>(ActionKind::Hop);
+    attacker.actions = {attack};
+    const ActionResolution hop = resolvePieceAction({provider, ally, attacker}, holes, attacker, 4, 4);
+    check(hop.legal && hop.moves && !hop.attacks,
+          "a hop can cross a sheltered enemy without attacking it");
+    attack.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+    attack.canMove = false;
+    attack.damage = 0;
+    attack.statusTurns = 2;
+    attacker.actions = {attack};
+    check(!resolvePieceAction({provider, ally, attacker}, holes, attacker, 3, 4).legal,
+          "Shelter also prevents zero-damage hostile attacks");
+    attack.statusTurns = 0;
+    attack.heal = 2;
+    attacker.owner = 2;
+    attacker.actions = {attack};
+    ally.health = 5;
+    check(resolvePieceAction({provider, ally, attacker}, holes, attacker, 3, 4).legal,
+          "Shelter allows friendly healing");
+    std::vector<Piece> spellBoard = {provider, ally, attacker};
+    std::mt19937 random(45);
+    applyDamageWithBodyguards(spellBoard, ally.id, 2, 0, random);
+    check(spellBoard[1].health == 3, "Shelter does not prevent spell damage");
+
+    // Clicking an exposed unit must not bypass protection on another unit
+    // overlapped by a large attacker's destination footprint.
+    attacker.owner = 1;
+    attacker.row = 1;
+    attacker.height = 2;
+    attack.damage = 3;
+    attack.heal = 0;
+    attack.canMove = true;
+    Piece exposed = ally;
+    exposed.id = 4;
+    exposed.row = 4;
+    for (ActionKind kind : {ActionKind::Slide, ActionKind::Capture})
+    {
+        attack.kind = static_cast<std::uint8_t>(kind);
+        attack.passThrough = true;
+        attacker.actions = {attack};
+        check(!resolvePieceAction({provider, ally, exposed, attacker}, holes, attacker, 3, 4).legal,
+              "large movement attacks cannot include a sheltered target");
+        provider.row = 4;
+        check(!resolvePieceAction({provider, ally, exposed, attacker}, holes, attacker, 3, 4).legal,
+              "clicking an exposed target cannot bypass Shelter on another overlapped target");
+        provider.row = 3;
+    }
+
+    for (int owner : {1, 2})
+    {
+        GameCard defenderCard;
+        defenderCard.title = "Sheltered ally";
+        defenderCard.type = "Unit";
+        defenderCard.health = 10;
+        GameCard shelterCard = defenderCard;
+        shelterCard.title = "Shelter provider";
+        shelterCard.keywords = {"Shelter"};
+        GameCard attackerCard = defenderCard;
+        attackerCard.title = "Shelter test attacker";
+        attack.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+        attack.canMove = false;
+        attackerCard.actions = {attack};
+        const int targetColumn = owner == 1 ? 2 : 4;
+        GameEngine engine(45, {});
+        check(engine.loadScenario(
+                  {{owner, shelterCard, 3, 3, false}, {owner, defenderCard, 3, targetColumn, false},
+                   {3 - owner, attackerCard, 2, targetColumn, false}},
+                  {}, {}, 0, 0, 3 - owner, "Shelter test", false),
+              "Shelter authoritative scenario loads");
+        const int attackerId = engine.boardPieces().back().id;
+        check(!engine.attackPiece(3 - owner, attackerId, 3, targetColumn) &&
+                  engine.boardPieces()[1].health == 10 &&
+                  !engine.snapshotFor(3 - owner).players[static_cast<std::size_t>(2 - owner)].pieceActionUsedThisTurn,
+              "the authoritative engine rejects sheltered attacks without damage or spending the action");
+        check(engine.attackPiece(3 - owner, attackerId, 3, 3) && engine.boardPieces()[0].health == 7,
+              "the Shelter provider remains attackable after a rejected attack");
+    }
+}
+
 int main(int argc, char** argv)
 {
+    testShelter();
     bayou::client::ClockWarningTracker clockWarnings;
     check(!clockWarnings.observe(1, 121'000).has_value(),
           "clock warnings establish a baseline without firing");
@@ -2127,6 +2289,201 @@ int main(int argc, char** argv)
             interceptEngineDefender->interceptUsedThisTurn,
         "the authoritative attack damages the swapped-in Intercept unit");
 
+    card_data::Card counterstrikeDefinition;
+    counterstrikeDefinition.title = "Counterstrike Defender";
+    counterstrikeDefinition.integerValues = {{"health", 10}, {"Counterstrike", 3}};
+    const GameCard counterstrikeCard = toGameCard(counterstrikeDefinition);
+    check(counterstrikeCard.counterstrike == 3 && toGameCard(card_data::Card{}).counterstrike == 0,
+          "Counterstrike is an optional integer field defaulting to zero");
+    counterstrikeDefinition.integerValues.back().value = -3;
+    check(toGameCard(counterstrikeDefinition).counterstrike == 0,
+          "negative Counterstrike values are treated as zero");
+    Piece counterDefender;
+    counterDefender.id = 900;
+    counterDefender.owner = 2;
+    counterDefender.row = 3;
+    counterDefender.column = 3;
+    populatePieceFromCard(counterDefender, counterstrikeCard, false);
+    Piece counterAttacker = counterDefender;
+    counterAttacker.id = 901;
+    counterAttacker.owner = 1;
+    counterAttacker.counterstrike = 7;
+    std::mt19937 counterRandom(43);
+    for (int rowOffset = -2; rowOffset <= 2; ++rowOffset)
+    {
+        for (int columnOffset = -2; columnOffset <= 2; ++columnOffset)
+        {
+            if (rowOffset == 0 && columnOffset == 0) continue;
+            counterAttacker.row = 3 + rowOffset;
+            counterAttacker.column = 3 + columnOffset;
+            std::vector<Piece> combat = {counterAttacker, counterDefender};
+            const auto resolution = resolvePieceAttackDamage(
+                combat, 901, 900, 2, 0, counterAttacker.row, counterAttacker.column, counterRandom);
+            const bool adjacent = absInt(rowOffset) <= 1 && absInt(columnOffset) <= 1;
+            check(combat[0].health == (adjacent ? 7 : 10) && combat[1].health == 8 &&
+                      resolution.counterstrike.empty() == !adjacent,
+                  "Counterstrike uses eight-way adjacency and does not chain retaliation");
+        }
+    }
+    counterAttacker.row = 3;
+    counterAttacker.column = 2;
+    {
+        std::vector<Piece> combat = {counterAttacker, counterDefender};
+        resolvePieceAttackDamage(combat, 901, 900, 10, 0, 3, 2, counterRandom);
+        check(combat[0].health == 7 && combat[1].health == 0,
+              "a lethal attack still triggers the defender's Counterstrike");
+        combat = {counterAttacker, counterDefender};
+        resolvePieceAttackDamage(combat, 901, 900, 0, 2, 3, 2, counterRandom);
+        check(combat[0].health == 7 && combat[1].health == 10,
+              "a status-only enemy attack still triggers Counterstrike");
+        combat = {counterAttacker, counterDefender};
+        combat[0].owner = 2;
+        const auto friendly = resolvePieceAttackDamage(combat, 901, 900, 0, 0, 3, 2, counterRandom);
+        check(friendly.counterstrike.empty() && combat[0].health == 10,
+              "friendly actions do not trigger Counterstrike");
+        combat = {counterAttacker, counterDefender};
+        applyDamageWithBodyguards(combat, 900, 2, 0, counterRandom);
+        check(combat[0].health == 10 && combat[1].health == 8,
+              "spell damage does not trigger Counterstrike");
+        combat = {counterAttacker, counterDefender};
+        combat[1].width = 2;
+        combat[1].height = 2;
+        combat[0].row = 5;
+        combat[0].column = 5;
+        resolvePieceAttackDamage(combat, 901, 900, 2, 0, 5, 5, counterRandom);
+        check(combat[0].health == 7,
+              "Counterstrike checks the full footprint of large units");
+        combat = {counterAttacker, counterDefender};
+        combat[0].column = 0;
+        resolvePieceAttackDamage(combat, 901, 900, 2, 0, 3, 2, counterRandom);
+        check(combat[0].health == 7,
+              "movement attacks trigger Counterstrike from the strike position");
+    }
+    {
+        Piece interceptor = counterDefender;
+        interceptor.id = 902;
+        interceptor.row = 2;
+        interceptor.keywords = {"Intercept"};
+        interceptor.counterstrike = 4;
+        std::vector<Piece> combat = {counterAttacker, counterDefender, interceptor};
+        const auto intercepted = resolvePieceAttackDamage(combat, 901, 900, 2, 0, 3, 2, counterRandom);
+        check(intercepted.attack.intercepted && combat[0].health == 6 &&
+                  combat[1].health == 10 && combat[2].health == 8,
+              "the swapped-in interceptor supplies Counterstrike instead of the original target");
+        Piece guard = interceptor;
+        guard.keywords = {"Bodyguard"};
+        combat = {counterAttacker, counterDefender, guard};
+        resolvePieceAttackDamage(combat, 901, 900, 2, 0, 3, 2, counterRandom);
+        check(combat[0].health == 7 && combat[1].health == 10 && combat[2].health == 8,
+              "Bodyguard redirects attack damage without stealing the target's Counterstrike");
+        guard.owner = 1;
+        guard.column = 2;
+        combat = {counterAttacker, counterDefender, guard};
+        resolvePieceAttackDamage(combat, 901, 900, 2, 0, 3, 2, counterRandom);
+        check(combat[0].health == 10 && combat[1].health == 8 && combat[2].health == 7,
+              "Bodyguard protects the attacker from Counterstrike without recursively retaliating");
+        combat = {counterAttacker, counterDefender, guard};
+        combat[0].column = 0;
+        resolvePieceAttackDamage(combat, 901, 900, 2, 0, 3, 2, counterRandom);
+        check(combat[0].health == 10 && combat[0].column == 0 && combat[2].health == 7,
+              "Counterstrike protection uses the movement attack's strike position without moving the attacker");
+        combat = {counterAttacker, counterDefender, guard};
+        combat[2].health = 0;
+        resolvePieceAttackDamage(combat, 901, 900, 2, 0, 3, 2, counterRandom);
+        check(combat[0].health == 7 && combat[2].health == 0,
+              "a defeated Bodyguard cannot absorb more Counterstrike damage before casualty cleanup");
+        guard.keywords = {"Intercept"};
+        combat = {counterAttacker, counterDefender, guard};
+        resolvePieceAttackDamage(combat, 901, 900, 2, 0, 3, 2, counterRandom);
+        check(combat[0].health == 7 && combat[2].health == 10 && !combat[2].interceptUsedThisTurn,
+              "Counterstrike damage does not trigger Intercept");
+    }
+    for (bool lethal : {false, true})
+    {
+        GameCard attackerCard = toGameCard(interceptAttackerCard);
+        attackerCard.health = lethal ? 3 : 10;
+        attackerCard.actions[0].kind = static_cast<std::uint8_t>(ActionKind::Capture);
+        attackerCard.actions[0].maxRange = 7;
+        attackerCard.actions[0].repeat = 2;
+        attackerCard.actions[0].damage = 10;
+        attackerCard.keywords = {"Relentless"};
+        GameEngine counterEngine(43, {});
+        check(counterEngine.loadScenario(
+                  {{1, attackerCard, 3, 0, false}, {2, counterstrikeCard, 3, 3, false}},
+                  {}, {}, 0, 0, 1, "Counterstrike test", false),
+              "Counterstrike combat scenario loads");
+        const int attackerId = counterEngine.boardPieces().front().id;
+        check(counterEngine.attackPiece(1, attackerId, 3, 3),
+              "the authoritative engine accepts a capture against Counterstrike");
+        const auto& survivors = counterEngine.boardPieces();
+        if (lethal)
+        {
+            check(survivors.empty() && counterEngine.snapshotFor(1).players[0].pieceActionUsedThisTurn &&
+                      counterEngine.snapshotFor(1).relentlessPieceId == 0 &&
+                      counterEngine.snapshotFor(1).graveyard.size() == 2,
+                  "lethal Counterstrike removes both casualties, records their cards, and consumes the action");
+        }
+        else
+        {
+            check(survivors.size() == 1 && survivors.front().id == attackerId &&
+                      survivors.front().health == 7 && survivors.front().column == 3,
+                  "a surviving capture attacker takes Counterstrike damage and occupies the defeated target square");
+        }
+    }
+
+    {
+        GameCard attackerCard = toGameCard(interceptAttackerCard);
+        attackerCard.health = 10;
+        attackerCard.width = 2;
+        attackerCard.actions[0].kind = static_cast<std::uint8_t>(ActionKind::Capture);
+        attackerCard.actions[0].passThrough = true;
+        attackerCard.actions[0].maxRange = 7;
+        attackerCard.actions[0].damage = 10;
+        GameEngine counterEngine(45, {});
+        counterEngine.loadScenario(
+            {{1, attackerCard, 3, 0, false}, {2, counterstrikeCard, 3, 3, false},
+             {2, counterstrikeCard, 3, 4, false}},
+            {}, {}, 0, 0, 1, "Counterstrike large capture test", false);
+        const int attackerId = counterEngine.boardPieces().front().id;
+        check(counterEngine.attackPiece(1, attackerId, 3, 3) &&
+                  counterEngine.boardPieces().size() == 1 &&
+                  counterEngine.boardPieces().front().health == 4,
+              "a large capture attacker receives Counterstrike from each contacted defender");
+    }
+    for (bool reborn : {false, true})
+    {
+        card_data::Card replacement;
+        replacement.title = "Counterstrike Rebirth";
+        replacement.type = "Hero";
+        replacement.integerValues = {{"health", 6}};
+        GameCard attackerCard = toGameCard(interceptAttackerCard);
+        attackerCard.type = "Hero";
+        attackerCard.health = 3;
+        attackerCard.rebirthTitle = reborn ? replacement.title : "";
+        GameCard defenderCard = counterstrikeCard;
+        defenderCard.type = "Hero";
+        GameEngine counterEngine(44, {replacement});
+        counterEngine.loadScenario(
+            {{1, attackerCard, 3, 2, true}, {2, defenderCard, 3, 3, true}},
+            {}, {}, 0, 0, 1, "Counterstrike hero test");
+        const int attackerId = counterEngine.boardPieces().front().id;
+        check(counterEngine.attackPiece(1, attackerId, 3, 3),
+              "a hero can attack an adjacent Counterstrike defender");
+        const Snapshot afterCounterstrike = counterEngine.snapshotFor(1);
+        check(afterCounterstrike.players[0].pieceActionUsedThisTurn &&
+                  counterEngine.boardPieces().size() == (reborn ? 2u : 1u) &&
+                  afterCounterstrike.phase == static_cast<std::uint8_t>(reborn ? Phase::Playing : Phase::GameOver),
+              reborn ? "Counterstrike allows Rebirth while consuming the original attacker's action"
+                     : "a hero killed by Counterstrike triggers the normal victory check");
+        if (reborn)
+        {
+            const auto& replacementPiece = counterEngine.boardPieces().back();
+            check(replacementPiece.name == replacement.title && replacementPiece.id != attackerId &&
+                      replacementPiece.health == 6 && replacementPiece.hasActed && replacementPiece.column == 2,
+                  "Counterstrike Rebirth stays on the original square and cannot continue the attack");
+        }
+    }
+
     card_data::Card encodedCard;
     encodedCard.title = "Encoded";
     encodedCard.type = "Unit";
@@ -2134,7 +2491,7 @@ int main(int argc, char** argv)
     encodedCard.keywords = {"future-rule"};
     encodedCard.integerValues = {
         {"attack", 9}, {"range", 5}, {"FidgetAnimFrames", 3}, {"Tax", 4},
-        {"healing aura", 3}, {"Deck Limit", 3}};
+        {"healing aura", 3}, {"Counterstrike", 2}, {"Deck Limit", 3}};
     encodedCard.stringValues = {
         {"FidgetAnim", "animations/fidget/test.png"},
         {"Token", "characters/encoded.png"},
@@ -2181,7 +2538,7 @@ int main(int argc, char** argv)
               decodedCard.fidgetAnimFrames == 3 &&
               decodedCard.tokenPath == "characters/encoded.png" &&
               decodedCard.state1TokenPath == "characters/encoded-state1.png" &&
-              decodedCard.tax == 4 && decodedCard.healingAura == 3,
+              decodedCard.tax == 4 && decodedCard.healingAura == 3 && decodedCard.counterstrike == 2,
           "referenced action object resolves into gameplay data without a legacy fallback attack");
 
     Piece visualStatePiece;
@@ -2203,8 +2560,9 @@ int main(int argc, char** argv)
               roundTrippedDefinition.actionDisplayNames == encodedCard.actionDisplayNames &&
               roundTrippedDefinition.actions[0].repeat == 2 &&
               roundTrippedDefinition.actions[0].pull &&
+              game_data::cardInt(roundTrippedDefinition, CounterstrikeField) == 2 &&
               game_data::cardDeckLimit(roundTrippedDefinition) == 3,
-          "card serialization preserves Deck Limit and per-card action display names");
+          "card serialization preserves Counterstrike, Deck Limit and per-card action display names");
 
     card_data::Action encodedHealingAction = encodedCard.actions[0];
     encodedHealingAction.damage = 0;
@@ -2369,6 +2727,7 @@ int main(int argc, char** argv)
     serializedCard.gatherResources = 6;
     serializedCard.tax = 4;
     serializedCard.healingAura = 6;
+    serializedCard.counterstrike = 3;
     serializedCard.actions[0].heal = 3;
     serializedCard.actions[0].nextState = 4;
     serializedCard.actions[0].control = 3;
@@ -2411,7 +2770,8 @@ int main(int argc, char** argv)
               roundTrippedCard.abilityUses == 2 &&
               roundTrippedCard.raisedFromGraveyard &&
               roundTrippedCard.gatherResources == 6 &&
-              roundTrippedCard.tax == 4 && roundTrippedCard.healingAura == 6,
+              roundTrippedCard.tax == 4 && roundTrippedCard.healingAura == 6 &&
+              roundTrippedCard.counterstrike == 3,
           "extended game card fields survive network serialization");
 
     Piece serializedPiece = profilePiece;
@@ -2440,6 +2800,7 @@ int main(int argc, char** argv)
     serializedPiece.abilityUses = 1;
     serializedPiece.gatherResources = 7;
     serializedPiece.healingAura = 5;
+    serializedPiece.counterstrike = 4;
     serializedPiece.growTurnsRemaining = 2;
     serializedPiece.disabledTurns = 1;
     serializedPiece.sleepTurnsRemaining = 1;
@@ -2498,7 +2859,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.summonTitle == "Serialized Summon" &&
               roundTrippedPiece.rebirthTitle == "Serialized Rebirth" &&
               roundTrippedPiece.gatherResources == 7 &&
-              roundTrippedPiece.healingAura == 5 &&
+              roundTrippedPiece.healingAura == 5 && roundTrippedPiece.counterstrike == 4 &&
               roundTrippedPiece.growTurnsRemaining == 2 &&
               roundTrippedPiece.disabledTurns == 1 &&
               roundTrippedPiece.sleepTurnsRemaining == 1 &&

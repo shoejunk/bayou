@@ -118,7 +118,7 @@ bool isHiddenCardDetailKey(const std::string& key)
         key == "range" || key == "move" || key == "attackingMove" || key == "power" ||
         key == "canControl" || key == "growTurns" || key == "abilityUses" || key == "gatherResources" ||
         key == "ability" || key == "summon" || key == "summonUnit" || key == "abilityLabels" ||
-        key == game_data::HealingAuraField ||
+        key == game_data::HealingAuraField || key == game_data::CounterstrikeField ||
         key == "WalkAnimFrames" || key == "IdleAnimFrames" ||
         key == "AttackAnimFrames" || key == "DamagedAnimFrames" || key == "KilledAnimFrames" ||
         key == "rarity" || key == "effect" || key == "target" || key == "rebirth" ||
@@ -407,6 +407,12 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             details.push_back({"Healing aura: +" + std::to_string(gameCard.healingAura) +
                                    " Health to every other adjacent piece, friend or foe, at owner's turn end",
                                sf::Color(143, 220, 205)});
+        }
+        if (gameCard.counterstrike > 0)
+        {
+            details.push_back({"Counterstrike: deal " + std::to_string(gameCard.counterstrike) +
+                                   " damage back when attacked by an adjacent enemy (including diagonals)",
+                               sf::Color(224, 210, 176)});
         }
         if (!gameCard.rebirthTitle.empty())
         {

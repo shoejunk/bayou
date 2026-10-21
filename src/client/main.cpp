@@ -8245,6 +8245,7 @@ int main(int argc, char** argv)
         std::vector<std::string> damagedTargetNames;
         std::vector<std::string> healedTargetNames;
         std::vector<std::string> controlledTargetNames;
+        std::vector<game_data::DamageAssignment> counterstrikeDamage;
         bool anyTargetDestroyed = false;
         bool anyTargetReborn = false;
         bool anyTargetInfestationSpawned = false;
@@ -8294,14 +8295,19 @@ int main(int argc, char** argv)
                 }
                 else
                 {
-                    const game_data::DamageResolution damageResolution =
-                        game_data::resolveDamageWithBodyguardsAndIntercepts(
+                    const game_data::PieceAttackDamageResolution attackResolution =
+                        game_data::resolvePieceAttackDamage(
                             next.pieces,
+                            attackerId,
                             targetId,
                             attackDamage,
                             action.statusTurns,
-                            sandboxDamageRandomEngine,
-                            true);
+                            action.stagingRow,
+                            action.stagingColumn,
+                            sandboxDamageRandomEngine);
+                    const game_data::DamageResolution& damageResolution = attackResolution.attack;
+                    counterstrikeDamage.insert(counterstrikeDamage.end(),
+                        attackResolution.counterstrike.begin(), attackResolution.counterstrike.end());
                     const int effectiveTargetId = damageResolution.effectiveTargetId;
                     const game_data::Piece* effectiveTarget =
                         pieceByIdInSnapshot(next, effectiveTargetId);
@@ -8388,9 +8394,22 @@ int main(int argc, char** argv)
             }
         }
 
+        for (const game_data::DamageAssignment& assignment : counterstrikeDamage)
+        {
+            if (game_data::Piece* victim = pieceByIdInSnapshotMutable(next, assignment.pieceId);
+                victim != nullptr && victim->health <= 0)
+            {
+                destroySandboxPiece(next, victim->id);
+            }
+        }
         game_data::Piece* acting = pieceByIdInSnapshotMutable(next, attackerId);
         if (!acting)
         {
+            next.commandingPieceId = 0;
+            next.relentlessPieceId = 0;
+            next.status = attackerName + " attacked and fell to Counterstrike.";
+            updateStoryAfterAction(next);
+            commitSandboxSnapshot(std::move(next));
             return;
         }
 
@@ -8533,6 +8552,10 @@ int main(int argc, char** argv)
         else
         {
             next.status = attackerName + " moved.";
+        }
+        if (!counterstrikeDamage.empty())
+        {
+            next.status += " Counterstrike dealt return damage.";
         }
         if (repeatRemaining)
         {

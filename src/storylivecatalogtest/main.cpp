@@ -306,6 +306,7 @@ std::vector<std::string> gameCardMismatchFields(
     compare("tax", packaged.tax, live.tax);
     compare("gatherResources", packaged.gatherResources, live.gatherResources);
     compare("healingAura", packaged.healingAura, live.healingAura);
+    compare("counterstrike", packaged.counterstrike, live.counterstrike);
     compare("canControl", packaged.canControl, live.canControl);
     compare("growTurns", packaged.growTurns, live.growTurns);
     compare("ability", packaged.ability, live.ability);
