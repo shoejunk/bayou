@@ -597,6 +597,145 @@ void testShelter()
     }
 }
 
+void testPowerBoost()
+{
+    card_data::Card source;
+    source.title = "Power booster";
+    source.type = "Unit";
+    source.integerValues = {{"health", 20}, {"Power", 1}};
+    source.stringValues = {{"ability", " Power Boost "}, {"Sacrifice", "POWER BOOST"}};
+    const GameCard booster = toGameCard(source);
+    GameCard ally;
+    ally.title = "Power recipient";
+    ally.health = 20;
+    ally.power = 2;
+    GameCard large = ally;
+    large.title = "Large recipient";
+    large.width = 2;
+    large.height = 2;
+    check(booster.ability == "power boost" && booster.sacrifice == "power boost" && booster.power == 1,
+          "Power Boost normalizes in both fields and reads starting Power");
+    const auto byId = [](const GameEngine& engine, int id) -> const Piece* {
+        for (const Piece& piece : engine.boardPieces())
+            if (piece.id == id) return &piece;
+        return nullptr;
+    };
+    for (bool sacrifice : {false, true})
+    {
+        GameEngine engine(201, {});
+        check(engine.loadScenario({{1, booster, 3, 3, false}, {1, ally, 2, 3, false},
+                  {1, ally, 2, 2, false}, {2, ally, 3, 4, false}, {1, ally, 1, 1, false},
+                  {1, ally, 2, 4, true}, {1, large, 4, 4, false}},
+                  {}, {}, 0, 0, 1, "Power Boost test", false),
+              "Power Boost adjacency scenario loads");
+        const int id = engine.boardPieces()[0].id;
+        check(pieceAbilityAvailable(engine.snapshotFor(1), engine.boardPieces()[0], sacrifice) &&
+                  pieceAbilityLabel(engine.boardPieces()[0], sacrifice) ==
+                      (sacrifice ? "Sacrifice: Power Boost" : "Power Boost"),
+              "Power Boost availability and labels work for either button");
+        check(!engine.useAbility(2, id, sacrifice) && engine.useAbility(1, id, sacrifice),
+              "only the owner can activate Power Boost");
+        for (const Piece& piece : engine.boardPieces())
+        {
+            const bool recipient = piece.owner == 1 && piece.id != id &&
+                !(piece.row == 1 && piece.column == 1);
+            check(piece.power == (piece.id == id ? 1 : recipient ? 3 : 2),
+                  "Power Boost reaches friendly cardinal, diagonal, hero and large units, but not self, enemies or distant units");
+        }
+        check((byId(engine, id) == nullptr) == sacrifice &&
+                  engine.playerState(1).pieceActionUsedThisTurn &&
+                  engine.snapshotFor(1).graveyard.size() == (sacrifice ? 1u : 0u),
+              "Power Boost resolves before Sacrifice death and spends the normal action");
+        sf::Packet packet;
+        writeSnapshot(packet, engine.snapshotFor(1));
+        Snapshot decoded;
+        check(readSnapshot(packet, decoded) && packet.endOfPacket() &&
+                  decoded.pieces.size() == engine.boardPieces().size() &&
+                  decoded.pieces.back().power == 3,
+              "boosted Power survives a full snapshot round trip");
+        check(engine.endTurn(1) && engine.endTurn(2) && engine.boardPieces().back().power == 3,
+              "Power persists across turns");
+        if (!sacrifice)
+            check(engine.useAbility(1, id) && engine.boardPieces().back().power == 4 &&
+                      byId(engine, id)->power == 1, "repeated Power Boost stacks without boosting its source");
+    }
+    GameEngine isolated(202, {});
+    check(isolated.loadScenario({{1, booster, 3, 3, false}}, {}, {}, 0, 0, 1, "Isolated booster", false) &&
+              !isolated.useAbility(1, isolated.boardPieces()[0].id, true) &&
+              isolated.boardPieces().size() == 1 && !isolated.boardPieces()[0].hasActed,
+          "Power Boost without adjacent friends is rejected without sacrificing the source");
+
+    GameCard attacker = ally;
+    attacker.title = "Powered attacker";
+    attacker.power = 3;
+    ActionProfile shot;
+    shot.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+    shot.pattern = static_cast<std::uint8_t>(MovePattern::Omni);
+    shot.minRange = 1;
+    shot.maxRange = 7;
+    shot.damage = 2;
+    shot.canMove = false;
+    shot.canAttack = true;
+    attacker.actions = {shot};
+    GameCard defender = ally;
+    defender.title = "Power damage target";
+    defender.power = 0;
+    for (bool collision : {false, true})
+    {
+        GameEngine engine(203, {});
+        attacker.actions[0].push = collision ? 2 : 0;
+        check(engine.loadScenario({{1, attacker, 3, 1, false}, {2, defender, 3, 7, false}},
+                  {}, {}, 0, 0, 1, "Power damage", false), "powered attack scenario loads");
+        const int id = engine.boardPieces()[0].id;
+        check(engine.attackPiece(1, id, 3, 7) && engine.boardPieces()[1].health == (collision ? 10 : 15),
+              "Power augments attack damage and each actual push-collision damage event");
+    }
+    attacker.actions[0].push = 0;
+    GameCard guard = defender;
+    guard.title = "Power test bodyguard";
+    guard.keywords = {"Bodyguard"};
+    GameEngine protectedTarget(204, {});
+    check(protectedTarget.loadScenario({{1, attacker, 3, 1, false}, {2, defender, 3, 4, false},
+              {2, guard, 2, 4, false}, {2, guard, 4, 4, false}},
+              {}, {}, 0, 0, 1, "Power protection", false) &&
+              protectedTarget.attackPiece(1, protectedTarget.boardPieces()[0].id, 3, 4) &&
+              protectedTarget.boardPieces()[1].health == 20 &&
+              protectedTarget.boardPieces()[2].health + protectedTarget.boardPieces()[3].health == 35,
+          "Bodyguards split the already-boosted damage without multiplying Power");
+    defender.counterstrike = 2;
+    defender.power = 3;
+    GameEngine retaliation(205, {});
+    check(retaliation.loadScenario({{1, attacker, 3, 3, false}, {2, defender, 3, 4, false}},
+              {}, {}, 0, 0, 1, "Powered retaliation", false) &&
+              retaliation.attackPiece(1, retaliation.boardPieces()[0].id, 3, 4) &&
+              retaliation.boardPieces()[0].health == 15 && retaliation.boardPieces()[1].health == 15,
+          "Counterstrike adds the defender's Power exactly once");
+    defender.counterstrike = 0;
+    defender.power = 0;
+    attacker.actions[0].damage = 0;
+    attacker.actions[0].heal = 3;
+    GameEngine healing(206, {});
+    check(healing.loadScenario({{1, attacker, 3, 3, false}, {1, defender, 3, 4, false, 10}},
+              {}, {}, 0, 0, 1, "Power does not heal", false) &&
+              healing.attackPiece(1, healing.boardPieces()[0].id, 3, 4) &&
+              healing.boardPieces()[1].health == 13,
+          "Power does not increase healing");
+    check(damageWithPower(0, 3) == 0,
+          "Power does not turn a non-damaging effect into damage");
+
+    attacker.actions[0] = shot;
+    attacker.actions[0].kind = static_cast<std::uint8_t>(ActionKind::Slide);
+    attacker.actions[0].canMove = true;
+    attacker.actions[0].maxRange = 1;
+    attacker.width = 2;
+    GameEngine multi(207, {});
+    check(multi.loadScenario({{1, attacker, 4, 1, false}, {2, defender, 3, 1, false},
+              {2, defender, 3, 2, false}}, {}, {}, 0, 0, 1, "Powered multi-target", false) &&
+              multi.attackPiece(1, multi.boardPieces()[0].id, 3, 1) &&
+              multi.boardPieces()[1].health == 15 && multi.boardPieces()[2].health == 15,
+          "Power applies to every target of a multi-target attack");
+}
+
 void testSacrifice()
 {
     card_data::Card source;
@@ -926,6 +1065,7 @@ int main(int argc, char** argv)
     testShelter();
     testSwap();
     testSacrifice();
+    testPowerBoost();
     bayou::client::ClockWarningTracker clockWarnings;
     check(!clockWarnings.observe(1, 121'000).has_value(),
           "clock warnings establish a baseline without firing");

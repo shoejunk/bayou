@@ -8,6 +8,7 @@
 #include <array>
 #include <cctype>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -437,7 +438,7 @@ struct GameCard
     bool attackingMove = false;
     std::string effect = "none";  // spell/enchantment modifier: damage, heal, resources, resourceDrain
     std::string target = "none";  // spells: enemy/ally/none; enchantments: player/square/piece
-    int power = 0;                // spell or enchantment magnitude
+    int power = 0;                // unit damage bonus, or spell/enchantment magnitude
     int tax = 0;                  // passive resources taken from the opponent each owner's turn
     int gatherResources = 0;      // passive resources gained at the start of each owner's turn
     int healingAura = 0;          // health restored to every adjacent piece at the owner's turn end
@@ -488,7 +489,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.height = std::clamp(cardInt(card, "height", 1), 1, BoardSize);
     g.effect = cardStr(card, "effect", "none");
     g.target = cardStr(card, "target", "none");
-    g.power = cardInt(card, "power", 0);
+    g.power = cardInt(card, "Power", cardInt(card, "power", 0));
     g.tax = std::max(0, cardInt(card, "Tax", cardInt(card, "tax", 0)));
     g.gatherResources = std::max(0, cardInt(card, "gatherResources", 0));
     g.healingAura = std::max(0, cardInt(card, HealingAuraField, 0));
@@ -732,6 +733,7 @@ struct Piece
     int gatherResources = 0;
     int healingAura = 0;
     int counterstrike = 0;
+    int power = 0;
     int width = 1;
     int height = 1;
     int attack = 0;
@@ -764,6 +766,15 @@ struct Piece
     bool interceptUsedThisTurn = false;
     bool raisedFromGraveyard = false;
 };
+
+// Power augments each damage event, never healing or a non-damaging effect.
+inline int damageWithPower(int damage, int power)
+{
+    if (damage <= 0) return 0;
+    return static_cast<int>(std::min<std::int64_t>(
+        std::numeric_limits<int>::max(),
+        static_cast<std::int64_t>(damage) + std::max(0, power)));
+}
 
 inline bool pieceUsesState1Token(const Piece& piece)
 {
@@ -803,6 +814,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.gatherResources = card.gatherResources;
     piece.healingAura = card.healingAura;
     piece.counterstrike = card.counterstrike;
+    piece.power = std::max(0, card.power);
     piece.width = card.width;
     piece.height = card.height;
     piece.attack = card.attack;
@@ -1106,7 +1118,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
            << piece.walkAnimFrames << piece.idleAnimFrames
            << piece.attackAnimFrames << piece.damagedAnimFrames << piece.killedAnimFrames << piece.fidgetAnimFrames
            << piece.maxHealth << piece.health << piece.tax << piece.gatherResources
-           << piece.healingAura << piece.counterstrike
+           << piece.healingAura << piece.counterstrike << piece.power
            << piece.width << piece.height << piece.attack << piece.attackRange
            << piece.movePattern << piece.moveRange << piece.attackingMove
            << piece.canControl << piece.growTurnsRemaining << piece.disabledTurns << piece.sleepTurnsRemaining
@@ -1142,7 +1154,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
            >> piece.walkAnimFrames >> piece.idleAnimFrames
            >> piece.attackAnimFrames >> piece.damagedAnimFrames >> piece.killedAnimFrames >> piece.fidgetAnimFrames
            >> piece.maxHealth >> piece.health >> piece.tax >> piece.gatherResources
-           >> piece.healingAura >> piece.counterstrike
+           >> piece.healingAura >> piece.counterstrike >> piece.power
            >> piece.width >> piece.height >> piece.attack >> piece.attackRange
            >> piece.movePattern >> piece.moveRange >> piece.attackingMove
            >> piece.canControl >> piece.growTurnsRemaining >> piece.disabledTurns >> piece.sleepTurnsRemaining

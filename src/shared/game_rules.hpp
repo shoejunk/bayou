@@ -1103,6 +1103,10 @@ inline std::string pieceAbilityLabel(const Piece& piece, bool sacrifice = false)
             piece.actionState % static_cast<int>(piece.abilityLabels.size()));
         return prefix + piece.abilityLabels[index];
     }
+    if (ability == "power boost")
+    {
+        return prefix + "Power Boost";
+    }
     if (ability == "dig")
     {
         return prefix + "Dig";
@@ -1150,6 +1154,23 @@ inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
         std::max(second.column - (first.column + first.width - 1),
                  first.column - (second.column + second.width - 1)));
     return std::max(rowGap, columnGap) == 1;
+}
+
+inline bool pieceCanReceivePowerBoost(const Piece& source, const Piece& target)
+{
+    return source.id != target.id && source.owner == target.owner && target.health > 0 &&
+        piecesAreAdjacent(source, target);
+}
+
+inline void applyPowerBoost(std::vector<Piece>& pieces, const Piece& source)
+{
+    for (Piece& target : pieces)
+    {
+        if (pieceCanReceivePowerBoost(source, target))
+        {
+            target.power = damageWithPower(1, target.power);
+        }
+    }
 }
 
 // Check before removing the casualty or spawning a death replacement. Only
@@ -1291,6 +1312,7 @@ struct PushResult
 {
     int movedSquares = 0;
     int preventedSquares = 0;
+    int collisionDamage = 0;
     std::vector<int> revealedPieceIds;
 };
 
@@ -1304,7 +1326,8 @@ inline PushResult applyActionPush(
     int targetId,
     int stagingRow,
     int stagingColumn,
-    int distance)
+    int distance,
+    int sourcePower = 0)
 {
     PushResult result;
     const int requestedSquares = std::max(0, distance);
@@ -1334,7 +1357,8 @@ inline PushResult applyActionPush(
     if (stepRow == 0 && stepColumn == 0)
     {
         result.preventedSquares = requestedSquares;
-        applyActionDamage(target, result.preventedSquares, 0);
+        result.collisionDamage = damageWithPower(result.preventedSquares, sourcePower);
+        applyActionDamage(target, result.collisionDamage, 0);
         return result;
     }
 
@@ -1366,7 +1390,8 @@ inline PushResult applyActionPush(
     result.preventedSquares = requestedSquares - result.movedSquares;
     if (result.preventedSquares > 0)
     {
-        applyActionDamage(target, result.preventedSquares, 0);
+        result.collisionDamage = damageWithPower(result.preventedSquares, sourcePower);
+        applyActionDamage(target, result.collisionDamage, 0);
     }
     return result;
 }
@@ -1572,7 +1597,7 @@ inline PieceAttackDamageResolution resolvePieceAttackDamage(
         attacker->row = stagingRow;
         attacker->column = stagingColumn;
         result.counterstrike = applyDamageWithBodyguards(
-            pieces, attackerId, defender->counterstrike, 0, randomEngine);
+            pieces, attackerId, damageWithPower(defender->counterstrike, defender->power), 0, randomEngine);
         attacker->row = originRow;
         attacker->column = originColumn;
     }
@@ -1613,7 +1638,7 @@ inline bool pieceAbilityAvailable(const Piece& piece, bool sacrifice = false)
         return !piece.summonTitle.empty();
     }
     return ability == "transform" || ability == "dematerialize" || ability == "command" ||
-        ability == "raise undead" || ability == "swap";
+        ability == "raise undead" || ability == "swap" || ability == "power boost";
 }
 
 inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece& piece, bool sacrifice = false)
@@ -1626,6 +1651,11 @@ inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece&
     if (ability == "summon")
     {
         return pieceSummonDestinationFree(pieces, piece);
+    }
+    if (ability == "power boost")
+    {
+        return std::any_of(pieces.begin(), pieces.end(),
+            [&](const Piece& target) { return pieceCanReceivePowerBoost(piece, target); });
     }
     if (ability == "command")
     {

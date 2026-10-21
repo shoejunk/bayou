@@ -8289,8 +8289,9 @@ int main(int argc, char** argv)
                 }
             }
         };
-        const int attackDamage = action.damage +
-            game_data::pieceEnchantmentDamageBonus(next.enchantments, attackerId);
+        const int attackerPower = piece->power;
+        const int attackDamage = game_data::damageWithPower(
+            action.damage + game_data::pieceEnchantmentDamageBonus(next.enchantments, attackerId), attackerPower);
         const std::string infestationTitle = action.actionIndex >= 0 &&
                 action.actionIndex < static_cast<int>(piece->actions.size())
             ? piece->actions[static_cast<std::size_t>(action.actionIndex)].infest
@@ -8368,9 +8369,10 @@ int main(int argc, char** argv)
                         effectiveTargetId,
                         action.stagingRow,
                         action.stagingColumn,
-                        action.push);
+                        action.push,
+                        attackerPower);
                     pushedSquares += pushResult.movedSquares;
-                    pushCollisionDamage += pushResult.preventedSquares;
+                    pushCollisionDamage += pushResult.collisionDamage;
                     rememberRevealedPieces(pushResult.revealedPieceIds);
                     if (game_data::Piece* pushedTarget =
                             pieceByIdInSnapshotMutable(next, effectiveTargetId);
@@ -8725,6 +8727,10 @@ int main(int argc, char** argv)
                 return;
             }
             spawnSandboxPiece(next, nextSandboxPieceId, pieceOwner, *found, row, column, false);
+        }
+        else if (ability == "power boost")
+        {
+            game_data::applyPowerBoost(next.pieces, *piece);
         }
         else if (ability == "command")
         {
@@ -14560,6 +14566,22 @@ int main(int argc, char** argv)
                 captureHoverPoint = sf::Vector2f{
                     gameHandCardX(3, VisibleGameHandCards) + 24.0f,
                     HandY + 46.0f};
+            }
+        }
+        else if (screen == "game-power-boost" || screen == "game-power-boost-sacrifice" ||
+                 screen == "game-power-boost-detail")
+        {
+            seedCaptureMatch("selected");
+            if (selectedPieceId)
+            {
+                if (game_data::Piece* piece = pieceByIdInSnapshotMutable(gameSnapshot, *selectedPieceId))
+                {
+                    const bool sacrifice = screen == "game-power-boost-sacrifice";
+                    piece->ability = sacrifice ? "" : "power boost";
+                    piece->sacrifice = sacrifice ? "power boost" : "";
+                    piece->power = 2;
+                    if (screen == "game-power-boost-detail") inspectedPieceId = piece->id;
+                }
             }
         }
         else if (screen == "game-sacrifice" || screen == "game-sacrifice-both")

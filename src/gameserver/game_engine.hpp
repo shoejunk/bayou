@@ -1011,6 +1011,10 @@ private:
                 pieces.back().hasActed = true;
             }
         }
+        else if (ability == "power boost")
+        {
+            applyPowerBoost(pieces, *piece);
+        }
         else if (ability == "command")
         {
             piece->hasActed = true;
@@ -1989,8 +1993,9 @@ private:
                 }
             }
         };
-        const int attackDamage = action.damage +
-            pieceEnchantmentDamageBonus(enchantments, attackerId);
+        const int attackerPower = piece->power;
+        const int attackDamage = damageWithPower(
+            action.damage + pieceEnchantmentDamageBonus(enchantments, attackerId), attackerPower);
         const std::string infestationTitle = action.actionIndex >= 0 &&
                 action.actionIndex < static_cast<int>(piece->actions.size())
             ? piece->actions[static_cast<std::size_t>(action.actionIndex)].infest
@@ -2059,9 +2064,10 @@ private:
                         effectiveTargetId,
                         action.stagingRow,
                         action.stagingColumn,
-                        action.push);
+                        action.push,
+                        attackerPower);
                     pushedSquares += pushResult.movedSquares;
-                    pushCollisionDamage += pushResult.preventedSquares;
+                    pushCollisionDamage += pushResult.collisionDamage;
                     rememberRevealedPieces(pushResult.revealedPieceIds);
                     if (Piece* pushedTarget = pieceById(effectiveTargetId);
                         pushedTarget != nullptr && pushedTarget->health <= 0)

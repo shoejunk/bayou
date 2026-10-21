@@ -355,6 +355,7 @@
         else if (ability == "dig") label = "Dig";
         else if (ability == "summon") label = "Summon";
         else if (ability == "command") label = "Command";
+        else if (ability == "power boost") label = "Power Boost";
         else if (ability == "transform") label = "Transform";
         else if (ability == "dematerialize")
             label = state == 0 ? "Dematerialize" : "Materialize";
@@ -376,6 +377,10 @@
             }
             rule = "creates " + summonTitle +
                 " in the square directly in front (right for Player 1, left for Player 2); the new Unit cannot act until its owner's next turn. If an opposing hidden piece is there, Summon instead spends this action, creates no Unit, and materializes that piece Disabled for its next owner-turn activation";
+        }
+        else if (ability == "power boost")
+        {
+            rule = "gives every adjacent friendly unit +1 Power, including diagonals; excludes this unit. Power stacks and increases damage dealt while the unit remains in play";
         }
         else if (ability == "command")
         {
@@ -523,6 +528,12 @@
 
     auto piecePopupActionDescriptions = [&](const game_data::Piece& piece) {
         DetailRows descriptions;
+        if (piece.power > 0)
+        {
+            descriptions.push_back({"Power: +" + std::to_string(piece.power) +
+                " to damage dealt (attacks, Counterstrike, and push collisions)",
+                sf::Color(248, 214, 112)});
+        }
         if (piece.growTurnsRemaining > 0)
         {
             descriptions.push_back({"Growing: " + std::to_string(piece.growTurnsRemaining) + " turns",
@@ -560,7 +571,7 @@
             piece.actionState, piece.abilityUses, true);
         appendKeywordRuleDescriptions(descriptions, piece.keywords, piece.summonTitle);
         appendPassiveRuleDescriptions(
-            descriptions, piece.tax, piece.gatherResources, piece.healingAura, piece.counterstrike,
+            descriptions, piece.tax, piece.gatherResources, piece.healingAura, game_data::damageWithPower(piece.counterstrike, piece.power),
             piece.canControl, piece.growTurnsRemaining, piece.rebirthTitle);
         for (const game_data::Enchantment& enchantment : gameSnapshot.enchantments)
         {
@@ -643,8 +654,10 @@
                             ? sf::Color(225, 188, 120)
                             : sf::Color(242, 126, 112)});
             }
+            game_data::ActionProfile poweredAction = action;
+            poweredAction.damage = game_data::damageWithPower(action.damage, piece.power);
             descriptions.push_back(actionDetailRow(
-                action,
+                poweredAction,
                 i,
                 action.state == piece.actionState
                     ? sf::Color(143, 220, 205)
@@ -721,6 +734,12 @@
                         " piece must satisfy placement, movement, occupancy, and control rules. Range, adjacency, and a clear ranged path use the nearest squares of both footprints. Movement checks the full footprint at every step; an attacking landing affects every legal enemy footprint it overlaps.",
                     sf::Color(248, 214, 112)});
             }
+            if (card.power > 0)
+            {
+                descriptions.push_back({"Power: +" + std::to_string(card.power) +
+                    " to damage dealt (attacks, Counterstrike, and push collisions)",
+                    sf::Color(248, 214, 112)});
+            }
             appendAbilityRuleDescription(
                 descriptions, card.ability, card.summonTitle, card.abilityLabels,
                 0, card.abilityUses);
@@ -729,7 +748,7 @@
                 0, card.abilityUses, true);
             appendKeywordRuleDescriptions(descriptions, card.keywords, card.summonTitle);
             appendPassiveRuleDescriptions(
-                descriptions, card.tax, card.gatherResources, card.healingAura, card.counterstrike,
+                descriptions, card.tax, card.gatherResources, card.healingAura, game_data::damageWithPower(card.counterstrike, card.power),
                 card.canControl, card.growTurns, card.rebirthTitle);
             if (card.actions.empty())
             {
@@ -786,7 +805,9 @@
                             ? sf::Color(136, 226, 190)
                             : sf::Color(190, 198, 214)});
                 }
-                descriptions.push_back(actionDetailRow(action, i));
+                game_data::ActionProfile poweredAction = action;
+                poweredAction.damage = game_data::damageWithPower(action.damage, card.power);
+                descriptions.push_back(actionDetailRow(poweredAction, i));
             }
         }
         return descriptions;
@@ -1083,7 +1104,8 @@
                 sf::Color(146, 210, 136)});
             if (piece->attack > 0)
             {
-                stats.push_back({"ATTACK", std::to_string(piece->attack), sf::Color(226, 132, 108)});
+                stats.push_back({"ATTACK", std::to_string(
+                    game_data::damageWithPower(piece->attack, piece->power)), sf::Color(226, 132, 108)});
             }
             if (piece->tax > 0)
             {

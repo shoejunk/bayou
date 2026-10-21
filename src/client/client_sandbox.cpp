@@ -40,6 +40,7 @@ game_data::GameCard cardFromDestroyedPiece(const game_data::Piece& piece)
     card.width = piece.width;
     card.height = piece.height;
     card.attack = piece.attack;
+    card.power = piece.power;
     card.attackRange = piece.attackRange;
     card.movePattern = piece.movePattern;
     card.moveRange = piece.moveRange;

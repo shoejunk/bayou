@@ -115,7 +115,7 @@ std::string actionRangeText(const game_data::ActionProfile& action)
 bool isHiddenCardDetailKey(const std::string& key)
 {
     return key == "Deck Limit" || key == "deckLimit" || key == "cost" || key == "heroCost" || key == "health" || key == "attack" || key == "Tax" || key == "tax" ||
-        key == "range" || key == "move" || key == "attackingMove" || key == "power" ||
+        key == "range" || key == "move" || key == "attackingMove" || key == "power" || key == "Power" ||
         key == "canControl" || key == "growTurns" || key == "abilityUses" || key == "gatherResources" ||
         key == "ability" || key == "Sacrifice" || key == "sacrifice" || key == "summon" || key == "summonUnit" || key == "abilityLabels" ||
         key == game_data::HealingAuraField || key == game_data::CounterstrikeField ||
@@ -392,6 +392,12 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
                 "Deployment: place on a controlled footprint that appears empty. If it contains only opposing hidden pieces, the attempt spends this card and its Resources, creates no Unit, and materializes each piece Disabled for its next owner-turn activation.",
                 sf::Color(210, 216, 228)});
         }
+        if (gameCard.power > 0)
+        {
+            details.push_back({"Power: +" + std::to_string(gameCard.power) +
+                " to damage dealt (attacks, Counterstrike, and push collisions)",
+                sf::Color(248, 214, 112)});
+        }
         if (gameCard.tax > 0)
         {
             details.push_back({"Tax: " + std::to_string(gameCard.tax) + " Resources",
@@ -410,7 +416,7 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
         }
         if (gameCard.counterstrike > 0)
         {
-            details.push_back({"Counterstrike: deal " + std::to_string(gameCard.counterstrike) +
+            details.push_back({"Counterstrike: deal " + std::to_string(game_data::damageWithPower(gameCard.counterstrike, gameCard.power)) +
                                    " damage back when attacked by an adjacent enemy (including diagonals)",
                                sf::Color(224, 210, 176)});
         }
@@ -434,6 +440,10 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             else if (ability == "dig")
             {
                 abilityText = "Ability: Dig a hole on this piece's square";
+            }
+            else if (ability == "power boost")
+            {
+                abilityText = "Ability: Power Boost. Give every adjacent friendly unit +1 Power (including diagonals). Does not affect this unit. Power stacks and increases damage dealt while the unit remains in play";
             }
             else if (ability == "command")
             {
@@ -524,7 +534,9 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
                         ? sf::Color(225, 188, 120)
                         : sf::Color(242, 126, 112)});
             }
-            details.push_back(actionDetailRow(action, i));
+            game_data::ActionProfile poweredAction = action;
+            poweredAction.damage = game_data::damageWithPower(action.damage, gameCard.power);
+            details.push_back(actionDetailRow(poweredAction, i));
         }
     }
     else

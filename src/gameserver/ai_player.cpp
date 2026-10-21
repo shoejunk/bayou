@@ -370,7 +370,7 @@ int pieceBestDamage(const Piece& piece)
     {
         if (action.state == piece.actionState && action.canAttack)
         {
-            damage = std::max(damage, action.damage);
+            damage = std::max(damage, damageWithPower(action.damage, piece.power));
         }
     }
     return damage;
@@ -385,7 +385,7 @@ int pieceActionPower(const Piece& piece)
         {
             continue;
         }
-        int power = action.damage * ActionDamageValue + action.heal * ActionHealValue +
+        int power = damageWithPower(action.damage, piece.power) * ActionDamageValue + action.heal * ActionHealValue +
             action.statusTurns * ActionStatusValue + action.control * ActionControlValue +
             action.push * ActionPushValue + (action.pull ? ActionPullValue : 0);
         if (action.canMove)
@@ -605,7 +605,7 @@ std::vector<int> incomingDamage(const GameEngine& engine)
             {
                 continue;
             }
-            incoming[index] = std::max(incoming[index], resolution.damage + bonus);
+            incoming[index] = std::max(incoming[index], damageWithPower(resolution.damage + bonus, attacker.power));
         }
     }
     return incoming;
@@ -698,7 +698,7 @@ int cardPromise(const GameCard& card)
         int promise = card.health * UnitHealthValue;
         for (const ActionProfile& action : card.actions)
         {
-            promise += action.damage * ActionDamageValue + action.heal * ActionHealValue;
+            promise += damageWithPower(action.damage, card.power) * ActionDamageValue + action.heal * ActionHealValue;
         }
         return promise;
     }
@@ -737,6 +737,10 @@ int abilityOrderBonus(const Piece& piece)
     {
         // A summon is a free piece; nothing else on a normal turn matches it.
         return 900;
+    }
+    if (ability == "power boost")
+    {
+        return 450;
     }
     if (ability == "command")
     {
@@ -1003,7 +1007,9 @@ std::vector<AiCandidate> generateCandidates(
                     int order = 0;
                     if (resolution.attacks)
                     {
-                        order = 200 + resolution.damage * 12 + resolution.heal * 8 +
+                        const int damage = damageWithPower(resolution.damage +
+                            pieceEnchantmentDamageBonus(engine.boardEnchantments(), piece.id), piece.power);
+                        order = 200 + damage * 12 + resolution.heal * 8 +
                             resolution.statusTurns * 10 + resolution.control * 30 +
                             resolution.push * 6 + (resolution.pull ? 12 : 0);
                         for (int targetId : resolution.targetIds)
@@ -1013,7 +1019,7 @@ std::vector<AiCandidate> generateCandidates(
                             {
                                 continue;
                             }
-                            if (resolution.damage >= target->health)
+                            if (damage >= target->health)
                             {
                                 order += target->isHero ? 4000 : 600;
                             }
