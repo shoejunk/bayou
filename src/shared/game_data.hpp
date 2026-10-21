@@ -1001,6 +1001,7 @@ struct Snapshot
     std::vector<GameCard> graveyard;  // destroyed Unit cards that have not been raised
     std::vector<GameCard> exiled;  // raised Unit cards destroyed a second time
     std::vector<GameCard> raiseUndeadChoices;  // recipient's pending graveyard choice
+    bool swapChoicePending = false;  // recipient must select a card from their hand
     std::string status;
 };
 
@@ -1254,6 +1255,7 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
     writeCardZone(snapshot.graveyard);
     writeCardZone(snapshot.exiled);
     writeCardZone(snapshot.raiseUndeadChoices);
+    packet << snapshot.swapChoicePending;
 
     packet << snapshot.status;
 }
@@ -1384,7 +1386,7 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot)
     {
         return false;
     }
-    packet >> snapshot.status;
+    packet >> snapshot.swapChoicePending >> snapshot.status;
     return static_cast<bool>(packet);
 }
 }

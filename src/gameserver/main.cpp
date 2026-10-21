@@ -1226,6 +1226,16 @@ private:
                 engine.chooseRaiseUndeadCard(playerNumber, choiceIndex);
                 return true;
             }
+            case MessageType::ChooseSwapCard:
+            {
+                int handIndex = -1;
+                packet >> handIndex;
+                if (packet && packet.endOfPacket())
+                {
+                    engine.chooseSwapCard(playerNumber, handIndex);
+                }
+                return true;
+            }
             case MessageType::DrawCard:
                 engine.drawCard(playerNumber);
                 return true;

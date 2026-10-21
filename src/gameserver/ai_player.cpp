@@ -1399,6 +1399,20 @@ bool applyAiAction(GameEngine& engine, int playerNumber, const AiAction& action)
                 engine.chooseRaiseUndeadCard(
                     playerNumber, chooseAiRaiseUndeadCard(engine, playerNumber));
             }
+            if (engine.hasPendingSwapChoice(playerNumber))
+            {
+                const auto& hand = engine.playerState(playerNumber).hand;
+                int discardIndex = 0;
+                for (std::size_t index = 1; index < hand.size(); ++index)
+                {
+                    if (cardKeepValue(hand[index], engine, playerNumber) <
+                        cardKeepValue(hand[static_cast<std::size_t>(discardIndex)], engine, playerNumber))
+                    {
+                        discardIndex = static_cast<int>(index);
+                    }
+                }
+                engine.chooseSwapCard(playerNumber, discardIndex);
+            }
             return true;
         case AiActionKind::PlayCard:
             return engine.playCard(playerNumber, action.handIndex, action.row, action.column);

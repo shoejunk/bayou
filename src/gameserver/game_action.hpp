@@ -31,6 +31,7 @@ inline bool supported(network::MessageType type)
         case network::MessageType::EndTurn:
         case network::MessageType::ChooseForesightCard:
         case network::MessageType::ChooseRaiseUndeadCard:
+        case network::MessageType::ChooseSwapCard:
         case network::MessageType::DrawCard:
             return true;
         default:
@@ -91,6 +92,14 @@ inline bool decodePayload(
         case network::MessageType::ChooseForesightCard:
         case network::MessageType::ChooseRaiseUndeadCard:
             packet >> action.argumentOne;
+            break;
+        case network::MessageType::ChooseSwapCard:
+            packet >> action.argumentOne;
+            if (!packet || !packet.endOfPacket())
+            {
+                error = "Malformed Swap card choice";
+                return false;
+            }
             break;
         case network::MessageType::EndTurn:
         case network::MessageType::DrawCard:
@@ -222,6 +231,9 @@ inline bool apply(
             break;
         case network::MessageType::ChooseRaiseUndeadCard:
             accepted = engine.chooseRaiseUndeadCard(action.playerNumber, action.argumentOne);
+            break;
+        case network::MessageType::ChooseSwapCard:
+            accepted = engine.chooseSwapCard(action.playerNumber, action.argumentOne);
             break;
         case network::MessageType::DrawCard:
             accepted = engine.drawCard(action.playerNumber);

@@ -441,6 +441,10 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             {
                 abilityText = "Ability: Raise Undead. Choose any Undead Unit in the graveyard and add it to your hand for free at 1 Health. If it is destroyed again, exile it";
             }
+            else if (gameCard.ability == "swap")
+            {
+                abilityText = "Ability: Swap. Requires a card in hand. Choose a hand card to discard to the bottom of your deck, then draw up to 2 cards, limited by hand space";
+            }
             else if (gameCard.ability == "dematerialize")
             {
                 abilityText = "Ability: cycle between materialized and hidden action states";

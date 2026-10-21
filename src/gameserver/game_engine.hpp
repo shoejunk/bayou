@@ -155,7 +155,13 @@ public:
     bool hasPendingCardChoice(int playerNumber) const
     {
         return hasPendingForesightChoice(playerNumber) ||
-            hasPendingRaiseUndeadChoice(playerNumber);
+            hasPendingRaiseUndeadChoice(playerNumber) ||
+            hasPendingSwapChoice(playerNumber);
+    }
+    bool hasPendingSwapChoice(int playerNumber) const
+    {
+        return playerNumber >= 1 && playerNumber <= 2 &&
+            pendingSwapPlayer == playerNumber;
     }
     // Seeds an authored board while preserving the ordinary match rules for
     // every action taken after setup. This is used by Story Mode and by tests;
@@ -222,6 +228,7 @@ public:
         commandingPieceId = 0;
         relentlessPieceId = 0;
         pendingRaiseUndeadPieceId = 0;
+        pendingSwapPlayer = 0;
         relentlessActionKeepsTurn = false;
         scenarioObjectiveValue = {};
         scenarioObjectiveProgressValue = {};
@@ -1009,6 +1016,15 @@ private:
             }
             return true;
         }
+        else if (piece->ability == "swap")
+        {
+            if (playerRef(playerNumber).hand.empty())
+            {
+                setStatusFor(playerNumber, "Swap needs a card in your hand.");
+                return false;
+            }
+            pendingSwapPlayer = playerNumber;
+        }
         else if (piece->ability == "raise undead")
         {
             EnginePlayer& player = playerRef(playerNumber);
@@ -1086,10 +1102,45 @@ private:
         {
             status += " Choose an Undead Unit from the graveyard.";
         }
+        if (hasPendingSwapChoice(playerNumber) && narrationEnabled)
+        {
+            status += " Choose a card from your hand to discard, then draw up to two cards.";
+        }
         return true;
     }
 
 public:
+    bool chooseSwapCard(int playerNumber, int handIndex)
+    {
+        if (phaseValue != Phase::Playing || playerNumber != activePlayer ||
+            !hasPendingSwapChoice(playerNumber))
+        {
+            return false;
+        }
+        EnginePlayer& player = playerRef(playerNumber);
+        if (handIndex < 0 || handIndex >= static_cast<int>(player.hand.size()))
+        {
+            return false;
+        }
+
+        const GameCard card = player.hand[static_cast<std::size_t>(handIndex)];
+        player.hand.erase(player.hand.begin() + handIndex);
+        // Swap uses the normal discard destination without using the manual
+        // discard allowance. The draw pile's back is its top.
+        player.drawPile.insert(player.drawPile.begin(), card);
+        const std::size_t handSizeAfterDiscard = player.hand.size();
+        drawTopCard(player);
+        drawTopCard(player);
+        pendingSwapPlayer = 0;
+        if (narrationEnabled)
+        {
+            status = fmt::format(
+                "Player {} swapped {} to the bottom of the deck and drew {} card(s).",
+                playerNumber, card.title, player.hand.size() - handSizeAfterDiscard);
+        }
+        return true;
+    }
+
     bool chooseForesightCard(int playerNumber, int choiceIndex)
     {
         if (phaseValue != Phase::Playing || playerNumber != activePlayer)
@@ -1305,6 +1356,7 @@ public:
         if (phaseValue == Phase::Playing && playerNumber == activePlayer)
         {
             snapshot.foresightChoices = viewingPlayer.foresightChoices;
+            snapshot.swapChoicePending = hasPendingSwapChoice(playerNumber);
             if (hasPendingRaiseUndeadChoice(playerNumber))
             {
                 std::copy_if(
@@ -1469,6 +1521,7 @@ private:
     int commandingPieceId = 0;
     int relentlessPieceId = 0;
     int pendingRaiseUndeadPieceId = 0;
+    int pendingSwapPlayer = 0;
     bool relentlessActionKeepsTurn = false;
     bool heroEliminationVictoryEnabled = true;
     ScenarioObjective scenarioObjectiveValue;
@@ -2437,6 +2490,7 @@ private:
         relentlessPieceId = 0;
         pendingRaiseUndeadPieceId = 0;
         relentlessActionKeepsTurn = false;
+        pendingSwapPlayer = 0;
         endTurnFor(activePlayer);
         recomputeControl();
         if (phaseValue == Phase::GameOver)

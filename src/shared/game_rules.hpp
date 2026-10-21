@@ -1117,6 +1117,10 @@ inline std::string pieceAbilityLabel(const Piece& piece)
     {
         return "Raise Undead";
     }
+    if (ability == "swap")
+    {
+        return "Swap";
+    }
     if (ability == "transform")
     {
         return "Transform";
@@ -1595,7 +1599,7 @@ inline bool pieceAbilityAvailable(const Piece& piece)
         return !piece.summonTitle.empty();
     }
     return ability == "transform" || ability == "dematerialize" || ability == "command" ||
-        ability == "raise undead";
+        ability == "raise undead" || ability == "swap";
 }
 
 inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece& piece)
@@ -1624,6 +1628,15 @@ inline bool pieceAbilityAvailable(const Snapshot& snapshot, const Piece& piece)
     if (!pieceAbilityAvailable(snapshot.pieces, piece))
     {
         return false;
+    }
+    if (snapshot.swapChoicePending)
+    {
+        return false;
+    }
+    if (normalizedAbility(piece.ability) == "swap")
+    {
+        return !snapshot.hand.empty() && snapshot.foresightChoices.empty() &&
+            snapshot.raiseUndeadChoices.empty();
     }
     if (normalizedAbility(piece.ability) != "raise undead")
     {

@@ -1299,7 +1299,8 @@
             14.0f);
 
         const bool raisingUndead = choosingRaiseUndead();
-        sf::Text title(font, raisingUndead ? "RAISE UNDEAD" : "FORESIGHT", 23);
+        const bool swapping = gameSnapshot.swapChoicePending;
+        sf::Text title(font, swapping ? "SWAP" : raisingUndead ? "RAISE UNDEAD" : "FORESIGHT", 23);
         title.setLetterSpacing(1.8f);
         title.setFillColor(BoardBrassBright);
         centerText(title, {400.0f, 82.0f});
@@ -1309,7 +1310,7 @@
         // authored card is actually present. Ordinary Foresight stays truthful,
         // while malformed Story data fails closed.
         std::string requiredStoryCard;
-        if (!raisingUndead && storyMode && storyStage == StoryStage::Objective &&
+        if (!swapping && !raisingUndead && storyMode && storyStage == StoryStage::Objective &&
             storyMissionStep >= 0)
         {
             const StoryMission& mission = activeStoryMission();
@@ -1332,9 +1333,11 @@
             }
         }
 
-        const bool showingStoryCorrection = !raisingUndead && storyMode &&
+        const bool showingStoryCorrection = !swapping && !raisingUndead && storyMode &&
             storyStage == StoryStage::Objective && !storyCorrection.empty();
-        const std::string guidance = raisingUndead
+        const std::string guidance = swapping
+            ? "Choose a card from your hand to discard to the bottom of your deck. Then draw up to 2 cards, limited by hand space."
+            : raisingUndead
             ? "Choose an Undead Unit from the graveyard. It enters your hand for free with 1 Health; when destroyed again, it is exiled."
             : showingStoryCorrection
             ? "TRY AGAIN: " + storyCorrection
@@ -1377,7 +1380,7 @@
                 ForesightChoiceColumns, choices.size() - rowStart);
             const float rowWidth = static_cast<float>(rowCards) * HandCardWidth +
                 static_cast<float>(rowCards - 1) * ForesightChoiceGap;
-            const float startX = (ui_canvas::Width - rowWidth) * 0.5f;
+            const float startX = 400.0f - rowWidth * 0.5f;
             const float y = ForesightChoiceY + static_cast<float>(visibleRow) *
                 ForesightChoiceRowPitch;
             for (std::size_t column = 0; column < rowCards; ++column)
@@ -1405,7 +1408,7 @@
                     requiredChoice ? 2.0f : 1.0f);
                 sf::Text choose(
                     font,
-                    requiredChoice ? "REQUIRED" : "CHOOSE",
+                    swapping ? "DISCARD" : requiredChoice ? "REQUIRED" : "CHOOSE",
                     requiredChoice ? 10 : 11);
                 choose.setStyle(sf::Text::Bold);
                 choose.setLetterSpacing(requiredChoice ? 0.45f : 0.8f);
@@ -3669,8 +3672,7 @@
                 drawCaption = "HAND FULL";
             }
             else if (!boardSnapshot.foresightChoices.empty() ||
-                     !boardSnapshot.raiseUndeadChoices.empty())
-
+                     !boardSnapshot.raiseUndeadChoices.empty() || boardSnapshot.swapChoicePending)
             {
                 drawCaption = "CHOOSE CARD";
             }
@@ -4628,7 +4630,7 @@
         if (drawStoryMode)
         {
             if (boardSnapshot.foresightChoices.empty() &&
-                boardSnapshot.raiseUndeadChoices.empty())
+                boardSnapshot.raiseUndeadChoices.empty() && !boardSnapshot.swapChoicePending)
 
             {
                 drawPiecePopup();
@@ -4763,7 +4765,7 @@
         }
 
         if (boardSnapshot.foresightChoices.empty() &&
-            boardSnapshot.raiseUndeadChoices.empty())
+            boardSnapshot.raiseUndeadChoices.empty() && !boardSnapshot.swapChoicePending)
 
         {
             drawPiecePopup();

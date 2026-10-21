@@ -139,7 +139,8 @@ enum class MessageType : std::uint8_t
     AudioSettingsUpdateResponse,
     ChooseForesightCard,
     DrawCard,
-    ChooseRaiseUndeadCard
+    ChooseRaiseUndeadCard,
+    ChooseSwapCard
 };
 
 // MovePiece and AttackPiece keep their original three-int payload

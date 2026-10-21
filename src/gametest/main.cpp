@@ -437,9 +437,153 @@ void testShelter()
     }
 }
 
+void testSwap()
+{
+    card_data::Card source;
+    source.title = "Swap test unit";
+    source.type = "Unit";
+    source.stringValues.push_back({"ability", "Swap"});
+    GameCard swapper = toGameCard(source);
+    swapper.health = 10;
+    swapper.keywords = {"Foresight"};
+    const auto card = [](const std::string& title) {
+        GameCard result;
+        result.title = title;
+        result.type = "Unit";
+        result.health = 3;
+        return result;
+    };
+    const std::vector<GameCard> drawPile = {card("Bottom"), card("Draw B"), card("Draw A")};
+    const auto scenario = [&](const std::vector<GameCard>& hand,
+                              const std::vector<GameCard>& deck) {
+        GameEngine engine(601, {});
+        check(engine.loadScenario({{1, swapper, 3, 1, false}}, hand, {}, 0, 0,
+                                  1, "Swap test", false, deck),
+              "Swap scenario loads");
+        return engine;
+    };
+    check(swapper.ability == "swap", "ability string Swap is normalized from card data");
+
+    GameEngine empty = scenario({}, drawPile);
+    const int pieceId = empty.boardPieces().front().id;
+    check(pieceAbilityLabel(empty.boardPieces().front()) == "Swap" &&
+              !pieceAbilityAvailable(empty.snapshotFor(1), empty.boardPieces().front()) &&
+              !empty.useAbility(1, pieceId) && !empty.boardPieces().front().hasActed &&
+              !empty.playerState(1).pieceActionUsedThisTurn && !empty.hasPendingCardChoice(1),
+          "an empty hand disables Swap without consuming the piece action");
+
+    GameEngine engine = scenario({card("Keep"), card("Discard")}, drawPile);
+    check(pieceAbilityAvailable(engine.snapshotFor(1), engine.boardPieces().front()) &&
+              !engine.useAbility(2, pieceId) && !engine.chooseSwapCard(1, 0) &&
+              engine.useAbility(1, pieceId),
+          "only the owner can start Swap, and selection requires an active Swap");
+    check(engine.hasPendingSwapChoice(1) && !engine.hasPendingSwapChoice(2) &&
+              engine.snapshotFor(1).swapChoicePending && !engine.snapshotFor(2).swapChoicePending &&
+              engine.boardPieces().front().hasActed && engine.playerState(1).pieceActionUsedThisTurn &&
+              engine.playerState(1).hand.size() == 2 && engine.playerState(1).drawPile.size() == 3,
+          "Swap consumes the action and privately requests a hand choice before moving any cards");
+    check(!engine.endTurn(1) && !engine.drawCard(1) && !engine.discardCard(1, 0) &&
+              !engine.playCard(1, 0, 2, 1) && !engine.movePiece(1, pieceId, 3, 2) &&
+              !engine.useAbility(1, pieceId) && !engine.chooseSwapCard(2, 0) &&
+              !engine.chooseSwapCard(1, -1) && !engine.chooseSwapCard(1, 2) &&
+              engine.hasPendingSwapChoice(1) && engine.playerState(1).hand.size() == 2,
+          "pending Swap rejects other actions and invalid selections without changing the hand");
+
+    sf::Packet snapshotPacket;
+    writeSnapshot(snapshotPacket, engine.snapshotFor(1));
+    Snapshot roundTrip;
+    check(readSnapshot(snapshotPacket, roundTrip) && roundTrip.swapChoicePending &&
+              roundTrip.hand.size() == 2 && roundTrip.hand[1].title == "Discard",
+          "Swap pending state and selectable hand survive snapshot serialization");
+
+    sf::Packet choicePacket;
+    choicePacket << static_cast<std::uint8_t>(MessageType::ChooseSwapCard) << 1;
+    conquest_data::BattleAction choice;
+    std::string error;
+    check(game_action::decode(choicePacket, 1, 1, choice, error) &&
+              game_action::apply(engine, choice, &error),
+          "Conquest decodes and applies a Swap card choice through the shared dispatcher");
+    sf::Packet missingChoice;
+    missingChoice << static_cast<std::uint8_t>(MessageType::ChooseSwapCard);
+    sf::Packet extraChoice;
+    extraChoice << static_cast<std::uint8_t>(MessageType::ChooseSwapCard) << 0 << 1;
+    check(!game_action::decode(missingChoice, 1, 2, choice, error) &&
+              !game_action::decode(extraChoice, 1, 2, choice, error),
+          "Swap decoding rejects missing indices and trailing payloads");
+    const auto& player = engine.playerState(1);
+    check(player.hand.size() == 3 && player.hand[0].title == "Keep" &&
+              player.hand[1].title == "Draw A" && player.hand[2].title == "Draw B" &&
+              player.drawPile.size() == 2 && player.drawPile.front().title == "Discard" &&
+              player.drawPile.back().title == "Bottom" && player.resources == 0 &&
+              player.discardsThisTurn == 0 && player.foresightChoices.empty() &&
+              !engine.hasPendingCardChoice(1) && engine.currentPlayer() == 1 &&
+              !engine.chooseSwapCard(1, 0) && !engine.useAbility(1, pieceId),
+          "Swap discards the selected card then draws two in order, free of resources, Foresight, and manual-discard cost");
+    check(engine.endTurn(1) && engine.endTurn(2) && engine.useAbility(1, pieceId),
+          "Swap is available again on the piece's next turn");
+    check(engine.loadScenario({{1, swapper, 3, 1, false}}, {}, {}, 0, 0, 1,
+                              "Reset", false) && !engine.hasPendingCardChoice(1),
+          "loading a new scenario clears a pending Swap");
+
+    for (int handSize : {1, MaxHandSize - 1, MaxHandSize})
+    {
+        std::vector<GameCard> hand;
+        for (int index = 0; index < handSize; ++index)
+        {
+            hand.push_back(card("Hand " + std::to_string(index)));
+        }
+        GameEngine capacity = scenario(hand, drawPile);
+        const int drawn = std::min(2, MaxHandSize - handSize + 1);
+        check(capacity.useAbility(1, pieceId) && capacity.chooseSwapCard(1, handSize - 1) &&
+                  capacity.playerState(1).hand.size() == static_cast<std::size_t>(handSize - 1 + drawn) &&
+                  capacity.playerState(1).drawPile.size() == drawPile.size() + 1 - drawn &&
+                  capacity.playerState(1).drawPile.front().title == hand.back().title,
+              "Swap respects the hand cap after discarding from hand size " + std::to_string(handSize));
+    }
+
+    GameEngine exhausted = scenario({card("Only card")}, {});
+    check(exhausted.useAbility(1, pieceId) && exhausted.chooseSwapCard(1, 0) &&
+              exhausted.playerState(1).hand.size() == 1 &&
+              exhausted.playerState(1).hand.front().title == "Only card" &&
+              exhausted.playerState(1).drawPile.empty(),
+          "Swap with an empty deck redraws only the discarded bottom card without inventing another");
+
+    GameEngine manualDiscard = scenario({card("Manual"), card("Swap")}, drawPile);
+    check(manualDiscard.discardCard(1, 0) && manualDiscard.useAbility(1, pieceId) &&
+              manualDiscard.chooseSwapCard(1, 0) && manualDiscard.playerState(1).hand.size() == 2 &&
+              manualDiscard.playerState(1).discardsThisTurn == 1,
+          "Swap still works after the manual discard allowance has been used");
+
+    GameEngine timed = scenario({card("Timed card")}, drawPile);
+    timed.enableTimers();
+    check(timed.useAbility(1, pieceId) && timed.updateTimers(GameEngine::FullTurnTimerMs) &&
+              timed.currentPlayer() == 2 && !timed.hasPendingCardChoice(1) &&
+              !timed.chooseSwapCard(1, 0) && timed.playerState(1).hand.size() == 1 &&
+              timed.playerState(1).drawPile.size() == drawPile.size(),
+          "a turn timeout cancels an unfinished Swap without discarding or drawing");
+
+    GameEngine ai = scenario({card("AI card")}, drawPile);
+    check(applyAiAction(ai, 1, {AiActionKind::UseAbility, pieceId}) &&
+              !ai.hasPendingCardChoice(1) && ai.playerState(1).hand.size() == 2,
+          "AI ability execution resolves its Swap selection without stalling");
+
+    GameCard commander = card("Commander");
+    commander.ability = "command";
+    GameEngine commanded(602, {});
+    check(commanded.loadScenario({{1, commander, 3, 1, false}, {1, swapper, 3, 2, false}},
+                                 {card("Commanded discard")}, {}, 0, 0, 1,
+                                 "Commanded Swap", false, drawPile) &&
+              commanded.useAbility(1, commanded.boardPieces()[0].id) &&
+              commanded.useAbility(1, commanded.boardPieces()[1].id) &&
+              commanded.chooseSwapCard(1, 0) && commanded.commandingPiece() == 0 &&
+              commanded.playerState(1).hand.size() == 2 && commanded.currentPlayer() == 1,
+          "Command can activate Swap and the choice resolves before continuing the turn");
+}
+
 int main(int argc, char** argv)
 {
     testShelter();
+    testSwap();
     bayou::client::ClockWarningTracker clockWarnings;
     check(!clockWarnings.observe(1, 121'000).has_value(),
           "clock warnings establish a baseline without firing");

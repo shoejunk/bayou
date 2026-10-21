@@ -7700,6 +7700,10 @@ int main(int argc, char** argv)
     };
 
     const auto pendingCardChoices = [&]() -> const std::vector<game_data::GameCard>& {
+        if (gameSnapshot.swapChoicePending)
+        {
+            return gameSnapshot.hand;
+        }
         return gameSnapshot.raiseUndeadChoices.empty()
             ? gameSnapshot.foresightChoices
             : gameSnapshot.raiseUndeadChoices;
@@ -7728,7 +7732,7 @@ int main(int argc, char** argv)
                 ForesightChoiceColumns, choices.size() - rowStart);
             const float rowWidth = static_cast<float>(rowCount) * HandCardWidth +
                 static_cast<float>(rowCount - 1) * ForesightChoiceGap;
-            const float startX = (ui_canvas::Width - rowWidth) * 0.5f;
+            const float startX = 400.0f - rowWidth * 0.5f;
             const float y = ForesightChoiceY + static_cast<float>(visibleRow) *
                 ForesightChoiceRowPitch;
             for (std::size_t column = 0; column < rowCount; ++column)
@@ -8610,6 +8614,12 @@ int main(int argc, char** argv)
         game_data::Piece* piece = pieceByIdInSnapshotMutable(next, pieceId);
         if (!piece || !game_data::pieceAbilityAvailable(next, *piece))
         {
+            return;
+        }
+        if (piece->ability == "swap")
+        {
+            next.status = "Swap requires a match draw pile. Use it in Story or a regular match.";
+            commitSandboxSnapshot(std::move(next));
             return;
         }
         const auto pendingRepeat = std::find_if(
@@ -9628,6 +9638,16 @@ int main(int argc, char** argv)
             network::MessageType::ChooseRaiseUndeadCard) << choiceIndex;
         sendGamePacket(packet);
     };
+    auto sendChooseSwapCard = [&](int handIndex) {
+        if (storyMode && storyEngine)
+        {
+            settleStoryAction(storyEngine->chooseSwapCard(1, handIndex));
+            return;
+        }
+        sf::Packet packet;
+        packet << static_cast<std::uint8_t>(network::MessageType::ChooseSwapCard) << handIndex;
+        sendGamePacket(packet);
+    };
     auto sendDrawCard = [&]() {
         if (storyMode && storyEngine)
         {
@@ -10301,7 +10321,11 @@ int main(int argc, char** argv)
         {
             if (const std::optional<std::size_t> choiceIndex = foresightChoiceAtPixel(clickPos))
             {
-                if (choosingRaiseUndead())
+                if (gameSnapshot.swapChoicePending)
+                {
+                    sendChooseSwapCard(static_cast<int>(*choiceIndex));
+                }
+                else if (choosingRaiseUndead())
                 {
                     sendChooseRaiseUndeadCard(static_cast<int>(*choiceIndex));
                 }
@@ -14456,6 +14480,32 @@ int main(int argc, char** argv)
         {
             beginStory();
         }
+        else if (screen == "game-swap")
+        {
+            seedCaptureMatch("midgame");
+            if (gameSnapshot.hand.empty())
+            {
+                failCaptureValidation("Capture setup error: Swap needs a hand card.");
+                return;
+            }
+            game_data::GameCard swapper = gameSnapshot.hand.front();
+            swapper.ability = "swap";
+            swapper.abilityLabels.clear();
+            GameEngine witness(603, {});
+            if (!witness.loadScenario({{1, swapper, 3, 1, false}},
+                                      gameSnapshot.hand, {}, 0, 0, 1,
+                                      "Swap capture", false, gameSnapshot.hand) ||
+                !witness.useAbility(1, witness.boardPieces().front().id))
+            {
+                failCaptureValidation("Capture setup error: Swap did not open a card choice.");
+                return;
+            }
+            gameSnapshot = witness.snapshotFor(1);
+            if (!gameSnapshot.swapChoicePending)
+            {
+                failCaptureValidation("Capture setup error: Swap choice is missing from the snapshot.");
+            }
+        }
         else if (screen == "game-bases")
         {
             seedCaptureMatch("bases");
@@ -15561,7 +15611,7 @@ int main(int argc, char** argv)
                         choices.size() - rowStart);
                     const float rowWidth = static_cast<float>(rowCount) * HandCardWidth +
                         static_cast<float>(rowCount - 1) * ForesightChoiceGap;
-                    const float startX = (ui_canvas::Width - rowWidth) * 0.5f;
+                    const float startX = 400.0f - rowWidth * 0.5f;
                     const float x = startX + static_cast<float>(column) *
                         (HandCardWidth + ForesightChoiceGap);
                     const float y = ForesightChoiceY +
@@ -18379,7 +18429,11 @@ int main(int argc, char** argv)
                             storyKeyboardForesightIndex <
                                 pendingCardChoices().size())
                         {
-                            if (choosingRaiseUndead())
+                            if (gameSnapshot.swapChoicePending)
+                            {
+                                sendChooseSwapCard(static_cast<int>(storyKeyboardForesightIndex));
+                            }
+                            else if (choosingRaiseUndead())
                             {
                                 sendChooseRaiseUndeadCard(static_cast<int>(
                                     storyKeyboardForesightIndex));
