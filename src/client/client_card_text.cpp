@@ -27,6 +27,10 @@ std::string actionTypeName(const game_data::ActionProfile& action)
     {
         return "Teleport";
     }
+    if (kind == game_data::ActionKind::RallyStep)
+    {
+        return "Rally Step";
+    }
     if (kind == game_data::ActionKind::Tunnel)
     {
         return "Tunnel";
@@ -48,6 +52,10 @@ std::string actionTypeName(const game_data::ActionProfile& action)
 
 std::string actionMoveIconPath(const game_data::ActionProfile& action)
 {
+    if (static_cast<game_data::ActionKind>(action.kind) == game_data::ActionKind::RallyStep)
+    {
+        return "ui/move.png";
+    }
     if (static_cast<game_data::ActionKind>(action.kind) == game_data::ActionKind::Hop)
     {
         return "ui/hopping-move.png";
@@ -68,6 +76,7 @@ std::string actionMoveTooltipTitle(const game_data::ActionProfile& action)
     {
         case game_data::ActionKind::Hop: return "Hop";
         case game_data::ActionKind::Teleport: return "Teleport";
+        case game_data::ActionKind::RallyStep: return "Rally Step";
         case game_data::ActionKind::Tunnel: return "Tunnel";
         default: return game_data::movePatternName(action.pattern);
     }
@@ -81,6 +90,8 @@ std::string actionMoveTooltipText(const game_data::ActionProfile& action)
             return "Jumps over an adjacent piece and lands two squares away.";
         case game_data::ActionKind::Teleport:
             return "Moves directly to any empty square.";
+        case game_data::ActionKind::RallyStep:
+            return "Teleports to an empty square within the listed minimum and maximum range, adjacent to another friendly unit. Diagonals count.";
         case game_data::ActionKind::Tunnel:
             return "Moves directly from one hole to another.";
         default: break;
@@ -384,6 +395,11 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
         if (!card.keywords.empty())
         {
             details.push_back({"Keywords: " + joinStrings(card.keywords, ", "),
+                               sf::Color(146, 206, 226)});
+        }
+        if (game_data::hasKeyword(card.keywords, "swarm"))
+        {
+            details.push_back({"Swarm: +1 Power for each adjacent unit with the same name, on either side. Diagonals count; each large unit counts once. The bonus lasts only while adjacent.",
                                sf::Color(146, 206, 226)});
         }
         details.push_back({"Health: " + std::to_string(gameCard.health), sf::Color(224, 210, 176)});

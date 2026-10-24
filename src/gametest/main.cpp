@@ -32,6 +32,7 @@
 #include "../gameserver/ai_player.hpp"
 #include "../client/client_clock_warning.hpp"
 #include "../client/client_sandbox.hpp"
+#include "swarm_tests.hpp"
 
 #include "../shared/network.hpp"
 
@@ -1164,6 +1165,111 @@ void testLifedrain()
           "Lifedrain works on lethal movement attacks before casualty removal");
 }
 
+void testRallyStep()
+{
+    card_data::Card card;
+    card.title = "Rally Step Test";
+    card.type = "Unit";
+    card_data::Action definition;
+    definition.kind = "rally step";
+    definition.pattern = "jump"; // Rally Step ignores slide/jump geometry.
+    definition.minRange = 2;
+    definition.maxRange = 4;
+    definition.canMove = true;
+    definition.canAttack = true; // It must still never capture an occupied square.
+    definition.damage = 3;
+    card.actions = {definition};
+    const GameCard rallyCard = toGameCard(card);
+    check(rallyCard.actions[0].kind == static_cast<std::uint8_t>(ActionKind::RallyStep),
+          "rally step card kind converts to its distinct action profile");
+    sf::Packet packet;
+    writeGameCard(packet, rallyCard);
+    GameCard received;
+    check(readGameCard(packet, received) && received.actions[0].kind == rallyCard.actions[0].kind &&
+              received.actions[0].minRange == 2 && received.actions[0].maxRange == 4,
+          "rally step kind and range survive network serialization");
+
+    Piece mover;
+    mover.id = 101;
+    mover.owner = 1;
+    mover.row = 3;
+    mover.column = 1;
+    mover.actions = rallyCard.actions;
+    Piece ally;
+    ally.id = 102;
+    ally.owner = 1;
+    ally.row = 3;
+    ally.column = 4;
+    const std::array<std::uint8_t, BoardSquares> holes{};
+    const auto resolve = [&](const std::vector<Piece>& board, int row, int column) {
+        return resolvePieceAction(board, holes, board[0], row, column);
+    };
+    std::vector<Piece> board{mover, ally};
+    const ActionResolution minimum = resolve(board, 3, 3);
+    check(minimum.legal && minimum.moves && !minimum.attacks && minimum.targetIds.empty(),
+          "rally step reaches an empty square at minimum range next to an ally without attacking");
+    check(resolve(board, 3, 5).legal && resolve(board, 2, 5).legal,
+          "rally step includes maximum range and diagonal adjacency while ignoring pattern geometry");
+    check(!resolve(board, 0, 5).legal,
+          "rally step rejects in-range destinations with no adjacent ally");
+    board[1].column = 3;
+    check(!resolve(board, 3, 2).legal, "rally step rejects destinations below minimum range");
+    board[1].column = 7;
+    check(!resolve(board, 3, 6).legal, "rally step rejects destinations above maximum range");
+    board[1] = ally;
+    check(!resolve(board, 3, 4).legal, "rally step rejects a friendly occupied destination");
+    board[1].owner = 2;
+    check(!resolve(board, 3, 3).legal && !resolve(board, 3, 4).legal,
+          "rally step cannot rally to an enemy or capture it");
+    board[1] = ally;
+    board[1].health = 0;
+    check(!resolve(board, 3, 3).legal, "rally step requires a living friendly neighbor");
+    board[1] = ally;
+    board[0].actions[0].minRange = 0;
+    check(!resolve(board, 3, 1).legal, "rally step cannot remain on its starting square");
+    check(!resolve({board[0]}, 3, 2).legal, "rally step cannot use itself as the friendly neighbor");
+    board[0] = mover;
+    board[0].actions[0].canMove = false;
+    check(!resolve(board, 3, 3).legal, "rally step requires Can move");
+    board[0] = mover;
+    Piece blocker = ally;
+    blocker.id = 103;
+    blocker.owner = 2;
+    blocker.column = 2;
+    board.push_back(blocker);
+    check(resolve(board, 3, 3).legal, "rally step teleports over intervening enemy pieces");
+    board[2].column = 3;
+    check(!resolve(board, 3, 3).legal, "rally step cannot land on an enemy beside an ally");
+    board.pop_back();
+    board[1].width = 2;
+    board[1].height = 2;
+    check(resolve(board, 5, 5).legal, "rally step recognizes the full friendly footprint");
+    board[1] = ally;
+    board[1].column = 6;
+    board[0].width = 2;
+    board[0].height = 2;
+    check(resolve(board, 3, 4).legal, "large rally step movers use their landing footprint for adjacency");
+    board[1].column = 5;
+    check(!resolve(board, 3, 4).legal, "rally step requires the entire landing footprint to be empty");
+    board[1].row = 6;
+    board[1].column = 2;
+    check(!resolve(board, 7, 1).legal, "rally step rejects footprints extending off the board");
+
+    GameCard anchor;
+    anchor.title = "Rally Anchor";
+    anchor.type = "Unit";
+    GameEngine engine(80, {});
+    check(engine.loadScenario({{1, rallyCard, 3, 1, false}, {1, anchor, 3, 4, false}},
+                              {}, {}, 0, 0, 1, "Rally Step", false),
+          "rally step authoritative scenario loads");
+    const int moverId = engine.boardPieces().front().id;
+    check(!engine.movePiece(1, moverId, 0, 5) && engine.movePiece(1, moverId, 3, 5),
+          "authoritative movement rejects an unsupported rally destination and accepts a legal one");
+    const Piece* moved = findPieceAt(engine.boardPieces(), 3, 5);
+    check(moved && moved->id == moverId && moved->hasActed,
+          "rally step moves the unit and consumes its normal action");
+}
+
 int main(int argc, char** argv)
 {
 #if defined(_MSC_VER) && defined(_DEBUG)
@@ -1172,6 +1278,8 @@ int main(int argc, char** argv)
     _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
 #endif
+    testSwarm(check);
+    testRallyStep();
     testLifedrain();
     testEvacuate();
     testShelter();

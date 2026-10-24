@@ -275,6 +275,12 @@
                                              const std::vector<std::string>& keywords,
                                              const std::string& summonTitle) {
         const sf::Color keywordColor(146, 206, 226);
+        if (game_data::hasKeyword(keywords, "swarm"))
+        {
+            descriptions.push_back({
+                "Swarm: +1 Power for each adjacent unit with the same name, on either side. Diagonals count; each large unit counts once. The bonus lasts only while adjacent.",
+                keywordColor});
+        }
         if (game_data::hasKeyword(keywords, "relentless"))
         {
             descriptions.push_back({
@@ -528,9 +534,11 @@
 
     auto piecePopupActionDescriptions = [&](const game_data::Piece& piece) {
         DetailRows descriptions;
-        if (piece.power > 0)
+        const int power = sandboxMode
+            ? game_data::effectivePiecePower(gameSnapshot.pieces, piece) : piece.power;
+        if (power > 0)
         {
-            descriptions.push_back({"Power: +" + std::to_string(piece.power) +
+            descriptions.push_back({"Power: +" + std::to_string(power) +
                 " to damage dealt (attacks, Counterstrike, and push collisions)",
                 sf::Color(248, 214, 112)});
         }
@@ -571,7 +579,7 @@
             piece.actionState, piece.abilityUses, true);
         appendKeywordRuleDescriptions(descriptions, piece.keywords, piece.summonTitle);
         appendPassiveRuleDescriptions(
-            descriptions, piece.tax, piece.gatherResources, piece.healingAura, game_data::damageWithPower(piece.counterstrike, piece.power),
+            descriptions, piece.tax, piece.gatherResources, piece.healingAura, game_data::damageWithPower(piece.counterstrike, power),
             piece.canControl, piece.growTurnsRemaining, piece.rebirthTitle);
         for (const game_data::Enchantment& enchantment : gameSnapshot.enchantments)
         {
@@ -655,7 +663,7 @@
                             : sf::Color(242, 126, 112)});
             }
             game_data::ActionProfile poweredAction = action;
-            poweredAction.damage = game_data::damageWithPower(action.damage, piece.power);
+            poweredAction.damage = game_data::damageWithPower(action.damage, power);
             descriptions.push_back(actionDetailRow(
                 poweredAction,
                 i,
@@ -1105,7 +1113,8 @@
             if (piece->attack > 0)
             {
                 stats.push_back({"ATTACK", std::to_string(
-                    game_data::damageWithPower(piece->attack, piece->power)), sf::Color(226, 132, 108)});
+                    game_data::damageWithPower(piece->attack, sandboxMode
+                        ? game_data::effectivePiecePower(gameSnapshot.pieces, *piece) : piece->power)), sf::Color(226, 132, 108)});
             }
             if (piece->tax > 0)
             {

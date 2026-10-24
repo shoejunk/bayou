@@ -8294,7 +8294,7 @@ int main(int argc, char** argv)
                 }
             }
         };
-        const int attackerPower = piece->power;
+        const int attackerPower = game_data::effectivePiecePower(next.pieces, *piece);
         const int attackDamage = game_data::damageWithPower(
             action.damage + game_data::pieceEnchantmentDamageBonus(next.enchantments, attackerId), attackerPower);
         const std::string infestationTitle = action.actionIndex >= 0 &&

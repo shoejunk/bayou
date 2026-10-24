@@ -338,6 +338,8 @@ int actionSquareReach(const ActionProfile& action)
             return BoardSize;
         case ActionKind::Hop:
             return 2;
+        case ActionKind::RallyStep:
+            return std::max(1, action.maxRange);
         default:
             break;
     }
@@ -376,7 +378,7 @@ int pieceBestDamage(const Piece& piece)
     return damage;
 }
 
-int pieceActionPower(const Piece& piece)
+int pieceActionPower(const Piece& piece, int effectivePower)
 {
     int best = 0;
     for (const ActionProfile& action : piece.actions)
@@ -385,7 +387,7 @@ int pieceActionPower(const Piece& piece)
         {
             continue;
         }
-        int power = damageWithPower(action.damage, piece.power) * ActionDamageValue + action.heal * ActionHealValue +
+        int power = damageWithPower(action.damage, effectivePower) * ActionDamageValue + action.heal * ActionHealValue +
             action.statusTurns * ActionStatusValue + action.control * ActionControlValue +
             action.push * ActionPushValue + (action.pull ? ActionPullValue : 0);
         if (action.canMove)
@@ -397,10 +399,10 @@ int pieceActionPower(const Piece& piece)
     return best;
 }
 
-int pieceWorth(const Piece& piece)
+int pieceWorth(const std::vector<Piece>& pieces, const Piece& piece)
 {
     const int healthValue = piece.isHero ? HeroHealthValue : UnitHealthValue;
-    int worth = std::max(0, piece.health) * healthValue + pieceActionPower(piece);
+    int worth = std::max(0, piece.health) * healthValue + pieceActionPower(piece, effectivePiecePower(pieces, piece));
     if (piece.isHero)
     {
         worth += HeroAliveValue;
@@ -493,7 +495,7 @@ int quickEvaluate(const GameEngine& engine, const AiContext& context)
     int score = 0;
     for (const Piece& piece : engine.boardPieces())
     {
-        const int worth = pieceWorth(piece) + piecePlacementValue(piece);
+        const int worth = pieceWorth(engine.boardPieces(), piece) + piecePlacementValue(piece);
         int appraisalOwner = piece.owner;
         if (context.hasObjective &&
             context.objective.kind == GameEngine::ScenarioObjectiveKind::DefeatOriginalOwner &&
@@ -605,7 +607,7 @@ std::vector<int> incomingDamage(const GameEngine& engine)
             {
                 continue;
             }
-            incoming[index] = std::max(incoming[index], damageWithPower(resolution.damage + bonus, attacker.power));
+            incoming[index] = std::max(incoming[index], damageWithPower(resolution.damage + bonus, effectivePiecePower(pieces, attacker)));
         }
     }
     return incoming;
@@ -661,7 +663,7 @@ int evaluate(const GameEngine& engine, const AiContext& context)
         }
         const bool lethal = damage >= piece.health;
         int risk = lethal
-            ? pieceWorth(piece)
+            ? pieceWorth(pieces, piece)
             : damage * (piece.isHero ? HeroHealthValue : UnitHealthValue);
         if (lethal && piece.isHero &&
             heroCount[static_cast<std::size_t>(pieceOriginalOwner(piece) - 1)] <= 1)
@@ -1008,7 +1010,7 @@ std::vector<AiCandidate> generateCandidates(
                     if (resolution.attacks)
                     {
                         const int damage = damageWithPower(resolution.damage +
-                            pieceEnchantmentDamageBonus(engine.boardEnchantments(), piece.id), piece.power);
+                            pieceEnchantmentDamageBonus(engine.boardEnchantments(), piece.id), effectivePiecePower(engine.boardPieces(), piece));
                         order = 200 + damage * 12 + resolution.heal * 8 +
                             resolution.statusTurns * 10 + resolution.control * 30 +
                             resolution.push * 6 + (resolution.pull ? 12 : 0);

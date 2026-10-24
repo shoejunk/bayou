@@ -1349,6 +1349,10 @@ public:
             if (!concealedOpponentPlacement && (!piece.hidden || piece.owner == playerNumber))
             {
                 snapshot.pieces.push_back(piece);
+                // Snapshots expose total Power for display, including neighbors
+                // concealed from this viewer. The authoritative piece keeps its
+                // permanent Power so movement/death cannot accumulate Swarm.
+                snapshot.pieces.back().power = effectivePiecePower(pieces, piece);
             }
         }
         for (const Enchantment& enchantment : enchantments)
@@ -1993,7 +1997,7 @@ private:
                 }
             }
         };
-        const int attackerPower = piece->power;
+        const int attackerPower = effectivePiecePower(pieces, *piece);
         const int attackDamage = damageWithPower(
             action.damage + pieceEnchantmentDamageBonus(enchantments, attackerId), attackerPower);
         const std::string infestationTitle = action.actionIndex >= 0 &&

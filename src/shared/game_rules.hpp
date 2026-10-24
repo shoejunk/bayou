@@ -550,6 +550,19 @@ inline bool rangedActionReachesTarget(
     return false;
 }
 
+inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
+{
+    const int rowGap = std::max(
+        0,
+        std::max(second.row - (first.row + first.height - 1),
+                 first.row - (second.row + second.height - 1)));
+    const int columnGap = std::max(
+        0,
+        std::max(second.column - (first.column + first.width - 1),
+                 first.column - (second.column + second.width - 1)));
+    return std::max(rowGap, columnGap) == 1;
+}
+
 inline ActionResolution resolvePieceAction(
     const std::vector<Piece>& pieces,
     const std::array<std::uint8_t, BoardSquares>& holes,
@@ -607,6 +620,25 @@ inline ActionResolution resolvePieceAction(
             {
                 candidate.legal = true;
                 candidate.moves = true;
+            }
+        }
+        else if (kind == ActionKind::RallyStep)
+        {
+            const int distance = chebyshev(piece.row, piece.column, toRow, toColumn);
+            if (action.canMove && distance > 0 &&
+                distance >= action.minRange && distance <= action.maxRange &&
+                pieceFootprintFree(pieces, piece, toRow, toColumn))
+            {
+                Piece landing;
+                landing.row = toRow;
+                landing.column = toColumn;
+                landing.width = piece.width;
+                landing.height = piece.height;
+                candidate.legal = std::any_of(pieces.begin(), pieces.end(), [&](const Piece& ally) {
+                    return ally.id != piece.id && ally.owner == piece.owner &&
+                        ally.health > 0 && piecesAreAdjacent(landing, ally);
+                });
+                candidate.moves = candidate.legal;
             }
         }
         else if (kind == ActionKind::Tunnel)
@@ -1145,17 +1177,21 @@ inline bool pieceHasTrailAbility(const Piece& piece)
     return hasKeyword(piece.keywords, "trail") && !piece.summonTitle.empty();
 }
 
-inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
+// Swarm is derived from the current board, never stored as a permanent boost.
+// Either owner's same-name neighbors count once each, including large pieces.
+inline int pieceSwarmPower(const std::vector<Piece>& pieces, const Piece& piece)
 {
-    const int rowGap = std::max(
-        0,
-        std::max(second.row - (first.row + first.height - 1),
-                 first.row - (second.row + second.height - 1)));
-    const int columnGap = std::max(
-        0,
-        std::max(second.column - (first.column + first.width - 1),
-                 first.column - (second.column + second.width - 1)));
-    return std::max(rowGap, columnGap) == 1;
+    if (!hasKeyword(piece.keywords, "swarm")) return 0;
+    return static_cast<int>(std::count_if(pieces.begin(), pieces.end(), [&](const Piece& neighbor) {
+        return neighbor.id != piece.id && neighbor.health > 0 &&
+            neighbor.name == piece.name && piecesAreAdjacent(piece, neighbor);
+    }));
+}
+
+inline int effectivePiecePower(const std::vector<Piece>& pieces, const Piece& piece)
+{
+    return static_cast<int>(std::min<std::int64_t>(std::numeric_limits<int>::max(),
+        static_cast<std::int64_t>(std::max(0, piece.power)) + pieceSwarmPower(pieces, piece)));
 }
 
 inline bool pieceCanReceivePowerBoost(const Piece& source, const Piece& target)
@@ -1621,7 +1657,7 @@ inline PieceAttackDamageResolution resolvePieceAttackDamage(
         attacker->row = stagingRow;
         attacker->column = stagingColumn;
         result.counterstrike = applyDamageWithBodyguards(
-            pieces, attackerId, damageWithPower(defender->counterstrike, defender->power), 0, randomEngine);
+            pieces, attackerId, damageWithPower(defender->counterstrike, effectivePiecePower(pieces, *defender)), 0, randomEngine);
         attacker->row = originRow;
         attacker->column = originColumn;
     }

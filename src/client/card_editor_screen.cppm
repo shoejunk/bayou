@@ -83,8 +83,8 @@ constexpr float InfestFieldTop = 636.0f;
 
 constexpr std::array<const char*, 6> CardRarityOptions = {
     "common", "uncommon", "rare", "legendary", "token", "starter"};
-constexpr std::array<const char*, 6> ActionKindOptions = {
-    "slide", "ranged", "hop", "teleport", "tunnel", "capture"};
+constexpr std::array<const char*, 7> ActionKindOptions = {
+    "slide", "ranged", "hop", "teleport", "tunnel", "capture", "rally step"};
 
 const sf::Color Ink(232, 240, 244);
 const sf::Color Muted(166, 183, 191);
@@ -4438,7 +4438,8 @@ private:
         y = drawInstructionParagraph(window, "Create reusable actions in the Actions tab, then add them in the card's Actions section. Card name is flavor text shown for that card; Reusable action chooses the shared logic. Click or focus the reusable-action field to open the list; typing filters it. The chain-link button opens that action in the Actions tab.", y, Muted);
         y += 5.0f;
         y = drawInstructionBullet(window, "Pattern ortho, diag, omni, horizontal, or vertical moves along that board geometry up to the action's maximum range.", y);
-        y = drawInstructionBullet(window, "Pattern jump uses the fixed knight-style L shape. Pattern none is used for ranged, teleport, and tunnel actions that do not need slide geometry.", y);
+        y = drawInstructionBullet(window, "Pattern jump uses the fixed knight-style L shape. Pattern none is used for ranged, teleport, rally step, and tunnel actions that do not need slide geometry.", y);
+        y = drawInstructionBullet(window, "Rally Step: enable Can move and choose kind rally step to teleport to an empty destination within Minimum and Maximum range, next to another friendly unit. Diagonals and large footprints count for adjacency. Intervening pieces and Pattern do not restrict this movement; it cannot attack.", y);
         y = drawInstructionBullet(window, "Can move lets the action target an empty destination. With Can attack enabled, positive Damage targets and hurts enemies, while positive Heal targets and restores friendlies up to maximum health. Damage and Heal must not be negative.", y);
         y = drawInstructionBullet(window, "Target filter entries restrict attacks, healing, and status effects. A target must match every listed string across its Traits and Keywords; an empty filter accepts any otherwise-valid target. The legacy schema-11 value construct means Mechanical and is shown to players as Mechanical.", y);
         y = drawInstructionBullet(window, "Push moves each surviving enemy target up to that many squares directly away from the attack's staging square. Blocked push distance becomes 1 extra damage per prevented square.", y);
@@ -4465,6 +4466,7 @@ private:
         y = drawInstructionBullet(window, "ability: transform, dematerialize, dig, summon, command, raise undead, Swap, or Power Boost. Transform-style abilities switch action states; dig creates a tunnel hole; summon creates the unit named by the summon string field in the space in front; command lets one ready adjacent friendly piece take any normal action without ending the turn; raise undead chooses an Undead Unit from the graveyard for a free 1-Health card that is exiled on its next death.", y);
         y = drawInstructionBullet(window, "Swap requires a card in hand. Choose a hand card to discard to the bottom of the deck, then draw up to 2 cards, limited by hand space. This does not spend Resources or the normal discard allowance.", y);
         y = drawInstructionBullet(window, "Power Boost: gives every other adjacent friendly unit +1 Power, including diagonals and large footprints. Power stacks and remains on the unit while in play. Power adds to damage from attacks, Counterstrike, and push collisions, but not healing. Set the power (or Power) Integer Field on a Unit or Hero for starting Power. Also supported by Sacrifice; the boost happens before the source dies.", y);
+        y = drawInstructionBullet(window, "Swarm: add swarm to Keywords for +1 Power per adjacent living unit with exactly the same name, regardless of owner. Diagonals and large footprints count; each neighbor counts once and need not have Swarm. This bonus updates as units move or die and stacks with permanent Power.", y);
         y = drawInstructionBullet(window, "Sacrifice: accepts every ability value and creates a separate button. Uses the same abilityUses, abilityLabels, summon and action-state fields. After the effect (including a card choice or commanded action) resolves, the unit is killed using normal death rules. An invalid use does not sacrifice it.", y);
         y = drawInstructionBullet(window, "summon: exact Unit card title created by the active summon ability or passive Trail keyword. Player 1's active summon goes to the right and Player 2's to the left; Trail summons into the moving piece's former position. Summoned units cannot act until their owner's next turn.", y);
         y = drawInstructionBullet(window, "Shelter: friendly pieces on the squares immediately behind this piece cannot be attacked by enemy pieces. Behind points toward the owner's home edge, covers only the adjacent column, and spans the full rear edge of a multi-square piece. Spells and friendly healing are unaffected.", y);
