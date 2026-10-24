@@ -7363,6 +7363,11 @@ int main(int argc, char** argv)
                     std::to_string(action.push) +
                     " square(s) directly away from the attack's staging square. Every square blocked by a piece or board edge becomes 1 collision damage."});
         }
+        if (action.lifedrain)
+        {
+            badges.push_back({"Lifedrain", "Lifedrain",
+                "Heals this unit for damage this action deals, up to its maximum health. Includes Power, redirected damage, overkill, and push collisions. Attack healing happens before Counterstrike; defeated units cannot heal."});
+        }
         if (action.pull)
         {
             badges.push_back({
@@ -8330,7 +8335,8 @@ int main(int argc, char** argv)
                             action.statusTurns,
                             action.stagingRow,
                             action.stagingColumn,
-                            sandboxDamageRandomEngine);
+                            sandboxDamageRandomEngine,
+                            action.lifedrain);
                     const game_data::DamageResolution& damageResolution = attackResolution.attack;
                     counterstrikeDamage.insert(counterstrikeDamage.end(),
                         attackResolution.counterstrike.begin(), attackResolution.counterstrike.end());
@@ -8371,6 +8377,10 @@ int main(int argc, char** argv)
                         action.stagingColumn,
                         action.push,
                         attackerPower);
+                    if (action.lifedrain)
+                    {
+                        game_data::applyActionLifedrain(next.pieces, attackerId, pushResult.collisionDamage);
+                    }
                     pushedSquares += pushResult.movedSquares;
                     pushCollisionDamage += pushResult.collisionDamage;
                     rememberRevealedPieces(pushResult.revealedPieceIds);
@@ -10692,6 +10702,7 @@ int main(int argc, char** argv)
             appendAmount("COOLDOWN", description.cooldown);
             appendAmount("CONTROL", description.control);
             if (description.pull) summary += "  PULL";
+            if (description.lifedrain) summary += "  LIFEDRAIN";
             if (description.push > 0)
                 summary += "  PUSH " + std::to_string(description.push);
             if (!description.infest.empty())

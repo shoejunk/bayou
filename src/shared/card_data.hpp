@@ -12,7 +12,7 @@ namespace card_data
 // crafted packet cannot trigger a huge allocation.
 constexpr std::uint32_t MaxSerializedItems = 4096;
 constexpr std::uint32_t CardListSchemaMarker = 0xffffffffu;
-constexpr std::uint32_t CardListSchemaVersion = 11;
+constexpr std::uint32_t CardListSchemaVersion = 12;
 constexpr int DefaultNextState = (-2147483647 - 1);
 
 struct KeyIntPair
@@ -56,6 +56,7 @@ struct Action
     std::string infest;
     int nextState = DefaultNextState;
     bool pull = false;
+    bool lifedrain = false;
 };
 
 inline int actionNextState(const Action& action)
@@ -119,7 +120,7 @@ inline void writeAction(sf::Packet& packet, const Action& action)
            << action.canMove << action.canAttack << action.passThrough << action.lineOfSight
            << action.statusTurns << action.cooldownTurns << action.push << action.control << action.repeat;
     writeStringVector(packet, action.targetFilter);
-    packet << action.infest << action.pull;
+    packet << action.infest << action.pull << action.lifedrain;
 }
 
 inline bool readAction(
@@ -132,7 +133,8 @@ inline bool readAction(
     bool includesControl = true,
     bool includesRepeat = true,
     bool includesInfest = true,
-    bool includesPull = true)
+    bool includesPull = true,
+    bool includesLifedrain = true)
 {
     packet >> action.name >> action.state;
     if (includesNextState)
@@ -207,6 +209,11 @@ inline bool readAction(
     {
         action.pull = false;
     }
+    action.lifedrain = false;
+    if (includesLifedrain)
+    {
+        packet >> action.lifedrain;
+    }
     return static_cast<bool>(packet);
 }
 
@@ -223,7 +230,8 @@ inline bool readCardListHeader(
     bool* actionIncludesControl = nullptr,
     bool* actionIncludesRepeat = nullptr,
     bool* actionIncludesInfest = nullptr,
-    bool* actionIncludesPull = nullptr)
+    bool* actionIncludesPull = nullptr,
+    bool* actionIncludesLifedrain = nullptr)
 {
     std::uint32_t markerOrCount = 0;
     packet >> markerOrCount;
@@ -257,8 +265,12 @@ inline bool readCardListHeader(
         {
             *actionIncludesPull = version >= 11;
         }
+        if (actionIncludesLifedrain != nullptr)
+        {
+            *actionIncludesLifedrain = version >= 12;
+        }
         return static_cast<bool>(packet) &&
-            (version == 6 || version == 7 || version == 8 || version == 9 || version == 10 ||
+            (version == 6 || version == 7 || version == 8 || version == 9 || version == 10 || version == 11 ||
              version == CardListSchemaVersion) &&
             count <= MaxSerializedItems;
     }
@@ -284,6 +296,10 @@ inline bool readCardListHeader(
     if (actionIncludesPull != nullptr)
     {
         *actionIncludesPull = false;
+    }
+    if (actionIncludesLifedrain != nullptr)
+    {
+        *actionIncludesLifedrain = false;
     }
     return count <= MaxSerializedItems;
 }
@@ -336,7 +352,8 @@ inline bool readCardRemaining(
     bool actionIncludesControl = true,
     bool actionIncludesRepeat = true,
     bool actionIncludesInfest = true,
-    bool actionIncludesPull = true)
+    bool actionIncludesPull = true,
+    bool actionIncludesLifedrain = true)
 {
     std::uint32_t integerCount = 0;
     packet >> integerCount;
@@ -432,7 +449,8 @@ inline bool readCardRemaining(
                 actionIncludesControl,
                 actionIncludesRepeat,
                 actionIncludesInfest,
-                actionIncludesPull))
+                actionIncludesPull,
+                actionIncludesLifedrain))
         {
             return false;
         }
@@ -449,7 +467,8 @@ inline bool readCard(
     bool actionIncludesControl = true,
     bool actionIncludesRepeat = true,
     bool actionIncludesInfest = true,
-    bool actionIncludesPull = true)
+    bool actionIncludesPull = true,
+    bool actionIncludesLifedrain = true)
 {
     packet >> card.title >> card.type >> card.imagePath;
     if (!packet || !readStringVector(packet, card.traits) || !readStringVector(packet, card.keywords))
@@ -467,7 +486,8 @@ inline bool readCard(
         actionIncludesControl,
         actionIncludesRepeat,
         actionIncludesInfest,
-        actionIncludesPull);
+        actionIncludesPull,
+        actionIncludesLifedrain);
 }
 
 inline bool readLegacyCard(sf::Packet& packet, Card& card)
@@ -478,7 +498,7 @@ inline bool readLegacyCard(sf::Packet& packet, Card& card)
         return false;
     }
     card.keywords.clear();
-    return readCardRemaining(packet, card, false, false, false, false, false, false, false, false, false);
+    return readCardRemaining(packet, card, false, false, false, false, false, false, false, false, false, false);
 }
 
 inline bool readListedCard(
@@ -489,7 +509,8 @@ inline bool readListedCard(
     bool actionIncludesControl = true,
     bool actionIncludesRepeat = true,
     bool actionIncludesInfest = true,
-    bool actionIncludesPull = true)
+    bool actionIncludesPull = true,
+    bool actionIncludesLifedrain = true)
 {
     return legacyFormat
         ? readLegacyCard(packet, card)
@@ -500,6 +521,7 @@ inline bool readListedCard(
             actionIncludesControl,
             actionIncludesRepeat,
             actionIncludesInfest,
-            actionIncludesPull);
+            actionIncludesPull,
+            actionIncludesLifedrain);
 }
 }

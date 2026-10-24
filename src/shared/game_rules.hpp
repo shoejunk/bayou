@@ -298,6 +298,7 @@ struct ActionResolution
     int control = 0;
     int push = 0;
     bool pull = false;
+    bool lifedrain = false;
     int repeat = 0;
     int stagingRow = 0;
     int stagingColumn = 0;
@@ -595,6 +596,7 @@ inline ActionResolution resolvePieceAction(
         candidate.control = action.control;
         candidate.push = action.push;
         candidate.pull = action.pull && kind == ActionKind::Ranged;
+        candidate.lifedrain = action.lifedrain;
         candidate.repeat = action.repeat;
         candidate.stagingRow = piece.row;
         candidate.stagingColumn = piece.column;
@@ -1547,6 +1549,18 @@ inline std::vector<DamageAssignment> applyDamageWithBodyguards(
         .assignments;
 }
 
+// Damage includes overkill, matching applyActionDamage. Never revive a casualty.
+inline void applyActionLifedrain(std::vector<Piece>& pieces, int attackerId, int damage)
+{
+    const auto attacker = std::find_if(pieces.begin(), pieces.end(),
+        [attackerId](const Piece& piece) { return piece.id == attackerId; });
+    if (attacker != pieces.end() && attacker->health > 0 && damage > 0)
+    {
+        applyActionHealing(*attacker, std::min(damage,
+            std::max(0, attacker->maxHealth - attacker->health)), 0);
+    }
+}
+
 struct PieceAttackDamageResolution
 {
     DamageResolution attack;
@@ -1565,11 +1579,21 @@ inline PieceAttackDamageResolution resolvePieceAttackDamage(
     int statusTurns,
     int stagingRow,
     int stagingColumn,
-    RandomEngine& randomEngine)
+    RandomEngine& randomEngine,
+    bool lifedrain = false)
 {
     PieceAttackDamageResolution result;
     result.attack = resolveDamageWithBodyguardsAndIntercepts(
         pieces, targetId, damage, statusTurns, randomEngine, true);
+    // Heal from each actual damage assignment before Counterstrike, including
+    // redirected damage. Retaliation itself never grants Lifedrain healing.
+    if (lifedrain)
+    {
+        for (const DamageAssignment& assignment : result.attack.assignments)
+        {
+            applyActionLifedrain(pieces, attackerId, assignment.damage);
+        }
+    }
     const auto attacker = std::find_if(pieces.begin(), pieces.end(),
         [attackerId](const Piece& piece) { return piece.id == attackerId; });
     const auto defender = std::find_if(pieces.begin(), pieces.end(),

@@ -1053,6 +1053,117 @@ void testSwap()
           "Command can activate Swap and the choice resolves before continuing the turn");
 }
 
+void testLifedrain()
+{
+    Piece source;
+    source.id = 1;
+    source.owner = 1;
+    source.row = 3;
+    source.column = 2;
+    source.health = 2;
+    source.maxHealth = 10;
+    Piece target = source;
+    target.id = 2;
+    target.owner = 2;
+    target.column = 3;
+    target.health = 10;
+    std::mt19937 rng(99);
+    const auto strike = [&](std::vector<Piece>& board, int damage, bool enabled = true) {
+        return resolvePieceAttackDamage(board, 1, 2, damage, 0, 3, 2, rng, enabled);
+    };
+    std::vector<Piece> board = {source, target};
+    strike(board, 3, false);
+    check(board[0].health == 2 && board[1].health == 7,
+          "unflagged attacks do not grant Lifedrain");
+    board = {source, target};
+    strike(board, 3);
+    check(board[0].health == 5 && board[1].health == 7 && board[0].disabledTurns == 0,
+          "Lifedrain heals the acting unit for damage dealt without disabling it");
+    board = {source, target};
+    strike(board, 0);
+    check(board[0].health == 2, "zero damage grants no Lifedrain healing");
+    board = {source, target};
+    board[1].health = 1;
+    strike(board, 5);
+    check(board[0].health == 7 && board[1].health == -4,
+          "Lifedrain counts overkill as damage dealt");
+    board = {source, target};
+    strike(board, 20);
+    check(board[0].health == 10, "Lifedrain cannot exceed maximum health");
+    board = {source, target};
+    board[1].counterstrike = 4;
+    strike(board, 3);
+    check(board[0].health == 1 && board[1].health == 7,
+          "Lifedrain heals before Counterstrike, without healing retaliation damage");
+    board = {source, target};
+    board[1].counterstrike = 6;
+    strike(board, 3);
+    applyActionLifedrain(board, 1, 10);
+    check(board[0].health == -1, "Lifedrain cannot revive a Counterstrike casualty");
+    Piece guard = target;
+    guard.id = 3;
+    guard.row = 2;
+    guard.keywords = {"Bodyguard"};
+    Piece secondGuard = guard;
+    secondGuard.id = 4;
+    secondGuard.row = 4;
+    board = {source, target, guard, secondGuard};
+    strike(board, 5);
+    check(board[0].health == 7 && board[1].health == 10 &&
+              board[2].health + board[3].health == 15,
+          "Lifedrain sums split Bodyguard damage exactly once");
+    guard.keywords = {"Intercept"};
+    board = {source, target, guard};
+    const auto intercepted = strike(board, 3);
+    check(intercepted.attack.intercepted && board[0].health == 5 &&
+              board[1].health == 10 && board[2].health == 7,
+          "Lifedrain heals from damage to an Interceptor");
+
+    GameCard attacker;
+    attacker.title = "Lifedrain Attacker";
+    attacker.type = "Unit";
+    attacker.health = 10;
+    attacker.power = 2;
+    ActionProfile action;
+    action.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
+    action.canMove = false;
+    action.canAttack = true;
+    action.maxRange = 7;
+    action.damage = 3;
+    action.lifedrain = true;
+    attacker.actions = {action};
+    GameCard defender;
+    defender.title = "Lifedrain Target";
+    defender.type = "Unit";
+    defender.health = 20;
+    for (bool push : {false, true})
+    {
+        attacker.actions[0].push = push ? 2 : 0;
+        GameEngine engine(79, {});
+        check(engine.loadScenario(
+                  {{1, attacker, 3, 0, false, 1}, {2, defender, 3, 7, false}},
+                  {}, {}, 0, 0, 1, "Lifedrain", false),
+              "Lifedrain authoritative scenario loads");
+        check(engine.attackPiece(1, engine.boardPieces().front().id, 3, 7) &&
+                  engine.boardPieces()[0].health == (push ? 10 : 6) &&
+                  engine.boardPieces()[1].health == (push ? 11 : 15),
+              push ? "Lifedrain includes powered push collision damage"
+                   : "Lifedrain includes powered attack damage in the authoritative engine");
+    }
+    attacker.power = 0;
+    attacker.actions[0].push = 0;
+    attacker.actions[0].kind = static_cast<std::uint8_t>(ActionKind::Capture);
+    attacker.actions[0].canMove = true;
+    attacker.actions[0].damage = 30;
+    GameEngine capture(81, {});
+    capture.loadScenario({{1, attacker, 3, 0, false, 1}, {2, defender, 3, 3, false}},
+        {}, {}, 0, 0, 1, "Lifedrain capture", false);
+    check(capture.attackPiece(1, capture.boardPieces().front().id, 3, 3) &&
+              capture.boardPieces().size() == 1 && capture.boardPieces()[0].health == 10 &&
+              capture.boardPieces()[0].column == 3,
+          "Lifedrain works on lethal movement attacks before casualty removal");
+}
+
 int main(int argc, char** argv)
 {
 #if defined(_MSC_VER) && defined(_DEBUG)
@@ -1061,6 +1172,7 @@ int main(int argc, char** argv)
     _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
 #endif
+    testLifedrain();
     testEvacuate();
     testShelter();
     testSwap();
@@ -3145,6 +3257,7 @@ int main(int argc, char** argv)
     encodedCard.actions[0].repeat = 2;
     encodedCard.actions[0].infest = "Infesting Unit";
     encodedCard.actions[0].pull = true;
+    encodedCard.actions[0].lifedrain = true;
     const GameCard decodedCard = toGameCard(encodedCard);
     check(decodedCard.actions.size() == 1 &&
               decodedCard.traits == encodedCard.traits &&
@@ -3156,7 +3269,7 @@ int main(int argc, char** argv)
               decodedCard.actions[0].push == 3 &&
               decodedCard.actions[0].repeat == 2 &&
               decodedCard.actions[0].infest == encodedCard.actions[0].infest &&
-              decodedCard.actions[0].pull &&
+              decodedCard.actions[0].pull && decodedCard.actions[0].lifedrain &&
               decodedCard.actions[0].targetFilter == encodedCard.actions[0].targetFilter &&
               decodedCard.actions[0].canMove &&
               decodedCard.actions[0].canAttack &&
@@ -3185,7 +3298,7 @@ int main(int argc, char** argv)
               roundTrippedDefinition.actionNames == encodedCard.actionNames &&
               roundTrippedDefinition.actionDisplayNames == encodedCard.actionDisplayNames &&
               roundTrippedDefinition.actions[0].repeat == 2 &&
-              roundTrippedDefinition.actions[0].pull &&
+              roundTrippedDefinition.actions[0].pull && roundTrippedDefinition.actions[0].lifedrain &&
               game_data::cardInt(roundTrippedDefinition, CounterstrikeField) == 2 &&
               game_data::cardDeckLimit(roundTrippedDefinition) == 3,
           "card serialization preserves Counterstrike, Deck Limit and per-card action display names");
@@ -3206,8 +3319,9 @@ int main(int argc, char** argv)
               roundTrippedAction.repeat == 2 &&
               roundTrippedAction.infest == encodedHealingAction.infest &&
               roundTrippedAction.pull == encodedHealingAction.pull &&
+              roundTrippedAction.lifedrain == encodedHealingAction.lifedrain &&
               roundTrippedAction.targetFilter == encodedHealingAction.targetFilter,
-          "schema-11 action serialization keeps healing, push, repeat, target-filter, infest, and Pull data");
+          "schema-12 action serialization preserves Lifedrain and all existing action fields");
 
     sf::Packet legacyCardListPacket;
     legacyCardListPacket << static_cast<std::uint32_t>(1);
@@ -3239,6 +3353,7 @@ int main(int argc, char** argv)
     bool currentActionsIncludeRepeat = false;
     bool currentActionsIncludeInfest = false;
     bool currentActionsIncludePull = false;
+    bool currentActionsIncludeLifedrain = false;
     check(card_data::readCardListHeader(
               currentCardListHeader,
               currentCardCount,
@@ -3247,11 +3362,34 @@ int main(int argc, char** argv)
               &currentActionsIncludeControl,
               &currentActionsIncludeRepeat,
               &currentActionsIncludeInfest,
-              &currentActionsIncludePull) &&
+              &currentActionsIncludePull,
+              &currentActionsIncludeLifedrain) &&
               currentCardCount == 3 && !currentCardFormatIsLegacy &&
               currentActionsIncludeNextState && currentActionsIncludeControl && currentActionsIncludeRepeat &&
-              currentActionsIncludeInfest && currentActionsIncludePull,
-          "schema-11 card-list headers advertise every serialized action extension");
+              currentActionsIncludeInfest && currentActionsIncludePull && currentActionsIncludeLifedrain,
+          "schema-12 card-list headers advertise every serialized action extension");
+
+    // A schema-11 action is the current record without its final Lifedrain byte.
+    sf::Packet schemaElevenHeader;
+    schemaElevenHeader << card_data::CardListSchemaMarker << std::uint32_t(11) << std::uint32_t(1);
+    std::uint32_t schemaElevenCount = 0;
+    bool schemaElevenLegacy = true;
+    bool schemaElevenLifedrain = true;
+    check(card_data::readCardListHeader(schemaElevenHeader, schemaElevenCount,
+              schemaElevenLegacy, nullptr, nullptr, nullptr, nullptr, nullptr, &schemaElevenLifedrain) &&
+              schemaElevenCount == 1 && !schemaElevenLegacy && !schemaElevenLifedrain,
+          "schema-11 catalogs advertise Lifedrain as absent");
+    sf::Packet oldActionPacket;
+    oldActionPacket.append(actionPacket.getData(), actionPacket.getDataSize() - 1);
+    card_data::Action oldAction;
+    oldAction.lifedrain = true;
+    check(card_data::readAction(oldActionPacket, oldAction, true, true, true, true, true, true, true, true, false) &&
+              oldActionPacket.endOfPacket() && !oldAction.lifedrain && oldAction.pull,
+          "schema-11 actions load with Lifedrain disabled and preserve Pull");
+    sf::Packet truncatedActionPacket;
+    truncatedActionPacket.append(actionPacket.getData(), actionPacket.getDataSize() - 1);
+    check(!card_data::readAction(truncatedActionPacket, oldAction),
+          "schema-12 actions reject a missing Lifedrain field");
 
     sf::Packet schemaTenCardListHeader;
     schemaTenCardListHeader << card_data::CardListSchemaMarker << static_cast<std::uint32_t>(10)
@@ -3358,6 +3496,7 @@ int main(int argc, char** argv)
     serializedCard.actions[0].nextState = 4;
     serializedCard.actions[0].control = 3;
     serializedCard.actions[0].pull = true;
+    serializedCard.actions[0].lifedrain = true;
     sf::Packet cardPacket;
     writeGameCard(cardPacket, serializedCard);
     GameCard roundTrippedCard;
@@ -3369,7 +3508,7 @@ int main(int argc, char** argv)
               roundTrippedCard.actions[0].nextState == 4 &&
               roundTrippedCard.actions[0].push == 3 &&
               roundTrippedCard.actions[0].control == 3 &&
-              roundTrippedCard.actions[0].pull &&
+              roundTrippedCard.actions[0].pull && roundTrippedCard.actions[0].lifedrain &&
               roundTrippedCard.actions[0].infest == serializedCard.actions[0].infest &&
               roundTrippedCard.actions[0].targetFilter == serializedCard.actions[0].targetFilter &&
               roundTrippedCard.traits == encodedCard.traits &&
@@ -3447,6 +3586,7 @@ int main(int argc, char** argv)
         serializedPiece.actions[0].nextState = 5;
         serializedPiece.actions[0].control = 4;
         serializedPiece.actions[0].pull = true;
+        serializedPiece.actions[0].lifedrain = true;
         serializedPiece.actions[0].infest = "Serialized Action Infest";
         serializedPiece.actions[0].targetFilter = {"fey", "warded"};
     }
@@ -3460,7 +3600,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.actions[0].push == 3 &&
               roundTrippedPiece.actions[0].nextState == 5 &&
               roundTrippedPiece.actions[0].control == 4 &&
-              roundTrippedPiece.actions[0].pull &&
+              roundTrippedPiece.actions[0].pull && roundTrippedPiece.actions[0].lifedrain &&
               roundTrippedPiece.actions[0].infest == serializedPiece.actions[0].infest &&
               roundTrippedPiece.actions[0].targetFilter == serializedPiece.actions[0].targetFilter &&
               roundTrippedPiece.traits == serializedPiece.traits &&

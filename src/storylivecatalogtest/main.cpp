@@ -188,14 +188,14 @@ std::optional<LiveCatalog> loadSchemaElevenCatalog(
             std::to_string(version);
         return std::nullopt;
     }
-    if (version != 11)
+    if (version != 12)
     {
-        error = "storylivecatalogtest itself is stale: it must be reviewed for schema 11";
+        error = "storylivecatalogtest itself is stale: it must be reviewed for schema 12";
         return std::nullopt;
     }
     if (count == 0 || count > card_data::MaxSerializedItems)
     {
-        error = "authoritative schema-11 catalog declared invalid card count " +
+        error = "authoritative schema-12 catalog declared invalid card count " +
             std::to_string(count);
         return std::nullopt;
     }
@@ -218,7 +218,7 @@ std::optional<LiveCatalog> loadSchemaElevenCatalog(
                 true,
                 true))
         {
-            error = "authoritative card server returned an invalid schema-11 card at index " +
+            error = "authoritative card server returned an invalid schema-12 card at index " +
                 std::to_string(index);
             return std::nullopt;
         }
@@ -237,7 +237,7 @@ std::optional<LiveCatalog> loadSchemaElevenCatalog(
     }
     if (!response.endOfPacket())
     {
-        error = "authoritative schema-11 catalog contains unexpected trailing data";
+        error = "authoritative schema-12 catalog contains unexpected trailing data";
         return std::nullopt;
     }
     return catalog;
@@ -355,6 +355,7 @@ std::vector<std::string> gameCardMismatchFields(
         compareAction("targetFilter", packagedAction.targetFilter, liveAction.targetFilter);
         compareAction("infest", packagedAction.infest, liveAction.infest);
         compareAction("pull", packagedAction.pull, liveAction.pull);
+        compareAction("lifedrain", packagedAction.lifedrain, liveAction.lifedrain);
     }
     return mismatches;
 }
@@ -423,7 +424,7 @@ bool validateAuthoritativeConstructHealing(
         {
             error = "authoritative " + std::string(expected.cardTitle) + " / " +
                 std::string(expected.actionName) +
-                " no longer maps to positive healing with the schema-11 construct filter";
+                " no longer maps to positive healing with the schema-12 construct filter";
             return false;
         }
         const int actionIndex = static_cast<int>(
@@ -2046,7 +2047,7 @@ int main(int argc, char** argv)
     }
 
     fmt::println(
-        "Loaded {} authoritative schema-11 cards from {}.",
+        "Loaded {} authoritative schema-12 cards from {}.",
         catalog->cards.size(),
         catalog->endpoint);
 

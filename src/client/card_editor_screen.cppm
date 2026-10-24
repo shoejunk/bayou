@@ -1263,6 +1263,7 @@ private:
     InputBox actionControlField;
     InputBox actionRepeatField;
     InputBox actionPullField;
+    InputBox actionLifedrainField;
     InputBox actionInfestField;
     std::vector<InputBox> actionTargetFilterFields;
     EditorButton backButton;
@@ -1383,6 +1384,7 @@ private:
         bool actionIncludesRepeat = false;
         bool actionIncludesInfest = false;
         bool actionIncludesPull = false;
+        bool actionIncludesLifedrain = false;
         if (!card_data::readCardListHeader(
                 response,
                 count,
@@ -1391,7 +1393,8 @@ private:
                 &actionIncludesControl,
                 &actionIncludesRepeat,
                 &actionIncludesInfest,
-                &actionIncludesPull))
+                &actionIncludesPull,
+                &actionIncludesLifedrain))
         {
             socket.disconnect();
             return {false, "Unsupported card list payload"};
@@ -1410,7 +1413,8 @@ private:
                     actionIncludesControl,
                     actionIncludesRepeat,
                     actionIncludesInfest,
-                    actionIncludesPull))
+                    actionIncludesPull,
+                    actionIncludesLifedrain))
             {
                 socket.disconnect();
                 return {false, "Invalid card list payload"};
@@ -1662,7 +1666,8 @@ private:
         actionMinRangeField = makeCompactField("1", {210.0f, 32.0f});
         actionMaxRangeField = makeCompactField("1", {210.0f, 32.0f});
         actionDamageField = makeCompactField("0", {210.0f, 32.0f});
-        actionHealField = makeCompactField("0", {210.0f, 32.0f});
+        actionHealField = makeCompactField("0", {100.0f, 32.0f});
+        actionLifedrainField = makeCompactField("0", {100.0f, 32.0f});
         actionCanMoveField = makeCompactField("1", {210.0f, 32.0f});
         actionCanAttackField = makeCompactField("0", {210.0f, 32.0f});
         actionPassThroughField = makeCompactField("0", {210.0f, 32.0f});
@@ -1794,6 +1799,7 @@ private:
                 &actionControlField,
                 &actionRepeatField,
                 &actionPullField,
+                &actionLifedrainField,
                 &actionInfestField,
             };
             for (InputBox& field : actionTargetFilterFields)
@@ -2433,6 +2439,7 @@ private:
             &actionControlField,
             &actionRepeatField,
             &actionPullField,
+            &actionLifedrainField,
             &actionInfestField,
         };
         for (const InputBox* field : fields)
@@ -2740,6 +2747,7 @@ private:
         action.repeat = std::max(0, formInt(actionRepeatField, 0));
         action.infest = trim(actionInfestField.getValue());
         action.pull = formBool(actionPullField);
+        action.lifedrain = formBool(actionLifedrainField);
         for (const InputBox& field : actionTargetFilterFields)
         {
             const std::string value = trim(field.getValue());
@@ -2774,6 +2782,7 @@ private:
         actionControlField.setValue("0");
         actionRepeatField.setValue("0");
         actionPullField.setValue("0");
+        actionLifedrainField.setValue("0");
         actionInfestField.setValue("");
         actionTargetFilterFields.clear();
         actionTargetFilterOffset = 0;
@@ -2813,6 +2822,7 @@ private:
         actionControlField.setValue(std::to_string(action.control));
         actionRepeatField.setValue(std::to_string(action.repeat));
         actionPullField.setValue(action.pull ? "1" : "0");
+        actionLifedrainField.setValue(action.lifedrain ? "1" : "0");
         actionInfestField.setValue(action.infest);
         actionTargetFilterFields.clear();
         for (const std::string& value : action.targetFilter)
@@ -4432,6 +4442,7 @@ private:
         y = drawInstructionBullet(window, "Can move lets the action target an empty destination. With Can attack enabled, positive Damage targets and hurts enemies, while positive Heal targets and restores friendlies up to maximum health. Damage and Heal must not be negative.", y);
         y = drawInstructionBullet(window, "Target filter entries restrict attacks, healing, and status effects. A target must match every listed string across its Traits and Keywords; an empty filter accepts any otherwise-valid target. The legacy schema-11 value construct means Mechanical and is shown to players as Mechanical.", y);
         y = drawInstructionBullet(window, "Push moves each surviving enemy target up to that many squares directly away from the attack's staging square. Blocked push distance becomes 1 extra damage per prevented square.", y);
+        y = drawInstructionBullet(window, "Lifedrain: heals the acting unit for damage this action deals, capped at maximum health. Includes Power, Bodyguard/Intercept redirection, overkill, and push collisions. Attack healing resolves before Counterstrike; it cannot revive a defeated unit. Default: 0.", y);
         y = drawInstructionBullet(window, "Pull on a ranged attack draws each surviving enemy target toward the attacker until it is adjacent. The pull flag is ignored on other action kinds.", y);
         y = drawInstructionBullet(window, "Control temporarily changes an attacked enemy piece to the attacking player for that many later turns of the attacking player. The attack turn is not counted; the original controller regains it on their following turn.", y);
         y = drawInstructionBullet(window, "Minimum and maximum range are per action, so a card can mix short moves, long moves, ranged attacks, and state-specific actions.", y);
@@ -5151,6 +5162,7 @@ private:
         actionMaxRangeField.setPosition({600.0f, 348.0f});
         actionDamageField.setPosition({340.0f, 406.0f});
         actionHealField.setPosition({600.0f, 406.0f});
+        actionLifedrainField.setPosition({710.0f, 406.0f});
         actionCanMoveField.setPosition({340.0f, 464.0f});
         actionCanAttackField.setPosition({600.0f, 464.0f});
         actionPassThroughField.setPosition({340.0f, 522.0f});
@@ -5187,6 +5199,7 @@ private:
             {"Maximum range", {600.0f, 324.0f}},
             {"Damage", {340.0f, 382.0f}},
             {"Heal", {600.0f, 382.0f}},
+            {"Lifedrain", {710.0f, 382.0f}},
             {"Can move", {340.0f, 440.0f}},
             {"Can attack", {600.0f, 440.0f}},
             {"Pass through", {340.0f, 498.0f}},

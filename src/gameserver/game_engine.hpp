@@ -2027,7 +2027,7 @@ private:
                 {
                     const PieceAttackDamageResolution attackResolution = resolvePieceAttackDamage(
                         pieces, attackerId, targetId, attackDamage, action.statusTurns,
-                        action.stagingRow, action.stagingColumn, rng);
+                        action.stagingRow, action.stagingColumn, rng, action.lifedrain);
                     const DamageResolution& damageResolution = attackResolution.attack;
                     counterstrikeDamage.insert(counterstrikeDamage.end(),
                         attackResolution.counterstrike.begin(), attackResolution.counterstrike.end());
@@ -2066,6 +2066,10 @@ private:
                         action.stagingColumn,
                         action.push,
                         attackerPower);
+                    if (action.lifedrain)
+                    {
+                        applyActionLifedrain(pieces, attackerId, pushResult.collisionDamage);
+                    }
                     pushedSquares += pushResult.movedSquares;
                     pushCollisionDamage += pushResult.collisionDamage;
                     rememberRevealedPieces(pushResult.revealedPieceIds);

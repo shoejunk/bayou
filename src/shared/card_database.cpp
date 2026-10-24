@@ -64,6 +64,7 @@ card_data::Action actionFromQuery(SQLite::Statement& query)
     action.nextState = query.getColumn(17).getInt();
     action.infest = query.getColumn(18).getString();
     action.pull = query.getColumn(19).getInt() != 0;
+    action.lifedrain = query.getColumn(20).getInt() != 0;
     return action;
 }
 
@@ -166,6 +167,7 @@ std::vector<card_data::Action> loadActions(SQLite::Database& database)
     const bool hasNextState = columnExists(database, "actions", "next_state");
     const bool hasInfest = columnExists(database, "actions", "infest");
     const bool hasPull = columnExists(database, "actions", "pull");
+    const bool hasLifedrain = columnExists(database, "actions", "lifedrain");
     const bool hasTargetFilters = tableExists(database, "action_target_filters");
     const std::string healExpression = hasHeal
         ? "heal"
@@ -176,12 +178,13 @@ std::vector<card_data::Action> loadActions(SQLite::Database& database)
     const std::string nextStateExpression = hasNextState ? "next_state" : "state";
     const std::string infestExpression = hasInfest ? "infest" : "''";
     const std::string pullExpression = hasPull ? "pull" : "0";
+    const std::string lifedrainExpression = hasLifedrain ? "lifedrain" : "0";
     SQLite::Statement query(
         database,
         "SELECT name, state, kind, pattern, min_range, max_range, "
         "CASE WHEN damage < 0 THEN 0 ELSE damage END, " + healExpression +
         ", can_move, can_attack, pass_through, line_of_sight, status_turns, cooldown_turns, " +
-         pushExpression + ", " + controlExpression + ", " + repeatExpression + ", " + nextStateExpression + ", " + infestExpression + ", " + pullExpression +
+         pushExpression + ", " + controlExpression + ", " + repeatExpression + ", " + nextStateExpression + ", " + infestExpression + ", " + pullExpression + ", " + lifedrainExpression +
         " FROM actions ORDER BY name");
     while (query.executeStep())
     {
@@ -205,6 +208,7 @@ std::vector<card_data::Action> loadCardActions(SQLite::Database& database, const
     const bool hasNextState = columnExists(database, "actions", "next_state");
     const bool hasInfest = columnExists(database, "actions", "infest");
     const bool hasPull = columnExists(database, "actions", "pull");
+    const bool hasLifedrain = columnExists(database, "actions", "lifedrain");
     const bool hasTargetFilters = tableExists(database, "action_target_filters");
     const std::string healExpression = hasHeal
         ? "a.heal"
@@ -215,12 +219,13 @@ std::vector<card_data::Action> loadCardActions(SQLite::Database& database, const
     const std::string nextStateExpression = hasNextState ? "a.next_state" : "a.state";
     const std::string infestExpression = hasInfest ? "a.infest" : "''";
     const std::string pullExpression = hasPull ? "a.pull" : "0";
+    const std::string lifedrainExpression = hasLifedrain ? "a.lifedrain" : "0";
     SQLite::Statement query(
         database,
         "SELECT a.name, a.state, a.kind, a.pattern, a.min_range, a.max_range, "
         "CASE WHEN a.damage < 0 THEN 0 ELSE a.damage END, " + healExpression +
         ", a.can_move, a.can_attack, a.pass_through, a.line_of_sight, a.status_turns, a.cooldown_turns, " +
-         pushExpression + ", " + controlExpression + ", " + repeatExpression + ", " + nextStateExpression + ", " + infestExpression + ", " + pullExpression +
+         pushExpression + ", " + controlExpression + ", " + repeatExpression + ", " + nextStateExpression + ", " + infestExpression + ", " + pullExpression + ", " + lifedrainExpression +
         " FROM card_actions ca JOIN actions a ON a.name = ca.action_name "
         "WHERE ca.title = ? ORDER BY ca.item_index");
     query.bind(1, title);

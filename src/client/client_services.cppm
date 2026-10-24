@@ -394,6 +394,7 @@ CardListResult fetchCards()
     bool actionIncludesRepeat = false;
     bool actionIncludesInfest = false;
     bool actionIncludesPull = false;
+    bool actionIncludesLifedrain = false;
     if (!card_data::readCardListHeader(
             response,
             count,
@@ -402,7 +403,8 @@ CardListResult fetchCards()
             &actionIncludesControl,
             &actionIncludesRepeat,
             &actionIncludesInfest,
-            &actionIncludesPull))
+            &actionIncludesPull,
+            &actionIncludesLifedrain))
     {
         socket.disconnect();
         return {false, "Unsupported card list payload"};
@@ -421,7 +423,8 @@ CardListResult fetchCards()
                 actionIncludesControl,
                 actionIncludesRepeat,
                 actionIncludesInfest,
-                actionIncludesPull))
+                actionIncludesPull,
+                actionIncludesLifedrain))
         {
             socket.disconnect();
             return {false, "Invalid card list payload"};

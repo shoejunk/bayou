@@ -31,6 +31,7 @@ struct ActionDescription
     bool passThrough = false;
     bool clearPath = false;
     bool pull = false;
+    bool lifedrain = false;
     std::vector<std::string> targetFilter;
     std::string infest;
 };

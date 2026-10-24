@@ -285,6 +285,7 @@ std::optional<card_data::Card> deserializeCard(const void* data, int size)
     bool actionIncludesRepeat = false;
     bool actionIncludesInfest = false;
     bool actionIncludesPull = false;
+    bool actionIncludesLifedrain = false;
     if (!card_data::readCardListHeader(
             packet,
             count,
@@ -293,7 +294,8 @@ std::optional<card_data::Card> deserializeCard(const void* data, int size)
             &actionIncludesControl,
             &actionIncludesRepeat,
             &actionIncludesInfest,
-            &actionIncludesPull) || count != 1)
+            &actionIncludesPull,
+            &actionIncludesLifedrain) || count != 1)
     {
         return std::nullopt;
     }
@@ -306,7 +308,8 @@ std::optional<card_data::Card> deserializeCard(const void* data, int size)
             actionIncludesControl,
             actionIncludesRepeat,
             actionIncludesInfest,
-            actionIncludesPull))
+            actionIncludesPull,
+            actionIncludesLifedrain))
     {
         return std::nullopt;
     }

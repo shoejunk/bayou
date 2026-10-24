@@ -331,6 +331,7 @@ ActionDescription actionDescription(const game_data::ActionProfile& action, std:
     description.clearPath =
         static_cast<game_data::ActionKind>(action.kind) == game_data::ActionKind::Ranged;
     description.pull = action.pull;
+    description.lifedrain = action.lifedrain;
     description.targetFilter.reserve(action.targetFilter.size());
     for (const std::string& filter : action.targetFilter)
     {
