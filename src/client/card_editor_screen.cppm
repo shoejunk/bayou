@@ -64,11 +64,10 @@ constexpr float PreviewPanelX = 856.0f;
 constexpr float PreviewPanelY = 100.0f;
 constexpr float PreviewPanelWidth = 400.0f;
 constexpr float ActionEditorPanelWidth = PreviewPanelX + PreviewPanelWidth - EditorPanelX;
-constexpr float ListRowStartY = 176.0f;
 constexpr float CardListRowStartY = 214.0f;
 constexpr float ListRowHeight = 56.0f;
 constexpr std::size_t VisibleCardRows = 7;
-constexpr std::size_t VisibleActionRows = 8;
+constexpr std::size_t VisibleActionRows = 7;
 constexpr std::size_t VisibleActionDropdownRows = 5;
 constexpr std::size_t VisibleTargetFilterRows = 10;
 // Action rows carry both a name and a kind/pattern line. Forty-two logical
@@ -553,7 +552,10 @@ public:
         closeActionDropdown();
         selectedCard.reset();
         selectedAction.reset();
+        cardSearchField.setValue("");
+        actionSearchField.setValue("");
         actions.clear();
+        applyActionSearchFilter();
         actionListOffset = 0;
         editorScroll = 0.0f;
         unsavedChangesPopupVisible = false;
@@ -562,6 +564,7 @@ public:
         pendingSelectionName.clear();
         unsavedChangesError.clear();
         editorMode = EditorMode::Cards;
+        editorTabs.setActive(0);
 
         cards = library;
         sortCardLibrary(cards);
@@ -576,6 +579,7 @@ public:
 
         const bool populatedCardState =
             key == "card-editor-loaded" || key == "card-editor-instructions" ||
+            key == "card-editor-instructions-middle" ||
             key == "card-editor-unsaved" || key == "card-editor-rarity-dropdown" ||
             key == "card-editor-action-dropdown";
         if (populatedCardState && !cards.empty())
@@ -589,43 +593,53 @@ public:
         }
 
         const bool needsActionLibrary =
-            key == "card-editor-actions" || key == "card-editor-action-dropdown" ||
+            key == "card-editor-actions" || key == "card-editor-actions-filtered" ||
+            key == "card-editor-actions-empty" || key == "card-editor-action-dropdown" ||
             key == "card-editor-action-kind-dropdown";
         if (needsActionLibrary)
         {
             card_data::Action strike;
             strike.name = "Thorn Lash";
-            strike.kind = "attack";
-            strike.pattern = "line";
+            strike.kind = "ranged";
+            strike.pattern = "none";
             strike.minRange = 1;
             strike.maxRange = 3;
             strike.damage = 2;
             strike.canMove = false;
             strike.canAttack = true;
             strike.lineOfSight = true;
-            strike.targetFilter = {"enemy", "unit"};
+            strike.targetFilter = {"Mechanical"};
 
             card_data::Action pull;
             pull.name = "Briar Snare";
-            pull.kind = "attack";
-            pull.pattern = "omni";
+            pull.kind = "ranged";
+            pull.pattern = "none";
             pull.minRange = 2;
             pull.maxRange = 4;
             pull.damage = 1;
             pull.canMove = false;
             pull.canAttack = true;
             pull.pull = true;
-            pull.targetFilter = {"enemy"};
 
             actions = {std::move(strike), std::move(pull)};
+            applyActionSearchFilter();
         }
 
-        if (key == "card-editor-actions" || key == "card-editor-action-kind-dropdown")
+        if (key == "card-editor-actions" || key == "card-editor-actions-filtered" ||
+            key == "card-editor-actions-empty" || key == "card-editor-action-kind-dropdown")
         {
             editorMode = EditorMode::Actions;
+            editorTabs.setActive(1);
             actionListOffset = 0;
             selectAction(0);
             setStatus("Loaded from card server", Muted);
+            if (key == "card-editor-actions-filtered" || key == "card-editor-actions-empty")
+            {
+                actionSearchField.setValue(key == "card-editor-actions-filtered" ? "briar" : "no match");
+                applyActionSearchFilter();
+                if (!visibleActionIndices.empty()) selectAction(visibleActionIndices.front());
+                activateField(&actionSearchField);
+            }
             if (key == "card-editor-action-kind-dropdown")
             {
                 activateField(&actionKindField);
@@ -658,10 +672,11 @@ public:
                 openActionDropdown(0, false);
             }
         }
-        else if (key == "card-editor-instructions")
+        else if (key == "card-editor-instructions" || key == "card-editor-instructions-middle")
         {
             instructionsVisible = true;
-            instructionScroll = 0.0f;
+            ensureInstructionLayout();
+            instructionScroll = key == "card-editor-instructions-middle" ? instructionMaxScroll() * 0.5f : 0.0f;
         }
         else if (key == "card-editor-unsaved" && selectedCard)
         {
@@ -683,6 +698,7 @@ public:
         bool shouldClose = false;
         if (instructionsVisible)
         {
+            ensureInstructionLayout();
             if (const auto* keyEvent = event.getIf<sf::Event::KeyPressed>())
             {
                 if (keyEvent->code == sf::Keyboard::Key::Escape)
@@ -718,7 +734,10 @@ public:
 
             if (const auto* wheel = event.getIf<sf::Event::MouseWheelScrolled>())
             {
-                scrollInstructions(wheel->delta < 0.0f ? 64.0f : -64.0f);
+                if (wheel->wheel == sf::Mouse::Wheel::Vertical)
+                {
+                    scrollInstructions(-wheel->delta * 64.0f);
+                }
             }
 
             window.setView(previousView);
@@ -763,6 +782,7 @@ public:
         }
 
         std::string previousCardSearch;
+        const std::string previousActionSearch = actionSearchField.getValue();
         std::optional<std::size_t> activeActionReference;
         std::optional<std::size_t> activeRarityValueIndex;
         std::string previousActionReferenceValue;
@@ -795,6 +815,10 @@ public:
             if (editorMode == EditorMode::Cards && cardSearchField.getValue() != previousCardSearch)
             {
                 applyCardSearchFilter();
+            }
+            if (editorMode == EditorMode::Actions && actionSearchField.getValue() != previousActionSearch)
+            {
+                applyActionSearchFilter();
             }
         }
 
@@ -884,7 +908,8 @@ public:
                 ensureActiveFieldVisible();
             }
             else if (!handledDropdownKey && keyEvent->code == sf::Keyboard::Key::Enter &&
-                     !(editorMode == EditorMode::Cards && cardSearchField.isActive()))
+                     !(editorMode == EditorMode::Cards && cardSearchField.isActive()) &&
+                     !(editorMode == EditorMode::Actions && actionSearchField.isActive()))
             {
                 if (editorMode == EditorMode::Cards)
                 {
@@ -1109,6 +1134,8 @@ public:
         window.setView(previousView);
     }
 
+#include "card_editor_ui_capture_checks.inl"
+
 private:
     enum class EditorMode
     {
@@ -1190,6 +1217,7 @@ private:
     std::optional<std::size_t> hoveredCard;
     std::size_t listOffset = 0;
     std::vector<card_data::Action> actions;
+    std::vector<std::size_t> visibleActionIndices;
     std::optional<std::size_t> selectedAction;
     std::optional<std::size_t> hoveredAction;
     std::size_t actionListOffset = 0;
@@ -1207,7 +1235,16 @@ private:
     sf::Color previewMessageColor = Muted;
     bool instructionsVisible = false;
     float instructionScroll = 0.0f;
-    float instructionContentHeight = 1920.0f;
+    float instructionContentHeight = 0.0f;
+    struct InstructionLine
+    {
+        std::string text;
+        sf::Vector2f position;
+        sf::Color color;
+        unsigned int size;
+        bool section = false;
+    };
+    std::vector<InstructionLine> instructionLines;
     bool unsavedChangesPopupVisible = false;
     PendingTransition pendingTransition = PendingTransition::None;
     std::string pendingSelectionName;
@@ -1219,6 +1256,7 @@ private:
     InputBox imageField;
     InputBox typeField;
     InputBox cardSearchField;
+    InputBox actionSearchField;
     std::vector<InputBox> traitFields;
     std::vector<InputBox> keywordFields;
     std::vector<InputBox> intKeyFields;
@@ -1657,6 +1695,8 @@ private:
         typeField = InputBox(font, "Type", {340.0f, 308.0f}, {470.0f, 42.0f});
         cardSearchField = InputBox(font, "Search", {42.0f, 164.0f}, {230.0f, 36.0f});
         cardSearchField.setPlaceholder("Filter by title");
+        actionSearchField = InputBox(font, "Search", {42.0f, 164.0f}, {230.0f, 36.0f});
+        actionSearchField.setPlaceholder("Filter by title");
         actionNameField = InputBox(font, "Name", {340.0f, 168.0f}, {470.0f, 42.0f});
         actionStateField = makeCompactField("0", {210.0f, 32.0f});
         actionNextStateField = makeCompactField("0", {210.0f, 32.0f});
@@ -1781,6 +1821,7 @@ private:
         if (editorMode == EditorMode::Actions)
         {
             focusOrder = {
+                &actionSearchField,
                 &actionNameField,
                 &actionStateField,
                 &actionNextStateField,
@@ -1860,6 +1901,10 @@ private:
         if (target != &cardSearchField)
         {
             cardSearchField.setActive(false);
+        }
+        if (target != &actionSearchField)
+        {
+            actionSearchField.setActive(false);
         }
         for (std::size_t i = 0; i < focusOrder.size(); ++i)
         {
@@ -2651,6 +2696,21 @@ private:
         hoveredCard.reset();
     }
 
+    void applyActionSearchFilter()
+    {
+        visibleActionIndices.clear();
+        const std::string searchTerm = lowerKey(trim(actionSearchField.getValue()));
+        for (std::size_t i = 0; i < actions.size(); ++i)
+        {
+            if (searchTerm.empty() || lowerKey(actions[i].name).find(searchTerm) != std::string::npos)
+            {
+                visibleActionIndices.push_back(i);
+            }
+        }
+        actionListOffset = 0;
+        hoveredAction.reset();
+    }
+
     void loadCards()
     {
         const CardListResult result = fetchCardsFromServer();
@@ -2685,12 +2745,14 @@ private:
         if (!result.success)
         {
             actions.clear();
+            applyActionSearchFilter();
             selectedAction.reset();
             actionListOffset = 0;
             setStatus(result.message, Warn);
             return;
         }
         actions = result.actions;
+        applyActionSearchFilter();
         actionListOffset = 0;
         if (!actions.empty())
         {
@@ -2866,6 +2928,7 @@ private:
         if (listResult.success)
         {
             actions = listResult.actions;
+            applyActionSearchFilter();
             const auto found = std::find_if(actions.begin(), actions.end(), [&](const card_data::Action& item) {
                 return item.name == action.name;
             });
@@ -2917,6 +2980,7 @@ private:
         }
 
         actions = listResult.actions;
+        applyActionSearchFilter();
         const auto found = std::find_if(actions.begin(), actions.end(), [&](const card_data::Action& item) {
             return item.name == action.name;
         });
@@ -2949,6 +3013,7 @@ private:
             return;
         }
         actions = listResult.actions;
+        applyActionSearchFilter();
         if (actions.empty())
         {
             createNewAction();
@@ -3278,24 +3343,30 @@ private:
 
     void ensureActionVisible(std::size_t index)
     {
-        if (index < actionListOffset)
+        const auto visible = std::find(visibleActionIndices.begin(), visibleActionIndices.end(), index);
+        if (visible == visibleActionIndices.end())
         {
-            actionListOffset = index;
+            return;
         }
-        else if (index >= actionListOffset + VisibleActionRows)
+        const std::size_t visibleIndex = static_cast<std::size_t>(visible - visibleActionIndices.begin());
+        if (visibleIndex < actionListOffset)
         {
-            actionListOffset = index - VisibleActionRows + 1;
+            actionListOffset = visibleIndex;
+        }
+        else if (visibleIndex >= actionListOffset + VisibleActionRows)
+        {
+            actionListOffset = visibleIndex - VisibleActionRows + 1;
         }
     }
 
     void scrollActionList(int rows)
     {
-        if (actions.size() <= VisibleActionRows)
+        if (visibleActionIndices.size() <= VisibleActionRows)
         {
             actionListOffset = 0;
             return;
         }
-        const int maxOffset = static_cast<int>(actions.size() - VisibleActionRows);
+        const int maxOffset = static_cast<int>(visibleActionIndices.size() - VisibleActionRows);
         actionListOffset = static_cast<std::size_t>(
             std::clamp(static_cast<int>(actionListOffset) + rows, 0, maxOffset));
     }
@@ -4231,15 +4302,15 @@ private:
 
     std::optional<std::size_t> actionIndexAt(sf::Vector2f mouse) const
     {
-        if (mouse.x < 42.0f || mouse.x > 272.0f || mouse.y < ListRowStartY)
+        if (mouse.x < 42.0f || mouse.x > 272.0f || mouse.y < CardListRowStartY)
         {
             return std::nullopt;
         }
-        const std::size_t visibleIndex = static_cast<std::size_t>((mouse.y - ListRowStartY) / ListRowHeight);
+        const std::size_t visibleIndex = static_cast<std::size_t>((mouse.y - CardListRowStartY) / ListRowHeight);
         const std::size_t index = actionListOffset + visibleIndex;
-        if (visibleIndex < VisibleActionRows && index < actions.size())
+        if (visibleIndex < VisibleActionRows && index < visibleActionIndices.size())
         {
-            return index;
+            return visibleActionIndices[index];
         }
         return std::nullopt;
     }
@@ -4349,165 +4420,189 @@ private:
         instructionScroll = std::clamp(instructionScroll + delta, 0.0f, instructionMaxScroll());
     }
 
-    float drawInstructionParagraph(
-        sf::RenderWindow& window,
+    float addInstructionParagraph(
         const std::string& value,
         float y,
         sf::Color color = Ink,
         unsigned int size = 16,
         float indent = 0.0f)
     {
-        constexpr float Left = 68.0f;
-        constexpr float Width = 1080.0f;
-        const float screenY = y - instructionScroll;
         const float lineHeight = static_cast<float>(size) + 6.0f;
-        const std::vector<std::string> lines = wrapText(font, value, size, Width - indent);
-        for (std::size_t i = 0; i < lines.size(); ++i)
+        for (const std::string& line : wrapText(font, value, size, 1080.0f - indent))
         {
-            const float lineY = screenY + static_cast<float>(i) * lineHeight;
-            if (lineY >= 158.0f && lineY <= 706.0f)
-            {
-                drawText(window, font, lines[i], size, {Left + indent, lineY}, color);
-            }
+            instructionLines.push_back({line, {68.0f + indent, y}, color, size});
+            y += lineHeight;
         }
-        return y + static_cast<float>(lines.size()) * lineHeight;
+        return y;
     }
 
-    float drawInstructionSection(sf::RenderWindow& window, const std::string& title, float y)
+    float addInstructionSection(const std::string& title, float y)
     {
-        const float screenY = y - instructionScroll;
-        if (screenY >= 158.0f && screenY <= 706.0f)
-        {
-            drawText(window, font, title, 22, {50.0f, screenY}, Accent);
-            sf::RectangleShape line({1146.0f, 1.0f});
-            line.setPosition({50.0f, screenY + 32.0f});
-            line.setFillColor(Line);
-            window.draw(line);
-        }
+        instructionLines.push_back({title, {50.0f, y}, Accent, 22, true});
         return y + 44.0f;
     }
 
-    float drawInstructionBullet(sf::RenderWindow& window, const std::string& value, float y, sf::Color color = Ink)
+    float addInstructionBullet(const std::string& value, float y, sf::Color color = Ink)
     {
-        const float screenY = y - instructionScroll;
-        if (screenY >= 158.0f && screenY <= 706.0f)
+        instructionLines.push_back({"-", {68.0f, y}, Accent, 17});
+        return addInstructionParagraph(value, y, color, 16, 22.0f) + 5.0f;
+    }
+
+    void ensureInstructionLayout()
+    {
+        if (!instructionLines.empty())
         {
-            drawText(window, font, "-", 17, {68.0f, screenY}, Accent);
+            return;
         }
-        return drawInstructionParagraph(window, value, y, color, 16, 22.0f) + 5.0f;
+        // The guide's text, font, and logical width stay fixed for this screen.
+        // Do not measure thousands of words again on every scrolling frame.
+        float y = 164.0f;
+        y = addInstructionSection("1. Card identity", y);
+        y = addInstructionBullet("Title: the unique card name. Renaming an existing card updates that card; duplicate titles are not valid.", y);
+        y = addInstructionBullet("Type: enter exactly Hero, Unit, Spell, or Enchantment. Type matching is case-sensitive.", y);
+        y = addInstructionBullet("Image Path: a path under the assets folder, such as cards/clockworkGuardian.png. Do not include an absolute path or use .. to leave the assets folder.", y);
+        y = addInstructionBullet("Board art: Token selects the shared resting image and WalkAnim selects its horizontal walking sprite sheet; WalkAnimFrames gives the frame count. Optional State1Token replaces the resting image while the piece is in state 1. IdleAnimFrames, AttackAnimFrames, DamagedAnimFrames, and KilledAnimFrames configure their matching sheets. PieceBaseBlue and PieceBaseRed select the team-colored bases drawn beneath that art. IdleAnim loops while placed pieces are not moving; AttackAnim, DamagedAnim, and KilledAnim play as one-shot combat sheets. Optional FidgetAnim with FidgetAnimFrames plays occasionally while the piece is stationary.", y);
+        y += 12.0f;
+
+        y = addInstructionSection("2. Card types", y);
+        y = addInstructionBullet("Hero: selected during deck building and placed on one of the player's eight starting squares before play. Use heroCost instead of cost. A deck has 1-4 Heroes and a total Hero cost limit of 100. Losing every Hero loses the game.", y, sf::Color(248, 214, 112));
+        y = addInstructionBullet("Unit: goes into the 20-card main deck. It costs Resources to play and deploys to an empty square the player controls. A newly deployed Unit cannot move or attack until its owner's next turn.", y, sf::Color(150, 210, 235));
+        y = addInstructionBullet("Spell: goes into the main deck, costs Resources, resolves immediately, and leaves the hand. Spells do not use health, actions, or WalkAnim.", y, sf::Color(205, 175, 235));
+        y = addInstructionBullet("Enchantment: goes into the main deck and attaches permanently to a player, square, or piece. Use target=player with effect=resourceDrain, target=square with effect=resources, or target=piece with effect=damage; power is the modifier amount.", y, sf::Color(194, 150, 235));
+        y += 12.0f;
+
+        y = addInstructionSection("3. Integer Fields (key = whole number)", y);
+        y = addInstructionBullet("Deck Limit: maximum number of copies of this card allowed in one deck. Use 1 for the default Hero limit and 2 for the default non-Hero limit; cards without the field retain those defaults.", y, sf::Color(248, 214, 112));
+        y = addInstructionBullet("cost: Resources paid to play a Unit, Spell, or Enchantment. Default: 1.", y);
+        y = addInstructionBullet("heroCost: deck-building Hero budget. Use only on Heroes. Default: 0.", y);
+        y = addInstructionBullet("health: starting and maximum hit points for a Hero or Unit. Default: 1.", y);
+        y = addInstructionBullet("width and height: board squares occupied by a Hero or Unit. Both default to 1 and are clamped to 1-8.", y);
+        y = addInstructionBullet("canControl: set to 0 for pieces that do not claim their occupied square or influence adjacent territory. Default: 1.", y);
+        y = addInstructionBullet("growTurns: owner turns a newly summoned piece must wait before it can act. Default: 0.", y);
+        y = addInstructionBullet("abilityUses: remaining uses of Dig. Default 0 disables Dig; a positive value is consumed per use, and -1 allows unlimited uses. Other abilities do not consume this field.", y);
+        y = addInstructionBullet("gatherResources: passive Resources gained at the start of each owner's turn. It does not remove Resources from the opponent. Default: 0.", y);
+        y = addInstructionBullet("healing aura: optional health restored to every other adjacent Hero or Unit, friendly or enemy, at the end of this piece's owner's turn. Diagonals count. Default: 0.", y);
+        y = addInstructionBullet("silenceRange: Silence Field radius measured between nearest footprint squares, including diagonals. Default: 1; values are clamped to 1-7 on the 8x8 board.", y);
+        y = addInstructionBullet("silenceTurns: positive number of activating-player turns before Silence Field expires. Default: 1; values below 1 become 1. Duration 1 expires at the start of that player's next turn, duration 2 at their second subsequent turn. Extra actions do not advance this clock.", y);
+        y = addInstructionBullet("Counterstrike: optional integer damage returned when an adjacent enemy attacks this piece. Diagonals count; movement attacks use their strike position. Triggers even on a killing blow. Bodyguard can redirect the damage; it does not trigger Intercept or another Counterstrike. Default: 0.", y);
+        y = addInstructionBullet("power: spell or enchantment amount, or starting Power for a Hero or Unit. Power (capital P) is also accepted and takes precedence. Default: 0.", y);
+        y = addInstructionBullet("Tax: optional passive Resources taken from the opponent (up to this amount) and gained by the owning player at the start of each owner's turn. Default: 0.", y);
+        y += 12.0f;
+
+        y = addInstructionSection("4. Actions", y);
+        y = addInstructionParagraph("Create reusable actions in the Actions tab, then add them in the card's Actions section. Card name is flavor text shown for that card; Reusable action chooses the shared logic. Click or focus the reusable-action field to open the list; typing filters it. The chain-link button opens that action in the Actions tab.", y, Muted);
+        y += 5.0f;
+        y = addInstructionBullet("Pattern ortho, diag, omni, horizontal, or vertical moves along that board geometry up to the action's maximum range.", y);
+        y = addInstructionBullet("Pattern jump uses the fixed knight-style L shape. Pattern none is used for ranged, teleport, rally step, and tunnel actions that do not need slide geometry.", y);
+        y = addInstructionBullet("Kinds: slide follows Pattern; ranged affects a target without moving; teleport moves to an empty square within range and ignores blockers; capture moves while attacking. Hop moves exactly two squares straight or diagonally over a piece into an empty square, and can affect the jumped piece when Can attack and its target rules allow. Tunnel requires holes at both the starting and destination squares.", y);
+        y = addInstructionBullet("Status turns applies Disable to the target; any positive damage already applies at least 1 turn of Disable. Cooldown turns disables the acting piece after the action. These counters consume the affected piece's later owner turns; 1 prevents acting on its next owner turn. Positive damage also makes the target Sleep, preventing movement until the end of the affected owner's turn.", y);
+        y = addInstructionBullet("Repeat is the number of extra uses of this same action during the turn (1 means two uses total). The piece stays in the action's original State until repeats finish, then changes to Next state. End Turn may end the sequence early; cooldown or other Disable can prevent further uses.", y);
+        y = addInstructionBullet("Rally Step: enable Can move and choose kind rally step to teleport to an empty destination within Minimum and Maximum range, next to another friendly unit. Diagonals and large footprints count for adjacency. Intervening pieces and Pattern do not restrict this movement; it cannot attack.", y);
+        y = addInstructionBullet("Can move lets the action target an empty destination. With Can attack enabled, positive Damage targets and hurts enemies, while positive Heal targets and restores friendlies up to maximum health. Damage and Heal must not be negative.", y);
+        y = addInstructionBullet("Target filter entries restrict attacks, healing, and status effects. A target must match every listed string across its Traits and Keywords; an empty filter accepts any otherwise-valid target. The legacy schema-11 value construct means Mechanical and is shown to players as Mechanical.", y);
+        y = addInstructionBullet("Push moves each surviving enemy target up to that many squares directly away from the attack's staging square. Blocked push distance becomes 1 extra damage per prevented square.", y);
+        y = addInstructionBullet("Lifedrain: heals the acting unit for damage this action deals, capped at maximum health. Includes Power, Bodyguard/Intercept redirection, overkill, and push collisions. Attack healing resolves before Counterstrike; it cannot revive a defeated unit. Default: 0.", y);
+        y = addInstructionBullet("Pull on a ranged attack draws each surviving enemy target toward the attacker until it is adjacent. The pull flag is ignored on other action kinds.", y);
+        y = addInstructionBullet("Control temporarily changes an attacked enemy non-Hero piece to the attacking player for that many later turns of the attacking player. The attack turn is not counted; the original controller regains it on their following turn.", y);
+        y = addInstructionBullet("Minimum and Maximum range apply to slide, capture, ranged, teleport, and rally step actions. Hop uses its fixed two-square geometry and Tunnel uses connected holes instead.", y);
+        y = addInstructionParagraph("For blocking slide and capture actions, every square along the path must be empty. Pass-through ignores slide/capture blockers. Ranged actions enforce blocker checks along straight and diagonal lines; the serialized lineOfSight flag is informational and adds no separate game rule.", y + 5.0f, sf::Color(198, 210, 224));
+        y += 10.0f;
+        y = addInstructionParagraph("A capture action is both movement and attack, but can only target an enemy-occupied square. If it destroys the enemy, the mover occupies the enemy's square; otherwise it falls back according to that action's movement geometry.", y, sf::Color(225, 170, 150));
+        y += 17.0f;
+
+        y = addInstructionSection("5. Spell / Enchantment String Fields", y);
+        y = addInstructionBullet("effect=damage with target=enemy: subtract power from an enemy Hero or Unit. If health reaches 0, that piece is destroyed.", y);
+        y = addInstructionBullet("effect=heal with target=ally: restore power health to a friendly Hero or Unit, up to its maximum health.", y);
+        y = addInstructionBullet("effect=resources with target=none: immediately add power Resources to the player. No board target is required. Legacy effect=steam is also accepted.", y);
+        y = addInstructionParagraph("Use the lowercase values exactly. Spells resolve targeting from effect; their target string documents intent. Enchantments require the matching target/effect pair listed above.", y + 5.0f, Muted);
+        y += 17.0f;
+
+        y = addInstructionSection("6. Rarity, Traits, Keywords, and String Lists", y);
+        y = addInstructionBullet("Rarity: add a String Field named rarity and choose common, uncommon, rare, legendary, token, or starter from the dropdown. Missing or unknown values count as common. Token cards cannot appear in collections or decks. Starter cards never appear as random shop cards; players get them from the four starter decks. Random shop buckets have weights 70 common (including uncommon), 25 rare, and 5 legendary. Empty buckets are skipped and the remaining weights are renormalized; cards within each bucket are equally likely.", y);
+        y = addInstructionBullet("Traits: unit cards require living friendly heroes with matching traits when played. Heroes and spells do not require matching traits. The deck editor can filter by the nine supported traits.", y);
+        y = addInstructionBullet("Keywords are stored separately from traits. Relentless lets a piece act again immediately whenever it destroys another piece. Bodyguard redirects positive damage from an adjacent friendly non-Bodyguard among all eligible Bodyguards; they split it evenly and randomly receive indivisible leftover points. Each Bodyguard assigned damage also takes that action's Disable, while zero-damage Disable, Push, Pull, Infest, and Control stay on the originally selected unit. Intercept can trigger once between that piece's owner-turn starts even after acting or while Disabled, Sleeping, or Growing: the adjacent protector and attacked ally swap only when both full footprints can exchange legally, then the protector takes the piece attack. Bodyguard takes priority. Trail passively creates the Unit named by the summon string field where this piece started whenever it moves. On every paid draw, Foresight reveals up to one plus the number of owned Foresight pieces, limited by the cards left in the deck, lets the player keep one, and puts the rest on the bottom.", y);
+        y = addInstructionBullet("ability: transform, dematerialize, dig, summon, command, raise undead, Swap, Power Boost, or silence field. Transform-style abilities switch action states; dig creates a tunnel hole; summon creates the unit named by the summon string field in the space in front; command lets one ready adjacent friendly piece take any normal action without ending the turn; raise undead chooses an Undead Unit from the graveyard for a free 1-Health card that is exiled on its next death.", y);
+        y = addInstructionBullet("Dematerialize: set ability=dematerialize and define an action in State 1 (or a Next state of 1) so the ability can cycle between visible State 0 and hidden State 1. Nonzero states hide the piece from the opponent. Bumping into or striking a hidden piece materializes and disables it for 1 turn. The dematerialize keyword also enables hiding through action state changes.", y);
+        y = addInstructionBullet("Reveal: add reveal to Keywords. At the end of its owner's turn, adjacent enemy Dematerialize pieces in State 1 return to State 0 without the collision stun. Diagonals and large footprints count.", y);
+        y = addInstructionBullet("Evacuate: add evacuate to Keywords. When another adjacent friendly Unit dies, return its base card to its original owner's hand if there is room. Heroes are excluded and the bearer cannot evacuate itself. Rebirth/Infest replacements take priority; raised Undead are exiled instead, and a full hand sends the card to the graveyard.", y);
+        y = addInstructionBullet("Swap requires a card in hand. Choose a hand card to discard to the bottom of the deck, then draw up to 2 cards, limited by hand space. This does not spend Resources or the normal discard allowance.", y);
+        y = addInstructionBullet("Power Boost: gives every other adjacent friendly unit +1 Power, including diagonals and large footprints. Power stacks and remains on the unit while in play. Power adds to damage from attacks, Counterstrike, and push collisions, but not healing. Set the power (or Power) Integer Field on a Unit or Hero for starting Power. Also supported by Sacrifice; the boost happens before the source dies.", y);
+        y = addInstructionBullet("Rot Aura: add rot aura to Keywords. Adjacent enemies cannot regain Health through actions, spells, healing auras or Lifedrain. Includes diagonals and large footprints. It is passive and works while the living bearer remains adjacent, even while Disabled or Silenced.", y);
+        y = addInstructionBullet("Silence Field: set ability to silence field and optionally add silenceRange and silenceTurns Integer Fields (both default 1). The existing ability button starts a field around the caster: other units, including allies, cannot use ability or Sacrifice buttons in range. Movement, drag attacks and passives remain usable. The field follows the caster, ends on expiry or removal, and does not stack durations when reactivated. Another caster's field can silence this caster.", y);
+        y = addInstructionBullet("Swarm: add swarm to Keywords for +1 Power per adjacent living unit with exactly the same name, regardless of owner. Diagonals and large footprints count; each neighbor counts once and need not have Swarm. This bonus updates as units move or die and stacks with permanent Power.", y);
+        y = addInstructionBullet("Sacrifice: accepts every ability value and creates a separate button. Uses the same abilityUses, abilityLabels, summon and action-state fields. After the effect (including a card choice or commanded action) resolves, the unit is killed using normal death rules. An invalid use does not sacrifice it.", y);
+        y = addInstructionBullet("summon: exact Unit card title created by the active summon ability or passive Trail keyword. Player 1's active summon goes to the right and Player 2's to the left; Trail summons into the moving piece's former position. Summoned units cannot act until their owner's next turn.", y);
+        y = addInstructionBullet("Shelter: friendly pieces on the squares immediately behind this piece cannot be attacked by enemy pieces. Behind points toward the owner's home edge, covers only the adjacent column, and spans the full rear edge of a multi-square piece. Spells and friendly healing are unaffected.", y);
+        y = addInstructionBullet("rebirth: exact Unit or Hero card title that replaces this piece when it is destroyed. The replacement is a new piece using that card's stats, art, and animations; all piece enchantments move to it. A successful rebirth does not count as a kill, does not trigger Relentless, and stops attacking movement before its square.", y);
+        y = addInstructionBullet("infest: exact Unit card title that replaces an attacked enemy Unit when it is destroyed. The replacement appears in the destroyed Unit's square under the player who applied the infestation; a later infestation overrides the earlier one. Heroes cannot be infested.", y);
+        y = addInstructionBullet("Cards store ordered references to reusable action objects plus a separate display name for each reference, so the same logic can have different fantasy names on different cards.", y);
+        y = addInstructionBullet("An action is available in its state and changes the piece to nextState after use. nextState defaults to the action's state, so ordinary actions keep the piece unchanged.", y);
+        y = addInstructionBullet("abilityLabels is an ordered String List containing the button label for each action state.", y);
+        y = addInstructionBullet("Other String Lists are free-form named lists shown in card details.", y);
+        y = addInstructionBullet("Unknown Integer or String Fields are stored and displayed, but they do not change gameplay unless code is added to read them.", y);
+        y += 12.0f;
+
+        y = addInstructionSection("7. Turn and board rules that affect balance", y);
+        y = addInstructionBullet("A player may play any number of affordable cards, but normally only one piece may move or attack each turn. Repeat actions, Relentless, and Command provide their listed exceptions. Only End Turn passes play to the opponent.", y);
+        y = addInstructionBullet("A piece with canControl=1 controls its occupied square and influences adjacent territory. Pieces with canControl=0 and hidden Dematerialize pieces do neither. Ties keep the current controller.", y);
+        y = addInstructionBullet("At the start of a turn, the player gains 1 Resource per controlled square, gains each piece's gatherResources amount, Tax pieces collect Resources from the opponent, and refreshes their pieces. Drawing costs 50 Resources: click the deck while below the 4-card hand limit. Foresight reveals its choices on every paid draw.", y);
+        y = addInstructionBullet("A normal discard sends one hand card to the bottom of the deck, at most once per turn. Swap has its own discard and draw flow. Destroyed Units normally enter the graveyard; destroyed Heroes do not.", y);
+        y = addInstructionBullet("Attacks use the selected action's kind, range, pattern, and blocker behavior. Straight or diagonal Ranged actions require a clear line.", y);
+        y += 12.0f;
+
+        y = addInstructionSection("8. Complete examples", y);
+        y = addInstructionParagraph("Unit example - Type: Unit | Integer Fields: cost=40; health=12 | String Fields: rarity=rare; WalkAnim=animations/clockworkGuardian-walk.png | Actions: a saved slide/ortho action with Can move=1", y, sf::Color(150, 210, 235));
+        y += 10.0f;
+        y = addInstructionParagraph("Hero example - Type: Hero | Integer Fields: heroCost=50; health=16 | String Fields: rarity=rare; Actions: saved slide/diag and capture/omni actions", y, sf::Color(248, 214, 112));
+        y += 10.0f;
+        y = addInstructionParagraph("Spell example - Type: Spell | Integer Fields: cost=20; power=6 | String Fields: effect=heal; target=ally; rarity=common", y, sf::Color(205, 175, 235));
+        y = addInstructionParagraph("Enchantment example - Type: Enchantment | Integer Fields: cost=15; power=5 | String Fields: effect=resourceDrain; target=player; rarity=common", y, sf::Color(194, 150, 235));
+        y += 22.0f;
+
+        y = addInstructionSection("9. Using the editor safely", y);
+        y = addInstructionBullet("Use the + button beside each section to add a field and the - button beside a row to remove it. Empty keys, empty traits, empty keywords, and empty list values are not saved.", y);
+        y = addInstructionBullet("Enter whole numbers for Integer Fields. Blank, non-numeric, or out-of-range card values are omitted, so the game uses the field default. Action fields use their own defaults; Damage, Heal, Push, Control, and Repeat are clamped to non-negative values.", y);
+        y = addInstructionBullet("Both library tabs have a case-insensitive title filter. Tab and Shift+Tab move between fields. Enter saves unless a library search field is active. The mouse wheel scrolls the field list when the pointer is over it.", y);
+        y = addInstructionBullet("Save Card creates a draft or updates the selected card. Delete removes the selected saved card. If you navigate away with edits, choose Save or Discard in the unsaved-changes prompt.", y);
+        y = addInstructionBullet("Check the Preview panel before saving. It shows the stored values, but only the recognized keys documented above affect the game.", y);
+        y += 22.0f;
+
+        instructionContentHeight = y - 158.0f;
     }
 
     void drawInstructions(sf::RenderWindow& window)
     {
+        ensureInstructionLayout();
         drawRoundedPanel(window, {24.0f, 100.0f}, {1232.0f, 640.0f}, Panel);
         drawText(window, font, "How to Make a Card", 28, {50.0f, 116.0f}, Ink);
-        drawText(window, font, "Mouse wheel or Page Up/Page Down to scroll. Escape returns to the editor.", 14, {650.0f, 124.0f}, Muted, 548.0f);
+        drawText(window, font, "Wheel / Page Up / Page Down: scroll. Home / End: jump. Escape: back.", 14, {650.0f, 124.0f}, Muted, 548.0f);
 
-        float y = 164.0f;
-        y = drawInstructionSection(window, "1. Card identity", y);
-        y = drawInstructionBullet(window, "Title: the unique card name. Renaming an existing card updates that card; duplicate titles are not valid.", y);
-        y = drawInstructionBullet(window, "Type: enter exactly Hero, Unit, Spell, or Enchantment. Type matching is case-sensitive.", y);
-        y = drawInstructionBullet(window, "Image Path: a path under the assets folder, such as cards/clockwork-rook.png. Do not include an absolute path or use .. to leave the assets folder.", y);
-        y = drawInstructionBullet(window, "Board art: Token selects the shared resting image and WalkAnim selects its horizontal walking sprite sheet; WalkAnimFrames gives the frame count. Optional State1Token replaces the resting image while the piece is in state 1. PieceBaseBlue and PieceBaseRed select the team-colored bases drawn beneath that art. IdleAnim loops while placed pieces are not moving; AttackAnim, DamagedAnim, and KilledAnim play as one-shot combat sheets. Optional FidgetAnim with FidgetAnimFrames plays occasionally while the piece is stationary.", y);
-        y += 12.0f;
-
-        y = drawInstructionSection(window, "2. Card types", y);
-        y = drawInstructionBullet(window, "Hero: selected during deck building and placed on one of the player's eight starting squares before play. Use heroCost instead of cost. A deck has 1-4 Heroes and a total Hero cost limit of 100. Losing every Hero loses the game.", y, sf::Color(248, 214, 112));
-        y = drawInstructionBullet(window, "Unit: goes into the 20-card main deck. It costs Resources to play and deploys to an empty square the player controls. A newly deployed Unit cannot move or attack until its owner's next turn.", y, sf::Color(150, 210, 235));
-        y = drawInstructionBullet(window, "Spell: goes into the main deck, costs Resources, resolves immediately, and leaves the hand. Spells do not use health, actions, or WalkAnim.", y, sf::Color(205, 175, 235));
-        y = drawInstructionBullet(window, "Enchantment: goes into the main deck and attaches permanently to a player, square, or piece. Use target=player with effect=resourceDrain, target=square with effect=resources, or target=piece with effect=damage; power is the modifier amount.", y, sf::Color(194, 150, 235));
-        y += 12.0f;
-
-        y = drawInstructionSection(window, "3. Integer Fields (key = whole number)", y);
-        y = drawInstructionBullet(window, "Deck Limit: maximum number of copies of this card allowed in one deck. Use 1 for the default Hero limit and 2 for the default non-Hero limit; cards without the field retain those defaults.", y, sf::Color(248, 214, 112));
-        y = drawInstructionBullet(window, "cost: Resources paid to play a Unit, Spell, or Enchantment. Default: 1.", y);
-        y = drawInstructionBullet(window, "heroCost: deck-building Hero budget. Use only on Heroes. Default: 0.", y);
-        y = drawInstructionBullet(window, "health: starting and maximum hit points for a Hero or Unit. Default: 1.", y);
-        y = drawInstructionBullet(window, "width and height: board squares occupied by a Hero or Unit. Both default to 1.", y);
-        y = drawInstructionBullet(window, "canControl: set to 0 for pieces that do not claim their occupied square or influence adjacent territory. Default: 1.", y);
-        y = drawInstructionBullet(window, "growTurns: owner turns a newly summoned piece must wait before it can act. Default: 0.", y);
-        y = drawInstructionBullet(window, "abilityUses: number of uses for a limited ability such as dig; use -1 for unlimited.", y);
-        y = drawInstructionBullet(window, "gatherResources: passive Resources gained at the start of each owner's turn. It does not remove Resources from the opponent. Default: 0.", y);
-        y = drawInstructionBullet(window, "healing aura: optional health restored to every adjacent Hero or Unit at the end of this piece's owner's turn. Diagonals count. Default: 0.", y);
-        y = drawInstructionBullet(window, "silenceRange: Silence Field radius measured between nearest footprint squares, including diagonals. Default: 1; values are clamped to 1-7 on the 8x8 board.", y);
-        y = drawInstructionBullet(window, "silenceTurns: positive number of activating-player turns before Silence Field expires. Default: 1; values below 1 become 1. Duration 1 expires at the start of that player's next turn, duration 2 at their second subsequent turn. Extra actions do not advance this clock.", y);
-        y = drawInstructionBullet(window, "Counterstrike: optional integer damage returned when an adjacent enemy attacks this piece. Diagonals count; movement attacks use their strike position. Triggers even on a killing blow. Bodyguard can redirect the damage; it does not trigger Intercept or another Counterstrike. Default: 0.", y);
-        y = drawInstructionBullet(window, "power: spell amount. It is damage dealt, health restored, or Resources gained depending on effect. Default: 0.", y);
-        y = drawInstructionBullet(window, "Tax: optional passive Resources taken from the opponent (up to this amount) and gained by the owning player at the start of each owner's turn. Default: 0.", y);
-        y += 12.0f;
-
-        y = drawInstructionSection(window, "4. Actions", y);
-        y = drawInstructionParagraph(window, "Create reusable actions in the Actions tab, then add them in the card's Actions section. Card name is flavor text shown for that card; Reusable action chooses the shared logic. Click or focus the reusable-action field to open the list; typing filters it. The chain-link button opens that action in the Actions tab.", y, Muted);
-        y += 5.0f;
-        y = drawInstructionBullet(window, "Pattern ortho, diag, omni, horizontal, or vertical moves along that board geometry up to the action's maximum range.", y);
-        y = drawInstructionBullet(window, "Pattern jump uses the fixed knight-style L shape. Pattern none is used for ranged, teleport, rally step, and tunnel actions that do not need slide geometry.", y);
-        y = drawInstructionBullet(window, "Rally Step: enable Can move and choose kind rally step to teleport to an empty destination within Minimum and Maximum range, next to another friendly unit. Diagonals and large footprints count for adjacency. Intervening pieces and Pattern do not restrict this movement; it cannot attack.", y);
-        y = drawInstructionBullet(window, "Can move lets the action target an empty destination. With Can attack enabled, positive Damage targets and hurts enemies, while positive Heal targets and restores friendlies up to maximum health. Damage and Heal must not be negative.", y);
-        y = drawInstructionBullet(window, "Target filter entries restrict attacks, healing, and status effects. A target must match every listed string across its Traits and Keywords; an empty filter accepts any otherwise-valid target. The legacy schema-11 value construct means Mechanical and is shown to players as Mechanical.", y);
-        y = drawInstructionBullet(window, "Push moves each surviving enemy target up to that many squares directly away from the attack's staging square. Blocked push distance becomes 1 extra damage per prevented square.", y);
-        y = drawInstructionBullet(window, "Lifedrain: heals the acting unit for damage this action deals, capped at maximum health. Includes Power, Bodyguard/Intercept redirection, overkill, and push collisions. Attack healing resolves before Counterstrike; it cannot revive a defeated unit. Default: 0.", y);
-        y = drawInstructionBullet(window, "Pull on a ranged attack draws each surviving enemy target toward the attacker until it is adjacent. The pull flag is ignored on other action kinds.", y);
-        y = drawInstructionBullet(window, "Control temporarily changes an attacked enemy piece to the attacking player for that many later turns of the attacking player. The attack turn is not counted; the original controller regains it on their following turn.", y);
-        y = drawInstructionBullet(window, "Minimum and maximum range are per action, so a card can mix short moves, long moves, ranged attacks, and state-specific actions.", y);
-        y = drawInstructionParagraph(window, "For blocking slide and capture actions, every square along the path must be empty. Pass-through ignores blockers. Ranged actions enforce blocker checks along straight and diagonal lines; the serialized lineOfSight flag is informational and adds no separate game rule.", y + 5.0f, sf::Color(198, 210, 224));
-        y += 10.0f;
-        y = drawInstructionParagraph(window, "A capture action is both movement and attack, but can only target an enemy-occupied square. If it destroys the enemy, the mover occupies the enemy's square; otherwise it falls back according to that action's movement geometry.", y, sf::Color(225, 170, 150));
-        y += 17.0f;
-
-        y = drawInstructionSection(window, "5. Spell / Enchantment String Fields", y);
-        y = drawInstructionBullet(window, "effect=damage with target=enemy: subtract power from an enemy Hero or Unit. If health reaches 0, that piece is destroyed.", y);
-        y = drawInstructionBullet(window, "effect=heal with target=ally: restore power health to a friendly Hero or Unit, up to its maximum health.", y);
-        y = drawInstructionBullet(window, "effect=resources with target=none: immediately add power Resources to the player. No board target is required. Legacy effect=steam is also accepted.", y);
-        y = drawInstructionParagraph(window, "Use the lowercase values exactly. The current game resolves targeting from effect; target documents the intended target and is displayed in card details.", y + 5.0f, Muted);
-        y += 17.0f;
-
-        y = drawInstructionSection(window, "6. Rarity, Traits, Keywords, and String Lists", y);
-        y = drawInstructionBullet(window, "Rarity: add a String Field named rarity and choose common, uncommon, rare, legendary, token, or starter from the dropdown. Missing or unknown values count as common. Token cards cannot appear in collections or decks. Starter cards never appear as random shop cards; players get them from the four starter decks. Shop selection odds are 70% common, 25% rare, and 5% legendary; cards within a rarity are equally likely.", y);
-        y = drawInstructionBullet(window, "Traits: unit cards require living friendly heroes with matching traits when played. Heroes and spells do not require matching traits. The deck editor can filter by the nine supported traits.", y);
-        y = drawInstructionBullet(window, "Keywords are stored separately from traits. Relentless lets a piece act again immediately whenever it destroys another piece. Bodyguard redirects positive damage from an adjacent friendly non-Bodyguard among all eligible Bodyguards; they split it evenly and randomly receive indivisible leftover points. Each Bodyguard assigned damage also takes that action's Disable, while zero-damage Disable, Push, Pull, Infest, and Control stay on the originally selected unit. Intercept can trigger once between that piece's owner-turn starts even after acting or while Disabled, Sleeping, or Growing: the adjacent protector and attacked ally swap only when both full footprints can exchange legally, then the protector takes the piece attack. Bodyguard takes priority. Trail passively creates the Unit named by the summon string field where this piece started whenever it moves. On every paid draw, Foresight reveals up to one plus the number of owned Foresight pieces, limited by the cards left in the deck, lets the player keep one, and puts the rest on the bottom.", y);
-        y = drawInstructionBullet(window, "ability: transform, dematerialize, dig, summon, command, raise undead, Swap, Power Boost, or silence field. Transform-style abilities switch action states; dig creates a tunnel hole; summon creates the unit named by the summon string field in the space in front; command lets one ready adjacent friendly piece take any normal action without ending the turn; raise undead chooses an Undead Unit from the graveyard for a free 1-Health card that is exiled on its next death.", y);
-        y = drawInstructionBullet(window, "Swap requires a card in hand. Choose a hand card to discard to the bottom of the deck, then draw up to 2 cards, limited by hand space. This does not spend Resources or the normal discard allowance.", y);
-        y = drawInstructionBullet(window, "Power Boost: gives every other adjacent friendly unit +1 Power, including diagonals and large footprints. Power stacks and remains on the unit while in play. Power adds to damage from attacks, Counterstrike, and push collisions, but not healing. Set the power (or Power) Integer Field on a Unit or Hero for starting Power. Also supported by Sacrifice; the boost happens before the source dies.", y);
-        y = drawInstructionBullet(window, "Rot Aura: add rot aura to Keywords. Adjacent enemies cannot regain Health through actions, spells, healing auras or Lifedrain. Includes diagonals and large footprints. It is passive and works while the living bearer remains adjacent, even while Disabled or Silenced.", y);
-        y = drawInstructionBullet(window, "Silence Field: set ability to silence field and optionally add silenceRange and silenceTurns Integer Fields (both default 1). The existing ability button starts a field around the caster: other units, including allies, cannot use ability or Sacrifice buttons in range. Movement, drag attacks and passives remain usable. The field follows the caster, ends on expiry or removal, and does not stack durations when reactivated. Another caster's field can silence this caster.", y);
-        y = drawInstructionBullet(window, "Swarm: add swarm to Keywords for +1 Power per adjacent living unit with exactly the same name, regardless of owner. Diagonals and large footprints count; each neighbor counts once and need not have Swarm. This bonus updates as units move or die and stacks with permanent Power.", y);
-        y = drawInstructionBullet(window, "Sacrifice: accepts every ability value and creates a separate button. Uses the same abilityUses, abilityLabels, summon and action-state fields. After the effect (including a card choice or commanded action) resolves, the unit is killed using normal death rules. An invalid use does not sacrifice it.", y);
-        y = drawInstructionBullet(window, "summon: exact Unit card title created by the active summon ability or passive Trail keyword. Player 1's active summon goes to the right and Player 2's to the left; Trail summons into the moving piece's former position. Summoned units cannot act until their owner's next turn.", y);
-        y = drawInstructionBullet(window, "Shelter: friendly pieces on the squares immediately behind this piece cannot be attacked by enemy pieces. Behind points toward the owner's home edge, covers only the adjacent column, and spans the full rear edge of a multi-square piece. Spells and friendly healing are unaffected.", y);
-        y = drawInstructionBullet(window, "rebirth: exact Unit or Hero card title that replaces this piece when it is destroyed. The replacement is a new piece using that card's stats, art, and animations; all piece enchantments move to it. A successful rebirth does not count as a kill, does not trigger Relentless, and stops attacking movement before its square.", y);
-        y = drawInstructionBullet(window, "infest: exact Unit card title that replaces an attacked enemy Unit when it is destroyed. The replacement appears in the destroyed Unit's square under the player who applied the infestation; a later infestation overrides the earlier one. Heroes cannot be infested.", y);
-        y = drawInstructionBullet(window, "Cards store ordered references to reusable action objects plus a separate display name for each reference, so the same logic can have different fantasy names on different cards.", y);
-        y = drawInstructionBullet(window, "An action is available in its state and changes the piece to nextState after use. nextState defaults to the action's state, so ordinary actions keep the piece unchanged.", y);
-        y = drawInstructionBullet(window, "abilityLabels is an ordered String List containing the button label for each action state.", y);
-        y = drawInstructionBullet(window, "Other String Lists are free-form named lists shown in card details.", y);
-        y = drawInstructionBullet(window, "Unknown Integer or String Fields are stored and displayed, but they do not change gameplay unless code is added to read them.", y);
-        y += 12.0f;
-
-        y = drawInstructionSection(window, "7. Turn and board rules that affect balance", y);
-        y = drawInstructionBullet(window, "A player may play any number of affordable cards, but normally only one piece may move or attack each turn. Repeat actions, Relentless, and Command provide their listed exceptions. Only End Turn passes play to the opponent.", y);
-        y = drawInstructionBullet(window, "A piece with canControl=1 controls its occupied square and influences adjacent territory. Pieces with canControl=0 do neither. Ties keep the current controller.", y);
-        y = drawInstructionBullet(window, "At the start of a turn, the player gains 1 Resource per controlled square, gains each piece's gatherResources amount, Tax pieces collect Resources from the opponent, and refreshes their pieces. Drawing costs 50 Resources: click the deck while below the 4-card hand limit. Foresight reveals its choices on every paid draw.", y);
-        y = drawInstructionBullet(window, "Attacks use the selected action's kind, range, pattern, and blocker behavior. Straight or diagonal Ranged actions require a clear line.", y);
-        y += 12.0f;
-
-        y = drawInstructionSection(window, "8. Complete examples", y);
-        y = drawInstructionParagraph(window, "Unit example - Type: Unit | Integer Fields: cost=40; health=12 | String Fields: rarity=rare; WalkAnim=animations/clockwork-rook-walk.png | Actions: RookMove1", y, sf::Color(150, 210, 235));
-        y += 10.0f;
-        y = drawInstructionParagraph(window, "Hero example - Type: Hero | Integer Fields: heroCost=50; health=16 | String Fields: rarity=rare; WalkAnim=animations/marsh-witch-walk.png | Actions: BishopMove2; KingAttack3", y, sf::Color(248, 214, 112));
-        y += 10.0f;
-        y = drawInstructionParagraph(window, "Spell example - Type: Spell | Integer Fields: cost=20; power=6 | String Fields: effect=heal; target=ally; rarity=common", y, sf::Color(205, 175, 235));
-        y = drawInstructionParagraph(window, "Enchantment example - Type: Enchantment | Integer Fields: cost=15; power=5 | String Fields: effect=resourceDrain; target=player; rarity=common", y, sf::Color(194, 150, 235));
-        y += 22.0f;
-
-        y = drawInstructionSection(window, "9. Using the editor safely", y);
-        y = drawInstructionBullet(window, "Use the + button beside each section to add a field and the - button beside a row to remove it. Empty keys, empty traits, empty keywords, and empty list values are not saved.", y);
-        y = drawInstructionBullet(window, "Integer values must be valid whole numbers. An invalid or blank number is omitted from the saved card, causing the game to use that field's default.", y);
-        y = drawInstructionBullet(window, "Tab and Shift+Tab move between fields. Enter saves. The mouse wheel scrolls the field list when the pointer is over it.", y);
-        y = drawInstructionBullet(window, "Save Card creates a draft or updates the selected card. Delete removes the selected saved card. If you navigate away with edits, choose Save or Discard in the unsaved-changes prompt.", y);
-        y = drawInstructionBullet(window, "Check the Preview panel before saving. It shows the stored values, but only the recognized keys documented above affect the game.", y);
-        y += 22.0f;
-
-        instructionContentHeight = y - 100.0f;
+        // Clip the existing view so partially visible lines scroll smoothly
+        // beneath the fixed heading and above the bottom of the panel.
+        const sf::View previousView = window.getView();
+        const sf::FloatRect viewport = previousView.getViewport();
+        sf::View contentView = previousView;
+        contentView.setScissor(sf::FloatRect(
+            {viewport.position.x, viewport.position.y + viewport.size.y * 158.0f / EditorHeight},
+            {viewport.size.x, viewport.size.y * 552.0f / EditorHeight}));
+        window.setView(contentView);
+        const auto first = std::lower_bound(instructionLines.begin(), instructionLines.end(),
+            instructionScroll + 158.0f - 40.0f,
+            [](const InstructionLine& line, float y) { return line.position.y < y; });
+        for (auto it = first; it != instructionLines.end(); ++it)
+        {
+            const float y = it->position.y - instructionScroll;
+            if (y >= 710.0f) break;
+            drawText(window, font, it->text, it->size, {it->position.x, y}, it->color);
+            if (it->section)
+            {
+                sf::RectangleShape line({1146.0f, 1.0f});
+                line.setPosition({50.0f, y + 32.0f});
+                line.setFillColor(Line);
+                window.draw(line);
+            }
+        }
+        window.setView(previousView);
         if (instructionMaxScroll() > 0.0f)
         {
             const float trackTop = 158.0f;
@@ -4537,19 +4632,29 @@ private:
                 {ListPanelX, ListPanelY},
                 ListPanelWidth,
                 "Library",
-                fmt::format("{} ACTIONS", actions.size()));
+                trim(actionSearchField.getValue()).empty()
+                    ? fmt::format("{} actions", actions.size())
+                    : fmt::format("{} of {} actions", visibleActionIndices.size(), actions.size()));
+            actionSearchField.draw(window);
+            drawFieldCaption(window, font, "FILTER ACTIONS", {44.0f, 146.0f}, 118.0f);
             if (actions.empty())
             {
                 drawText(window, font, "No saved actions", 18, {66.0f, 254.0f}, Ink, 186.0f);
                 drawText(window, font, "Use New to make", 13, {66.0f, 286.0f}, Muted);
                 drawText(window, font, "a reusable action.", 13, {66.0f, 304.0f}, Muted);
             }
-            const std::size_t lastVisible = std::min(actions.size(), actionListOffset + VisibleActionRows);
+            else if (visibleActionIndices.empty())
+            {
+                drawText(window, font, "No matching actions", 18, {66.0f, 254.0f}, Ink, 186.0f);
+                drawText(window, font, "Try a different search.", 13, {66.0f, 286.0f}, Muted, 186.0f);
+            }
+            const std::size_t lastVisible = std::min(visibleActionIndices.size(), actionListOffset + VisibleActionRows);
             for (std::size_t i = actionListOffset; i < lastVisible; ++i)
             {
-                const float y = ListRowStartY + static_cast<float>(i - actionListOffset) * ListRowHeight;
-                const bool selected = selectedAction && *selectedAction == i;
-                const bool hovered = hoveredAction && *hoveredAction == i;
+                const std::size_t actionIndex = visibleActionIndices[i];
+                const float y = CardListRowStartY + static_cast<float>(i - actionListOffset) * ListRowHeight;
+                const bool selected = selectedAction && *selectedAction == actionIndex;
+                const bool hovered = hoveredAction && *hoveredAction == actionIndex;
                 bayou::client::drawBeveledPlate(
                     window,
                     {42.0f, y},
@@ -4559,12 +4664,12 @@ private:
                     selected || hovered,
                     6.0f);
                 bayou::client::drawStud(window, {54.0f, y + 24.0f}, 4.0f, selected ? Accent : sf::Color(112, 132, 141));
-                drawText(window, font, actions[i].name, 16, {66.0f, y + 7.0f}, Ink, 186.0f);
-                drawText(window, font, actions[i].kind + " / " + actions[i].pattern, 13, {66.0f, y + 29.0f}, Muted, 186.0f);
+                drawText(window, font, actions[actionIndex].name, 16, {66.0f, y + 7.0f}, Ink, 186.0f);
+                drawText(window, font, actions[actionIndex].kind + " / " + actions[actionIndex].pattern, 13, {66.0f, y + 29.0f}, Muted, 186.0f);
             }
-            if (actions.size() > VisibleActionRows)
+            if (visibleActionIndices.size() > VisibleActionRows)
             {
-                drawText(window, font, fmt::format("{}-{} of {}  mouse wheel", actionListOffset + 1, lastVisible, actions.size()), 12, {46.0f, 624.0f}, Muted, 220.0f);
+                drawText(window, font, fmt::format("{}-{} of {}  mouse wheel", actionListOffset + 1, lastVisible, visibleActionIndices.size()), 12, {46.0f, 624.0f}, Muted, 220.0f);
             }
             copyActionButton.draw(window);
             newButton.draw(window);
@@ -5223,7 +5328,7 @@ private:
         }
         for (InputBox* field : focusOrder)
         {
-            if (field != &actionNameField && field != &actionKindField && !actionTargetFilterIndex(field))
+            if (field != &actionSearchField && field != &actionNameField && field != &actionKindField && !actionTargetFilterIndex(field))
             {
                 field->draw(window);
             }

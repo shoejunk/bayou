@@ -12458,13 +12458,28 @@ int main(int argc, char** argv)
                     std::min<std::size_t>(1, starterDeckOffers.size() - 1));
         }
         else if (screen == "card-editor-loaded" || screen == "card-editor-actions" ||
+                 screen == "card-editor-actions-filtered" || screen == "card-editor-actions-empty" ||
+                 screen == "card-editor-instructions-middle" ||
                  screen == "card-editor-rarity-dropdown" ||
                  screen == "card-editor-action-dropdown" ||
                  screen == "card-editor-action-kind-dropdown" ||
-                 screen == "card-editor-instructions" || screen == "card-editor-unsaved")
+                 screen == "card-editor-instructions" || screen == "card-editor-interactions" ||
+                 screen == "card-editor-unsaved")
         {
             currentState = GameState::CardEditor;
             cardEditorScreen.applyCaptureState(screen, allCardLibrary);
+            if (screen == "card-editor-interactions")
+            {
+                std::string interactionError;
+                if (!cardEditorScreen.runCaptureInteractionChecks(window, allCardLibrary, interactionError))
+                {
+                    failCaptureValidation("Card editor interaction check failed: " + interactionError);
+                }
+                else
+                {
+                    fmt::println("[Card editor interaction checks] All checks passed.");
+                }
+            }
         }
         else if (screen.rfind("conquest-", 0) == 0)
         {
