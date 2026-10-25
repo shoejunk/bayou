@@ -33,6 +33,7 @@
 #include "../client/client_clock_warning.hpp"
 #include "../client/client_sandbox.hpp"
 #include "swarm_tests.hpp"
+#include "aura_tests.hpp"
 
 #include "../shared/network.hpp"
 
@@ -1278,6 +1279,7 @@ int main(int argc, char** argv)
     _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
 #endif
+    testAuras(check);
     testSwarm(check);
     testRallyStep();
     testLifedrain();
@@ -2388,7 +2390,7 @@ int main(int argc, char** argv)
     healingPieces[1].keywords = {"Warded"};
     check(!resolvePieceAction(healingPieces, holes, healingPieces[0], 4, 3).legal,
           "healing-only actions cannot target an enemy piece");
-    applyActionHealing(healingPieces[1], healingResult.heal, healingResult.statusTurns);
+    applyActionHealing(healingPieces, healingPieces[1], healingResult.heal, healingResult.statusTurns);
     check(healingPieces[1].health == healingPieces[1].maxHealth &&
               healingPieces[1].disabledTurns == 0 && healingPieces[1].sleepTurnsRemaining == 0,
           "positive action healing stops at maximum health without applying damage status");
@@ -2417,7 +2419,7 @@ int main(int argc, char** argv)
           "legacy construct healing filters target the canonical Mechanical trait");
     const int mechanicalHealthBefore = constructHealingPieces[1].health;
     applyActionHealing(
-        constructHealingPieces[1],
+        constructHealingPieces, constructHealingPieces[1],
         constructHealingResult.heal,
         constructHealingResult.statusTurns);
     check(constructHealingPieces[1].health == std::min(

@@ -5539,6 +5539,7 @@ int main(int argc, char** argv)
     std::function<void(game_data::Snapshot&)> resolveSandboxSacrifices;
     auto commitSandboxSnapshot = [&](game_data::Snapshot nextSnapshot) {
         if (resolveSandboxSacrifices) resolveSandboxSacrifices(nextSnapshot);
+        game_data::refreshAuraIndicators(nextSnapshot.pieces);
         recomputeSandboxControl(nextSnapshot);
         refreshSandboxPlayerSnapshots(nextSnapshot);
         commitLocalSnapshot(std::move(nextSnapshot));
@@ -8173,7 +8174,7 @@ int main(int argc, char** argv)
                 commitSandboxSnapshot(std::move(next));
                 return;
             }
-            target->health = std::min(target->maxHealth, target->health + card.power);
+            game_data::applyActionHealing(next.pieces, *target, card.power, 0);
         }
 
         next.status = "Sandbox played " + card.title + ".";
@@ -8322,7 +8323,7 @@ int main(int argc, char** argv)
                 if (target->owner == attackerOwner)
                 {
                     healedTargetNames.push_back(targetName);
-                    game_data::applyActionHealing(*target, action.heal, action.statusTurns);
+                    game_data::applyActionHealing(next.pieces, *target, action.heal, action.statusTurns);
                 }
                 else
                 {
@@ -8738,6 +8739,10 @@ int main(int argc, char** argv)
             }
             spawnSandboxPiece(next, nextSandboxPieceId, pieceOwner, *found, row, column, false);
         }
+        else if (ability == "silence field")
+        {
+            game_data::activateSilenceField(*piece, pieceOwner);
+        }
         else if (ability == "power boost")
         {
             game_data::applyPowerBoost(next.pieces, *piece);
@@ -8821,6 +8826,7 @@ int main(int argc, char** argv)
 
         next.activePlayer = endingPlayer == 1 ? 2 : 1;
         const int startingPlayer = next.activePlayer;
+        game_data::updateSilenceFieldsAtTurnStart(next.pieces, startingPlayer);
         game_data::updatePieceControlAtTurnStart(next.pieces, startingPlayer);
         for (game_data::Piece& piece : next.pieces)
         {

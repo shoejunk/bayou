@@ -130,6 +130,7 @@ bool isHiddenCardDetailKey(const std::string& key)
         key == "canControl" || key == "growTurns" || key == "abilityUses" || key == "gatherResources" ||
         key == "ability" || key == "Sacrifice" || key == "sacrifice" || key == "summon" || key == "summonUnit" || key == "abilityLabels" ||
         key == game_data::HealingAuraField || key == game_data::CounterstrikeField ||
+        key == game_data::SilenceRangeField || key == game_data::SilenceTurnsField ||
         key == "WalkAnimFrames" || key == "IdleAnimFrames" ||
         key == "AttackAnimFrames" || key == "DamagedAnimFrames" || key == "KilledAnimFrames" ||
         key == "rarity" || key == "effect" || key == "target" || key == "rebirth" ||
@@ -397,6 +398,11 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             details.push_back({"Keywords: " + joinStrings(card.keywords, ", "),
                                sf::Color(146, 206, 226)});
         }
+        if (game_data::hasKeyword(card.keywords, "rot aura"))
+        {
+            details.push_back({"Rot Aura: adjacent enemies cannot regain Health from any source, including Lifedrain. Diagonals count. Ends when this unit leaves play or is no longer adjacent.",
+                               sf::Color(146, 206, 226)});
+        }
         if (game_data::hasKeyword(card.keywords, "swarm"))
         {
             details.push_back({"Swarm: +1 Power for each adjacent unit with the same name, on either side. Diagonals count; each large unit counts once. The bonus lasts only while adjacent.",
@@ -461,6 +467,12 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             else if (ability == "power boost")
             {
                 abilityText = "Ability: Power Boost. Give every adjacent friendly unit +1 Power (including diagonals). Does not affect this unit. Power stacks and increases damage dealt while the unit remains in play";
+            }
+            else if (ability == "silence field")
+            {
+                abilityText = "Ability: Silence Field. Other units within " + std::to_string(gameCard.silenceRange) +
+                    " squares, friend or foe, cannot use ability buttons. Movement, drag attacks and passives remain usable. Follows this unit; expires at the start of the activating player's " +
+                    std::to_string(gameCard.silenceTurns) + " subsequent owner-turn(s)";
             }
             else if (ability == "command")
             {

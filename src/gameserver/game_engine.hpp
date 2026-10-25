@@ -926,6 +926,7 @@ private:
                 blocker->owner != playerNumber;
         }
         if (piece == nullptr || piece->owner != playerNumber || piece->hasActed ||
+            pieceIsSilenced(pieces, *piece) ||
             (!pieceAbilityAvailable(pieces, *piece, sacrifice) && !hiddenSummonCollision))
         {
             return false;
@@ -1010,6 +1011,10 @@ private:
                 spawnPiece(playerNumber, *summonCard, row, column, false);
                 pieces.back().hasActed = true;
             }
+        }
+        else if (ability == "silence field")
+        {
+            activateSilenceField(*piece, playerNumber);
         }
         else if (ability == "power boost")
         {
@@ -1353,6 +1358,8 @@ public:
                 // concealed from this viewer. The authoritative piece keeps its
                 // permanent Power so movement/death cannot accumulate Swarm.
                 snapshot.pieces.back().power = effectivePiecePower(pieces, piece);
+                snapshot.pieces.back().abilitySilenced = pieceIsSilenced(pieces, piece);
+                snapshot.pieces.back().healingBlocked = pieceHealingBlocked(pieces, piece);
             }
         }
         for (const Enchantment& enchantment : enchantments)
@@ -2025,7 +2032,7 @@ private:
                 if (target->owner == attackerOwner)
                 {
                     healedTargetNames.push_back(targetName);
-                    applyActionHealing(*target, action.heal, action.statusTurns);
+                    applyActionHealing(pieces, *target, action.heal, action.statusTurns);
                 }
                 else
                 {
@@ -2458,6 +2465,7 @@ private:
         player.foresightChoices.clear();
         player.discardsThisTurn = 0;
         player.pieceActionUsedThisTurn = false;
+        updateSilenceFieldsAtTurnStart(pieces, playerNumber);
         updatePieceControlAtTurnStart(pieces, playerNumber);
         // A controlled piece can return to its original owner at the start of
         // this turn.  Control-derived income must use that restored ownership,
@@ -2634,7 +2642,7 @@ private:
                 setStatusFor(playerNumber, "Target a friendly piece.");
                 return false;
             }
-            target->health = std::min(target->maxHealth, target->health + card.power);
+            applyActionHealing(pieces, *target, card.power, 0);
             return true;
         }
 

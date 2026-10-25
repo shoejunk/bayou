@@ -30,6 +30,10 @@ constexpr int MaxHeroCopies = 1;
 constexpr const char* DeckLimitField = "Deck Limit";
 constexpr const char* HealingAuraField = "healing aura";
 constexpr const char* CounterstrikeField = "Counterstrike";
+constexpr const char* SilenceRangeField = "silenceRange";
+constexpr const char* SilenceTurnsField = "silenceTurns";
+inline int normalizedSilenceRange(int range) { return std::clamp(range, 1, BoardSize - 1); }
+inline int normalizedSilenceTurns(int turns) { return std::max(1, turns); }
 constexpr int MinHeroes = 1;
 constexpr int MaxHeroes = 4;
 constexpr int HeroCostLimit = 100;
@@ -449,6 +453,8 @@ struct GameCard
     int gatherResources = 0;      // passive resources gained at the start of each owner's turn
     int healingAura = 0;          // health restored to every adjacent piece at the owner's turn end
     int counterstrike = 0;        // damage returned to an adjacent enemy attacker
+    int silenceRange = 1;
+    int silenceTurns = 1;
     bool canControl = true;
     int growTurns = 0;
     std::vector<ActionProfile> actions;
@@ -500,6 +506,8 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.gatherResources = std::max(0, cardInt(card, "gatherResources", 0));
     g.healingAura = std::max(0, cardInt(card, HealingAuraField, 0));
     g.counterstrike = std::max(0, cardInt(card, CounterstrikeField, 0));
+    g.silenceRange = normalizedSilenceRange(cardInt(card, SilenceRangeField, 1));
+    g.silenceTurns = normalizedSilenceTurns(cardInt(card, SilenceTurnsField, 1));
     g.canControl = cardInt(card, "canControl", 1) != 0;
     g.growTurns = cardInt(card, "growTurns", 0);
     g.ability = normalizedAbility(cardStr(card, "ability"));
@@ -740,6 +748,13 @@ struct Piece
     int gatherResources = 0;
     int healingAura = 0;
     int counterstrike = 0;
+    int silenceRange = 1;
+    int silenceTurns = 1;
+    int silenceTurnsRemaining = 0;
+    int silenceExpiryPlayer = 0; // activating player; ownership changes do not change the clock
+    // View-only facts include effects of concealed sources without revealing them.
+    bool abilitySilenced = false;
+    bool healingBlocked = false;
     int power = 0;
     int width = 1;
     int height = 1;
@@ -821,6 +836,12 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.gatherResources = card.gatherResources;
     piece.healingAura = card.healingAura;
     piece.counterstrike = card.counterstrike;
+    piece.silenceRange = normalizedSilenceRange(card.silenceRange);
+    piece.silenceTurns = normalizedSilenceTurns(card.silenceTurns);
+    piece.silenceTurnsRemaining = 0;
+    piece.silenceExpiryPlayer = 0;
+    piece.abilitySilenced = false;
+    piece.healingBlocked = false;
     piece.power = std::max(0, card.power);
     piece.width = card.width;
     piece.height = card.height;
@@ -862,13 +883,6 @@ inline void applyActionDamage(Piece& target, int damage, int statusTurns)
     const int positiveDamage = std::max(0, damage);
     target.health -= positiveDamage;
     applyDamageStatus(target, positiveDamage, statusTurns);
-}
-
-// Action healing is a separate positive magnitude and cannot exceed max health.
-inline void applyActionHealing(Piece& target, int heal, int statusTurns)
-{
-    target.health = std::min(target.maxHealth, target.health + std::max(0, heal));
-    applyDamageStatus(target, 0, statusTurns);
 }
 
 inline int pieceOriginalOwner(const Piece& piece)
@@ -1032,7 +1046,40 @@ struct Snapshot
 
 // ---- serialization helpers -------------------------------------------------
 
-inline void writeGameCard(sf::Packet& packet, const GameCard& card)
+inline void writeCardAuraFields(sf::Packet& packet, const GameCard& card)
+{
+    packet << normalizedSilenceRange(card.silenceRange) << normalizedSilenceTurns(card.silenceTurns);
+}
+
+inline bool readCardAuraFields(sf::Packet& packet, GameCard& card)
+{
+    packet >> card.silenceRange >> card.silenceTurns;
+    if (!packet) return false;
+    card.silenceRange = normalizedSilenceRange(card.silenceRange);
+    card.silenceTurns = normalizedSilenceTurns(card.silenceTurns);
+    return true;
+}
+
+inline void writePieceAuraFields(sf::Packet& packet, const Piece& piece)
+{
+    packet << normalizedSilenceRange(piece.silenceRange) << normalizedSilenceTurns(piece.silenceTurns)
+           << piece.silenceTurnsRemaining << piece.silenceExpiryPlayer
+           << piece.abilitySilenced << piece.healingBlocked;
+}
+
+inline bool readPieceAuraFields(sf::Packet& packet, Piece& piece)
+{
+    packet >> piece.silenceRange >> piece.silenceTurns >> piece.silenceTurnsRemaining
+           >> piece.silenceExpiryPlayer >> piece.abilitySilenced >> piece.healingBlocked;
+    if (!packet || piece.silenceTurnsRemaining < 0 || piece.silenceExpiryPlayer < 0 ||
+        piece.silenceExpiryPlayer > 2 || (piece.silenceTurnsRemaining > 0 && piece.silenceExpiryPlayer == 0))
+        return false;
+    piece.silenceRange = normalizedSilenceRange(piece.silenceRange);
+    piece.silenceTurns = normalizedSilenceTurns(piece.silenceTurns);
+    return true;
+}
+
+inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFields = true)
 {
     packet << card.title << card.type;
     card_data::writeStringVector(packet, card.traits);
@@ -1061,9 +1108,10 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card)
     packet << card.ability << card.sacrifice << card.summonTitle << card.rebirthTitle;
     card_data::writeStringVector(packet, card.abilityLabels);
     packet << card.abilityUses << card.raisedFromGraveyard;
+    if (auraFields) writeCardAuraFields(packet, card);
 }
 
-inline bool readGameCard(sf::Packet& packet, GameCard& card)
+inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = true)
 {
     packet >> card.title >> card.type;
     if (!packet || !card_data::readStringVector(packet, card.traits) ||
@@ -1110,10 +1158,11 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card)
         return false;
     }
     packet >> card.abilityUses >> card.raisedFromGraveyard;
-    return static_cast<bool>(packet);
+    card.silenceRange = card.silenceTurns = 1;
+    return packet && (!auraFields || packet.endOfPacket() || readCardAuraFields(packet, card));
 }
 
-inline void writePiece(sf::Packet& packet, const Piece& piece)
+inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields = true)
 {
     packet << piece.id << piece.owner << piece.originalOwner << piece.row << piece.column << piece.name;
     card_data::writeStringVector(packet, piece.traits);
@@ -1144,9 +1193,10 @@ inline void writePiece(sf::Packet& packet, const Piece& piece)
         packet << action.infest << action.pull << action.lifedrain;
     }
     card_data::writeStringVector(packet, piece.abilityLabels);
+    if (auraFields) writePieceAuraFields(packet, piece);
 }
 
-inline bool readPiece(sf::Packet& packet, Piece& piece)
+inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
 {
     packet >> piece.id >> piece.owner >> piece.originalOwner >> piece.row >> piece.column >> piece.name;
     if (!packet || !card_data::readStringVector(packet, piece.traits) ||
@@ -1191,7 +1241,11 @@ inline bool readPiece(sf::Packet& packet, Piece& piece)
         }
         piece.actions.push_back(action);
     }
-    return packet && card_data::readStringVector(packet, piece.abilityLabels);
+    piece.silenceRange = piece.silenceTurns = 1;
+    piece.silenceTurnsRemaining = piece.silenceExpiryPlayer = 0;
+    piece.abilitySilenced = piece.healingBlocked = false;
+    return packet && card_data::readStringVector(packet, piece.abilityLabels) &&
+        (!auraFields || packet.endOfPacket() || readPieceAuraFields(packet, piece));
 }
 
 inline void writeEnchantment(sf::Packet& packet, const Enchantment& enchantment)
@@ -1229,7 +1283,7 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 }
 
 // Writes a complete snapshot payload (without the leading message-type byte).
-inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
+inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool auraFields = true)
 {
     packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner
            << snapshot.commandingPieceId << snapshot.relentlessPieceId
@@ -1249,7 +1303,7 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
     packet << static_cast<std::uint32_t>(snapshot.pieces.size());
     for (const Piece& piece : snapshot.pieces)
     {
-        writePiece(packet, piece);
+        writePiece(packet, piece, false);
     }
 
     packet << static_cast<std::uint32_t>(snapshot.enchantments.size());
@@ -1261,20 +1315,20 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
     packet << static_cast<std::uint32_t>(snapshot.hand.size());
     for (const GameCard& card : snapshot.hand)
     {
-        writeGameCard(packet, card);
+        writeGameCard(packet, card, false);
     }
 
     packet << static_cast<std::uint32_t>(snapshot.foresightChoices.size());
     for (const GameCard& card : snapshot.foresightChoices)
     {
-        writeGameCard(packet, card);
+        writeGameCard(packet, card, false);
     }
 
     const auto writeCardZone = [&](const std::vector<GameCard>& cards) {
         packet << static_cast<std::uint32_t>(cards.size());
         for (const GameCard& card : cards)
         {
-            writeGameCard(packet, card);
+            writeGameCard(packet, card, false);
         }
     };
     writeCardZone(snapshot.graveyard);
@@ -1283,9 +1337,22 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot)
     packet << snapshot.swapChoicePending;
 
     packet << snapshot.status;
+    if (auraFields)
+    {
+        packet << std::uint32_t{0x41555231}; // AUR1: optional, after the legacy payload
+        for (const Piece& piece : snapshot.pieces) writePieceAuraFields(packet, piece);
+        const auto writeZone = [&](const std::vector<GameCard>& cards) {
+            for (const GameCard& card : cards) writeCardAuraFields(packet, card);
+        };
+        writeZone(snapshot.hand);
+        writeZone(snapshot.foresightChoices);
+        writeZone(snapshot.graveyard);
+        writeZone(snapshot.exiled);
+        writeZone(snapshot.raiseUndeadChoices);
+    }
 }
 
-inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot)
+inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot, bool auraFields = true)
 {
     packet >> snapshot.phase >> snapshot.activePlayer >> snapshot.yourPlayer >> snapshot.winner
            >> snapshot.commandingPieceId >> snapshot.relentlessPieceId
@@ -1324,7 +1391,7 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot)
     for (std::uint32_t i = 0; i < pieceCount; ++i)
     {
         Piece piece;
-        if (!readPiece(packet, piece))
+        if (!readPiece(packet, piece, false))
         {
             return false;
         }
@@ -1360,7 +1427,7 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot)
     for (std::uint32_t i = 0; i < handCount; ++i)
     {
         GameCard card;
-        if (!readGameCard(packet, card))
+        if (!readGameCard(packet, card, false))
         {
             return false;
         }
@@ -1378,7 +1445,7 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot)
     for (std::uint32_t i = 0; i < foresightChoiceCount; ++i)
     {
         GameCard card;
-        if (!readGameCard(packet, card))
+        if (!readGameCard(packet, card, false))
         {
             return false;
         }
@@ -1397,7 +1464,7 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot)
         for (std::uint32_t i = 0; i < count; ++i)
         {
             GameCard card;
-            if (!readGameCard(packet, card))
+            if (!readGameCard(packet, card, false))
             {
                 return false;
             }
@@ -1412,7 +1479,20 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot)
         return false;
     }
     packet >> snapshot.swapChoicePending >> snapshot.status;
-    return static_cast<bool>(packet);
+    if (!packet || !auraFields || packet.endOfPacket()) return static_cast<bool>(packet);
+    std::uint32_t marker = 0;
+    packet >> marker;
+    if (!packet || marker != 0x41555231) return false;
+    for (Piece& piece : snapshot.pieces)
+        if (!readPieceAuraFields(packet, piece)) return false;
+    const auto readZone = [&](std::vector<GameCard>& cards) {
+        for (GameCard& card : cards)
+            if (!readCardAuraFields(packet, card)) return false;
+        return true;
+    };
+    return readZone(snapshot.hand) && readZone(snapshot.foresightChoices) &&
+        readZone(snapshot.graveyard) && readZone(snapshot.exiled) &&
+        readZone(snapshot.raiseUndeadChoices) && packet.endOfPacket();
 }
 }
 

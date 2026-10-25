@@ -563,6 +563,72 @@ inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
     return std::max(rowGap, columnGap) == 1;
 }
 
+// Chebyshev distance between the closest occupied squares of full footprints.
+inline int pieceDistance(const Piece& first, const Piece& second)
+{
+    const int rowGap = std::max(0, std::max(second.row - (first.row + first.height - 1),
+        first.row - (second.row + second.height - 1)));
+    const int columnGap = std::max(0, std::max(second.column - (first.column + first.width - 1),
+        first.column - (second.column + second.width - 1)));
+    return std::max(rowGap, columnGap);
+}
+
+inline bool pieceHealingBlocked(const std::vector<Piece>& pieces, const Piece& target)
+{
+    return std::any_of(pieces.begin(), pieces.end(), [&](const Piece& source) {
+        return source.id != target.id && source.owner != target.owner && source.health > 0 &&
+            hasKeyword(source.keywords, "rot aura") && piecesAreAdjacent(source, target);
+    });
+}
+
+inline bool pieceIsSilenced(const std::vector<Piece>& pieces, const Piece& target)
+{
+    return std::any_of(pieces.begin(), pieces.end(), [&](const Piece& source) {
+        return source.id != target.id && source.health > 0 && source.silenceTurnsRemaining > 0 &&
+            pieceDistance(source, target) <= normalizedSilenceRange(source.silenceRange);
+    });
+}
+
+// The shared gate covers action, spell, aura and Lifedrain healing. Healing is
+// never resurrection; status handling is independent of whether Health rises.
+inline void applyActionHealing(const std::vector<Piece>& pieces, Piece& target, int heal, int statusTurns)
+{
+    if (target.health > 0 && !pieceHealingBlocked(pieces, target))
+        target.health = static_cast<int>(std::min<std::int64_t>(target.maxHealth,
+            static_cast<std::int64_t>(target.health) + std::max(0, heal)));
+    applyDamageStatus(target, 0, statusTurns);
+}
+
+inline void activateSilenceField(Piece& source, int playerNumber)
+{
+    source.silenceTurnsRemaining = normalizedSilenceTurns(source.silenceTurns);
+    source.silenceExpiryPlayer = playerNumber;
+}
+
+// Duration N expires at the start of the activating player's Nth subsequent
+// turn. Cards and additional piece actions within one turn never advance it.
+inline void updateSilenceFieldsAtTurnStart(std::vector<Piece>& pieces, int playerNumber)
+{
+    for (Piece& piece : pieces)
+        if (piece.silenceExpiryPlayer == playerNumber && piece.silenceTurnsRemaining > 0)
+            if (--piece.silenceTurnsRemaining == 0) piece.silenceExpiryPlayer = 0;
+}
+
+// Recompute view-only facts only on a complete board (before hidden redaction).
+inline void refreshAuraIndicators(std::vector<Piece>& pieces)
+{
+    for (Piece& piece : pieces) piece.abilitySilenced = piece.healingBlocked = false;
+    std::vector<std::pair<bool, bool>> indicators;
+    indicators.reserve(pieces.size());
+    for (const Piece& piece : pieces)
+        indicators.emplace_back(pieceIsSilenced(pieces, piece), pieceHealingBlocked(pieces, piece));
+    for (std::size_t i = 0; i < pieces.size(); ++i)
+    {
+        pieces[i].abilitySilenced = indicators[i].first;
+        pieces[i].healingBlocked = indicators[i].second;
+    }
+}
+
 inline ActionResolution resolvePieceAction(
     const std::vector<Piece>& pieces,
     const std::array<std::uint8_t, BoardSquares>& holes,
@@ -1141,6 +1207,7 @@ inline std::string pieceAbilityLabel(const Piece& piece, bool sacrifice = false)
     {
         return prefix + "Power Boost";
     }
+    if (ability == "silence field") return prefix + "Silence Field";
     if (ability == "dig")
     {
         return prefix + "Dig";
@@ -1340,7 +1407,7 @@ inline void applyHealingAuras(std::vector<Piece>& pieces, int owner)
         {
             if (target.id != aura.id && piecesAreAdjacent(aura, target))
             {
-                applyActionHealing(target, aura.healingAura, 0);
+                applyActionHealing(pieces, target, aura.healingAura, 0);
             }
         }
     }
@@ -1592,7 +1659,7 @@ inline void applyActionLifedrain(std::vector<Piece>& pieces, int attackerId, int
         [attackerId](const Piece& piece) { return piece.id == attackerId; });
     if (attacker != pieces.end() && attacker->health > 0 && damage > 0)
     {
-        applyActionHealing(*attacker, std::min(damage,
+        applyActionHealing(pieces, *attacker, std::min(damage,
             std::max(0, attacker->maxHealth - attacker->health)), 0);
     }
 }
@@ -1698,12 +1765,13 @@ inline bool pieceAbilityAvailable(const Piece& piece, bool sacrifice = false)
         return !piece.summonTitle.empty();
     }
     return ability == "transform" || ability == "dematerialize" || ability == "command" ||
-        ability == "raise undead" || ability == "swap" || ability == "power boost";
+        ability == "raise undead" || ability == "swap" || ability == "power boost" ||
+        ability == "silence field";
 }
 
 inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece& piece, bool sacrifice = false)
 {
-    if (!pieceAbilityAvailable(piece, sacrifice))
+    if (!pieceAbilityAvailable(piece, sacrifice) || pieceIsSilenced(pieces, piece))
     {
         return false;
     }
@@ -1729,7 +1797,7 @@ inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece&
 
 inline bool pieceAbilityAvailable(const Snapshot& snapshot, const Piece& piece, bool sacrifice = false)
 {
-    if (!pieceAbilityAvailable(snapshot.pieces, piece, sacrifice))
+    if (piece.abilitySilenced || !pieceAbilityAvailable(snapshot.pieces, piece, sacrifice))
     {
         return false;
     }
