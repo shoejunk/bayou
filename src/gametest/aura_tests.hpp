@@ -166,6 +166,25 @@ void testAuras(Check check)
           drainEngine.boardPieces()[1].health == 2 && drainEngine.boardPieces()[2].health == 8,
           "Rot Aura prevents Lifedrain without preventing attack damage");
 
+    // Moving attacks heal at the strike square, before movement is committed.
+    drain.actions[0] = move;
+    drain.actions[0].lifedrain = true;
+    drain.actions[0].damage = 2;
+    GameEngine leavingRot(996, {});
+    leavingRot.loadScenario({{2, rot, 3, 3, false}, {1, drain, 2, 2, false, 2},
+                             {2, button, 0, 4, false}}, {}, {}, 0, 0, 1, "Leave Rot", false);
+    check(leavingRot.attackPiece(1, leavingRot.boardPieces()[1].id, 0, 4) &&
+          leavingRot.boardPieces()[1].health == 4 && leavingRot.boardPieces()[1].row == 1 &&
+          leavingRot.boardPieces()[1].column == 3,
+          "moving out of Rot Aura restores Lifedrain at the strike square");
+    GameEngine enteringRot(997, {});
+    enteringRot.loadScenario({{2, rot, 1, 2, false}, {1, drain, 0, 0, false, 2},
+                              {2, button, 2, 2, false}}, {}, {}, 0, 0, 1, "Enter Rot", false);
+    check(enteringRot.attackPiece(1, enteringRot.boardPieces()[1].id, 2, 2) &&
+          enteringRot.boardPieces()[1].health == 2 && enteringRot.boardPieces()[1].row == 1 &&
+          enteringRot.boardPieces()[1].column == 1,
+          "moving into Rot Aura blocks Lifedrain at the strike square");
+
     // Concealed sources supply authoritative view facts without leaking positions.
     board = {source, target}; board[0].hidden = true;
     activateSilenceField(board[0], 2);

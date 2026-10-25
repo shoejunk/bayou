@@ -23,7 +23,8 @@ version change is required.
 
 Rot Aura prevents adjacent enemies from regaining Health through healing
 actions, spells, end-turn healing auras, or Lifedrain (including push-collision
-damage). Diagonals and the full footprints of large units count. It excludes
+damage). Moving attacks check healing restrictions at the strike square before
+movement is committed. Diagonals and the full footprints of large units count. It excludes
 the bearer and allies. Disabled, sleeping, growing, hidden or silenced bearers
 still supply this passive while alive. Moving away or defeating/removing the
 bearer ends the restriction immediately. Healing cannot resurrect dead pieces;

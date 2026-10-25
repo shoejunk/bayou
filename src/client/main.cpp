@@ -8380,7 +8380,8 @@ int main(int argc, char** argv)
                         attackerPower);
                     if (action.lifedrain)
                     {
-                        game_data::applyActionLifedrain(next.pieces, attackerId, pushResult.collisionDamage);
+                        game_data::applyActionLifedrain(next.pieces, attackerId, pushResult.collisionDamage,
+                        action.stagingRow, action.stagingColumn);
                     }
                     pushedSquares += pushResult.movedSquares;
                     pushCollisionDamage += pushResult.collisionDamage;

@@ -2079,7 +2079,8 @@ private:
                         attackerPower);
                     if (action.lifedrain)
                     {
-                        applyActionLifedrain(pieces, attackerId, pushResult.collisionDamage);
+                        applyActionLifedrain(pieces, attackerId, pushResult.collisionDamage,
+                            action.stagingRow, action.stagingColumn);
                     }
                     pushedSquares += pushResult.movedSquares;
                     pushCollisionDamage += pushResult.collisionDamage;

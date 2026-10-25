@@ -1653,14 +1653,26 @@ inline std::vector<DamageAssignment> applyDamageWithBodyguards(
 }
 
 // Damage includes overkill, matching applyActionDamage. Never revive a casualty.
-inline void applyActionLifedrain(std::vector<Piece>& pieces, int attackerId, int damage)
+inline void applyActionLifedrain(std::vector<Piece>& pieces, int attackerId, int damage,
+    int strikeRow = -1, int strikeColumn = -1)
 {
     const auto attacker = std::find_if(pieces.begin(), pieces.end(),
         [attackerId](const Piece& piece) { return piece.id == attackerId; });
     if (attacker != pieces.end() && attacker->health > 0 && damage > 0)
     {
+        // Moving attacks resolve at their strike position, before the engine
+        // commits movement. Spatial healing restrictions must use that square.
+        const int originRow = attacker->row;
+        const int originColumn = attacker->column;
+        if (inBounds(strikeRow, strikeColumn))
+        {
+            attacker->row = strikeRow;
+            attacker->column = strikeColumn;
+        }
         applyActionHealing(pieces, *attacker, std::min(damage,
             std::max(0, attacker->maxHealth - attacker->health)), 0);
+        attacker->row = originRow;
+        attacker->column = originColumn;
     }
 }
 
@@ -1694,7 +1706,7 @@ inline PieceAttackDamageResolution resolvePieceAttackDamage(
     {
         for (const DamageAssignment& assignment : result.attack.assignments)
         {
-            applyActionLifedrain(pieces, attackerId, assignment.damage);
+            applyActionLifedrain(pieces, attackerId, assignment.damage, stagingRow, stagingColumn);
         }
     }
     const auto attacker = std::find_if(pieces.begin(), pieces.end(),
