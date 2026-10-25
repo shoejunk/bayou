@@ -103,7 +103,7 @@ for executable in accounts cardserver gameserver matchmaking; do
     fi
 done
 if [[ ! -f "${ARTIFACT_DIR}/.bayou-commit" ]] ||
-    [[ "$(<"${ARTIFACT_DIR}/.bayou-commit" 2>/dev/null || true)" != "${DEPLOY_COMMIT}" ]]; then
+    [[ "$(cat -- "${ARTIFACT_DIR}/.bayou-commit" 2>/dev/null || true)" != "${DEPLOY_COMMIT}" ]]; then
     artifact_is_complete=false
 fi
 
