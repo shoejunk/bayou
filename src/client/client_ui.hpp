@@ -125,6 +125,12 @@ float logicalRenderScale(const sf::RenderTarget& target);
 // window.draw(text) for every sf::Text. The text object is left unchanged.
 void drawCrispText(sf::RenderWindow& window, sf::Text& text);
 
+// Binary form control: a steel slider with a violet on state and a readable
+// state label. The entire bounds are the click target, including the label.
+void drawToggleSwitch(
+    sf::RenderWindow& window, const sf::Font& font, sf::FloatRect bounds,
+    bool on, bool hovered, bool focused);
+
 std::string elideToWidth(sf::Font& font, const std::string& value, unsigned int size, float maxWidth);
 void drawText(
     sf::RenderWindow& window,

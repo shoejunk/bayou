@@ -180,9 +180,27 @@ export struct InputBox
         return active;
     }
 
+    // Reuses the form's layout and focus order while presenting a binary
+    // switch instead of editable text. Values retain the wire format 0/1.
+    void setToggleMode(bool enabled) { toggleMode = enabled; }
+    bool isToggle() const { return toggleMode; }
+    bool isOn() const
+    {
+        try { return std::stoi(content) != 0; }
+        catch (...) { return false; }
+    }
+    void toggle()
+    {
+        if (toggleMode)
+        {
+            setValue(isOn() ? "0" : "1");
+            errored = false;
+        }
+    }
+
     void beginMouseSelection(sf::Vector2f mouse, bool extendSelection)
     {
-        if (!active)
+        if (!active || toggleMode)
         {
             return;
         }
@@ -193,6 +211,21 @@ export struct InputBox
 
     void handleEvent(const sf::Event& event, const sf::RenderWindow& window)
     {
+        if (toggleMode)
+        {
+            // Mouse activation belongs to the owning form after hit testing:
+            // handling it here too would flip an already-focused switch twice.
+            if (active)
+            {
+                if (const auto* key = event.getIf<sf::Event::KeyPressed>();
+                    key && !key->control && !key->alt &&
+                    (key->code == sf::Keyboard::Key::Space || key->code == sf::Keyboard::Key::Enter))
+                {
+                    toggle();
+                }
+            }
+            return;
+        }
         if (const auto* released = event.getIf<sf::Event::MouseButtonReleased>();
             released && released->button == sf::Mouse::Button::Left)
         {
@@ -235,7 +268,7 @@ export struct InputBox
 
     void handleText(sf::Event::TextEntered textEvent)
     {
-        if (!active)
+        if (!active || toggleMode)
         {
             return;
         }
@@ -291,6 +324,14 @@ export struct InputBox
                     label->getPosition() + sf::Vector2f(0.0f, static_cast<float>(style.labelSize) * 0.28f));
             }
             bayou::client::drawCrispText(window, drawnLabel);
+        }
+
+        if (toggleMode && text)
+        {
+            bayou::client::drawToggleSwitch(window, text->getFont(),
+                {shape.getPosition(), shape.getSize()}, isOn(),
+                contains(window.mapPixelToCoords(sf::Mouse::getPosition(window))), active);
+            return;
         }
 
         drawFieldFrame(window);
@@ -367,6 +408,7 @@ private:
     bool draggingSelection = false;
     float rightContentInset = 0.0f;
     bool errored = false;
+    bool toggleMode = false;
     std::string placeholder;
 
     static sf::ConvexShape cutRect(sf::Vector2f position, sf::Vector2f size, float cut)

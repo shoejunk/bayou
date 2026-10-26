@@ -820,6 +820,7 @@ public:
             {
                 applyActionSearchFilter();
             }
+            updateIntegerToggleModes();
         }
 
         if (const auto* keyEvent = event.getIf<sf::Event::KeyPressed>())
@@ -908,6 +909,7 @@ public:
                 ensureActiveFieldVisible();
             }
             else if (!handledDropdownKey && keyEvent->code == sf::Keyboard::Key::Enter &&
+                     !(!focusOrder.empty() && focusOrder[focusIndex]->isActive() && focusOrder[focusIndex]->isToggle()) &&
                      !(editorMode == EditorMode::Cards && cardSearchField.isActive()) &&
                      !(editorMode == EditorMode::Actions && actionSearchField.isActive()))
             {
@@ -1719,6 +1721,12 @@ private:
         actionRepeatField = makeCompactField("0", {110.0f, 32.0f});
         actionPullField = makeCompactField("0", {110.0f, 32.0f});
         actionInfestField = makeCompactField("", {294.0f, 32.0f});
+        for (InputBox* field : {&actionCanMoveField, &actionCanAttackField,
+                 &actionPassThroughField, &actionLineOfSightField, &actionPullField,
+                 &actionLifedrainField})
+        {
+            field->setToggleMode(true);
+        }
         if (const std::optional<std::filesystem::path> path = resolveAssetImagePath("ui/action-link.png"))
         {
             hasActionLinkTexture = actionLinkTexture.loadFromFile(*path);
@@ -1733,6 +1741,16 @@ private:
         InputBox field(font, "", {0.0f, 0.0f}, size);
         field.setValue(value);
         return field;
+    }
+
+    void updateIntegerToggleModes()
+    {
+        for (std::size_t i = 0; i < intKeyFields.size() && i < intValueFields.size(); ++i)
+        {
+            // Match the actual, case-sensitive gameplay key, never the value:
+            // a numeric count of 0 or 1 must remain a numeric input.
+            intValueFields[i].setToggleMode(trim(intKeyFields[i].getValue()) == "canControl");
+        }
     }
 
     InputBox makeActionReferenceField(const std::string& value)
@@ -1777,6 +1795,7 @@ private:
             intKeyFields.push_back(makeCompactField(item.key, {182.0f, 32.0f}));
             intValueFields.push_back(makeCompactField(std::to_string(item.value), {210.0f, 32.0f}));
         }
+        updateIntegerToggleModes();
         if (std::none_of(card.integerValues.begin(), card.integerValues.end(), [](const card_data::KeyIntPair& item) {
                 return isDeckLimitField(item.key);
             }))
@@ -4121,6 +4140,11 @@ private:
                 if (field->contains(mouse))
                 {
                     activateField(field);
+                    if (field->isToggle())
+                    {
+                        field->toggle();
+                        return false;
+                    }
                     field->beginMouseSelection(mouse, sf::Keyboard::isKeyPressed(sf::Keyboard::Key::LShift) ||
                                                        sf::Keyboard::isKeyPressed(sf::Keyboard::Key::RShift));
                     return false;
@@ -4231,6 +4255,12 @@ private:
             if (InputBox* field = dynamicFieldAt(mouse))
             {
                 activateField(field);
+                if (field->isToggle())
+                {
+                    closeActionDropdown();
+                    field->toggle();
+                    return false;
+                }
                 if (const std::optional<std::size_t> rarityIndex = rarityValueIndex(field))
                 {
                     openRarityDropdown(*rarityIndex);
@@ -4477,7 +4507,7 @@ private:
         y = addInstructionBullet("heroCost: deck-building Hero budget. Use only on Heroes. Default: 0.", y);
         y = addInstructionBullet("health: starting and maximum hit points for a Hero or Unit. Default: 1.", y);
         y = addInstructionBullet("width and height: board squares occupied by a Hero or Unit. Both default to 1 and are clamped to 1-8.", y);
-        y = addInstructionBullet("canControl: set to 0 for pieces that do not claim their occupied square or influence adjacent territory. Default: 1.", y);
+        y = addInstructionBullet("canControl: switch Off for pieces that do not claim their occupied square or influence adjacent territory. Default: On.", y);
         y = addInstructionBullet("growTurns: owner turns a newly summoned piece must wait before it can act. Default: 0.", y);
         y = addInstructionBullet("abilityUses: remaining uses of Dig. Default 0 disables Dig; a positive value is consumed per use, and -1 allows unlimited uses. Other abilities do not consume this field.", y);
         y = addInstructionBullet("gatherResources: passive Resources gained at the start of each owner's turn. It does not remove Resources from the opponent. Default: 0.", y);
@@ -4490,6 +4520,7 @@ private:
         y += 12.0f;
 
         y = addInstructionSection("4. Actions", y);
+        y = addInstructionParagraph("On/off flags use switches. Click anywhere on a switch to change it, or use Tab to focus it and press Space or Enter. Numeric amounts remain editable fields.", y, Muted);
         y = addInstructionParagraph("Create reusable actions in the Actions tab, then add them in the card's Actions section. Card name is flavor text shown for that card; Reusable action chooses the shared logic. Click or focus the reusable-action field to open the list; typing filters it. The chain-link button opens that action in the Actions tab.", y, Muted);
         y += 5.0f;
         y = addInstructionBullet("Pattern ortho, diag, omni, horizontal, or vertical moves along that board geometry up to the action's maximum range.", y);
@@ -4501,7 +4532,7 @@ private:
         y = addInstructionBullet("Can move lets the action target an empty destination. With Can attack enabled, positive Damage targets and hurts enemies, while positive Heal targets and restores friendlies up to maximum health. Damage and Heal must not be negative.", y);
         y = addInstructionBullet("Target filter entries restrict attacks, healing, and status effects. A target must match every listed string across its Traits and Keywords; an empty filter accepts any otherwise-valid target. The legacy schema-11 value construct means Mechanical and is shown to players as Mechanical.", y);
         y = addInstructionBullet("Push moves each surviving enemy target up to that many squares directly away from the attack's staging square. Blocked push distance becomes 1 extra damage per prevented square.", y);
-        y = addInstructionBullet("Lifedrain: heals the acting unit for damage this action deals, capped at maximum health. Includes Power, Bodyguard/Intercept redirection, overkill, and push collisions. Attack healing resolves before Counterstrike; it cannot revive a defeated unit. Default: 0.", y);
+        y = addInstructionBullet("Lifedrain: heals the acting unit for damage this action deals, capped at maximum health. Includes Power, Bodyguard/Intercept redirection, overkill, and push collisions. Attack healing resolves before Counterstrike; it cannot revive a defeated unit. Default: Off.", y);
         y = addInstructionBullet("Pull on a ranged attack draws each surviving enemy target toward the attacker until it is adjacent. The pull flag is ignored on other action kinds.", y);
         y = addInstructionBullet("Control temporarily changes an attacked enemy non-Hero piece to the attacking player for that many later turns of the attacking player. The attack turn is not counted; the original controller regains it on their following turn.", y);
         y = addInstructionBullet("Minimum and Maximum range apply to slide, capture, ranged, teleport, and rally step actions. Hop uses its fixed two-square geometry and Tunnel uses connected holes instead.", y);
@@ -5297,7 +5328,7 @@ private:
             {EditorPanelX, EditorPanelY},
             ActionEditorPanelWidth,
             "Edit Action",
-            "BOOLEAN FIELDS: 1 OR 0");
+            "CLICK SWITCHES TO TURN ON / OFF");
         actionNameField.draw(window);
         drawFieldCaption(window, font, "ACTION NAME", {342.0f, 150.0f}, 132.0f);
         layoutActionFields();

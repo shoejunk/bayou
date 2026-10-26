@@ -1722,6 +1722,38 @@ void scrollList(std::size_t& offset, std::size_t totalRows, std::size_t visibleR
     }
 }
 
+void drawToggleSwitch(
+    sf::RenderWindow& window, const sf::Font& font, sf::FloatRect bounds,
+    bool on, bool hovered, bool focused)
+{
+    const sf::Vector2f position = bounds.position;
+    const sf::Vector2f size = bounds.size;
+    drawMaterialPlate(window, position, size, PlateStyle{
+        .fill = on ? palette::ArcaneDeep : palette::PlateDeep,
+        .frame = hovered || focused ? palette::SteelBright : palette::SteelDim,
+        .cut = 5.0f,
+        .state = hovered ? PlateState::Hover : PlateState::Normal,
+        .sheen = 0.25f,
+        .rivets = false,
+        .brackets = false,
+        .recessed = true,
+        .focused = focused});
+
+    const sf::Vector2f trackPosition = position + sf::Vector2f(8.0f, (size.y - 20.0f) * 0.5f);
+    const sf::Vector2f trackSize(42.0f, 20.0f);
+    drawInsetSlot(window, trackPosition, trackSize, 5.0f,
+        on ? palette::JewelDeep : palette::PlateDeep,
+        on ? palette::ArcaneBright : palette::SteelEdge, false, false);
+    const sf::Vector2f thumbPosition = trackPosition + sf::Vector2f(on ? 24.0f : 2.0f, 2.0f);
+    drawBeveledPlate(window, thumbPosition, {16.0f, 16.0f},
+        on ? palette::Arcane : palette::SteelDim,
+        on ? palette::JewelBright : palette::SteelBright, hovered || focused, 3.0f);
+    sf::Text stateLabel(font, on ? "ON" : "OFF", 13);
+    stateLabel.setFillColor(on ? palette::JewelBright : palette::SteelBright);
+    centerButtonText(stateLabel, {position.x + 72.0f, position.y + size.y * 0.5f});
+    drawCrispText(window, stateLabel);
+}
+
 void clampListOffset(std::size_t& offset, std::size_t totalRows, std::size_t visibleRows)
 {
     if (totalRows <= visibleRows)
