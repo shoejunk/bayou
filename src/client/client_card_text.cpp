@@ -31,6 +31,10 @@ std::string actionTypeName(const game_data::ActionProfile& action)
     {
         return "Rally Step";
     }
+    if (kind == game_data::ActionKind::AssaultStep)
+    {
+        return "Assault Step";
+    }
     if (kind == game_data::ActionKind::Tunnel)
     {
         return "Tunnel";
@@ -52,7 +56,8 @@ std::string actionTypeName(const game_data::ActionProfile& action)
 
 std::string actionMoveIconPath(const game_data::ActionProfile& action)
 {
-    if (static_cast<game_data::ActionKind>(action.kind) == game_data::ActionKind::RallyStep)
+    if (static_cast<game_data::ActionKind>(action.kind) == game_data::ActionKind::RallyStep ||
+        static_cast<game_data::ActionKind>(action.kind) == game_data::ActionKind::AssaultStep)
     {
         return "ui/move.png";
     }
@@ -77,6 +82,7 @@ std::string actionMoveTooltipTitle(const game_data::ActionProfile& action)
         case game_data::ActionKind::Hop: return "Hop";
         case game_data::ActionKind::Teleport: return "Teleport";
         case game_data::ActionKind::RallyStep: return "Rally Step";
+        case game_data::ActionKind::AssaultStep: return "Assault Step";
         case game_data::ActionKind::Tunnel: return "Tunnel";
         default: return game_data::movePatternName(action.pattern);
     }
@@ -92,6 +98,8 @@ std::string actionMoveTooltipText(const game_data::ActionProfile& action)
             return "Moves directly to any empty square.";
         case game_data::ActionKind::RallyStep:
             return "Teleports to an empty square within the listed minimum and maximum range, adjacent to another friendly unit. Diagonals count.";
+        case game_data::ActionKind::AssaultStep:
+            return "Teleports to an empty square within the listed minimum and maximum range, adjacent to an enemy unit. Diagonals count.";
         case game_data::ActionKind::Tunnel:
             return "Moves directly from one hole to another.";
         default: break;

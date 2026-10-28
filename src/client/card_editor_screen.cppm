@@ -82,8 +82,8 @@ constexpr float InfestFieldTop = 636.0f;
 
 constexpr std::array<const char*, 6> CardRarityOptions = {
     "common", "uncommon", "rare", "legendary", "token", "starter"};
-constexpr std::array<const char*, 7> ActionKindOptions = {
-    "slide", "ranged", "hop", "teleport", "tunnel", "capture", "rally step"};
+constexpr std::array<const char*, 8> ActionKindOptions = {
+    "slide", "ranged", "hop", "teleport", "tunnel", "capture", "rally step", "assault step"};
 
 const sf::Color Ink(232, 240, 244);
 const sf::Color Muted(166, 183, 191);
@@ -4524,18 +4524,19 @@ private:
         y = addInstructionParagraph("Create reusable actions in the Actions tab, then add them in the card's Actions section. Card name is flavor text shown for that card; Reusable action chooses the shared logic. Click or focus the reusable-action field to open the list; typing filters it. The chain-link button opens that action in the Actions tab.", y, Muted);
         y += 5.0f;
         y = addInstructionBullet("Pattern ortho, diag, omni, horizontal, or vertical moves along that board geometry up to the action's maximum range.", y);
-        y = addInstructionBullet("Pattern jump uses the fixed knight-style L shape. Pattern none is used for ranged, teleport, rally step, and tunnel actions that do not need slide geometry.", y);
+        y = addInstructionBullet("Pattern jump uses the fixed knight-style L shape. Pattern none is used for ranged, teleport, rally step, assault step, and tunnel actions that do not need slide geometry.", y);
         y = addInstructionBullet("Kinds: slide follows Pattern; ranged affects a target without moving; teleport moves to an empty square within range and ignores blockers; capture moves while attacking. Hop moves exactly two squares straight or diagonally over a piece into an empty square, and can affect the jumped piece when Can attack and its target rules allow. Tunnel requires holes at both the starting and destination squares.", y);
         y = addInstructionBullet("Status turns applies Disable to the target; any positive damage already applies at least 1 turn of Disable. Cooldown turns disables the acting piece after the action. These counters consume the affected piece's later owner turns; 1 prevents acting on its next owner turn. Positive damage also makes the target Sleep, preventing movement until the end of the affected owner's turn.", y);
         y = addInstructionBullet("Repeat is the number of extra uses of this same action during the turn (1 means two uses total). The piece stays in the action's original State until repeats finish, then changes to Next state. End Turn may end the sequence early; cooldown or other Disable can prevent further uses.", y);
         y = addInstructionBullet("Rally Step: enable Can move and choose kind rally step to teleport to an empty destination within Minimum and Maximum range, next to another friendly unit. Diagonals and large footprints count for adjacency. Intervening pieces and Pattern do not restrict this movement; it cannot attack.", y);
+        y = addInstructionBullet("Assault Step: works like Rally Step, but the empty destination must be next to an enemy unit instead of a friendly unit. Enable Can move and choose kind assault step; it cannot attack.", y);
         y = addInstructionBullet("Can move lets the action target an empty destination. With Can attack enabled, positive Damage targets and hurts enemies, while positive Heal targets and restores friendlies up to maximum health. Damage and Heal must not be negative.", y);
         y = addInstructionBullet("Target filter entries restrict attacks, healing, and status effects. A target must match every listed string across its Traits and Keywords; an empty filter accepts any otherwise-valid target. The legacy schema-11 value construct means Mechanical and is shown to players as Mechanical.", y);
         y = addInstructionBullet("Push moves each surviving enemy target up to that many squares directly away from the attack's staging square. Blocked push distance becomes 1 extra damage per prevented square.", y);
         y = addInstructionBullet("Lifedrain: heals the acting unit for damage this action deals, capped at maximum health. Includes Power, Bodyguard/Intercept redirection, overkill, and push collisions. Attack healing resolves before Counterstrike; it cannot revive a defeated unit. Default: Off.", y);
         y = addInstructionBullet("Pull on a ranged attack draws each surviving enemy target toward the attacker until it is adjacent. The pull flag is ignored on other action kinds.", y);
         y = addInstructionBullet("Control temporarily changes an attacked enemy non-Hero piece to the attacking player for that many later turns of the attacking player. The attack turn is not counted; the original controller regains it on their following turn.", y);
-        y = addInstructionBullet("Minimum and Maximum range apply to slide, capture, ranged, teleport, and rally step actions. Hop uses its fixed two-square geometry and Tunnel uses connected holes instead.", y);
+        y = addInstructionBullet("Minimum and Maximum range apply to slide, capture, ranged, teleport, rally step, and assault step actions. Hop uses its fixed two-square geometry and Tunnel uses connected holes instead.", y);
         y = addInstructionParagraph("For blocking slide and capture actions, every square along the path must be empty. Pass-through ignores slide/capture blockers. Ranged actions enforce blocker checks along straight and diagonal lines; the serialized lineOfSight flag is informational and adds no separate game rule.", y + 5.0f, sf::Color(198, 210, 224));
         y += 10.0f;
         y = addInstructionParagraph("A capture action is both movement and attack, but can only target an enemy-occupied square. If it destroys the enemy, the mover occupies the enemy's square; otherwise it falls back according to that action's movement geometry.", y, sf::Color(225, 170, 150));

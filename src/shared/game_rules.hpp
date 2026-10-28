@@ -688,7 +688,7 @@ inline ActionResolution resolvePieceAction(
                 candidate.moves = true;
             }
         }
-        else if (kind == ActionKind::RallyStep)
+        else if (kind == ActionKind::RallyStep || kind == ActionKind::AssaultStep)
         {
             const int distance = chebyshev(piece.row, piece.column, toRow, toColumn);
             if (action.canMove && distance > 0 &&
@@ -700,9 +700,10 @@ inline ActionResolution resolvePieceAction(
                 landing.column = toColumn;
                 landing.width = piece.width;
                 landing.height = piece.height;
-                candidate.legal = std::any_of(pieces.begin(), pieces.end(), [&](const Piece& ally) {
-                    return ally.id != piece.id && ally.owner == piece.owner &&
-                        ally.health > 0 && piecesAreAdjacent(landing, ally);
+                candidate.legal = std::any_of(pieces.begin(), pieces.end(), [&](const Piece& neighbor) {
+                    const bool friendly = neighbor.owner == piece.owner;
+                    return neighbor.id != piece.id && friendly == (kind == ActionKind::RallyStep) &&
+                        neighbor.health > 0 && piecesAreAdjacent(landing, neighbor);
                 });
                 candidate.moves = candidate.legal;
             }

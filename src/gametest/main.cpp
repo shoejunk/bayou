@@ -1166,109 +1166,131 @@ void testLifedrain()
           "Lifedrain works on lethal movement attacks before casualty removal");
 }
 
-void testRallyStep()
+void testAdjacentStep(ActionKind kind, const std::string& kindName)
 {
+    const int neighborOwner = kind == ActionKind::RallyStep ? 1 : 2;
+    const auto stepCheck = [&](bool condition, const std::string& label) {
+        check(condition, kindName + ": " + label);
+    };
     card_data::Card card;
-    card.title = "Rally Step Test";
+    card.title = kindName + " Test";
     card.type = "Unit";
     card_data::Action definition;
-    definition.kind = "rally step";
-    definition.pattern = "jump"; // Rally Step ignores slide/jump geometry.
+    definition.kind = kindName;
+    definition.pattern = "jump"; // Both step kinds ignore slide/jump geometry.
     definition.minRange = 2;
     definition.maxRange = 4;
     definition.canMove = true;
     definition.canAttack = true; // It must still never capture an occupied square.
     definition.damage = 3;
     card.actions = {definition};
-    const GameCard rallyCard = toGameCard(card);
-    check(rallyCard.actions[0].kind == static_cast<std::uint8_t>(ActionKind::RallyStep),
-          "rally step card kind converts to its distinct action profile");
+    const GameCard stepCard = toGameCard(card);
+    stepCheck(stepCard.actions[0].kind == static_cast<std::uint8_t>(kind),
+          "card kind converts to its distinct action profile");
     sf::Packet packet;
-    writeGameCard(packet, rallyCard);
+    writeGameCard(packet, stepCard);
     GameCard received;
-    check(readGameCard(packet, received) && received.actions[0].kind == rallyCard.actions[0].kind &&
+    stepCheck(readGameCard(packet, received) && received.actions[0].kind == stepCard.actions[0].kind &&
               received.actions[0].minRange == 2 && received.actions[0].maxRange == 4,
-          "rally step kind and range survive network serialization");
+          "kind and range survive network serialization");
 
     Piece mover;
     mover.id = 101;
     mover.owner = 1;
     mover.row = 3;
     mover.column = 1;
-    mover.actions = rallyCard.actions;
-    Piece ally;
-    ally.id = 102;
-    ally.owner = 1;
-    ally.row = 3;
-    ally.column = 4;
+    mover.actions = stepCard.actions;
+    Piece neighbor;
+    neighbor.id = 102;
+    neighbor.owner = neighborOwner;
+    neighbor.row = 3;
+    neighbor.column = 4;
     const std::array<std::uint8_t, BoardSquares> holes{};
     const auto resolve = [&](const std::vector<Piece>& board, int row, int column) {
         return resolvePieceAction(board, holes, board[0], row, column);
     };
-    std::vector<Piece> board{mover, ally};
+    std::vector<Piece> board{mover, neighbor};
     const ActionResolution minimum = resolve(board, 3, 3);
-    check(minimum.legal && minimum.moves && !minimum.attacks && minimum.targetIds.empty(),
-          "rally step reaches an empty square at minimum range next to an ally without attacking");
-    check(resolve(board, 3, 5).legal && resolve(board, 2, 5).legal,
-          "rally step includes maximum range and diagonal adjacency while ignoring pattern geometry");
-    check(!resolve(board, 0, 5).legal,
-          "rally step rejects in-range destinations with no adjacent ally");
+    stepCheck(minimum.legal && minimum.moves && !minimum.attacks && minimum.targetIds.empty(),
+          "reaches an empty square at minimum range next to a qualifying neighbor without attacking");
+    stepCheck(resolve(board, 3, 5).legal && resolve(board, 2, 5).legal,
+          "includes maximum range and diagonal adjacency while ignoring pattern geometry");
+    stepCheck(!resolve(board, 0, 5).legal,
+          "rejects in-range destinations with no qualifying neighbor");
     board[1].column = 3;
-    check(!resolve(board, 3, 2).legal, "rally step rejects destinations below minimum range");
+    stepCheck(!resolve(board, 3, 2).legal, "rejects destinations below minimum range");
     board[1].column = 7;
-    check(!resolve(board, 3, 6).legal, "rally step rejects destinations above maximum range");
-    board[1] = ally;
-    check(!resolve(board, 3, 4).legal, "rally step rejects a friendly occupied destination");
-    board[1].owner = 2;
-    check(!resolve(board, 3, 3).legal && !resolve(board, 3, 4).legal,
-          "rally step cannot rally to an enemy or capture it");
-    board[1] = ally;
+    stepCheck(!resolve(board, 3, 6).legal, "rejects destinations above maximum range");
+    board[1] = neighbor;
+    stepCheck(!resolve(board, 3, 4).legal, "rejects an occupied destination");
+    board[1].owner = 3 - neighborOwner;
+    stepCheck(!resolve(board, 3, 3).legal && !resolve(board, 3, 4).legal,
+          "rejects a neighbor with the wrong owner and cannot capture it");
+    board[1] = neighbor;
     board[1].health = 0;
-    check(!resolve(board, 3, 3).legal, "rally step requires a living friendly neighbor");
-    board[1] = ally;
+    stepCheck(!resolve(board, 3, 3).legal, "requires a living qualifying neighbor");
+    board[1] = neighbor;
     board[0].actions[0].minRange = 0;
-    check(!resolve(board, 3, 1).legal, "rally step cannot remain on its starting square");
-    check(!resolve({board[0]}, 3, 2).legal, "rally step cannot use itself as the friendly neighbor");
+    stepCheck(!resolve(board, 3, 1).legal, "cannot remain on its starting square");
+    stepCheck(!resolve({board[0]}, 3, 2).legal, "cannot use itself as the neighbor");
     board[0] = mover;
     board[0].actions[0].canMove = false;
-    check(!resolve(board, 3, 3).legal, "rally step requires Can move");
+    stepCheck(!resolve(board, 3, 3).legal, "requires Can move");
     board[0] = mover;
-    Piece blocker = ally;
+    Piece blocker = neighbor;
     blocker.id = 103;
     blocker.owner = 2;
     blocker.column = 2;
     board.push_back(blocker);
-    check(resolve(board, 3, 3).legal, "rally step teleports over intervening enemy pieces");
+    stepCheck(resolve(board, 3, 3).legal, "teleports over intervening enemy pieces");
     board[2].column = 3;
-    check(!resolve(board, 3, 3).legal, "rally step cannot land on an enemy beside an ally");
+    stepCheck(!resolve(board, 3, 3).legal, "cannot land on an enemy beside the neighbor");
     board.pop_back();
     board[1].width = 2;
     board[1].height = 2;
-    check(resolve(board, 5, 5).legal, "rally step recognizes the full friendly footprint");
-    board[1] = ally;
+    stepCheck(resolve(board, 5, 5).legal, "recognizes the full neighboring footprint");
+    board[1] = neighbor;
     board[1].column = 6;
     board[0].width = 2;
     board[0].height = 2;
-    check(resolve(board, 3, 4).legal, "large rally step movers use their landing footprint for adjacency");
+    stepCheck(resolve(board, 3, 4).legal, "large movers use their landing footprint for adjacency");
     board[1].column = 5;
-    check(!resolve(board, 3, 4).legal, "rally step requires the entire landing footprint to be empty");
+    stepCheck(!resolve(board, 3, 4).legal, "requires the entire landing footprint to be empty");
     board[1].row = 6;
     board[1].column = 2;
-    check(!resolve(board, 7, 1).legal, "rally step rejects footprints extending off the board");
+    stepCheck(!resolve(board, 7, 1).legal, "rejects footprints extending off the board");
 
     GameCard anchor;
-    anchor.title = "Rally Anchor";
+    anchor.title = "Step Anchor";
     anchor.type = "Unit";
     GameEngine engine(80, {});
-    check(engine.loadScenario({{1, rallyCard, 3, 1, false}, {1, anchor, 3, 4, false}},
-                              {}, {}, 0, 0, 1, "Rally Step", false),
-          "rally step authoritative scenario loads");
+    stepCheck(engine.loadScenario({{1, stepCard, 3, 1, false}, {neighborOwner, anchor, 3, 4, false}},
+                              {}, {}, 0, 0, 1, kindName, false),
+          "authoritative scenario loads");
     const int moverId = engine.boardPieces().front().id;
-    check(!engine.movePiece(1, moverId, 0, 5) && engine.movePiece(1, moverId, 3, 5),
-          "authoritative movement rejects an unsupported rally destination and accepts a legal one");
+    stepCheck(!engine.movePiece(1, moverId, 0, 5) && engine.movePiece(1, moverId, 3, 5),
+          "authoritative movement rejects an unsupported destination and accepts a legal one");
     const Piece* moved = findPieceAt(engine.boardPieces(), 3, 5);
-    check(moved && moved->id == moverId && moved->hasActed,
-          "rally step moves the unit and consumes its normal action");
+    stepCheck(moved && moved->id == moverId && moved->hasActed,
+          "moves the unit and consumes its normal action");
+
+    stepCheck(engine.loadScenario({{1, stepCard, 3, 1, false}, {neighborOwner, anchor, 3, 4, false}},
+                                 {}, {}, 0, 0, 1, kindName, false),
+          "AI scenario loads");
+    GameEngine::ScenarioObjective objective;
+    objective.kind = GameEngine::ScenarioObjectiveKind::ReachSquare;
+    objective.successPlayer = 1;
+    objective.targetPieceId = engine.boardPieces().front().id;
+    objective.targetRow = 3;
+    objective.targetColumn = 5;
+    objective.requiredForceOriginalOwner = 1;
+    objective.requiredSurvivorPieceIds = {objective.targetPieceId};
+    stepCheck(engine.configureScenarioObjective(objective), "AI reach objective configures");
+    const AiAction choice = chooseAiAction(engine, 1, 1);
+    stepCheck(choice.kind == AiActionKind::MovePiece && choice.pieceId == objective.targetPieceId &&
+                  choice.row == 3 && choice.column == 5 && applyAiAction(engine, 1, choice) &&
+                  engine.phase() == Phase::GameOver && engine.winner() == 1,
+          "AI finds and executes a maximum-range step even with the jump pattern");
 }
 
 int main(int argc, char** argv)
@@ -1281,7 +1303,8 @@ int main(int argc, char** argv)
 #endif
     testAuras(check);
     testSwarm(check);
-    testRallyStep();
+    testAdjacentStep(ActionKind::RallyStep, "rally step");
+    testAdjacentStep(ActionKind::AssaultStep, "assault step");
     testLifedrain();
     testEvacuate();
     testShelter();

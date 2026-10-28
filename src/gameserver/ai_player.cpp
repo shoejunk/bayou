@@ -339,6 +339,7 @@ int actionSquareReach(const ActionProfile& action)
         case ActionKind::Hop:
             return 2;
         case ActionKind::RallyStep:
+        case ActionKind::AssaultStep:
             return std::max(1, action.maxRange);
         default:
             break;

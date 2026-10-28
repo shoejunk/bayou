@@ -262,7 +262,8 @@ enum class ActionKind : std::uint8_t
     Teleport = 3,
     Tunnel = 4,
     Capture = 5,
-    RallyStep = 6
+    RallyStep = 6,
+    AssaultStep = 7
 };
 
 struct ActionProfile
@@ -380,6 +381,10 @@ inline std::uint8_t parseActionKind(const std::string& value)
     if (value == "rally step")
     {
         return static_cast<std::uint8_t>(ActionKind::RallyStep);
+    }
+    if (value == "assault step")
+    {
+        return static_cast<std::uint8_t>(ActionKind::AssaultStep);
     }
     if (value == "tunnel")
     {
