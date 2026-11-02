@@ -411,6 +411,11 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             details.push_back({"Rot Aura: adjacent enemies cannot regain Health from any source, including Lifedrain. Diagonals count. Ends when this unit leaves play or is no longer adjacent.",
                                sf::Color(146, 206, 226)});
         }
+        if (game_data::hasKeyword(card.keywords, "bristle"))
+        {
+            details.push_back({"Bristle: deal 1 damage back when attacked by a non-ranged enemy attack, even if this unit is defeated. Power does not increase this damage.",
+                               sf::Color(146, 206, 226)});
+        }
         if (game_data::hasKeyword(card.keywords, "swarm"))
         {
             details.push_back({"Swarm: +1 Power for each adjacent unit with the same name, on either side. Diagonals count; each large unit counts once. The bonus lasts only while adjacent.",

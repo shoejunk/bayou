@@ -1994,7 +1994,9 @@ private:
         std::vector<std::string> healedTargetNames;
         std::vector<std::string> controlledTargetNames;
         std::vector<int> defeatedOwners;
-        std::vector<DamageAssignment> counterstrikeDamage;
+        std::vector<DamageAssignment> retaliationDamage;
+        bool counterstrikeTriggered = false;
+        bool bristleTriggered = false;
         bool anyTargetDestroyed = false;
         bool anyTargetReborn = false;
         bool anyTargetInfestationSpawned = false;
@@ -2047,10 +2049,14 @@ private:
                 {
                     const PieceAttackDamageResolution attackResolution = resolvePieceAttackDamage(
                         pieces, attackerId, targetId, attackDamage, action.statusTurns,
-                        action.stagingRow, action.stagingColumn, rng, action.lifedrain);
+                        action.stagingRow, action.stagingColumn, rng, action.lifedrain, action.kind);
                     const DamageResolution& damageResolution = attackResolution.attack;
-                    counterstrikeDamage.insert(counterstrikeDamage.end(),
+                    retaliationDamage.insert(retaliationDamage.end(),
                         attackResolution.counterstrike.begin(), attackResolution.counterstrike.end());
+                    retaliationDamage.insert(retaliationDamage.end(),
+                        attackResolution.bristle.begin(), attackResolution.bristle.end());
+                    counterstrikeTriggered = counterstrikeTriggered || !attackResolution.counterstrike.empty();
+                    bristleTriggered = bristleTriggered || !attackResolution.bristle.empty();
                     const int effectiveTargetId = damageResolution.effectiveTargetId;
                     const Piece* effectiveTarget = pieceById(effectiveTargetId);
                     const std::string effectiveTargetName = effectiveTarget == nullptr
@@ -2142,7 +2148,7 @@ private:
             }
         }
 
-        for (const DamageAssignment& assignment : counterstrikeDamage)
+        for (const DamageAssignment& assignment : retaliationDamage)
         {
             if (Piece* victim = pieceById(assignment.pieceId);
                 victim != nullptr && victim->health <= 0)
@@ -2161,7 +2167,8 @@ private:
             relentlessActionKeepsTurn = false;
             recomputeControl();
             if (narrationEnabled)
-                status = fmt::format("{} attacked and fell to Counterstrike.", attackerName);
+                status = fmt::format("{} attacked and fell to {}.", attackerName,
+                    bristleTriggered ? (counterstrikeTriggered ? "Counterstrike and Bristle" : "Bristle") : "Counterstrike");
             for (int defeatedOwner : defeatedOwners)
             {
                 checkForWinner(defeatedOwner);
@@ -2347,9 +2354,13 @@ private:
             result = fmt::format("{} moved.", attackerName);
         }
 
-        if (narrationEnabled && !counterstrikeDamage.empty())
+        if (narrationEnabled && counterstrikeTriggered)
         {
             result += " Counterstrike dealt return damage.";
+        }
+        if (narrationEnabled && bristleTriggered)
+        {
+            result += " Bristle dealt return damage.";
         }
         if (narrationEnabled && repeatRemaining)
         {

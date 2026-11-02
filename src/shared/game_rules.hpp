@@ -284,6 +284,7 @@ inline bool isLegalAttack(const Piece& attacker, const Piece& target)
 
 struct ActionResolution
 {
+    ActionKind kind = ActionKind::Slide;
     bool legal = false;
     bool moves = false;
     bool attacks = false;
@@ -666,6 +667,7 @@ inline ActionResolution resolvePieceAction(
         const ActionKind kind = static_cast<ActionKind>(action.kind);
 
         ActionResolution candidate;
+        candidate.kind = kind;
         candidate.actionIndex = static_cast<int>(index);
         candidate.nextState = actionNextState(action);
         candidate.damage = action.damage;
@@ -1719,10 +1721,11 @@ struct PieceAttackDamageResolution
 {
     DamageResolution attack;
     std::vector<DamageAssignment> counterstrike;
+    std::vector<DamageAssignment> bristle;
 };
 
 // Resolve retaliation before removing casualties, so even a lethal hit triggers
-// Counterstrike. Intercept changes the attacked unit; Bodyguard only redirects
+// Counterstrike and Bristle. Intercept changes the attacked unit; Bodyguard only redirects
 // damage. Retaliation uses normal Bodyguard protection but is not another attack.
 template <typename RandomEngine>
 inline PieceAttackDamageResolution resolvePieceAttackDamage(
@@ -1734,7 +1737,8 @@ inline PieceAttackDamageResolution resolvePieceAttackDamage(
     int stagingRow,
     int stagingColumn,
     RandomEngine& randomEngine,
-    bool lifedrain = false)
+    bool lifedrain = false,
+    ActionKind attackKind = ActionKind::Slide)
 {
     PieceAttackDamageResolution result;
     result.attack = resolveDamageWithBodyguardsAndIntercepts(
@@ -1753,7 +1757,7 @@ inline PieceAttackDamageResolution resolvePieceAttackDamage(
     const auto defender = std::find_if(pieces.begin(), pieces.end(),
         [&](const Piece& piece) { return piece.id == result.attack.effectiveTargetId; });
     if (attacker == pieces.end() || defender == pieces.end() ||
-        attacker->owner == defender->owner || defender->counterstrike <= 0)
+        attacker->owner == defender->owner)
     {
         return result;
     }
@@ -1766,7 +1770,11 @@ inline PieceAttackDamageResolution resolvePieceAttackDamage(
         (stagingRow != attacker->row || stagingColumn != attacker->column) &&
         pieceFootprintsOverlap(strikingPiece, stagingRow, stagingColumn,
             *defender, defender->row, defender->column);
-    if (piecesAreAdjacent(strikingPiece, *defender) || movingContact)
+    const bool counterstrike = defender->counterstrike > 0 &&
+        (piecesAreAdjacent(strikingPiece, *defender) || movingContact);
+    const bool bristle = attackKind != ActionKind::Ranged &&
+        hasKeyword(defender->keywords, "bristle");
+    if (counterstrike || bristle)
     {
         // Protection is also measured at the strike position. This resolver
         // only changes damage/status; it never inserts or removes pieces.
@@ -1774,8 +1782,16 @@ inline PieceAttackDamageResolution resolvePieceAttackDamage(
         const int originColumn = attacker->column;
         attacker->row = stagingRow;
         attacker->column = stagingColumn;
-        result.counterstrike = applyDamageWithBodyguards(
-            pieces, attackerId, damageWithPower(defender->counterstrike, effectivePiecePower(pieces, *defender)), 0, randomEngine);
+        if (counterstrike)
+        {
+            result.counterstrike = applyDamageWithBodyguards(
+                pieces, attackerId, damageWithPower(defender->counterstrike, effectivePiecePower(pieces, *defender)), 0, randomEngine);
+        }
+        if (bristle)
+        {
+            // Bristle is fixed damage, independent of Power or attack distance.
+            result.bristle = applyDamageWithBodyguards(pieces, attackerId, 1, 0, randomEngine);
+        }
         attacker->row = originRow;
         attacker->column = originColumn;
     }

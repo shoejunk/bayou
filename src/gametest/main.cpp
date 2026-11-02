@@ -33,6 +33,7 @@
 #include "../client/client_clock_warning.hpp"
 #include "../client/client_sandbox.hpp"
 #include "swarm_tests.hpp"
+#include "bristle_tests.hpp"
 #include "aura_tests.hpp"
 #include "shriek_tests.hpp"
 
@@ -1305,6 +1306,7 @@ int main(int argc, char** argv)
     testAuras(check);
     testShriek(check);
     testSwarm(check);
+    testBristle(check);
     testAdjacentStep(ActionKind::RallyStep, "rally step");
     testAdjacentStep(ActionKind::AssaultStep, "assault step");
     testLifedrain();

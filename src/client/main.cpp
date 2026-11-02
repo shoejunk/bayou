@@ -8276,7 +8276,9 @@ int main(int argc, char** argv)
         std::vector<std::string> damagedTargetNames;
         std::vector<std::string> healedTargetNames;
         std::vector<std::string> controlledTargetNames;
-        std::vector<game_data::DamageAssignment> counterstrikeDamage;
+        std::vector<game_data::DamageAssignment> retaliationDamage;
+        bool counterstrikeTriggered = false;
+        bool bristleTriggered = false;
         bool anyTargetDestroyed = false;
         bool anyTargetReborn = false;
         bool anyTargetInfestationSpawned = false;
@@ -8337,10 +8339,14 @@ int main(int argc, char** argv)
                             action.stagingRow,
                             action.stagingColumn,
                             sandboxDamageRandomEngine,
-                            action.lifedrain);
+                            action.lifedrain, action.kind);
                     const game_data::DamageResolution& damageResolution = attackResolution.attack;
-                    counterstrikeDamage.insert(counterstrikeDamage.end(),
+                    retaliationDamage.insert(retaliationDamage.end(),
                         attackResolution.counterstrike.begin(), attackResolution.counterstrike.end());
+                    retaliationDamage.insert(retaliationDamage.end(),
+                        attackResolution.bristle.begin(), attackResolution.bristle.end());
+                    counterstrikeTriggered = counterstrikeTriggered || !attackResolution.counterstrike.empty();
+                    bristleTriggered = bristleTriggered || !attackResolution.bristle.empty();
                     const int effectiveTargetId = damageResolution.effectiveTargetId;
                     const game_data::Piece* effectiveTarget =
                         pieceByIdInSnapshot(next, effectiveTargetId);
@@ -8433,7 +8439,7 @@ int main(int argc, char** argv)
             }
         }
 
-        for (const game_data::DamageAssignment& assignment : counterstrikeDamage)
+        for (const game_data::DamageAssignment& assignment : retaliationDamage)
         {
             if (game_data::Piece* victim = pieceByIdInSnapshotMutable(next, assignment.pieceId);
                 victim != nullptr && victim->health <= 0)
@@ -8446,7 +8452,8 @@ int main(int argc, char** argv)
         {
             next.commandingPieceId = 0;
             next.relentlessPieceId = 0;
-            next.status = attackerName + " attacked and fell to Counterstrike.";
+            next.status = attackerName + " attacked and fell to " +
+                (bristleTriggered ? (counterstrikeTriggered ? "Counterstrike and Bristle" : "Bristle") : "Counterstrike") + ".";
             updateStoryAfterAction(next);
             commitSandboxSnapshot(std::move(next));
             return;
@@ -8592,9 +8599,13 @@ int main(int argc, char** argv)
         {
             next.status = attackerName + " moved.";
         }
-        if (!counterstrikeDamage.empty())
+        if (counterstrikeTriggered)
         {
             next.status += " Counterstrike dealt return damage.";
+        }
+        if (bristleTriggered)
+        {
+            next.status += " Bristle dealt return damage.";
         }
         if (repeatRemaining)
         {
