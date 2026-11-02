@@ -1061,6 +1061,22 @@ struct Snapshot
 
 // ---- serialization helpers -------------------------------------------------
 
+// New clients advertise support in the optional JoinGame trailer. Older
+// servers ignore it; older clients send none and retain the AUR1 wire format.
+constexpr std::uint32_t ShriekSnapshotCapability = 0x53485231;
+inline bool readShriekSnapshotCapability(sf::Packet& packet, bool& supported)
+{
+    supported = false;
+    if (!packet) return false;
+    if (packet.endOfPacket()) return true;
+    std::uint32_t capability = 0;
+    packet >> capability;
+    if (!packet || capability != ShriekSnapshotCapability || !packet.endOfPacket()) return false;
+    supported = true;
+    return true;
+}
+
+
 template <typename CardOrPiece>
 inline void writeShriekFields(sf::Packet& packet, const CardOrPiece& value)
 {

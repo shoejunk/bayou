@@ -9,6 +9,7 @@ module;
 #include "../shared/account_data.hpp"
 #include "../shared/card_data.hpp"
 #include "../shared/deck_data.hpp"
+#include "../shared/game_data.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -1389,7 +1390,7 @@ ServerResult joinGameServer(
     joinRequest << static_cast<uint8_t>(network::MessageType::JoinGame);
     joinRequest << matchId;
     joinRequest << playerNumber;
-    joinRequest << accessToken;
+    joinRequest << accessToken << game_data::ShriekSnapshotCapability;
 
     if (socket->send(joinRequest) != sf::Socket::Status::Done)
     {

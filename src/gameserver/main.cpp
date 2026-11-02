@@ -71,6 +71,7 @@ struct JoinedPlayer
     std::string username;
     std::string accessToken;
     int rating = 0;
+    bool supportsShriekSnapshots = false;
 };
 
 struct MatchResult
@@ -687,7 +688,7 @@ public:
         {
             fmt::println("AI game {} did not receive player's deck", matchId);
             engine.resign(human->playerNumber);
-            sendSnapshot(*human->socket, engine, human->playerNumber);
+            sendSnapshot(*human, engine);
             sendAiMatchResult(*human, engine);
             return;
         }
@@ -706,7 +707,7 @@ public:
 
     void broadcastAi(const GameEngine& engine, JoinedPlayer& human)
     {
-        sendSnapshot(*human.socket, engine, human.playerNumber);
+        sendSnapshot(human, engine);
     }
 
     void runAiGameLoop(GameEngine& engine, JoinedPlayer& human)
@@ -846,12 +847,14 @@ private:
         int joinedMatchId = 0;
         int playerNumber = 0;
         std::string accessToken;
+        bool supportsShriekSnapshots = false;
         packet >> msgType >> joinedMatchId >> playerNumber >> accessToken;
 
         if (!packet ||
             static_cast<MessageType>(msgType) != MessageType::JoinGame ||
             joinedMatchId != matchId ||
-            (playerNumber != 1 && playerNumber != 2))
+            (playerNumber != 1 && playerNumber != 2) ||
+            !readShriekSnapshotCapability(packet, supportsShriekSnapshots))
         {
             return std::nullopt;
         }
@@ -866,7 +869,7 @@ private:
         }
 
         fmt::println("{} joined game {} as player {}", username, matchId, playerNumber);
-        return JoinedPlayer{std::move(client), playerNumber, username, accessToken, rating};
+        return JoinedPlayer{std::move(client), playerNumber, username, accessToken, rating, supportsShriekSnapshots};
     }
 
     void sendGameReady(bayou::tls::Socket& client, int playerNumber)
@@ -1009,18 +1012,18 @@ private:
         }
     }
 
-    void sendSnapshot(bayou::tls::Socket& client, const GameEngine& engine, int playerNumber)
+    void sendSnapshot(JoinedPlayer& player, const GameEngine& engine)
     {
         sf::Packet packet;
         packet << static_cast<uint8_t>(MessageType::GameStateUpdate);
-        writeSnapshot(packet, engine.snapshotFor(playerNumber));
-        [[maybe_unused]] auto result = client.send(packet);
+        writeSnapshot(packet, engine.snapshotFor(player.playerNumber), true, player.supportsShriekSnapshots);
+        [[maybe_unused]] auto result = player.socket->send(packet);
     }
 
     void broadcast(const GameEngine& engine, JoinedPlayer& one, JoinedPlayer& two)
     {
-        sendSnapshot(*one.socket, engine, one.playerNumber);
-        sendSnapshot(*two.socket, engine, two.playerNumber);
+        sendSnapshot(one, engine);
+        sendSnapshot(two, engine);
     }
 
     void runGameLoop(GameEngine& engine, JoinedPlayer& one, JoinedPlayer& two)

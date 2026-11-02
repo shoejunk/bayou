@@ -97,6 +97,20 @@ void testShriek(Check check)
     activateSilenceField(board[1], 2);
     check(!pieceAbilityAvailable(board, board[0]), "Silence Field blocks Shriek");
 
+    bool supportsShriek = true;
+    sf::Packet legacyJoin;
+    check(readShriekSnapshotCapability(legacyJoin, supportsShriek) && !supportsShriek,
+          "legacy JoinGame requests keep the pre-Shriek snapshot format");
+    sf::Packet modernJoin; modernJoin << ShriekSnapshotCapability;
+    check(readShriekSnapshotCapability(modernJoin, supportsShriek) && supportsShriek,
+          "new JoinGame requests opt into Shriek snapshot metadata");
+    sf::Packet brokenJoin; brokenJoin << std::uint8_t{1};
+    check(!readShriekSnapshotCapability(brokenJoin, supportsShriek) && !supportsShriek,
+          "truncated snapshot capability is rejected");
+    sf::Packet unknownJoin; unknownJoin << std::uint32_t{0};
+    check(!readShriekSnapshotCapability(unknownJoin, supportsShriek),
+          "unknown snapshot capability is rejected");
+
     Snapshot snapshot;
     snapshot.pieces = {source}; snapshot.hand = snapshot.foresightChoices = {card};
     snapshot.graveyard = snapshot.exiled = snapshot.raiseUndeadChoices = {card};
