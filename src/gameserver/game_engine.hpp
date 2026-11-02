@@ -1012,6 +1012,19 @@ private:
                 pieces.back().hasActed = true;
             }
         }
+        else if (ability == "shriek")
+        {
+            const auto assignments = applyShriek(pieces, *piece, rng);
+            for (const DamageAssignment& assignment : assignments)
+            {
+                if (Piece* victim = pieceById(assignment.pieceId); victim && victim->health <= 0)
+                {
+                    const int victimOwner = pieceOriginalOwner(*victim);
+                    destroyPiece(victim->id);
+                    checkForWinner(victimOwner);
+                }
+            }
+        }
         else if (ability == "silence field")
         {
             activateSilenceField(*piece, playerNumber);
@@ -1068,11 +1081,7 @@ private:
         }
 
         Piece* actingPiece = pieceById(actingPieceId);
-        if (actingPiece == nullptr)
-        {
-            return true;
-        }
-        actingPiece->hasActed = true;
+        if (actingPiece != nullptr) actingPiece->hasActed = true;
         if (!commandedAction)
         {
             playerRef(playerNumber).pieceActionUsedThisTurn = true;
@@ -1086,7 +1095,7 @@ private:
         {
             commandingPieceId = 0;
             recomputeControl();
-            if (narrationEnabled)
+            if (narrationEnabled && phaseValue != Phase::GameOver)
             {
                 status = hiddenAbilityCollisionName.empty()
                     ? fmt::format(
@@ -1105,7 +1114,7 @@ private:
         else
         {
             recomputeControl();
-            if (narrationEnabled)
+            if (narrationEnabled && phaseValue != Phase::GameOver)
             {
                 status = hiddenAbilityCollisionName.empty()
                     ? fmt::format("{} used {}.", actingPieceName, abilityLabel)

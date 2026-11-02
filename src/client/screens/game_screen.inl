@@ -346,6 +346,8 @@
                                             const std::vector<std::string>& labels,
                                             int state,
                                             int abilityUses,
+                                            int shriekRange,
+                                            int shriekDamage,
                                             bool sacrifice = false) {
         const std::string ability = game_data::normalizedAbility(abilityValue);
         if (ability.empty())
@@ -358,6 +360,7 @@
             label = labels[static_cast<std::size_t>(
                 std::max(0, state) % static_cast<int>(labels.size()))];
         }
+        else if (ability == "shriek") label = "Shriek";
         else if (ability == "dig") label = "Dig";
         else if (ability == "summon") label = "Summon";
         else if (ability == "command") label = "Command";
@@ -383,6 +386,13 @@
             }
             rule = "creates " + summonTitle +
                 " in the square directly in front (right for Player 1, left for Player 2); the new Unit cannot act until its owner's next turn. If an opposing hidden piece is there, Summon instead spends this action, creates no Unit, and materializes that piece Disabled for its next owner-turn activation";
+        }
+        else if (ability == "shriek")
+        {
+            rule = "reveals all hidden units within " + std::to_string(shriekRange) +
+                " squares, friend or foe, including this unit if hidden; includes diagonals and full footprints. Revealing alone does not Disable. " +
+                (shriekDamage > 0 ? "Deals " + std::to_string(shriekDamage) +
+                    " damage to each revealed unit (Bodyguard protection applies)" : "Deals no damage");
         }
         else if (ability == "power boost")
         {
@@ -573,10 +583,10 @@
         }
         appendAbilityRuleDescription(
             descriptions, piece.ability, piece.summonTitle, piece.abilityLabels,
-            piece.actionState, piece.abilityUses);
+            piece.actionState, piece.abilityUses, piece.shriekRange, piece.shriekDamage);
         appendAbilityRuleDescription(
             descriptions, piece.sacrifice, piece.summonTitle, piece.abilityLabels,
-            piece.actionState, piece.abilityUses, true);
+            piece.actionState, piece.abilityUses, piece.shriekRange, piece.shriekDamage, true);
         appendKeywordRuleDescriptions(descriptions, piece.keywords, piece.summonTitle);
         appendPassiveRuleDescriptions(
             descriptions, piece.tax, piece.gatherResources, piece.healingAura, game_data::damageWithPower(piece.counterstrike, power),
@@ -750,10 +760,10 @@
             }
             appendAbilityRuleDescription(
                 descriptions, card.ability, card.summonTitle, card.abilityLabels,
-                0, card.abilityUses);
+                0, card.abilityUses, card.shriekRange, card.shriekDamage);
             appendAbilityRuleDescription(
                 descriptions, card.sacrifice, card.summonTitle, card.abilityLabels,
-                0, card.abilityUses, true);
+                0, card.abilityUses, card.shriekRange, card.shriekDamage, true);
             appendKeywordRuleDescriptions(descriptions, card.keywords, card.summonTitle);
             appendPassiveRuleDescriptions(
                 descriptions, card.tax, card.gatherResources, card.healingAura, game_data::damageWithPower(card.counterstrike, card.power),

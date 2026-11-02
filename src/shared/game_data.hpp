@@ -30,6 +30,8 @@ constexpr int MaxHeroCopies = 1;
 constexpr const char* DeckLimitField = "Deck Limit";
 constexpr const char* HealingAuraField = "healing aura";
 constexpr const char* CounterstrikeField = "Counterstrike";
+constexpr const char* ShriekRangeField = "shriek range";
+constexpr const char* ShriekDamageField = "shriek damage";
 constexpr const char* SilenceRangeField = "silenceRange";
 constexpr const char* SilenceTurnsField = "silenceTurns";
 inline int normalizedSilenceRange(int range) { return std::clamp(range, 1, BoardSize - 1); }
@@ -458,6 +460,8 @@ struct GameCard
     int gatherResources = 0;      // passive resources gained at the start of each owner's turn
     int healingAura = 0;          // health restored to every adjacent piece at the owner's turn end
     int counterstrike = 0;        // damage returned to an adjacent enemy attacker
+    int shriekRange = 1;
+    int shriekDamage = 0;
     int silenceRange = 1;
     int silenceTurns = 1;
     bool canControl = true;
@@ -511,6 +515,8 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.gatherResources = std::max(0, cardInt(card, "gatherResources", 0));
     g.healingAura = std::max(0, cardInt(card, HealingAuraField, 0));
     g.counterstrike = std::max(0, cardInt(card, CounterstrikeField, 0));
+    g.shriekRange = std::max(0, cardInt(card, ShriekRangeField, cardInt(card, "shriekRange", 1)));
+    g.shriekDamage = std::max(0, cardInt(card, ShriekDamageField, cardInt(card, "shriekDamage", 0)));
     g.silenceRange = normalizedSilenceRange(cardInt(card, SilenceRangeField, 1));
     g.silenceTurns = normalizedSilenceTurns(cardInt(card, SilenceTurnsField, 1));
     g.canControl = cardInt(card, "canControl", 1) != 0;
@@ -753,6 +759,8 @@ struct Piece
     int gatherResources = 0;
     int healingAura = 0;
     int counterstrike = 0;
+    int shriekRange = 1;
+    int shriekDamage = 0;
     int silenceRange = 1;
     int silenceTurns = 1;
     int silenceTurnsRemaining = 0;
@@ -841,6 +849,8 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.gatherResources = card.gatherResources;
     piece.healingAura = card.healingAura;
     piece.counterstrike = card.counterstrike;
+    piece.shriekRange = std::max(0, card.shriekRange);
+    piece.shriekDamage = std::max(0, card.shriekDamage);
     piece.silenceRange = normalizedSilenceRange(card.silenceRange);
     piece.silenceTurns = normalizedSilenceTurns(card.silenceTurns);
     piece.silenceTurnsRemaining = 0;
@@ -1051,6 +1061,21 @@ struct Snapshot
 
 // ---- serialization helpers -------------------------------------------------
 
+template <typename CardOrPiece>
+inline void writeShriekFields(sf::Packet& packet, const CardOrPiece& value)
+{
+    packet << std::max(0, value.shriekRange) << std::max(0, value.shriekDamage);
+}
+
+template <typename CardOrPiece>
+inline bool readShriekFields(sf::Packet& packet, CardOrPiece& value)
+{
+    packet >> value.shriekRange >> value.shriekDamage;
+    value.shriekRange = std::max(0, value.shriekRange);
+    value.shriekDamage = std::max(0, value.shriekDamage);
+    return static_cast<bool>(packet);
+}
+
 inline void writeCardAuraFields(sf::Packet& packet, const GameCard& card)
 {
     packet << normalizedSilenceRange(card.silenceRange) << normalizedSilenceTurns(card.silenceTurns);
@@ -1113,7 +1138,11 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFie
     packet << card.ability << card.sacrifice << card.summonTitle << card.rebirthTitle;
     card_data::writeStringVector(packet, card.abilityLabels);
     packet << card.abilityUses << card.raisedFromGraveyard;
-    if (auraFields) writeCardAuraFields(packet, card);
+    if (auraFields)
+    {
+        writeCardAuraFields(packet, card);
+        writeShriekFields(packet, card);
+    }
 }
 
 inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = true)
@@ -1163,8 +1192,11 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = t
         return false;
     }
     packet >> card.abilityUses >> card.raisedFromGraveyard;
+    card.shriekRange = 1;
+    card.shriekDamage = 0;
     card.silenceRange = card.silenceTurns = 1;
-    return packet && (!auraFields || packet.endOfPacket() || readCardAuraFields(packet, card));
+    return packet && (!auraFields || packet.endOfPacket() ||
+        (readCardAuraFields(packet, card) && (packet.endOfPacket() || readShriekFields(packet, card))));
 }
 
 inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields = true)
@@ -1198,7 +1230,11 @@ inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields =
         packet << action.infest << action.pull << action.lifedrain;
     }
     card_data::writeStringVector(packet, piece.abilityLabels);
-    if (auraFields) writePieceAuraFields(packet, piece);
+    if (auraFields)
+    {
+        writePieceAuraFields(packet, piece);
+        writeShriekFields(packet, piece);
+    }
 }
 
 inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
@@ -1246,11 +1282,14 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
         }
         piece.actions.push_back(action);
     }
+    piece.shriekRange = 1;
+    piece.shriekDamage = 0;
     piece.silenceRange = piece.silenceTurns = 1;
     piece.silenceTurnsRemaining = piece.silenceExpiryPlayer = 0;
     piece.abilitySilenced = piece.healingBlocked = false;
     return packet && card_data::readStringVector(packet, piece.abilityLabels) &&
-        (!auraFields || packet.endOfPacket() || readPieceAuraFields(packet, piece));
+        (!auraFields || packet.endOfPacket() ||
+         (readPieceAuraFields(packet, piece) && (packet.endOfPacket() || readShriekFields(packet, piece))));
 }
 
 inline void writeEnchantment(sf::Packet& packet, const Enchantment& enchantment)
@@ -1288,7 +1327,7 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 }
 
 // Writes a complete snapshot payload (without the leading message-type byte).
-inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool auraFields = true)
+inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool auraFields = true, bool shriekFields = true)
 {
     packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner
            << snapshot.commandingPieceId << snapshot.relentlessPieceId
@@ -1354,6 +1393,14 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
         writeZone(snapshot.graveyard);
         writeZone(snapshot.exiled);
         writeZone(snapshot.raiseUndeadChoices);
+        if (shriekFields)
+        {
+            packet << std::uint32_t{0x53485231}; // SHR1: optional Shriek configuration
+            for (const Piece& piece : snapshot.pieces) writeShriekFields(packet, piece);
+            for (const auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
+                                    &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
+                for (const GameCard& card : *zone) writeShriekFields(packet, card);
+        }
     }
 }
 
@@ -1495,9 +1542,19 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot, bool auraFields
             if (!readCardAuraFields(packet, card)) return false;
         return true;
     };
-    return readZone(snapshot.hand) && readZone(snapshot.foresightChoices) &&
-        readZone(snapshot.graveyard) && readZone(snapshot.exiled) &&
-        readZone(snapshot.raiseUndeadChoices) && packet.endOfPacket();
+    if (!readZone(snapshot.hand) || !readZone(snapshot.foresightChoices) ||
+        !readZone(snapshot.graveyard) || !readZone(snapshot.exiled) ||
+        !readZone(snapshot.raiseUndeadChoices)) return false;
+    if (packet.endOfPacket()) return true;
+    packet >> marker;
+    if (!packet || marker != 0x53485231) return false;
+    for (Piece& piece : snapshot.pieces)
+        if (!readShriekFields(packet, piece)) return false;
+    for (auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
+                       &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
+        for (GameCard& card : *zone)
+            if (!readShriekFields(packet, card)) return false;
+    return packet.endOfPacket();
 }
 }
 

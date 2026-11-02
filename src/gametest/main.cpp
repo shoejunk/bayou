@@ -34,6 +34,7 @@
 #include "../client/client_sandbox.hpp"
 #include "swarm_tests.hpp"
 #include "aura_tests.hpp"
+#include "shriek_tests.hpp"
 
 #include "../shared/network.hpp"
 
@@ -1302,6 +1303,7 @@ int main(int argc, char** argv)
     _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
 #endif
     testAuras(check);
+    testShriek(check);
     testSwarm(check);
     testAdjacentStep(ActionKind::RallyStep, "rally step");
     testAdjacentStep(ActionKind::AssaultStep, "assault step");

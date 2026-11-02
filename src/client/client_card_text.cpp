@@ -476,6 +476,13 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             {
                 abilityText = "Ability: Power Boost. Give every adjacent friendly unit +1 Power (including diagonals). Does not affect this unit. Power stacks and increases damage dealt while the unit remains in play";
             }
+            else if (ability == "shriek")
+            {
+                abilityText = "Ability: Shriek. Reveal all hidden units within " + std::to_string(gameCard.shriekRange) +
+                    " squares, friend or foe, including this unit if hidden. Includes diagonals and full footprints; revealing alone does not Disable. " +
+                    (gameCard.shriekDamage > 0 ? "Deal " + std::to_string(gameCard.shriekDamage) +
+                        " damage to each revealed unit (Bodyguard protection applies)" : "Deals no damage");
+            }
             else if (ability == "silence field")
             {
                 abilityText = "Ability: Silence Field. Other units within " + std::to_string(gameCard.silenceRange) +

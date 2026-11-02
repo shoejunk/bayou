@@ -8740,6 +8740,18 @@ int main(int argc, char** argv)
             }
             spawnSandboxPiece(next, nextSandboxPieceId, pieceOwner, *found, row, column, false);
         }
+        else if (ability == "shriek")
+        {
+            const auto assignments = game_data::applyShriek(next.pieces, *piece, sandboxDamageRandomEngine);
+            for (const game_data::DamageAssignment& assignment : assignments)
+            {
+                if (game_data::Piece* victim = pieceByIdInSnapshotMutable(next, assignment.pieceId);
+                    victim && victim->health <= 0)
+                {
+                    destroySandboxPiece(next, victim->id);
+                }
+            }
+        }
         else if (ability == "silence field")
         {
             game_data::activateSilenceField(*piece, pieceOwner);

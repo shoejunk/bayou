@@ -1208,6 +1208,7 @@ inline std::string pieceAbilityLabel(const Piece& piece, bool sacrifice = false)
     {
         return prefix + "Power Boost";
     }
+    if (ability == "shriek") return prefix + "Shriek";
     if (ability == "silence field") return prefix + "Silence Field";
     if (ability == "dig")
     {
@@ -1653,6 +1654,43 @@ inline std::vector<DamageAssignment> applyDamageWithBodyguards(
         .assignments;
 }
 
+// Select all living hidden pieces before revealing or dealing damage. Either
+// side (including a hidden caster) counts; use nearest footprint squares.
+// Revealing this way does not apply the collision stun. Damage follows spell
+// protection rules, without attack-only Intercept or Counterstrike effects.
+template <typename RandomEngine>
+inline std::vector<DamageAssignment> applyShriek(
+    std::vector<Piece>& pieces, const Piece& source, RandomEngine& randomEngine)
+{
+    const int range = std::max(0, source.shriekRange);
+    const int damage = std::max(0, source.shriekDamage);
+    std::vector<int> targetIds;
+    for (Piece& target : pieces)
+    {
+        if (target.health > 0 && target.hidden && pieceDistance(source, target) <= range)
+        {
+            targetIds.push_back(target.id);
+            setPieceActionState(target, 0);
+        }
+    }
+    std::vector<DamageAssignment> assignments;
+    if (damage > 0)
+    {
+        for (int targetId : targetIds)
+        {
+            // A hidden Bodyguard may already have died protecting another
+            // target. Do not damage its corpse again (or overflow its health).
+            const auto target = std::find_if(pieces.begin(), pieces.end(),
+                [targetId](const Piece& piece) { return piece.id == targetId; });
+            if (target == pieces.end() || target->health <= 0) continue;
+            const auto damageAssignments = applyDamageWithBodyguards(
+                pieces, targetId, damage, 0, randomEngine);
+            assignments.insert(assignments.end(), damageAssignments.begin(), damageAssignments.end());
+        }
+    }
+    return assignments;
+}
+
 // Damage includes overkill, matching applyActionDamage. Never revive a casualty.
 inline void applyActionLifedrain(std::vector<Piece>& pieces, int attackerId, int damage,
     int strikeRow = -1, int strikeColumn = -1)
@@ -1779,7 +1817,7 @@ inline bool pieceAbilityAvailable(const Piece& piece, bool sacrifice = false)
     }
     return ability == "transform" || ability == "dematerialize" || ability == "command" ||
         ability == "raise undead" || ability == "swap" || ability == "power boost" ||
-        ability == "silence field";
+        ability == "silence field" || ability == "shriek";
 }
 
 inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece& piece, bool sacrifice = false)
