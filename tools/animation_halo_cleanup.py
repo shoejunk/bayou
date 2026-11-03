@@ -98,18 +98,25 @@ def parse_args() -> argparse.Namespace:
 
 def infer_layout(width: int, height: int) -> Layout | None:
     candidates: list[Layout] = []
+    # Animation sheets are horizontal rows of square cells. Normalized large
+    # poses may use a cell taller than the legacy 256 pixels so no art is
+    # clipped while the client still renders it at a 256-pixel logical scale.
+    if height > 0 and width % height == 0:
+        candidates.append(Layout(height, height, width // height, 1))
     for size in FRAME_SIZES:
         if width % size == 0 and height % size == 0:
             columns = width // size
             rows = height // size
             if columns * rows >= 1:
-                candidates.append(Layout(size, size, columns, rows))
+                candidate = Layout(size, size, columns, rows)
+                if candidate not in candidates:
+                    candidates.append(candidate)
     if not candidates:
         return None
     candidates.sort(
         key=lambda item: (
-            item.frame_width != 256,
-            item.rows > 1 and item.columns > 1,
+            item.rows != 1,
+            item.frame_width != height,
             -item.frame_count,
         )
     )

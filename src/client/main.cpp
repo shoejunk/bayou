@@ -7174,19 +7174,53 @@ int main(int argc, char** argv)
         auto drawAnimFrame = [&](const std::string& sheetPath, int frameCountValue, int frame) {
             if (sf::Texture* sheet = walkAnimTexture(sheetPath))
             {
-                const int frameCount = std::max(1, frameCountValue);
                 const sf::Vector2u sheetSize = sheet->getSize();
-                const int frameWidth = static_cast<int>(sheetSize.x / static_cast<unsigned int>(frameCount));
                 const int frameHeight = static_cast<int>(sheetSize.y);
+                const bool hasSquareCells =
+                    frameHeight > 0 &&
+                    sheetSize.x % static_cast<unsigned int>(frameHeight) == 0;
+                const int frameCount = hasSquareCells
+                    ? std::max(1, static_cast<int>(
+                          sheetSize.x / static_cast<unsigned int>(frameHeight)))
+                    : std::max(1, frameCountValue);
+                const int frameWidth = hasSquareCells
+                    ? frameHeight
+                    : static_cast<int>(
+                          sheetSize.x / static_cast<unsigned int>(frameCount));
                 if (frameWidth > 0 && frameHeight > 0)
                 {
                     const int clampedFrame = std::clamp(frame, 0, frameCount - 1);
-                    drawTextureRectContain(window,
-                        *sheet,
-                        sf::IntRect({clampedFrame * frameWidth, 0}, {frameWidth, frameHeight}),
-                        target,
-                        tint,
-                        flipX);
+                    const sf::IntRect frameRect(
+                        {clampedFrame * frameWidth, 0},
+                        {frameWidth, frameHeight});
+                    if (hasSquareCells &&
+                        static_cast<float>(frameHeight) > AnimationLogicalFrameSize)
+                    {
+                        sf::Sprite sprite(*sheet);
+                        sprite.setTextureRect(frameRect);
+                        const float frameScale = std::min(
+                            target.size.x / AnimationLogicalFrameSize,
+                            target.size.y / AnimationLogicalFrameSize);
+                        sprite.setOrigin({
+                            static_cast<float>(frameWidth) * 0.5f,
+                            static_cast<float>(frameHeight) * 0.5f});
+                        sprite.setScale({
+                            flipX ? -frameScale : frameScale,
+                            frameScale});
+                        sprite.setColor(tint);
+                        sprite.setPosition(target.position + target.size * 0.5f);
+                        window.draw(sprite);
+                    }
+                    else
+                    {
+                        drawTextureRectContain(
+                            window,
+                            *sheet,
+                            frameRect,
+                            target,
+                            tint,
+                            flipX);
+                    }
                     return true;
                 }
             }
@@ -12598,14 +12632,33 @@ int main(int argc, char** argv)
                     failCaptureValidation("Selecting a tutorial unit changed the battle state.");
             }
             else if (screen == "story-ui-dialogue-live")
-                queueStoryPanels({activeStoryMission().briefing[1]}, false);
+            {
+                const auto& panels = activeStoryMission().briefing;
+                const auto speaker = std::find_if(panels.begin(), panels.end(),
+                    [&](const StoryPanel& panel) {
+                        return storyPanelHasCharacterSpeaker(panel) &&
+                            storySpeakingPiece(panel, gameSnapshot.pieces).has_value();
+                    });
+                if (speaker == panels.end())
+                    failCaptureValidation("Live dialogue capture needs an on-board speaker.");
+                else
+                    queueStoryPanels({*speaker}, false);
+            }
             else if (screen == "story-ui-dialogue-narrator")
                 queueStoryPanels({activeStoryMission().aftermath.back()}, false);
             else if (screen == "story-ui-dialogue-off-board")
             {
                 const auto& camp = storyMissions(storyCampaign)[static_cast<std::size_t>(
                     storyMissionIndexById(storyCampaign, "s01_hospitality"))];
-                queueStoryPanels({camp.briefing.back()}, false);
+                const auto speaker = std::find_if(camp.briefing.begin(), camp.briefing.end(),
+                    [&](const StoryPanel& panel) {
+                        return storyPanelHasCharacterSpeaker(panel) &&
+                            !storySpeakingPiece(panel, gameSnapshot.pieces).has_value();
+                    });
+                if (speaker == camp.briefing.end())
+                    failCaptureValidation("Off-board dialogue capture needs a known absent speaker.");
+                else
+                    queueStoryPanels({*speaker}, false);
             }
         }
         else if (screen == "story-select" ||

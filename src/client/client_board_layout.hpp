@@ -35,6 +35,9 @@ constexpr float PieceBaseHeight = 100.0f;
 // planted on its independently centered base.
 constexpr float PieceStandOffset = 3.0f;
 constexpr float PieceWalkBaseHeight = 108.0f;
+// Normalized animation sheets may use larger transparent cells to preserve
+// wide poses, but they retain the visual scale of a 256-pixel logical cell.
+constexpr float AnimationLogicalFrameSize = 256.0f;
 constexpr float WalkAnimationLoopSeconds = 1.0f;
 constexpr float AttackAnimationDurationSeconds = 0.42f;
 constexpr float PieceReactionAnimationDurationSeconds = 0.55f;

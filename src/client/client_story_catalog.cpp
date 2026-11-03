@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <initializer_list>
+#include <iterator>
+#include <stdexcept>
 #include <utility>
 
 namespace bayou::client
@@ -897,7 +899,7 @@ StoryMission chronicleFromEntry(const MissionEntry& entry)
                 "cards/victorGreyshard.png"),
             panel("Narrator",
                 "Water pours into the hall. A guard lunges at the father with a knife. Juniper steps between them and takes the blow. The father catches her. She is badly hurt, but breathing.",
-                "characters/juniperFlash.png"),
+                "cards/juniperFlash.png"),
             panel("Mog",
                 "Reed, hold that gate! I have the last two. Get Juniper onto the raft!",
                 "cards/Mog.png"),
@@ -1061,7 +1063,7 @@ StoryMission sharedS01()
             "cards/joniPumpernickel.png"),
         panel("Narrator",
             "Juniper tucks the rescued children into a bed. Reed hears someone laugh for the first time all day. Joni gives him a letter that arrived before them.",
-            "characters/juniperFlash.png"),
+            "cards/juniperFlash.png"),
         panel("Reed",
             "My uncle is alive. He says he can stop Blackthorn. He wants to meet me alone.",
             "cards/reedBaelstone.png"),
@@ -1166,10 +1168,10 @@ StoryMission sharedS03()
         {
         panel("Narrator",
             "Juniper wakes with clean bandages around her side. Beside her bed, the boy from the boatyard holds a bowl of soup with both hands.",
-            "characters/juniperFlash.png"),
+            "cards/juniperFlash.png"),
         panel("Juniper",
             "You brought that for me? Then help me sit up. Slowly.",
-            "characters/juniperFlash.png"),
+            "cards/juniperFlash.png"),
         panel("Narrator",
             "He keeps hold of her sleeve while Joni lifts her pillow. Hara's mother takes the bowl so he can stay beside her.",
             "cards/joniPumpernickel.png")
@@ -1305,7 +1307,7 @@ StoryMission blackthornS06()
                 "cards/Mog.png"),
             panel("Narrator",
                 "Rowan brings the wounded home. At Vanya's new shelter, the children Juniper saved bring meals to her bed. This time, they can help her.",
-                "characters/juniperFlash.png"),
+                "cards/juniperFlash.png"),
             panel("Narrator",
                 "Birdie begins learning to use her left arm. Beside her, Scooter taps Gearjaw's hand and waits while it learns.",
                 "cards/birdieTheWise.png"),
@@ -1335,13 +1337,13 @@ StoryMission mirewatchOpening()
             "story/mw/mw01/01_gator_ambush_v2.png"),
         panel("Donella",
             "They're coming for us! Reed, move back. One step now. Take the second when you get another turn.",
-            "story/mw/mw01/02_reed_retreat_v2.png"),
+            "cards/reedBaelstone.png"),
         panel("Coach",
             "Keyboard: Tab switches between the board and buttons. On the board, arrows move focus. Press Enter to select a piece, choose its target with arrows, then press Enter again. I inspects a card; A uses a selected piece's available ability. Mouse: drag to the target and release the mouse button.",
-            "story/mw/mw01/02_reed_retreat_v2.png"),
+            "cards/reedBaelstone.png"),
         panel("Coach",
             "Normally, one ready piece acts before End Turn unless its card allows more. Badges show Health: blue for your pieces, red for enemies. These gators each have 1 Health. One damage removes them from the battle. The nearest gator follows Reed after End Turn.",
-            "story/mw/mw01/02_reed_retreat_v2.png")};
+            "cards/reedBaelstone.png")};
     mission.aftermath = {
         panel("Erevan",
             "Blackthorn trained these gators. The Company takes people's boats and locks their owners in work camps. Victor commands its soldiers.",
@@ -1442,10 +1444,10 @@ StoryMission mirewatchOpening()
             {
                 panel("Telos",
                     "I'm moving, Reed! Get ready. You'll have a clear shot.",
-                    "story/mw/mw01/03_telos_travel_v2.png"),
+                    "cards/telosTheMerchant.png"),
                 panel("Coach",
                     "Travel moves Telos one square. B4 to A5 clears column B so Reed can use Bow.",
-                    "story/mw/mw01/03_telos_travel_v2.png")
+                    "cards/telosTheMerchant.png")
             }),
         scripted(
             StoryActionKind::EndTurn, 1, "", -1, -1,
@@ -1493,7 +1495,7 @@ StoryMission blackthornOpening()
             "This town obeys whoever has power. Get the gator back in its pen. Make sure it obeys me.",
             "cards/victorGreyshard.png"),
         panel("Optional practice",
-            "Practice moving, healing, Disable, and attacking, or continue Mog's story. Practice never changes the plot. You can replay it from Missions.",
+            "Practice moving, healing, Disable, and attacking, or continue the story. These card battles do not change the plot. You can replay them from Missions.",
             "cards/blackthornLumberjack.png")};
     const std::vector<StoryPanel> practiceInstructions = {
         panel("Controls",
@@ -2014,7 +2016,7 @@ StoryMission blackthornCapstone()
     StoryMission mission = playableFromEntry(entry);
     mission.briefing = {
         panel("Optional practice",
-            "Mog's story is complete. Try 26 guided actions covering the starter deck, or skip this review. You can replay it from Missions.",
+            "The story is complete. Try 26 guided actions covering the starter deck, or skip this review. You can replay it from Missions.",
             "cards/thaeronBaelstone.png")};
     const std::vector<StoryPanel> practiceInstructions = {
         panel("Coach",
@@ -2865,15 +2867,15 @@ StoryMission mirewatchWatcher()
     mission.briefing = {
         panel("Narrator",
             "At the boatyard, children hide beneath loose timber as Company guards search for them. Juniper, a young rescuer, climbs under the beams. Erevan moves to stop the guards.",
-            "characters/juniperFlash.png"),
+            "cards/juniperFlash.png"),
         panel("Juniper",
             "I have you. Crawl toward my voice. Erevan, do not let them follow us.",
-            "characters/juniperFlash.png")
+            "cards/juniperFlash.png")
     };
     mission.aftermath = {
         panel("Narrator",
             "The children reach the boat. Juniper carries the smaller one, who will not let go of her sleeve.",
-            "characters/juniperFlash.png")
+            "cards/juniperFlash.png")
     };
     mission.pieces = {
         piece("juniper", "Juniper Flash", 1, 3, 1),
@@ -2930,7 +2932,7 @@ StoryMission mirewatchOffice()
     mission.aftermath = {
         panel("Narrator",
             "Hara holds the hatch shut as Erevan escapes. He brings the map home. Juniper returns with Hara's mother. They wait by the dock, but Hara does not come.",
-            "characters/juniperFlash.png")
+            "cards/juniperFlash.png")
     };
     mission.pieces = {
         piece("erevan", "Erevan the Shadow", 1, 3, 1),
@@ -3225,18 +3227,18 @@ StoryMission mirewatchVaultCost()
     mission.briefing = {
         panel("Narrator",
             "Water rises beneath the prison balcony. Mog loads the raft while the young prisoner helps the children climb down. The father they freed knows the path to the boats. Juniper has been hurt, but she stays beside him. This runner will lead the children out.",
-            "characters/juniperFlash.png"),
+            "cards/juniperFlash.png"),
         panel("Reed",
             "I can hold this gate open. Keep moving!",
             "cards/reedBaelstone.png"),
         panel("Coach",
             "Clear the paths. Then move Juniper beside the runner. When a guard attacks him, Intercept swaps her into his place. She takes the hit. This happens automatically. Focus her and press I to read her card.",
-            "characters/juniperFlash.png")
+            "cards/juniperFlash.png")
     };
     mission.aftermath = {
         panel("Narrator",
             "The runner catches Juniper as she falls. He carries her onto the raft. She is badly hurt, but breathing. Vanya presses a clean cloth against her wound.",
-            "characters/juniperFlash.png"),
+            "cards/juniperFlash.png"),
         panel("Vanya",
             "Stay with us, Juniper. Children, sit beside me. We are getting out together.",
             "cards/vanyaBluewater.png"),
@@ -3287,7 +3289,7 @@ StoryMission mirewatchVaultCost()
     mission.script[6].panelsBefore = {
         panel("Juniper",
             "He is going for the runner. I will get between them. Keep the children moving!",
-            "characters/juniperFlash.png")};
+            "cards/juniperFlash.png")};
     mission.masteryCards = {"Reed Baelstone", "Juniper Flash"};
     mission.masteryRules = {
         "orthogonal-movement", "intercept-automatic", "intercept-adjacent-ally",
@@ -3475,7 +3477,7 @@ StoryMission blackthornTerms()
     mission.briefing = {
         panel("Narrator",
             "Blackthorn catches the father from the boat and locks him in a wagon. His children hide beneath loose timber. Juniper, one of Reed's friends, pulls them clear while another rescuer brings a boat.",
-            "characters/juniperFlash.png"),
+            "cards/juniperFlash.png"),
         panel("Mog",
             "Here. Drink this. Juniper got your children out. They're safe.",
             "cards/Mog.png"),
@@ -3750,8 +3752,8 @@ StoryMission mirewatchWorldTreeReckoning()
 {
     StoryMission mission = chronicleFromEntry(MirewatchEntries[13]);
     mission.lesson = "OPEN FINALE - FREE THE PRISONERS' PATH";
-    mission.objective = "Defeat Grask. Keep Reed, Vanya, Joni, and Victor alive until this battle ends.";
-    mission.hint = "Use your allies to clear a path to Grask. Donella can heal, and Joni heals nearby allies at the end of your turn. Leave Victor alive so the rescuers can take him prisoner.";
+    mission.objective = "Defeat Grask. Keep Reed, Vanya, and Joni alive until this battle ends.";
+    mission.hint = "Clear a path to Grask. Donella can heal, and Joni heals nearby allies at the end of your turn. Other enemies may remain when Grask falls.";
     mission.briefing = {
         panel("Narrator",
             "Grask, Victor's chief guard, blocks the cages beneath the World Tree. The prisoners need room to loosen the bars and reach one another. Reed's friends spread out around him.",
@@ -3760,7 +3762,7 @@ StoryMission mirewatchWorldTreeReckoning()
             "Push Grask back! Give them room. Leave Victor alive. He is coming with us.",
             "cards/reedBaelstone.png"),
         panel("Coach",
-            "Defeat Grask. Reed, Vanya, Joni, and Victor must survive until the battle ends. Other enemies may remain.",
+            "Defeat Grask. Reed, Vanya, and Joni must survive until the battle ends. Other enemies may remain.",
             "cards/joniPumpernickel.png")
     };
     mission.aftermath = {
@@ -3776,7 +3778,6 @@ StoryMission mirewatchWorldTreeReckoning()
         piece("erevan", "Erevan the Shadow", 1, 1, 1),
         piece("birdie", "Birdie the Wise", 1, 6, 1),
         piece("mog", "Mog", 1, 6, 2),
-        piece("victor", "Victor Greyshard", 2, 0, 7),
         piece("grask", "Grask", 2, 3, 6),
         piece("foreman", "Blackthorn Foreman", 2, 2, 6),
         piece("lumberjack", "Blackthorn Lumberjack", 2, 4, 6),
@@ -3787,7 +3788,7 @@ StoryMission mirewatchWorldTreeReckoning()
     mission.enemyResources = 0;
     mission.objectiveSpec.kind = StoryObjectiveKind::DefeatRole;
     mission.objectiveSpec.targetRole = "grask";
-    mission.requiredSurvivorRoles = {"reed", "vanya", "joni", "victor"};
+    mission.requiredSurvivorRoles = {"reed", "vanya", "joni"};
     return mission;
 }
 
@@ -4779,6 +4780,8 @@ StoryMission seelieHoldWitnessRail()
     return mission;
 }
 
+#include "client_story_novel.inl"
+
 const std::vector<StoryMission> MirewatchMissions = [] {
     std::vector<StoryMission> missions;
     missions.reserve(25);
@@ -4808,7 +4811,9 @@ const std::vector<StoryMission> MirewatchMissions = [] {
     missions.push_back(mirewatchWagonRescue(true));
     missions.push_back(mirewatchRevealReconstruction());
     missions.push_back(mirewatchCapstone(true));
+    reviseMirewatchNovel(missions);
     attachGeneratedScenarioArt(StoryCampaign::Mirewatch, missions);
+    attachNovelScenarioArt(missions);
     return missions;
 }();
 
@@ -4836,7 +4841,9 @@ const std::vector<StoryMission> BlackthornMissions = [] {
     missions.push_back(blackthornCapstone());
     missions.push_back(blackthornFieldJudgment());
     missions.push_back(blackthornOpenMastery());
+    reviseBlackthornNovel(missions);
     attachGeneratedScenarioArt(StoryCampaign::Blackthorn, missions);
+    attachNovelScenarioArt(missions);
     return missions;
 }();
 

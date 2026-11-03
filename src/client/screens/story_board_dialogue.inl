@@ -20,8 +20,16 @@
             sf::Texture* texture = animated ? walkAnimTexture(path) : textures.load(path);
             if (!texture) return std::nullopt;
             const auto dimensions = texture->getSize();
-            const unsigned int frameCount = static_cast<unsigned int>(std::max(1, frames));
-            const unsigned int frameWidth = dimensions.x / frameCount;
+            const unsigned int declaredFrameCount =
+                static_cast<unsigned int>(std::max(1, frames));
+            const bool hasSquareCells = animated && dimensions.y > 0 &&
+                dimensions.x % dimensions.y == 0;
+            const unsigned int frameCount = hasSquareCells
+                ? std::max(1u, dimensions.x / dimensions.y)
+                : declaredFrameCount;
+            const unsigned int frameWidth = hasSquareCells
+                ? dimensions.y
+                : dimensions.x / frameCount;
             if (frameWidth == 0 || dimensions.y == 0) return std::nullopt;
             const std::string cacheKey = path + ":" + std::to_string(frameCount);
             auto found = storyTokenVisibleBounds.find(cacheKey);
@@ -47,7 +55,17 @@
                          static_cast<float>(std::min(bottom + 2, dimensions.y) - top) / dimensions.y}};
                 found = storyTokenVisibleBounds.emplace(cacheKey, visible).first;
             }
-            const float scale = std::min(target.size.x / frameWidth, target.size.y / dimensions.y);
+            const bool usesLogicalFrameSize = hasSquareCells &&
+                static_cast<float>(dimensions.y) > AnimationLogicalFrameSize;
+            const float sourceWidth = usesLogicalFrameSize
+                ? AnimationLogicalFrameSize
+                : static_cast<float>(frameWidth);
+            const float sourceHeight = usesLogicalFrameSize
+                ? AnimationLogicalFrameSize
+                : static_cast<float>(dimensions.y);
+            const float scale = std::min(
+                target.size.x / sourceWidth,
+                target.size.y / sourceHeight);
             const sf::Vector2f fitted{frameWidth * scale, dimensions.y * scale};
             const auto visible = found->second;
             const float x = piece.owner == 2 ? 1.0f - visible.position.x - visible.size.x : visible.position.x;

@@ -103,11 +103,15 @@
             {
                 if (sf::Texture* art = textures.load(std::string(displayedArtPath)))
                 {
-                    drawCoverSprite(
-                        window,
-                        *art,
-                        {{artPosition.x + 14.0f, artPosition.y + 14.0f},
-                         {artSize.x - 28.0f, artSize.y - 28.0f}});
+                    const sf::FloatRect artBounds{
+                        {artPosition.x + 14.0f, artPosition.y + 14.0f},
+                        {artSize.x - 28.0f, artSize.y - 28.0f}};
+                    // These composed scenes need the whole frame: a cover crop
+                    // cuts off Sylvara's face above the rescue group.
+                    if (mission.scenarioArtPath.starts_with("story/revised/"))
+                        drawContainSprite(window, *art, artBounds);
+                    else
+                        drawCoverSprite(window, *art, artBounds);
                 }
             }
             else

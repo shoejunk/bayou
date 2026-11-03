@@ -413,22 +413,22 @@ StoryActInfo storyActInfo(StoryCampaign campaign, int missionIndex)
             "Practice more card moves."};
     }
     static constexpr StoryActInfo mirewatch[] = {
-        {"mw01_river_teeth", "ACT I - TEETH IN THE WATER", "Survive the gators and reach Mirewatch.", "Protect the people on the river."},
-        {"s01_hospitality", "ACT II - FRIENDS UNDER FIRE", "Get the families to shelter before Victor finds them.", "Get the families to shelter."},
-        {"mw08_lesson_night", "ACT III - THE TRAP", "Get Reed and the prisoners out of Victor's trap.", "Get the prisoners out."},
-        {"s04_wounds_that_vote", "ACT IV - THE TOWN FIGHTS BACK", "Help the town stand together and escape Victor's attack.", "Help the town fight back."},
-        {"mw18_allies_dishonestly", "ACT V - THE ROAD TO THE TREE", "Help the people fleeing Victor, then follow him to the World Tree.", "Clear a road for the families."},
-        {"mw20_monster_rules", "ACT VI - FREE THE TREE", "Free the captives and stop Victor at the World Tree.", "Free the captives. Save the tree."},
-        {"mw25_deed_own_hand", "ACT VII - A NEW START", "Bring the survivors home and help the town rebuild.", "Help the town rebuild."},
+        {"mw01_river_teeth", "ACT I - REACH THE SHORE", "Survive the river and help the people trapped in Mirewatch.", "Reach shore. Help the town."},
+        {"s01_hospitality", "ACT II - THE STOLEN MIRROR", "Help Vesper recover his memories and free the wagon's prisoners.", "Save Vesper and the captives."},
+        {"mw08_lesson_night", "ACT III - NO ONE LEFT ALONE", "Escape Reed's uncle, then follow the Mirror to the prison.", "Find the Mirror. Get people out."},
+        {"s04_wounds_that_vote", "ACT IV - THE MISSING FRIEND", "Follow Elliot's trail beyond the town.", "Find out what happened to Elliot."},
+        {"mw18_allies_dishonestly", "ACT V - WAKE UP", "Escape the forest's dreams and reach the timber camp.", "Wake your friends. Keep moving."},
+        {"mw20_monster_rules", "ACT VI - SAVE WHAT LIVES", "Free the workers and stop the machines hurting Sylvara.", "Free the workers. Help Sylvara."},
+        {"mw25_deed_own_hand", "ACT VII - A PLACE AT THE TABLE", "Bring your friends home and make room for the people you saved.", "Bring your friends home."},
     };
     static constexpr StoryActInfo blackthorn[] = {
-        {"bt01_harness_hunger", "ACT I - ORDERS AND DOUBTS", "Follow Mog as he starts to question Victor's orders.", "Mog must choose who to protect."},
-        {"s01_hospitality", "ACT II - FRIENDS UNDER FIRE", "Follow Mog as he helps the people Victor is hunting.", "Help the hunted families."},
-        {"bt08_north_lock", "ACT III - THE TRAP", "Help the rescuers get Reed and the prisoners out.", "Get the prisoners out."},
-        {"bt10_stolen_road", "ACT IV - THE TOWN FIGHTS BACK", "Stand with the town as Victor orders his soldiers to attack.", "Stand with the town."},
-        {"bt13a_poisoned_root_road", "ACT V - THE ROAD TO THE TREE", "Help the families on the road to Victor's hiding place.", "Clear a road for the families."},
-        {"bt15_monster_rules", "ACT VI - FREE THE TREE", "Follow the rescue as Mog turns against Victor at the World Tree.", "Free the captives. Save the tree."},
-        {"bt18_deed_own_hand", "ACT VII - A NEW START", "Bring the survivors home and help the town rebuild.", "Help the town rebuild."},
+        {"bt01_harness_hunger", "ACT I - BEHIND THE GATES", "See what Blackthorn's power costs the people caught in it.", "Look behind the Company gates."},
+        {"s01_hospitality", "ACT II - THE RESCUERS", "Follow the stolen Mirror and the people trying to recover it.", "Find out where the Mirror went."},
+        {"bt08_north_lock", "ACT III - THE PRICE OF POWER", "Follow Reed's escape and the rescue at the flooded prison.", "Get Reed and the captives out."},
+        {"bt10_stolen_road", "ACT IV - BEYOND THE RIVER", "Follow the missing workers into the forest.", "Find the missing workers."},
+        {"bt13a_poisoned_root_road", "ACT V - THE CUTTING GROUND", "Learn what the timber machines are doing to people and trees.", "Reach the camp. Find the danger."},
+        {"bt15_monster_rules", "ACT VI - BREAK THE MACHINE", "Open an escape route and free Sylvara from the machine.", "Open the gates. Stop the engine."},
+        {"bt18_deed_own_hand", "ACT VII - WHAT COMES NEXT", "Help the survivors begin again while the search for Caltheriel continues.", "Bring people home. Keep searching."},
     };
     static constexpr StoryActInfo seelie[] = {
         {"se00_what_mirror_remembers", "ACT I - FREE CALTHERIEL", "Reach Caltheriel and help her escape the cage.", "Help Caltheriel leave the cage."},

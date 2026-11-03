@@ -141,7 +141,7 @@ GameCard baseCard(
     }
     if (title == "Juniper Flash")
     {
-        card.imagePath = "characters/juniperFlash.png";
+        card.imagePath = "cards/juniperFlash.png";
     }
     if (title == "Victor Greyshard")
     {

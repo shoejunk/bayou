@@ -149,14 +149,14 @@
             {32.0f, 112.0f},
             sf::Color(207, 151, 69),
             "cards/victorGreyshard.png",
-            "Mog follows a cruel leader. Will he help the people he was sent to hurt? Learn to play Blackthorn cards.",
+            "A stolen Mirror. A prison break. A forest in danger. See the Company's side and learn Blackthorn cards.",
             storyBlackthornButton);
         drawCampaign(
             StoryCampaign::Mirewatch,
             {288.0f, 112.0f},
             sf::Color(103, 188, 153),
             "cards/reedBaelstone.png",
-            "Gators surround your boat. Soldiers threaten your home. Help Reed and his friends fight back.",
+            "Survive the river. Free the captives. Help Reed and his friends save a forest guardian from a terrible machine.",
             storyMirewatchButton);
         drawCampaign(
             StoryCampaign::Seelie,

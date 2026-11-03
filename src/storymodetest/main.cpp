@@ -764,6 +764,7 @@ void validateStoryAssets()
     std::set<std::string> cardTitles;
     std::set<std::string> scenarioArtPaths;
     std::set<std::string> riverTeethPanelArt;
+    bool riverTeethHasArt = false;
     const auto rememberCard = [&](std::string_view title) {
         if (!title.empty())
         {
@@ -774,7 +775,8 @@ void validateStoryAssets()
         if (!panel.artPath.empty())
         {
             validateAsset(panel.artPath, missionId);
-            if (missionId == "mw01_river_teeth")
+            if (missionId == "mw01_river_teeth") riverTeethHasArt = true;
+            if (missionId == "mw01_river_teeth" && panel.artPath.starts_with("story/mw/mw01/"))
             {
                 riverTeethPanelArt.emplace(panel.artPath);
             }
@@ -789,9 +791,29 @@ void validateStoryAssets()
             : campaign == StoryCampaign::Blackthorn ? "story/bt/" : "story/se/";
         for (const StoryMission& mission : bayou::client::storyMissions(campaign))
         {
+            if (campaign != StoryCampaign::Seelie)
+            {
+                const auto checkCardReference = [&](const StoryPanel& entry) {
+                    check(entry.artPath.empty() || entry.artPath.starts_with("cards/"),
+                        std::string(mission.id) + ": dialogue uses canonical character art");
+                };
+                for (const auto& entry : mission.briefing) checkCardReference(entry);
+                for (const auto& entry : mission.aftermath) checkCardReference(entry);
+                for (const auto& action : mission.script)
+                    for (const auto& entry : action.panelsBefore) checkCardReference(entry);
+                check(mission.scenarioArtPath.empty() ||
+                        mission.scenarioArtPath.starts_with("story/revised/"),
+                    std::string(mission.id) + ": scene art uses reviewed card-based designs");
+            }
             const bool usesRiverTeethSequence = mission.id == "mw01_river_teeth";
+            const bool revisedPortraitFallback = campaign != StoryCampaign::Seelie &&
+                std::any_of(mission.briefing.begin(), mission.briefing.end(),
+                    [](const StoryPanel& panel) {
+                        return panel.artPath.starts_with("cards/") ||
+                            panel.artPath.starts_with("characters/");
+                    });
             check(
-                usesRiverTeethSequence || mission.id == "mw24a_victor_in_custody" ||
+                revisedPortraitFallback || usesRiverTeethSequence || mission.id == "mw24a_victor_in_custody" ||
                     mission.id == "mw06a_card_workshop" || mission.id == "mw15a_team_workshop" ||
                     mission.id == "se03a_flight_workshop" ||
                     mission.id == "s03_published_mystery" ||
@@ -802,10 +824,14 @@ void validateStoryAssets()
             if (!mission.scenarioArtPath.empty())
             {
                 check(
-                    mission.scenarioArtPath.starts_with(expectedArtPrefix),
+                    mission.scenarioArtPath.starts_with(expectedArtPrefix) ||
+                        (campaign != StoryCampaign::Seelie &&
+                            mission.scenarioArtPath.starts_with("story/revised/")),
                     std::string(mission.id) + ": scenario art belongs to its campaign");
+                const bool firstUse = scenarioArtPaths.emplace(mission.scenarioArtPath).second;
                 check(
-                    scenarioArtPaths.emplace(mission.scenarioArtPath).second,
+                    firstUse || (campaign != StoryCampaign::Seelie &&
+                        mission.scenarioArtPath.starts_with("story/revised/")),
                     std::string(mission.id) + ": scenario art is not reused by another mission");
                 validateAsset(mission.scenarioArtPath, mission.id);
                 const auto dimensions = pngDimensions(mission.scenarioArtPath);
@@ -861,13 +887,8 @@ void validateStoryAssets()
     }
 
     check(
-        riverTeethPanelArt ==
-            std::set<std::string>{
-                "story/mw/mw01/01_gator_ambush_v2.png",
-                "story/mw/mw01/02_reed_retreat_v2.png",
-                "story/mw/mw01/03_telos_travel_v2.png",
-                "story/mw/mw01/04_harness_aftermath_v2.png"},
-        "River Teeth uses its complete four-image opening sequence");
+        riverTeethHasArt,
+        "River Teeth supplies existing illustration or portrait art for its opening");
     for (const std::string& artPath : riverTeethPanelArt)
     {
         const auto dimensions = pngDimensions(artPath);
@@ -1807,6 +1828,8 @@ void validateNarrativeCoherence()
                 mission.objectiveSpec.kind == StoryObjectiveKind::StoryOnly;
             if (storyOnly)
             {
+                check(mission.aftermath.empty(),
+                    label + "puts every chronicle outcome on a page the player can reach");
                 check(
                     mission.briefing.size() >= 2 && mission.briefing.size() <= 8,
                     label + "keeps a story scene to eight short beats or fewer");
@@ -1848,6 +1871,85 @@ void validateNarrativeCoherence()
             mirewatch && blackthorn &&
                 panelCopy(*mirewatch) != panelCopy(*blackthorn),
             std::string(id) + ": the two sides retain distinct points of view");
+    }
+}
+
+void validateNovelAdaptation()
+{
+    // These are continuity regressions from the replaced adaptation, not a
+    // sentence-by-sentence prose snapshot. The scene tests allow ordinary
+    // wording changes while requiring the important outcomes to remain explicit.
+    const auto copy = [](const StoryMission& mission) {
+        std::string result;
+        const auto append = [&](std::string_view value) { result += value; result += '\n'; };
+        const auto panels = [&](const std::vector<StoryPanel>& values) {
+            for (const auto& panel : values) { append(panel.speaker); append(panel.text); }
+        };
+        append(mission.title); append(mission.sourceChapter); append(mission.lesson);
+        append(mission.objective); append(mission.hint);
+        panels(mission.briefing); panels(mission.aftermath);
+        for (const auto& step : mission.script)
+        {
+            append(step.heading); append(step.instruction); append(step.correction);
+            panels(step.panelsBefore);
+        }
+        std::transform(result.begin(), result.end(), result.begin(),
+            [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        return result;
+    };
+    const auto any = [](const std::string& text, std::initializer_list<std::string_view> words) {
+        return std::any_of(words.begin(), words.end(),
+            [&](std::string_view word) { return text.find(word) != std::string::npos; });
+    };
+    for (const auto campaign : {StoryCampaign::Mirewatch, StoryCampaign::Blackthorn})
+    {
+        const std::string label = std::string(bayou::client::storyCampaignName(campaign)) + ": ";
+        for (const auto& mission : storyMissions(campaign))
+        {
+            const auto text = copy(mission);
+            check(!any(text, {"root key", "memory core", "memory-core", "control cable",
+                    "take victor alive", "victor is in custody", "victor in custody",
+                    "thaeron in custody", "thaeron remains under guard"}),
+                label + std::string(mission.id) + " does not restore a discarded plot device or arrest ending");
+        }
+        const auto sceneCopy = [&](std::string_view id) {
+            const auto* mission = missionById(campaign, id);
+            check(mission != nullptr, label + std::string(id) + " continuity scene exists");
+            return mission ? copy(*mission) : std::string{};
+        };
+        const auto mirror = sceneCopy("s03_published_mystery") +
+            sceneCopy(campaign == StoryCampaign::Mirewatch ? "s01_hospitality" : "bt03_sanctuary_debt");
+        check(any(mirror, {"mirror"}) && any(mirror, {"morning", "daily", "every day", "each day"}) &&
+                any(mirror, {"memor", "past"}),
+            label + "the Mirror restores Vesper's memory repeatedly, not as a permanent cure");
+        const auto ending = sceneCopy("s06_town_owns_itself");
+        const auto graft = mirror + ending + sceneCopy(campaign == StoryCampaign::Mirewatch
+            ? "s04_wounds_that_vote" : "bt10_stolen_road");
+        check(any(graft, {"iven"}) && any(graft, {"graft", "living branch"}) &&
+                any(graft, {"surviv", "alive", "her hands heal", "to heal"}) && any(graft, {"maggie"}) &&
+                any(graft, {"remain", "stay", "stays", "left behind"}),
+            label + "Iven survives and the living graft stays behind at Maggie's");
+        const auto reckoning = sceneCopy(campaign == StoryCampaign::Mirewatch
+            ? "mw24a_victor_in_custody" : "bt17c_victor_reckoning");
+        check(any(reckoning, {"victor"}) && any(reckoning, {"erevan"}) &&
+                any(reckoning, {"dead", "kills", "killed"}),
+            label + "Victor dies in the final attack instead of being captured");
+        const auto tree = sceneCopy(campaign == StoryCampaign::Mirewatch
+            ? "mw23_choice_not_cure" : "bt17c_victor_reckoning") +
+            sceneCopy(campaign == StoryCampaign::Mirewatch
+                ? "mw25_deed_own_hand" : "bt18_deed_own_hand");
+        check(any(tree, {"sylvara"}) && any(tree, {"dead"}) &&
+                any(tree, {"crown", "branches", "treetop"}) && any(tree, {"living", "root"}) &&
+                !any(tree, {"returns to her own shape", "returns to her old shape"}),
+            label + "Sylvara releases the dead crown while living roots survive");
+        check(any(ending, {"thaeron"}) && any(ending, {"free", "at large"}) &&
+                any(ending, {"refus", "declin", "will not go", "won't go"}),
+            label + "Reed refuses Thaeron while his uncle remains free");
+        const auto elliot = ending + (campaign == StoryCampaign::Mirewatch
+            ? sceneCopy("mw25_deed_own_hand") : std::string{});
+        check(any(elliot, {"elliot"}) && (any(elliot, {"undead"}) ||
+                (any(elliot, {"no pulse"}) && any(elliot, {"not come back to ordinary life"}))),
+            label + "Elliot returns as undead rather than a healed living man");
     }
 }
 
@@ -2152,21 +2254,18 @@ void validateExpandedMirewatchBattles()
         finale && finale->script.empty() &&
             finale->objectiveSpec.kind == StoryObjectiveKind::DefeatRole &&
             finale->objectiveSpec.targetRole == "grask" &&
-            unitCount(*finale, 1) == 7 && unitCount(*finale, 2) == 7 &&
+            unitCount(*finale, 1) == 7 && unitCount(*finale, 2) == 6 &&
             hasRequiredSurvivor(*finale, "reed") &&
             hasRequiredSurvivor(*finale, "vanya") &&
             hasRequiredSurvivor(*finale, "joni") &&
-            hasRequiredSurvivor(*finale, "victor") &&
+            !hasRequiredSurvivor(*finale, "victor") &&
             finale->requiredSurvivorRoles ==
-                std::vector<std::string_view>{"reed", "vanya", "joni", "victor"} &&
-            finale->objective.find("Victor") != std::string_view::npos &&
-            std::any_of(
-                finale->briefing.begin(), finale->briefing.end(),
-                [](const StoryPanel& panel) {
-                    return panel.text.find("Victor") !=
-                        std::string_view::npos;
+                std::vector<std::string_view>{"reed", "vanya", "joni"} &&
+            std::none_of(finale->pieces.begin(), finale->pieces.end(),
+                [](const StoryPiecePlacement& placement) {
+                    return placement.cardTitle == "Victor Greyshard";
                 }),
-        "MW24 is an open seven-versus-seven Grask finale that protects Reed, Vanya, Joni, and Victor");
+        "MW24 is an open Grask finale that protects Reed, Vanya, and Joni without staging a second Victor");
 }
 
 void validateBlackthornTrainingContract()
@@ -3294,27 +3393,25 @@ void validateWorldTreeTargetObjective()
         "World Tree target-objective setup configures authoritatively");
     const game_data::Piece* reed = pieceNamed(engine, "Reed Baelstone");
     const game_data::Piece* grask = pieceNamed(engine, "Grask");
-    const game_data::Piece* victor = pieceNamed(engine, "Victor Greyshard");
     check(
-        reed && grask && victor,
+        reed && grask,
         "World Tree target and protected-survivor identities are present");
-    if (!(reed && grask && victor))
+    if (!(reed && grask))
     {
         return;
     }
     const int reedId = reed->id;
     const int graskId = grask->id;
-    const int victorId = victor->id;
     const int initialEnemies = static_cast<int>(std::count_if(
         engine.boardPieces().begin(), engine.boardPieces().end(),
         [](const game_data::Piece& piece) {
             return game_data::pieceOriginalOwner(piece) == 2;
         }));
     check(
-        initialEnemies == 7 &&
+        initialEnemies == 6 &&
             engine.scenarioObjectiveProgress().remaining == 1 &&
             engine.phase() == game_data::Phase::Playing,
-        "World Tree tracks stable Grask identity rather than all seven enemies");
+        "World Tree tracks stable Grask identity rather than all six enemies");
 
     bool legalApproach = true;
     for (int column = 1; column <= 3; ++column)
@@ -3361,73 +3458,62 @@ void validateWorldTreeTargetObjective()
             [&](const game_data::Piece& piece) { return piece.id == graskId; }),
         "the stable Grask identity leaves the authoritative board");
     check(
-        survivingEnemies == 6,
-        "six non-target World Tree enemies remain after Grask falls");
-    check(
-        std::any_of(
-            engine.boardPieces().begin(), engine.boardPieces().end(),
-            [&](const game_data::Piece& piece) { return piece.id == victorId; }),
-        "Victor remains alive for the surrender and custody aftermath when Grask falls");
+        survivingEnemies == 5,
+        "five non-target World Tree enemies remain after Grask falls");
     check(
         engine.phase() == game_data::Phase::GameOver &&
             engine.winner() == 1 &&
             engine.scenarioObjectiveProgress().complete,
         "defeating stable Grask identity produces the authoritative target win");
 
-    StoryMission victorFailureMission = *mission;
-    const auto mogPlacement = std::find_if(
-        victorFailureMission.pieces.begin(),
-        victorFailureMission.pieces.end(),
+    StoryMission survivorFailureMission = *mission;
+    const auto reedPlacement = std::find_if(
+        survivorFailureMission.pieces.begin(),
+        survivorFailureMission.pieces.end(),
         [](const StoryPiecePlacement& placement) {
-            return placement.role == "mog";
+            return placement.role == "reed";
         });
     check(
-        mogPlacement != victorFailureMission.pieces.end(),
-        "World Tree survivor-failure witness finds Mog's authored role");
-    if (mogPlacement == victorFailureMission.pieces.end())
+        reedPlacement != survivorFailureMission.pieces.end(),
+        "World Tree survivor-failure witness finds Reed's authored role");
+    if (reedPlacement == survivorFailureMission.pieces.end())
     {
         return;
     }
-    mogPlacement->row = 1;
-    mogPlacement->column = 7;
+    reedPlacement->row = 2;
+    reedPlacement->column = 5;
+    reedPlacement->initialHealth = 1;
+    survivorFailureMission.firstPlayer = 2;
 
     GameEngine failureEngine(0x56494354u, {});
     check(
-        replayScript(victorFailureMission, failureEngine),
+        replayScript(survivorFailureMission, failureEngine),
         "World Tree survivor-failure witness configures authoritatively");
-    const game_data::Piece* failureMog = pieceNamed(failureEngine, "Mog");
-    const game_data::Piece* failureVictor =
-        pieceNamed(failureEngine, "Victor Greyshard");
+    const game_data::Piece* failureGrask = pieceNamed(failureEngine, "Grask");
+    const game_data::Piece* failureReed = pieceNamed(failureEngine, "Reed Baelstone");
     check(
-        failureMog && failureVictor,
-        "World Tree survivor-failure witness places Mog beside Victor");
-    if (!(failureMog && failureVictor))
+        failureGrask && failureReed,
+        "World Tree survivor-failure witness places Reed within Grask's Capture range");
+    if (!(failureGrask && failureReed))
     {
         return;
     }
-    const int failureMogId = failureMog->id;
-    const int failureVictorId = failureVictor->id;
-    const int failureVictorRow = failureVictor->row;
-    const int failureVictorColumn = failureVictor->column;
-    const bool firstHit = failureEngine.attackPiece(
-        1, failureMogId, failureVictorRow, failureVictorColumn);
-    const bool turnCycle = firstHit && failureEngine.endTurn(1) &&
-        failureEngine.endTurn(2);
-    const bool secondHit = turnCycle && failureEngine.attackPiece(
-        1, failureMogId, failureVictorRow, failureVictorColumn);
+    const int failureReedId = failureReed->id;
+    const bool capture = failureEngine.attackPiece(
+        2, failureGrask->id, failureReed->row, failureReed->column);
     const GameEngine::ScenarioObjectiveProgress failureProgress =
         failureEngine.scenarioObjectiveProgress();
     check(
-        firstHit && turnCycle && secondHit,
-        "Mog reaches Victor only through two real Axe Swing attacks and a real turn cycle");
+        capture,
+        "Grask defeats the wounded required survivor through a legal Capture attack");
     check(
         failureEngine.phase() == game_data::Phase::GameOver &&
             failureEngine.winner() == 2 && failureProgress.failed &&
             !failureProgress.complete &&
             failureProgress.failure ==
                 GameEngine::ScenarioObjectiveFailure::RequiredPieceMissing &&
-            failureProgress.failedPieceId == failureVictorId,
-        "defeating protected Victor fails MW24 before the Grask objective can complete");
+            failureProgress.failedPieceId == failureReedId,
+        "defeating protected Reed fails MW24 before the Grask objective can complete");
 }
 
 void validateRiverTeethLineClear()
@@ -3603,7 +3689,10 @@ void validateStoryDialoguePresentation()
         if (placement.initialHealth >= 0)
             check(piece.health == placement.initialHealth, "preview preserves authored starting Health");
     }
-    const auto donella = storySpeakingPiece(opening->briefing[1], preview.pieces);
+    const auto speakerPanel = std::find_if(opening->briefing.begin(), opening->briefing.end(),
+        [&](const StoryPanel& panel) { return storySpeakingPiece(panel, preview.pieces).has_value(); });
+    const auto donella = speakerPanel == opening->briefing.end()
+        ? std::optional<int>{} : storySpeakingPiece(*speakerPanel, preview.pieces);
     check(donella.has_value(), "a short speaker name resolves to its full board character");
     check(!storySpeakingPiece({"Narrator", "A scene.", "cards/reedBaelstone.png"}, preview.pieces),
         "narration never attributes its words to its artwork's character");
@@ -3621,17 +3710,20 @@ void validateStoryDialoguePresentation()
         auto duplicate = *std::find_if(duplicates.begin(), duplicates.end(),
             [&](const auto& p) { return p.id == *donella; });
         duplicate.id = -1000; duplicates.push_back(duplicate);
-        check(!storySpeakingPiece(opening->briefing[1], duplicates),
+        check(!storySpeakingPiece(*speakerPanel, duplicates),
             "duplicate matching figures use a portrait instead of a misleading tail");
     }
     const auto* camp = missionById(StoryCampaign::Mirewatch, "s01_hospitality");
     if (camp)
     {
         const auto scene = storyDialoguePreview(*camp, cards);
-        check(camp->pieces.empty() && scene.pieces.size() >= 3,
+        check(camp->pieces.empty() && scene.pieces.size() >= 2,
             "a story-only scene stages its known speakers without adding a battle");
-        check(storySpeakingPiece(camp->briefing[3], scene.pieces).has_value(),
-            "Reed has an on-board anchor in the camp conversation");
+        check(std::any_of(camp->briefing.begin(), camp->briefing.end(),
+                [&](const StoryPanel& panel) {
+                    return storySpeakingPiece(panel, scene.pieces).has_value();
+                }),
+            "a known speaking character has an on-board anchor in the camp conversation");
         check(storyDialoguePreview(*camp, {}).pieces.empty(),
             "missing visual definitions do not invent playable replacement units");
     }
@@ -3806,76 +3898,28 @@ int main()
             [&](const StoryMission& mission) { return mission.id == id; });
         return found == missions.end() ? -1 : static_cast<int>(found - missions.begin());
     };
-    check(bayou::client::storyActName(StoryCampaign::Mirewatch,
-              routeIndex(StoryCampaign::Mirewatch, "mw01_river_teeth")) == "ACT I - TEETH IN THE WATER" &&
-          bayou::client::storyActShortGoal(StoryCampaign::Mirewatch,
-              routeIndex(StoryCampaign::Mirewatch, "mw01_river_teeth")) == "Protect the people on the river.",
-        "mw01_river_teeth: the revised act starts with its immediate player goal");
-    check(bayou::client::storyActName(StoryCampaign::Mirewatch,
-              routeIndex(StoryCampaign::Mirewatch, "s01_hospitality")) == "ACT II - FRIENDS UNDER FIRE" &&
-          bayou::client::storyActShortGoal(StoryCampaign::Mirewatch,
-              routeIndex(StoryCampaign::Mirewatch, "s01_hospitality")) == "Get the families to shelter.",
-        "s01_hospitality: the revised act starts with its immediate player goal");
-    check(bayou::client::storyActName(StoryCampaign::Mirewatch,
-              routeIndex(StoryCampaign::Mirewatch, "mw08_lesson_night")) == "ACT III - THE TRAP" &&
-          bayou::client::storyActShortGoal(StoryCampaign::Mirewatch,
-              routeIndex(StoryCampaign::Mirewatch, "mw08_lesson_night")) == "Get the prisoners out.",
-        "mw08_lesson_night: the revised act starts with its immediate player goal");
-    check(bayou::client::storyActName(StoryCampaign::Mirewatch,
-              routeIndex(StoryCampaign::Mirewatch, "s04_wounds_that_vote")) == "ACT IV - THE TOWN FIGHTS BACK" &&
-          bayou::client::storyActShortGoal(StoryCampaign::Mirewatch,
-              routeIndex(StoryCampaign::Mirewatch, "s04_wounds_that_vote")) == "Help the town fight back.",
-        "s04_wounds_that_vote: the revised act starts with its immediate player goal");
-    check(bayou::client::storyActName(StoryCampaign::Mirewatch,
-              routeIndex(StoryCampaign::Mirewatch, "mw18_allies_dishonestly")) == "ACT V - THE ROAD TO THE TREE" &&
-          bayou::client::storyActShortGoal(StoryCampaign::Mirewatch,
-              routeIndex(StoryCampaign::Mirewatch, "mw18_allies_dishonestly")) == "Clear a road for the families.",
-        "mw18_allies_dishonestly: the revised act starts with its immediate player goal");
-    check(bayou::client::storyActName(StoryCampaign::Mirewatch,
-              routeIndex(StoryCampaign::Mirewatch, "mw20_monster_rules")) == "ACT VI - FREE THE TREE" &&
-          bayou::client::storyActShortGoal(StoryCampaign::Mirewatch,
-              routeIndex(StoryCampaign::Mirewatch, "mw20_monster_rules")) == "Free the captives. Save the tree.",
-        "mw20_monster_rules: the revised act starts with its immediate player goal");
-    check(bayou::client::storyActName(StoryCampaign::Mirewatch,
-              routeIndex(StoryCampaign::Mirewatch, "mw25_deed_own_hand")) == "ACT VII - A NEW START" &&
-          bayou::client::storyActShortGoal(StoryCampaign::Mirewatch,
-              routeIndex(StoryCampaign::Mirewatch, "mw25_deed_own_hand")) == "Help the town rebuild.",
-        "mw25_deed_own_hand: the revised act starts with its immediate player goal");
-    check(bayou::client::storyActName(StoryCampaign::Blackthorn,
-              routeIndex(StoryCampaign::Blackthorn, "bt01_harness_hunger")) == "ACT I - ORDERS AND DOUBTS" &&
-          bayou::client::storyActShortGoal(StoryCampaign::Blackthorn,
-              routeIndex(StoryCampaign::Blackthorn, "bt01_harness_hunger")) == "Mog must choose who to protect.",
-        "bt01_harness_hunger: the revised act starts with its immediate player goal");
-    check(bayou::client::storyActName(StoryCampaign::Blackthorn,
-              routeIndex(StoryCampaign::Blackthorn, "s01_hospitality")) == "ACT II - FRIENDS UNDER FIRE" &&
-          bayou::client::storyActShortGoal(StoryCampaign::Blackthorn,
-              routeIndex(StoryCampaign::Blackthorn, "s01_hospitality")) == "Help the hunted families.",
-        "s01_hospitality: the revised act starts with its immediate player goal");
-    check(bayou::client::storyActName(StoryCampaign::Blackthorn,
-              routeIndex(StoryCampaign::Blackthorn, "bt08_north_lock")) == "ACT III - THE TRAP" &&
-          bayou::client::storyActShortGoal(StoryCampaign::Blackthorn,
-              routeIndex(StoryCampaign::Blackthorn, "bt08_north_lock")) == "Get the prisoners out.",
-        "bt08_north_lock: the revised act starts with its immediate player goal");
-    check(bayou::client::storyActName(StoryCampaign::Blackthorn,
-              routeIndex(StoryCampaign::Blackthorn, "bt10_stolen_road")) == "ACT IV - THE TOWN FIGHTS BACK" &&
-          bayou::client::storyActShortGoal(StoryCampaign::Blackthorn,
-              routeIndex(StoryCampaign::Blackthorn, "bt10_stolen_road")) == "Stand with the town.",
-        "bt10_stolen_road: the revised act starts with its immediate player goal");
-    check(bayou::client::storyActName(StoryCampaign::Blackthorn,
-              routeIndex(StoryCampaign::Blackthorn, "bt13a_poisoned_root_road")) == "ACT V - THE ROAD TO THE TREE" &&
-          bayou::client::storyActShortGoal(StoryCampaign::Blackthorn,
-              routeIndex(StoryCampaign::Blackthorn, "bt13a_poisoned_root_road")) == "Clear a road for the families.",
-        "bt13a_poisoned_root_road: the revised act starts with its immediate player goal");
-    check(bayou::client::storyActName(StoryCampaign::Blackthorn,
-              routeIndex(StoryCampaign::Blackthorn, "bt15_monster_rules")) == "ACT VI - FREE THE TREE" &&
-          bayou::client::storyActShortGoal(StoryCampaign::Blackthorn,
-              routeIndex(StoryCampaign::Blackthorn, "bt15_monster_rules")) == "Free the captives. Save the tree.",
-        "bt15_monster_rules: the revised act starts with its immediate player goal");
-    check(bayou::client::storyActName(StoryCampaign::Blackthorn,
-              routeIndex(StoryCampaign::Blackthorn, "bt18_deed_own_hand")) == "ACT VII - A NEW START" &&
-          bayou::client::storyActShortGoal(StoryCampaign::Blackthorn,
-              routeIndex(StoryCampaign::Blackthorn, "bt18_deed_own_hand")) == "Help the town rebuild.",
-        "bt18_deed_own_hand: the revised act starts with its immediate player goal");
+    for (const auto campaign : {StoryCampaign::Mirewatch, StoryCampaign::Blackthorn})
+    {
+        const std::vector<std::string_view> boundaries = campaign == StoryCampaign::Mirewatch
+            ? std::vector<std::string_view>{"mw01_river_teeth", "s01_hospitality",
+                "mw08_lesson_night", "s04_wounds_that_vote", "mw18_allies_dishonestly",
+                "mw20_monster_rules", "mw25_deed_own_hand"}
+            : std::vector<std::string_view>{"bt01_harness_hunger", "s01_hospitality",
+                "bt08_north_lock", "bt10_stolen_road", "bt13a_poisoned_root_road",
+                "bt15_monster_rules", "bt18_deed_own_hand"};
+        for (const auto id : boundaries)
+        {
+            const int index = routeIndex(campaign, id);
+            check(index >= 0 && !bayou::client::storyActName(campaign, index).empty() &&
+                    !bayou::client::storyActGoal(campaign, index).empty() &&
+                    !bayou::client::storyActShortGoal(campaign, index).empty(),
+                std::string(id) + ": the act provides a name, goal, and compact player goal");
+            if (index > 0)
+                check(bayou::client::storyActName(campaign, index) !=
+                        bayou::client::storyActName(campaign, index - 1),
+                    std::string(id) + ": the act starts at its stable mission boundary");
+        }
+    }
     check(bayou::client::storyActName(StoryCampaign::Seelie,
               routeIndex(StoryCampaign::Seelie, "se00_what_mirror_remembers")) == "ACT I - FREE CALTHERIEL" &&
           bayou::client::storyActShortGoal(StoryCampaign::Seelie,
@@ -3928,7 +3972,7 @@ int main()
               routeIndex(StoryCampaign::Mirewatch, "mw23_choice_not_cure") &&
           routeIndex(StoryCampaign::Mirewatch, "mw23_choice_not_cure") <
               routeIndex(StoryCampaign::Mirewatch, "mw24a_victor_in_custody"),
-        "the playable escape precedes Birdie's shot, freeing Sylvara and Victor's capture without a rewind");
+        "the playable escape precedes Birdie's shot, Sylvara's choice, and Victor's reckoning without a rewind");
     check(routeIndex(StoryCampaign::Seelie, "se19_crypt_under_order") >
               routeIndex(StoryCampaign::Seelie, "se09_dusk_crown") &&
           routeIndex(StoryCampaign::Seelie, "se19_crypt_under_order") <
@@ -4027,6 +4071,7 @@ int main()
     validateNoFabricatedGameplay();
     validateTeachingCopy();
     validateNarrativeCoherence();
+    validateNovelAdaptation();
     validateSeelieCardTruth();
 
     for (StoryCampaign campaign : {

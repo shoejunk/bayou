@@ -1,0 +1,41 @@
+{
+  "source": "FANTASY_GAUNTLET_RUN_2026_10_15/manuscript/P1/Gloomthorn Complete Revised Manuscript.docx",
+  "method": "OpenAI built-in image_gen with canonical assets/cards PNGs supplied as visual references; output visually compared to those cards",
+  "format": "1024x1536 portrait PNG; no lettering baked into the illustration",
+  "images": [
+    {
+      "file": "mirror_memories_v1.png",
+      "scene": "Chapter 23: Vesper recovers memories after the Vault rescue",
+      "prompt": "Warm dawn refuge. Vesper matches princeVesper card: orange tabby, green eyes, translucent gold-veined fairy wings, twig crown and paw medallion. He touches an oval silver Mirror with nine arches. The glass shows a remembered great tree and forest path, no invented queen portrait. Preserve blanket, cup and memory mood; no text or portal.",
+      "characterReferences": [
+        "assets/cards/princeVesper.png"
+      ],
+      "revision": "Replaced initial illustration with the card-reference version after user specified assets/cards as the visual source of truth."
+    },
+    {
+      "file": "vault_escape_v1.png",
+      "scene": "Chapters 21-22: the flooded Vault escape, compressed for the game",
+      "prompt": "Flooded prison rescue. Preserve Reed, Donella and Erevan exactly from their cards. Donella has brown skin, dark hair with two braids, pointed ears, hoop earrings, green leaf leather clothing and bandaged hands. Hooded mature Erevan helps her lift Reed into a boat. Reed wears bronze armor over navy and protects his injured right arm; Donella grasps his left arm. Mirror and potted branch lie safely in boat. Moonlight, lantern and urgent teamwork; no other visible people or gore.",
+      "characterReferences": [
+        "assets/cards/reedBaelstone.png",
+        "assets/cards/donellaOfTheMarsh.png",
+        "assets/cards/erevanTheShadow.png"
+      ],
+      "revision": "Replaced initial illustration with the card-reference version after user specified assets/cards as the visual source of truth."
+    },
+    {
+      "file": "save_living_root_v1.png",
+      "scene": "Chapter 41: release the dead wood and protect the surviving root",
+      "prompt": "Protect a living shoot beside broken logging machinery. Use Donella, Reed, Nettle and Sylvara card designs exactly. Brown-skinned dark-haired Donella cuts artificial binding with bandaged hands. Clean-shaven Reed braces lever with left arm, right arm in sling. Tiny dark-curled Nettle with flower wreath and leaf dress pushes on foot, no intact wings. Sylvara has bark skin, twig crown and violet flowers. Dead treetop stays dead; living roots stop distant empty walker. No text or cure key.",
+      "characterReferences": [
+        "assets/cards/donellaOfTheMarsh.png",
+        "assets/cards/reedBaelstone.png",
+        "assets/cards/nettleStarbright.png",
+        "assets/cards/Sylvara.png"
+      ],
+      "revision": "Replaced initial illustration with the card-reference version after user specified assets/cards as the visual source of truth."
+    }
+  ],
+  "adaptation": "Revised Mirewatch and Blackthorn dialogue and optional practice use canonical card portraits. Only these three card-reference scene illustrations are active. The old dock, opening lesson, practice and discarded-plot illustrations are no longer used in these tutorials.",
+  "characterReferencePolicy": "Character identity comes from assets/cards. Preserve face, skin, hair, species, costume and signature accessories while adapting poses and story injuries."
+}
