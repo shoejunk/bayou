@@ -134,6 +134,7 @@
             adminRemoveGoldButton.draw(window);
             adminAddCardButton.draw(window);
             adminGiveStarterDeckButton.draw(window);
+            adminGiveAllCardsButton.draw(window);
             const bool targetIsAdmin = adminUsers[*selectedAdminUser].isAdmin;
             if (targetIsAdmin)
             {
@@ -270,6 +271,25 @@
             if (!pendingAdminUserCard)
             {
                 confirmAddCardButton.draw(window);
+            }
+        }
+        else if (giveAllCardsPopupVisible)
+        {
+            sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
+            overlay.setPosition({ui_canvas::Left, 0.0f});
+            overlay.setFillColor(sf::Color(0, 0, 0, 170));
+            window.draw(overlay);
+            drawPanel(window, {190.0f, 160.0f}, {420.0f, 290.0f});
+            drawText(window, font, "Top Up All Cards", 28, {220.0f, 184.0f}, sf::Color(248, 224, 172), 360.0f);
+            drawText(window, font, "Player: " + adminAllCardsTarget, 18,
+                {220.0f, 230.0f}, sf::Color(220, 224, 230), 360.0f);
+            drawWrappedText(window, font,
+                "Bring every collectible card up to four copies. Existing quantities above four stay unchanged. Tokens are excluded.",
+                17, {220.0f, 270.0f}, sf::Color(220, 224, 230), 360.0f);
+            if (!pendingAdminUserAllCards)
+            {
+                cancelGiveAllCardsButton.draw(window);
+                confirmGiveAllCardsButton.draw(window);
             }
         }
         else if (giveStarterDeckPopupVisible && selectedAdminUser && *selectedAdminUser < adminUsers.size())

@@ -1401,6 +1401,9 @@ int main(int argc, char** argv)
     Button adminRemoveGoldButton({548.0f, 482.0f}, {172.0f, 36.0f}, "Remove Gold", font);
     Button adminAddCardButton({40.0f, 526.0f}, {156.0f, 34.0f}, "Add Card", font);
     Button adminGiveStarterDeckButton({212.0f, 526.0f}, {156.0f, 34.0f}, "Give Deck", font);
+    Button adminGiveAllCardsButton({384.0f, 526.0f}, {156.0f, 34.0f}, "All Cards x4", font);
+    Button cancelGiveAllCardsButton({246.0f, 386.0f}, {132.0f, 42.0f}, "Cancel", font);
+    Button confirmGiveAllCardsButton({408.0f, 386.0f}, {156.0f, 42.0f}, "Top Up", font);
     // Seated inside their tool cards on the admin Tools tab.
     Button adminSandboxButton({58.0f, 134.0f}, {206.0f, 52.0f}, "Sandbox", font);
     Button adminCardEditorButton({58.0f, 234.0f}, {206.0f, 52.0f}, "Card Editor", font);
@@ -1477,6 +1480,7 @@ int main(int argc, char** argv)
     std::optional<std::future<AdminUserGoldResult>> pendingAdminGold;
     std::optional<std::future<AdminUserCardResult>> pendingAdminUserCard;
     std::optional<std::future<AdminUserStarterDeckResult>> pendingAdminUserStarterDeck;
+    std::optional<std::future<AdminUserAllCardsResult>> pendingAdminUserAllCards;
     std::optional<std::future<StarterDeckOffersResult>> pendingStarterDeckOffers;
     std::optional<std::future<StarterDeckClaimResult>> pendingStarterDeckClaim;
     std::optional<std::future<CardListResult>> pendingAdminCardListLoad;
@@ -1548,6 +1552,8 @@ int main(int argc, char** argv)
     std::optional<std::size_t> selectedAdminUser;
     bool addCardPopupVisible = false;
     bool giveStarterDeckPopupVisible = false;
+    bool giveAllCardsPopupVisible = false;
+    std::string adminAllCardsTarget;
     std::optional<std::size_t> selectedAdminStarterDeck;
     std::string adminCardLoadError;
     std::vector<network::StarterDeckOffer> starterDeckOffers;
@@ -3046,6 +3052,7 @@ int main(int argc, char** argv)
         selectedStarterDeckOffer.reset();
         starterDeckPickRequired = false;
         giveStarterDeckPopupVisible = false;
+        giveAllCardsPopupVisible = false;
         selectedAdminStarterDeck.reset();
         adminTabs.setActive(0);
         playerDecks.clear();
@@ -3167,6 +3174,7 @@ int main(int argc, char** argv)
         deleteUserPopupVisible = false;
         addCardPopupVisible = false;
         giveStarterDeckPopupVisible = false;
+        giveAllCardsPopupVisible = false;
         selectedAdminStarterDeck.reset();
         adminUserDeleteTarget.clear();
         setMessageY(messageText, 566.0f);
@@ -3382,6 +3390,33 @@ int main(int argc, char** argv)
         addCardPopupVisible = false;
         adminCardInput.clear();
         adminCardInput.setActive(false);
+    };
+
+    auto openGiveAllCardsPopup = [&]() {
+        if (pendingAdminUserAllCards || !selectedAdminUser || *selectedAdminUser >= adminUsers.size())
+        {
+            return;
+        }
+        adminAllCardsTarget = adminUsers[*selectedAdminUser].username;
+        giveAllCardsPopupVisible = true;
+        clearFocus();
+    };
+
+    auto dismissGiveAllCardsPopup = [&]() {
+        if (!pendingAdminUserAllCards)
+        {
+            giveAllCardsPopupVisible = false;
+        }
+    };
+
+    auto confirmGiveAllCards = [&]() {
+        if (pendingAdminUserAllCards || adminAllCardsTarget.empty())
+        {
+            return;
+        }
+        setMessage(messageText, "Topping up collection...", sf::Color::Yellow);
+        pendingAdminUserAllCards = std::async(
+            std::launch::async, giveAllCardsToAdminUser, activeAccessToken, adminAllCardsTarget);
     };
 
     auto openGiveStarterDeckPopup = [&]() {
@@ -12078,6 +12113,7 @@ int main(int argc, char** argv)
         passwordChangedPopupVisible = false;
         addCardPopupVisible = false;
         giveStarterDeckPopupVisible = false;
+        giveAllCardsPopupVisible = false;
         deleteUserPopupVisible = false;
         adminUserDeleteTarget.clear();
         deckEditorMode = DeckEditorMode::DeckList;
@@ -12464,6 +12500,16 @@ int main(int argc, char** argv)
             {
                 adminUserDeleteTarget = adminUsers[*selectedAdminUser].username;
                 deleteUserPopupVisible = true;
+            }
+        }
+        else if (screen == "admin-users-all-cards-popup")
+        {
+            currentState = GameState::AdminUsers;
+            adminTabs.setActive(0);
+            selectedAdminUser = adminUsers.empty() ? std::optional<std::size_t>() : std::optional<std::size_t>(0);
+            if (selectedAdminUser)
+            {
+                openGiveAllCardsPopup();
             }
         }
         else if (screen == "admin-users-starter-popup")
@@ -16203,6 +16249,22 @@ int main(int argc, char** argv)
             }
         }
 
+        if (pendingAdminUserAllCards &&
+            pendingAdminUserAllCards->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            const auto result = pendingAdminUserAllCards->get();
+            pendingAdminUserAllCards.reset();
+            if (!loggedInUsername.empty() && currentState == GameState::AdminUsers)
+            {
+                if (result.success)
+                {
+                    giveAllCardsPopupVisible = false;
+                }
+                setMessage(messageText, result.message,
+                    result.success ? sf::Color(120, 220, 150) : sf::Color::Red);
+            }
+        }
+
         if (pendingAdminUserStarterDeck &&
             pendingAdminUserStarterDeck->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
@@ -17241,6 +17303,17 @@ int main(int argc, char** argv)
                             }
                         }
                     }
+                    else if (giveAllCardsPopupVisible)
+                    {
+                        if (confirmGiveAllCardsButton.isClicked(clickPos))
+                        {
+                            confirmGiveAllCards();
+                        }
+                        else if (cancelGiveAllCardsButton.isClicked(clickPos))
+                        {
+                            dismissGiveAllCardsPopup();
+                        }
+                    }
                     else if (giveStarterDeckPopupVisible)
                     {
                         if (confirmGiveStarterDeckButton.isClicked(clickPos))
@@ -17324,6 +17397,10 @@ int main(int argc, char** argv)
                         else if (adminAddCardButton.isClicked(clickPos))
                         {
                             openAddCardPopup();
+                        }
+                        else if (adminGiveAllCardsButton.isClicked(clickPos))
+                        {
+                            openGiveAllCardsPopup();
                         }
                         else if (adminGiveStarterDeckButton.isClicked(clickPos))
                         {
@@ -18096,7 +18173,7 @@ int main(int argc, char** argv)
             {
                 adminCardInput.handleEvent(*event, window);
             }
-            else if (currentState == GameState::AdminUsers && !deleteUserPopupVisible)
+            else if (currentState == GameState::AdminUsers && !deleteUserPopupVisible && !giveAllCardsPopupVisible)
             {
                 adminSearchInput.handleEvent(*event, window);
                 adminGoldInput.handleEvent(*event, window);
@@ -18803,6 +18880,10 @@ int main(int argc, char** argv)
                     {
                         dismissAddCardPopup();
                     }
+                    else if (currentState == GameState::AdminUsers && giveAllCardsPopupVisible)
+                    {
+                        dismissGiveAllCardsPopup();
+                    }
                     else if (currentState == GameState::AdminUsers && giveStarterDeckPopupVisible)
                     {
                         dismissGiveStarterDeckPopup();
@@ -18993,7 +19074,12 @@ int main(int argc, char** argv)
                     confirmAddCard();
                 }
                 else if (currentState == GameState::AdminUsers &&
-                         !deleteUserPopupVisible && !addCardPopupVisible)
+                         giveAllCardsPopupVisible && keyPressed->code == sf::Keyboard::Key::Enter)
+                {
+                    confirmGiveAllCards();
+                }
+                else if (currentState == GameState::AdminUsers &&
+                         !deleteUserPopupVisible && !addCardPopupVisible && !giveAllCardsPopupVisible)
                 {
                     if (keyPressed->code == sf::Keyboard::Key::Enter)
                     {
@@ -19224,6 +19310,14 @@ int main(int argc, char** argv)
                     confirmAddCardButton.update(mousePos);
                 }
             }
+            else if (giveAllCardsPopupVisible)
+            {
+                if (!pendingAdminUserAllCards)
+                {
+                    cancelGiveAllCardsButton.update(mousePos);
+                    confirmGiveAllCardsButton.update(mousePos);
+                }
+            }
             else if (giveStarterDeckPopupVisible)
             {
                 cancelGiveStarterDeckButton.update(mousePos);
@@ -19243,6 +19337,7 @@ int main(int argc, char** argv)
                 {
                     adminAddCardButton.update(mousePos);
                     adminGiveStarterDeckButton.update(mousePos);
+                    adminGiveAllCardsButton.update(mousePos);
                     adminGrantGoldButton.update(mousePos);
                     adminRemoveGoldButton.update(mousePos);
                     if (adminUsers[*selectedAdminUser].isAdmin)

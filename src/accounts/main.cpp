@@ -5,6 +5,7 @@
 #include <sodium.h>
 
 #include "account_catalog.hpp"
+#include "account_collection_grant.hpp"
 #include "account_conquest.hpp"
 #include "account_conquest_events.hpp"
 #include "account_decks.hpp"
@@ -529,6 +530,26 @@ private:
                     std::string accessToken, targetUsername, deckName;
                     packet >> accessToken >> targetUsername >> deckName;
                     handleAdminUserStarterDeck(*client, accessToken, targetUsername, deckName);
+                    break;
+                }
+                case MessageType::AdminUserAllCardsRequest:
+                {
+                    std::string accessToken, targetUsername;
+                    packet >> accessToken >> targetUsername;
+                    sf::Packet response;
+                    response << static_cast<uint8_t>(MessageType::AdminUserAllCardsResponse);
+                    if (!packet || !packet.endOfPacket())
+                    {
+                        response << false << std::string("Invalid collection top-up payload");
+                    }
+                    else
+                    {
+                        std::lock_guard<std::mutex> lock(databaseMutex);
+                        const auto result = account_collection_grant::grantAllCards(
+                            *database, accessToken, targetUsername);
+                        response << result.success << result.message;
+                    }
+                    [[maybe_unused]] auto result = client->send(response);
                     break;
                 }
                 case MessageType::StarterDeckOfferRequest:

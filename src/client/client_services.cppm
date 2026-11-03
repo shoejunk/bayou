@@ -179,6 +179,13 @@ struct AdminUserCardResult
     std::string cardTitle;
 };
 
+struct AdminUserAllCardsResult
+{
+    bool success = false;
+    std::string message;
+    std::string targetUsername;
+};
+
 struct AdminUserStarterDeckResult
 {
     bool success = false;
@@ -1293,6 +1300,50 @@ AdminUserStarterDeckResult giveStarterDeckToAdminUser(
 
     sendDisconnect(socket);
     return {success, message, targetUsername, deckName};
+}
+
+AdminUserAllCardsResult giveAllCardsToAdminUser(
+    const std::string& accessToken,
+    const std::string& targetUsername)
+{
+    bayou::tls::Socket socket;
+    if (!connectToEndpoint(socket, clientConfig().account))
+    {
+        return {
+            false,
+            "Failed to connect to account server " + endpointText(clientConfig().account),
+            targetUsername};
+    }
+
+    sf::Packet request;
+    request << static_cast<std::uint8_t>(network::MessageType::AdminUserAllCardsRequest);
+    request << accessToken << targetUsername;
+    if (socket.send(request) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "Failed to send collection top-up request", targetUsername};
+    }
+
+    sf::Packet response;
+    if (socket.receive(response) != sf::Socket::Status::Done)
+    {
+        socket.disconnect();
+        return {false, "No collection top-up response", targetUsername};
+    }
+
+    std::uint8_t responseType = 0;
+    bool success = false;
+    std::string message;
+    response >> responseType >> success >> message;
+    if (!response ||
+        static_cast<network::MessageType>(responseType) != network::MessageType::AdminUserAllCardsResponse)
+    {
+        socket.disconnect();
+        return {false, "Unexpected collection top-up response", targetUsername};
+    }
+
+    sendDisconnect(socket);
+    return {success, message, targetUsername};
 }
 
 DeckEditorLoadResult loadDeckEditorData(const std::string& accessToken)

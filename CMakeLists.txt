@@ -205,6 +205,7 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
     target_sources(accounts
         PUBLIC
             src/accounts/main.cpp
+            src/accounts/account_collection_grant.cpp
             src/accounts/account_catalog.cpp
             src/accounts/account_conquest.cpp
             src/accounts/account_conquest_events.cpp
@@ -232,6 +233,16 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_ACCOUNTS)
     target_link_libraries(
         conquesttest
         PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network sodium)
+
+    # Offline admin authorization, atomicity, eligibility, and idempotence checks.
+    add_executable(collectiongranttest
+        src/collectiongranttest/main.cpp
+        src/accounts/account_collection_grant.cpp
+        src/accounts/account_catalog.cpp
+        src/accounts/account_tokens.cpp
+        src/accounts/account_security.cpp
+    )
+    target_link_libraries(collectiongranttest PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network sodium)
 
     add_executable(starterdecktest
         src/starterdecktest/main.cpp
