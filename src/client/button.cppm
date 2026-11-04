@@ -161,10 +161,10 @@ export struct Button
                               : PlateState::Normal;
         style.focused = focused;
         style.focusPhase = focusPhase;
-        // Quiet controls are still metal, but their smaller footprint needs
-        // fewer ornaments to remain legible at the 800x600 design size.
-        style.brackets = variant != ButtonVariant::Quiet;
-        style.rivets = variant != ButtonVariant::Quiet;
+        // Controls stay as clean steel plates. Ornament belongs to the outer
+        // menu frame and a few explicitly authored anchor controls.
+        style.brackets = false;
+        style.rivets = false;
         style.sheen = variant == ButtonVariant::Quiet ? 0.65f : 1.0f;
 
         if (variant == ButtonVariant::Primary && enabled)

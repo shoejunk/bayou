@@ -1234,19 +1234,24 @@
         detailHeading.setFillColor(withAlpha(BoardParchmentMuted, 240));
         detailHeading.setPosition({PiecePopupTextX, PiecePopupActionHeadingY});
         drawCrispText(window, detailHeading);
+        float detailSeparatorRight = PiecePopupTextX + PiecePopupTextWidth;
         if (maxScroll > 0.0f)
         {
             sf::Text scrollHint(font, "SCROLL: WHEEL OR UP / DOWN", 9);
             scrollHint.setFillColor(withAlpha(sf::Color(143, 220, 205), 230));
-            scrollHint.setPosition({PiecePopupTextX + PiecePopupTextWidth -
-                                        scrollHint.getLocalBounds().size.x,
+            const float hintLeft = PiecePopupTextX + PiecePopupTextWidth -
+                scrollHint.getLocalBounds().size.x;
+            scrollHint.setPosition({hintLeft,
                                     PiecePopupActionHeadingY + 2.0f});
             drawCrispText(window, scrollHint);
+            detailSeparatorRight = hintLeft - 12.0f;
         }
+        const float detailSeparatorLeft = PiecePopupTextX + 70.0f;
         drawSeparatorRule(
             window,
-            {PiecePopupTextX + 70.0f, PiecePopupActionHeadingY + 9.0f},
-            PiecePopupTextWidth - 70.0f);
+            {detailSeparatorLeft, PiecePopupActionHeadingY + 9.0f},
+            std::max(0.0f, detailSeparatorRight - detailSeparatorLeft),
+            false);
 
         drawBeveledPlate(
             window,
@@ -3312,14 +3317,6 @@
         drawPlayerBanner(1, playerOne);
         drawPlayerBanner(2, playerTwo);
 
-        // Keep a copy of the top-line readout so it can be restored after the
-        // foreground sprite pass.  Tall units on the upper board row are
-        // deliberately redrawn above the HUD, but the current turn state must
-        // remain legible over those silhouettes.
-        std::string foregroundTurnLabel;
-        unsigned int foregroundTurnLabelSize = 0;
-        sf::Vector2f foregroundTurnLabelCenter{};
-
         // ---- Active turn readout ---------------------------------------------
         {
             const bool myTurn = sandboxMode || activePlayer == me;
@@ -3405,12 +3402,10 @@
             label.setOutlineColor(sf::Color(0, 0, 0, 190));
             const bool showTurnClock =
                 boardSnapshot.timersEnabled && phase != game_data::Phase::GameOver;
-            foregroundTurnLabel = fittedTurnLabel;
-            foregroundTurnLabelSize = turnLabelSize;
-            foregroundTurnLabelCenter = {
+            const sf::Vector2f turnLabelCenter{
                 turnX + GameTurnPlaqueWidth * 0.5f,
                 turnY + (showTurnClock ? 14.0f : 24.0f)};
-            centerText(label, foregroundTurnLabelCenter);
+            centerText(label, turnLabelCenter);
             drawCrispText(window, label);
 
             // The turn clock is meaningless once the match is decided, so the
@@ -3495,24 +3490,6 @@
             window.draw(clockWarningText);
         }
 
-        // The upper board row can rise into the top readout band. Draw its art
-        // again after the HUD so it remains visible; the foreground pass omits
-        // bases, health badges, crowns, and control badges so those details retain
-        // normal board depth and cannot cover a piece in front of them.
-        drawPieceLayer(true);
-
-        if (!foregroundTurnLabel.empty())
-        {
-            sf::Text foregroundLabel(
-                font, foregroundTurnLabel, foregroundTurnLabelSize);
-            foregroundLabel.setLetterSpacing(1.05f);
-            foregroundLabel.setFillColor(BoardParchment);
-            foregroundLabel.setOutlineThickness(1.0f);
-            foregroundLabel.setOutlineColor(sf::Color(0, 0, 0, 190));
-            centerText(foregroundLabel, foregroundTurnLabelCenter);
-            drawCrispText(window, foregroundLabel);
-        }
-
         // Keep the figures clear. Only the hovered or selected unit gets a
         // detail card; permanent guidance is carried by the floor markers.
         if (drawStoryMode && storyStage == StoryStage::Objective &&
@@ -3569,19 +3546,6 @@
             const sf::Vector2f barSize{772.0f, GameBottomBarHeight};
             drawCutPlate(
                 barPosition, barSize, 14.0f, sf::Color(10, 15, 16, 236), BoardBrassDim, 1.6f);
-            // Lit top lip, so the rail reads as a raised ledge under the board.
-            drawEdgeLine(
-                window,
-                {barPosition.x + 16.0f, barPosition.y + 1.0f},
-                {barPosition.x + barSize.x - 16.0f, barPosition.y + 1.0f},
-                1.4f,
-                withAlpha(BoardBrass, 176));
-            drawEdgeLine(
-                window,
-                {barPosition.x + 20.0f, barPosition.y + 3.5f},
-                {barPosition.x + barSize.x - 20.0f, barPosition.y + 3.5f},
-                1.0f,
-                sf::Color(0, 0, 0, 130));
         }
 
         // The command ribbon explains the exact visual grammar currently on the
@@ -3675,9 +3639,13 @@
             const sf::Vector2f ribbonSize = statusRibbon
                 ? sf::Vector2f{620.0f, 20.0f}
                 : sf::Vector2f{420.0f, 17.0f};
+            // Keep the ribbon clear of the highest possible hand-card lift and
+            // its overhanging cost gem. The old 449px band let those gems cover
+            // the title and the start of the instruction.
+            const float ribbonBottom = HandY - HandHoverLift - 12.0f;
             const sf::Vector2f ribbonPosition{
                 BoardCenterX - ribbonSize.x * 0.5f,
-                statusRibbon ? 446.0f : 449.0f};
+                ribbonBottom - ribbonSize.y};
             drawCutPlate(
                 ribbonPosition,
                 ribbonSize,
@@ -3874,8 +3842,8 @@
                     {GameActionButtonWidth + 8.0f, GamePrimaryButtonHeight + 8.0f},
                     11.0f,
                     withAlpha(BoardBrassBright, 34),
-                    withAlpha(BoardBrassBright, 128),
-                    1.4f);
+                    sf::Color::Transparent,
+                    0.0f);
             }
             if (sandboxMode && !drawStoryMode)
             {
@@ -4231,6 +4199,9 @@
                             ? std::string("AUTO")
                             : std::to_string(stepNumber) + "/" +
                                 std::to_string(std::max(1, totalGuidedSteps));
+            const float storyBodyTextX =
+                plaquePosition.x + (compactStoryPlaque ? 12.0f : 62.0f);
+            float storyHeadingTextX = storyBodyTextX;
             if (!compactStoryPlaque)
             {
                 drawEllipseOutline(
@@ -4258,6 +4229,9 @@
                 stepLabel.setFillColor(withAlpha(stepAccent, 230));
                 const float captionWidth =
                     stepLabel.getLocalBounds().size.x + 14.0f;
+                storyHeadingTextX = std::max(
+                    storyHeadingTextX,
+                    medallion.x + captionWidth * 0.5f + 10.0f);
                 drawCutPlate(
                     {medallion.x - captionWidth * 0.5f,
                      plaquePosition.y + 5.0f},
@@ -4300,8 +4274,6 @@
                     stepAccent);
             }
 
-            const float textX =
-                plaquePosition.x + (compactStoryPlaque ? 12.0f : 62.0f);
             if (leavesRoomForStoryHand)
             {
                 const auto storySquareName = [](int row, int column) {
@@ -4380,13 +4352,16 @@
                     break;
                 }
             }
-            const float bodyWidth =
-                plaqueSize.x - (compactStoryPlaque ? 24.0f : 78.0f);
+            const float bodyWidth = std::max(
+                40.0f,
+                plaquePosition.x + plaqueSize.x - 16.0f - storyBodyTextX);
             unsigned int headingSize = compactStoryPlaque ? 14u : 18u;
             sf::Text heading(font, stepHeading, headingSize);
             heading.setLetterSpacing(1.1f);
-            const float headingWidth =
-                bodyWidth - (compactStoryPlaque ? 36.0f : 0.0f);
+            const float headingWidth = std::max(
+                40.0f,
+                plaquePosition.x + plaqueSize.x -
+                    (compactStoryPlaque ? 52.0f : 16.0f) - storyHeadingTextX);
             while (headingSize > 10u &&
                    heading.getLocalBounds().size.x > headingWidth)
             {
@@ -4394,7 +4369,7 @@
             }
             heading.setFillColor(BoardParchment);
             heading.setPosition(
-                {textX, plaquePosition.y + (compactStoryPlaque ? 8.0f : 12.0f)});
+                {storyHeadingTextX, plaquePosition.y + (compactStoryPlaque ? 8.0f : 12.0f)});
             drawCrispText(window, heading);
             unsigned int bodySize = compactStoryPlaque
                 ? (compactGameHud ? 13u : 11u)
@@ -4430,7 +4405,7 @@
                 font,
                 stepBody,
                 bodySize,
-                {textX, bodyY},
+                {storyBodyTextX, bodyY},
                 withAlpha(BoardParchmentMuted, 240),
                 bodyWidth,
                 bodyLineGap);

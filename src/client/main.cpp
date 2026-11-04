@@ -2187,8 +2187,11 @@ int main(int argc, char** argv)
         }
 
         const bool hasIcon = iconTexture != nullptr;
-        const float iconSize = primary ? 30.0f : 23.0f;
-        const float iconLeft = position.x + (primary ? 24.0f : 18.0f);
+        const float iconSize = primary ? 24.0f : 20.0f;
+        const float contentLeft = position.x + (hasIcon ? (primary ? 55.0f : 45.0f) : 18.0f);
+        const float contentRight = position.x + size.x - 18.0f;
+        const float iconLaneCenter = position.x + (primary ? 32.0f : 27.0f);
+        const float iconLeft = iconLaneCenter - iconSize * 0.5f;
         if (hasIcon)
         {
             drawMainMenuTextureContained(
@@ -2200,16 +2203,20 @@ int main(int argc, char** argv)
 
         // Menu labels take the display face: a main menu is exactly where
         // display type belongs, and it separates navigation from body copy.
-        sf::Text label(
-            displayFontOr(font),
-            button.text.getString(),
-            primary ? 27u : 19u);
+        unsigned int labelSize = primary ? 27u : 19u;
+        sf::Text label(displayFontOr(font), button.text.getString(), labelSize);
+        const float availableLabelWidth = std::max(1.0f, contentRight - contentLeft);
+        while (labelSize > (primary ? 20u : 14u) &&
+               label.getLocalBounds().size.x > availableLabelWidth)
+        {
+            label.setCharacterSize(--labelSize);
+        }
         label.setFillColor(active ? palette::InkBright : palette::Ink);
         label.setOutlineThickness(primary ? 1.0f : 0.0f);
         label.setOutlineColor(sf::Color(17, 24, 28, 210));
         centerButtonText(
             label,
-            {center.x + (hasIcon ? (primary ? 12.0f : 8.0f) : 0.0f),
+            {(contentLeft + contentRight) * 0.5f,
              center.y + pressOffset});
         drawCrispText(window, label);
     };
@@ -2223,7 +2230,7 @@ int main(int argc, char** argv)
             // Stretch the frame to the dest rect (contain letterboxes and won't grow padding).
             const sf::FloatRect frameRect = narrowWidescreen
                 ? sf::FloatRect{{190.0f, 24.0f}, {420.0f, 128.0f}}
-                : sf::FloatRect{{171.0f, 18.0f}, {458.0f, 140.0f}};
+                : sf::FloatRect{{188.0f, 22.0f}, {424.0f, 132.0f}};
             const sf::IntRect textureRect({86, 307}, {1368, 403});
             sf::Sprite frame(*mainMenuTitleFrameTexture);
             frame.setTextureRect(textureRect);
@@ -2241,7 +2248,7 @@ int main(int argc, char** argv)
             // intact at both the legacy canvas and narrow-widescreen layouts.
             const sf::FloatRect logoRect = narrowWidescreen
                 ? sf::FloatRect{{190.0f, 24.0f}, {420.0f, 128.0f}}
-                : sf::FloatRect{{171.0f, 18.0f}, {458.0f, 140.0f}};
+                : sf::FloatRect{{188.0f, 22.0f}, {424.0f, 132.0f}};
             drawMainMenuTextureContained(
                 mainMenuLogoBannerTexture,
                 logoRect.position,
@@ -2323,6 +2330,7 @@ int main(int argc, char** argv)
         badge.frame = palette::Brass;
         badge.cut = 13.0f;
         badge.rivets = false;
+        badge.brackets = false;
         drawMaterialPlate(window, BadgePosition, BadgeSize, badge);
 
         // ---- portrait -----------------------------------------------------
@@ -2476,7 +2484,7 @@ int main(int argc, char** argv)
         const float authenticatedExitX = compactChrome
             ? 742.0f
             : std::min(864.0f, viewRight - 58.0f - 10.0f);
-        const float settingsX = compactChrome ? 704.0f : authenticatedExitX - 47.0f;
+        const float settingsX = compactChrome ? 684.0f : authenticatedExitX - 47.0f;
         drawMainMenuTextureContained(
             mainMenuSmallHexTexture,
             {settingsX, 14.0f},
@@ -2499,7 +2507,7 @@ int main(int argc, char** argv)
         const float exitX = compactChrome
             ? 742.0f
             : std::min(864.0f, viewRight - 58.0f - 10.0f);
-        const float settingsX = compactChrome ? 704.0f : exitX - 47.0f;
+        const float settingsX = compactChrome ? 684.0f : exitX - 47.0f;
         return isInsideRect(point, settingsX - 1.0f, 13.0f, 38.0f, 40.0f);
     };
 

@@ -194,10 +194,11 @@ struct PlateStyle
     float cut = 8.0f;
     PlateState state = PlateState::Normal;
     float sheen = 1.0f;
-    // Recessed surfaces (input fields, tracks, wells) take the inner shadow on
-    // the top edge; raised surfaces take only a hint of it.
-    bool rivets = true;
-    bool brackets = true;
+    // Ornament is opt-in. Most controls are intentionally just one forged
+    // steel plate; rivets are reserved for large anchor controls and the thorn
+    // corners live on the outer menu frame.
+    bool rivets = false;
+    bool brackets = false;
     bool recessed = false;
     bool focused = false;
     // Keep a dark keyline under the bright focus ring when the plate sits over

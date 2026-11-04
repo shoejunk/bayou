@@ -62,26 +62,6 @@ export struct TabStrip
 
     void draw(sf::RenderWindow& window) const
     {
-        if (!labels.empty())
-        {
-            // The tabs sit in one shallow instrument rail. It keeps inactive
-            // tabs from becoming floating cards and makes the active tab feel
-            // mechanically docked to the panel beneath it.
-            bayou::client::PlateStyle rail;
-            rail.fill = bayou::client::palette::PlateDeep;
-            rail.frame = bayou::client::palette::BrassDim;
-            rail.cut = 10.0f;
-            rail.recessed = true;
-            rail.rivets = false;
-            rail.brackets = false;
-            rail.sheen = 0.30f;
-            bayou::client::drawMaterialPlate(
-                window,
-                position - sf::Vector2f(6.0f, 5.0f),
-                {tabSize.x * static_cast<float>(labels.size()) + 12.0f, tabSize.y + 10.0f},
-                rail);
-        }
-
         // Inactive tabs first, so the active plate's frame and its connector bar
         // sit over its neighbours rather than being clipped by them.
         for (std::size_t i = 0; i < labels.size(); ++i)
@@ -144,12 +124,8 @@ private:
         // An inactive tab is a lid, not a button: dropping the sheen and studs is
         // what lets the active one come forward.
         style.sheen = active ? 1.0f : 0.35f;
-        // A hovered tab gets the same small steel studs as the selected tab.
-        // This makes the click target legible before activation, especially on
-        // the wide Settings strip where inactive plates otherwise read as
-        // decorative trim at a glance.
-        style.rivets = active || hovered;
-        style.brackets = active || hovered;
+        style.rivets = false;
+        style.brackets = false;
         style.recessed = !active;
 
         if (active)
@@ -170,29 +146,23 @@ private:
             // A steel connector along the bottom edge instead of a pointer
             // triangle: the tab reads as joined to the content below it, and it
             // cannot collide with whatever the panel draws at its own top edge.
-            sf::RectangleShape connector({tabSize.x - 12.0f, 4.0f});
-            connector.setPosition({pos.x + 6.0f, pos.y + tabSize.y - 2.0f});
+            sf::RectangleShape connector({tabSize.x - 16.0f, 3.0f});
+            connector.setPosition({pos.x + 8.0f, pos.y + tabSize.y - 1.0f});
             connector.setFillColor(bayou::client::palette::BrassBright);
             window.draw(connector);
-
-            sf::RectangleShape connectorShade({tabSize.x - 12.0f, 1.0f});
-            connectorShade.setPosition({pos.x + 6.0f, pos.y + tabSize.y + 2.0f});
-            connectorShade.setFillColor(bayou::client::palette::BrassDeep);
-            window.draw(connectorShade);
-
-            sf::RectangleShape activeRail({tabSize.x - 28.0f, 1.0f});
-            activeRail.setPosition({pos.x + 14.0f, pos.y + 6.0f});
-            activeRail.setFillColor(bayou::client::withAlphaForControls(
-                bayou::client::palette::BrassGlow, hovered ? 210 : 145));
-            window.draw(activeRail);
         }
 
         // Tab labels are tracked caps in the display face when one is available:
         // navigation type should never match the body copy it switches between.
+        unsigned int labelSize = active ? 19u : 18u;
         sf::Text text(
             bayou::client::displayFontOr(font),
             labels[index],
-            active ? 19u : 18u);
+            labelSize);
+        while (labelSize > 12u && text.getLocalBounds().size.x > tabSize.x - 22.0f)
+        {
+            text.setCharacterSize(--labelSize);
+        }
         text.setLetterSpacing(active ? 1.02f : 1.01f);
         text.setFillColor(active || hovered ? bayou::client::palette::InkBright : bayou::client::palette::InkMuted);
         bayou::client::centerButtonText(text, {pos.x + tabSize.x * 0.5f, pos.y + tabSize.y * 0.52f});
@@ -272,7 +242,8 @@ export struct SliderControl
         const sf::Color labelColor = focused
             ? bayou::client::palette::FocusBright
             : (hovered || dragging ? bayou::client::palette::InkBright : bayou::client::palette::Ink);
-        bayou::client::drawText(window, font, label, 18, position, labelColor);
+        bayou::client::drawText(
+            window, font, label, 18, position, labelColor, std::max(1.0f, size.x - 70.0f));
         bayou::client::drawText(
             window,
             font,

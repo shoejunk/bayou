@@ -227,14 +227,6 @@ void drawRoundedPanel(sf::RenderWindow& window, const sf::Vector2f& position, co
 {
     // The global compositor supplies the painted Gloomthorn backdrop. These
     // surfaces should read as calm forged-steel workspaces, not stacked lines.
-    bayou::client::drawBeveledPlate(
-        window,
-        position + sf::Vector2f(4.0f, 5.0f),
-        size,
-        sf::Color(0, 0, 0, 92),
-        sf::Color(0, 0, 0, 0),
-        false,
-        12.0f);
     bayou::client::drawMaterialPlate(
         window,
         position,
@@ -246,7 +238,7 @@ void drawRoundedPanel(sf::RenderWindow& window, const sf::Vector2f& position, co
             .state = bayou::client::PlateState::Normal,
             .sheen = 0.30f,
             .rivets = false,
-            .brackets = true,
+            .brackets = false,
             .recessed = false,
             .focused = false,
             .focusKeyline = true,
@@ -451,7 +443,7 @@ public:
             : isHovered ? bayou::client::PlateState::Hover : bayou::client::PlateState::Normal;
         style.sheen = enabled ? (role == EditorButtonRole::Primary ? 0.82f : isHovered ? 0.68f : 0.34f) : 0.12f;
         style.rivets = false;
-        style.brackets = role == EditorButtonRole::Primary || isHovered;
+        style.brackets = false;
         style.recessed = !enabled;
         bayou::client::drawMaterialPlate(window, shape.getPosition(), shape.getSize(), style);
         if (enabled && (role == EditorButtonRole::Primary || isHovered))
@@ -4698,9 +4690,8 @@ private:
                     selected ? Accent : hovered ? sf::Color(137, 159, 168) : sf::Color(49, 65, 72),
                     selected || hovered,
                     6.0f);
-                bayou::client::drawStud(window, {54.0f, y + 24.0f}, 4.0f, selected ? Accent : sf::Color(112, 132, 141));
-                drawText(window, font, actions[actionIndex].name, 16, {66.0f, y + 7.0f}, Ink, 186.0f);
-                drawText(window, font, actions[actionIndex].kind + " / " + actions[actionIndex].pattern, 13, {66.0f, y + 29.0f}, Muted, 186.0f);
+                drawText(window, font, actions[actionIndex].name, 16, {54.0f, y + 7.0f}, Ink, 198.0f);
+                drawText(window, font, actions[actionIndex].kind + " / " + actions[actionIndex].pattern, 13, {54.0f, y + 29.0f}, Muted, 198.0f);
             }
             if (visibleActionIndices.size() > VisibleActionRows)
             {

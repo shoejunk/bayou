@@ -865,36 +865,18 @@ void drawFocusRing(
         return;
     }
 
-    // Three values keep keyboard focus legible over both the dark plate and the
-    // pale artwork in the supplied menu reference: a dark keyline, a soft halo,
-    // and a crisp brass line. The pulse is deliberately restrained so focus
-    // feels alive without turning into a notification effect.
+    // One crisp steel line is enough to mark keyboard focus. The plate already
+    // supplies its own separation from the background.
     const float pulse = 0.72f + 0.28f * std::sin(phase * 4.2f);
-    const auto haloAlpha = static_cast<std::uint8_t>(std::lround(82.0f * pulse));
     const auto lineAlpha = static_cast<std::uint8_t>(std::lround(242.0f * pulse));
 
-    drawBrassFrame(
-        window,
-        position - sf::Vector2f(6.0f, 6.0f),
-        size + sf::Vector2f(12.0f, 12.0f),
-        cut + 5.0f,
-        withAlpha(palette::FocusKeyline, 220),
-        2.0f);
-
-    drawBrassFrame(
-        window,
-        position - sf::Vector2f(5.0f, 5.0f),
-        size + sf::Vector2f(10.0f, 10.0f),
-        cut + 4.0f,
-        withAlpha(color, haloAlpha),
-        3.0f);
     drawBrassFrame(
         window,
         position - sf::Vector2f(2.5f, 2.5f),
         size + sf::Vector2f(5.0f, 5.0f),
         cut + 2.0f,
         withAlpha(color, lineAlpha),
-        1.5f);
+        2.0f);
 }
 
 void drawMaterialPlate(
@@ -960,8 +942,9 @@ void drawMaterialPlate(
         body = mix(body, palette::SurfaceWarm, 0.26f);
     }
 
-    // Graded body. Pressed inverts the gradient so the surface reads concave.
-    const float topFactor = pressed ? 0.84f : (lit ? 1.23f : 1.12f);
+    // Graded body. Material depth lives in the fill rather than in extra rails.
+    const float sheen = std::clamp(style.sheen, 0.0f, 1.0f);
+    const float topFactor = pressed ? 0.84f : (lit ? 1.15f + 0.07f * sheen : 1.05f + 0.05f * sheen);
     const float bottomFactor = pressed ? 1.04f : (lit ? 0.62f : 0.72f);
     fillCutRectGraded(
         window,
@@ -971,76 +954,20 @@ void drawMaterialPlate(
         shade(body, topFactor),
         shade(body, bottomFactor));
 
-    // Every plate gets a controlled top lip and a darker heel. These two
-    // hairlines are deliberately inside the frame: at the 800px reference
-    // scale they read as manufactured depth instead of extra decoration.
-    if (size.x > 24.0f && size.y > 16.0f)
-    {
-        const float railInset = std::clamp(cut + 7.0f, 9.0f, size.x * 0.30f);
-        const float railWidth = std::max(0.0f, size.x - railInset * 2.0f);
-        drawLine(
-            window,
-            {plateOrigin.x + railInset, plateOrigin.y + 5.0f},
-            {railWidth, 1.0f},
-            withAlpha(
-                style.recessed ? palette::BrassEdge : palette::BrassPale,
-                static_cast<std::uint8_t>(style.recessed ? 92 : (lit ? 146 : 72))));
-        drawLine(
-            window,
-            {plateOrigin.x + railInset, plateOrigin.y + size.y - 6.0f},
-            {railWidth, 1.0f},
-            withAlpha(palette::BrassDeep, static_cast<std::uint8_t>(pressed ? 188 : 132)));
-    }
-
     if (style.recessed || pressed)
     {
         drawInnerShadow(window, plateOrigin, size, cut, pressed ? 1.05f : 1.22f, lit ? 132 : 156);
     }
-    else
-    {
-        // Even a raised plate wants a whisper of shadow under its frame,
-        // otherwise the body looks pasted onto the border.
-        drawInnerShadow(window, plateOrigin, size, cut, 0.58f, 72);
-    }
 
-    // A dark containment line, the steel proper, and one restrained inner
-    // highlight are sufficient. Additional nested rails made dense screens
-    // look like utility software rather than a forged game interface.
+    // A single structural rim. Shadows and the graded face provide the depth;
+    // another inner and outer keyline only turns dense screens into line grids.
     drawBrassFrame(
         window,
-        plateOrigin - sf::Vector2f(2.0f, 2.0f),
-        size + sf::Vector2f(4.0f, 4.0f),
-        cut + 1.5f,
-        withAlpha(palette::BrassShadow, disabled ? 105 : 180),
-        1.0f);
-    drawBrassFrame(window, plateOrigin, size, cut, withAlpha(frame, disabled ? 135 : (lit ? 230 : 205)), 1.5f);
-    // Mixed towards the pale highlight rather than multiplied up: scaling all
-    // three channels of an already-bright brass drives it to yellow.
-    drawBrassFrame(
-        window,
-        plateOrigin + sf::Vector2f(1.0f, 1.0f),
-        size - sf::Vector2f(2.0f, 2.0f),
-        std::max(0.0f, cut - 1.0f),
-        withAlpha(mix(frame, palette::BrassPale, lit ? 0.45f : 0.28f), disabled ? 45 : (lit ? 140 : 70)),
-        1.0f);
-
-    if (style.sheen > 0.0f && !pressed)
-    {
-        const float run = std::max(0.0f, size.x - (cut + 8.0f) * 2.0f);
-        drawLine(
-            window,
-            {plateOrigin.x + cut + 8.0f, plateOrigin.y + 7.0f},
-            {run, 1.0f},
-            withAlpha(
-                palette::BrassGlow,
-                static_cast<std::uint8_t>(std::lround(
-                    (lit ? 132.0f : 62.0f) * style.sheen * (disabled ? 0.35f : 1.0f)))));
-        drawLine(
-            window,
-            {plateOrigin.x + cut + 8.0f, plateOrigin.y + size.y - 8.0f},
-            {run, 1.0f},
-            withAlpha(palette::BrassDeep, 170));
-    }
+        plateOrigin,
+        size,
+        cut,
+        withAlpha(frame, disabled ? 135 : (lit ? 238 : 210)),
+        lit ? 2.0f : 1.5f);
 
     // Corner brackets need room to read as brackets; on a checkbox-sized plate
     // they fill the whole face and look like noise.
@@ -1074,16 +1001,6 @@ void drawMaterialPlate(
     // action.
     if (style.focused && !disabled)
     {
-        if (style.focusKeyline)
-        {
-            drawBrassFrame(
-                window,
-                plateOrigin - sf::Vector2f(4.0f, 4.0f),
-                size + sf::Vector2f(8.0f, 8.0f),
-                cut + 3.0f,
-                withAlpha(palette::FocusKeyline, 240),
-                3.5f);
-        }
         drawFocusRing(window, plateOrigin, size, cut, style.focusPhase);
     }
 }
@@ -1104,6 +1021,8 @@ void drawBeveledPlate(
     style.frame = outline;
     style.cut = cut;
     style.state = highlighted ? PlateState::Hover : PlateState::Normal;
+    style.rivets = false;
+    style.brackets = false;
     drawMaterialPlate(window, position, size, style);
 }
 
@@ -1264,26 +1183,6 @@ void drawTitlePlaque(
     plaque.sheen = 0.62f;
     drawMaterialPlate(window, position, size, plaque);
 
-    // The logo banner uses a strong horizontal lock-up. These inset rails and
-    // side diamonds give text-only plaques the same deliberate silhouette,
-    // while remaining quiet enough behind the supplied banner artwork.
-    drawLine(
-        window,
-        {position.x + 28.0f, position.y + 8.0f},
-        {std::max(0.0f, size.x - 56.0f), 1.0f},
-        withAlpha(palette::BrassPale, 132));
-    drawLine(
-        window,
-        {position.x + 28.0f, position.y + size.y - 9.0f},
-        {std::max(0.0f, size.x - 56.0f), 1.0f},
-        withAlpha(palette::BrassDeep, 198));
-    drawRivet(window, {position.x + 17.0f, center.y}, 2.8f, withAlpha(palette::SteelBright, 220));
-    drawRivet(
-        window,
-        {position.x + size.x - 17.0f, center.y},
-        2.8f,
-        withAlpha(palette::SteelBright, 220));
-
     sf::Text shadow(titleFont, value, titleSize);
     shadow.setFillColor(sf::Color(0, 0, 0, 190));
     centerButtonText(shadow, center + sf::Vector2f(2.0f, 3.0f));
@@ -1399,17 +1298,11 @@ void drawSeparatorRule(sf::RenderWindow& window, sf::Vector2f position, float wi
 
     const float centerX = position.x + width * 0.5f;
 
-    // The rule fades out towards both ends rather than butting into the frame,
-    // and carries a small brass lozenge at the centre. A flat full-width line
-    // with a blob on it is the giveaway of a rule drawn by a programmer.
+    // One quiet fade is enough to separate groups. Previous glow, shadow, and
+    // centre-stud passes made every divider read as another framed box.
     const float half = width * 0.5f;
     const sf::Color core = withAlpha(palette::Brass, 190);
     const sf::Color ends = withAlpha(palette::Brass, 0);
-    drawLine(
-        window,
-        {position.x + width * 0.15f, position.y - 1.0f},
-        {width * 0.70f, 3.0f},
-        withAlpha(palette::BrassGlow, 24));
     sf::VertexArray fade(sf::PrimitiveType::TriangleStrip, 8);
     fade[0] = {{position.x, position.y}, ends};
     fade[1] = {{position.x, position.y + 1.0f}, ends};
@@ -1421,24 +1314,8 @@ void drawSeparatorRule(sf::RenderWindow& window, sf::Vector2f position, float wi
     fade[7] = {{position.x + width, position.y + 1.0f}, ends};
     window.draw(fade);
 
-    drawLine(
-        window,
-        {position.x + width * 0.14f, position.y + 2.0f},
-        {width * 0.72f, 1.0f},
-        withAlpha(palette::BrassShadow, 155));
-
-    if (!ornament)
-    {
-        // Row dividers inside a panel stay plain: a column of centred lozenges
-        // down a settings list reads as a seam, not as decoration.
-        return;
-    }
-
-    drawStud(
-        window,
-        {centerX, position.y + 1.0f},
-        3.0f,
-        withAlpha(palette::SteelBright, 220));
+    (void)centerX;
+    (void)ornament;
 }
 
 std::vector<std::string> wrapText(sf::Font& font, const std::string& value, unsigned int size, float maxWidth)
@@ -1542,45 +1419,6 @@ void drawPanel(sf::RenderWindow& window, sf::Vector2f position, sf::Vector2f siz
     wash.setFillColor(withAlpha(mix(palette::PlateDeep, palette::ArcaneDeep, 0.34f), 68));
     window.draw(wash);
 
-    // A deeper inner shadow all round: a large panel needs more depth than a
-    // button before it stops looking like a flat sheet of colour.
-    drawInnerShadow(window, position, size, 14.0f, 1.42f, 126);
-
-    // Studs at the four corners instead of the mid-edge pair a plate gets: on a
-    // panel the corner is where a real frame would be fastened.
-    if (size.x >= 120.0f && size.y >= 90.0f)
-    {
-        constexpr float StudInset = 15.0f;
-        const sf::Color studColor = withAlpha(palette::Brass, 205);
-        drawRivet(window, {position.x + StudInset, position.y + StudInset}, 3.1f, studColor);
-        drawRivet(window, {position.x + size.x - StudInset, position.y + StudInset}, 3.1f, studColor);
-        drawRivet(window, {position.x + StudInset, position.y + size.y - StudInset}, 3.1f, studColor);
-        drawRivet(
-            window,
-            {position.x + size.x - StudInset, position.y + size.y - StudInset},
-            3.1f,
-            studColor);
-    }
-
-    const float frameRailWidth = std::max(0.0f, size.x - 56.0f);
-    drawLine(
-        window,
-        {position.x + 28.0f, position.y + 7.0f},
-        {frameRailWidth, 1.0f},
-        withAlpha(palette::BrassPale, 84));
-    drawLine(
-        window,
-        {position.x + 28.0f, position.y + size.y - 15.0f},
-        {frameRailWidth, 1.0f},
-        withAlpha(palette::BrassBright, 92));
-    if (size.x >= 170.0f)
-    {
-        drawStud(
-            window,
-            {position.x + size.x * 0.5f, position.y + 7.0f},
-            2.5f,
-            withAlpha(palette::SteelBright, 180));
-    }
 }
 
 void drawRow(
@@ -1635,17 +1473,6 @@ void drawRow(
             withAlpha(palette::Brass, 84));
     }
 
-    if ((selected || hovered) && size.x >= 96.0f)
-    {
-        drawDiamond(
-            window,
-            {position.x + size.x - 14.0f, position.y + size.y * 0.5f},
-            6.0f,
-            10.0f,
-            withAlpha(selected ? palette::BrassGlow : palette::Brass, selected ? 220 : 150),
-            withAlpha(palette::BrassShadow, 220));
-    }
-
     constexpr float RowTextInset = 24.0f;
     drawText(
         window,
@@ -1654,7 +1481,7 @@ void drawRow(
         type::Body,
         {position.x + RowTextInset, position.y + 7.0f},
         selected || hovered ? palette::InkBright : palette::Ink,
-        size.x - RowTextInset - ((selected || hovered) ? 32.0f : 16.0f));
+        size.x - RowTextInset - 16.0f);
     if (!secondary.empty())
     {
         drawText(
@@ -1664,16 +1491,7 @@ void drawRow(
             type::Caption,
             {position.x + RowTextInset, position.y + 25.0f},
             selected ? palette::BrassPale : palette::InkMuted,
-            size.x - RowTextInset - ((selected || hovered) ? 32.0f : 16.0f));
-    }
-
-    if (size.y >= 32.0f)
-    {
-        drawLine(
-            window,
-            {position.x + 18.0f, position.y + size.y - 1.0f},
-            {std::max(0.0f, size.x - 36.0f), 1.0f},
-            withAlpha(selected ? palette::Brass : palette::BrassDim, selected ? 118 : 72));
+            size.x - RowTextInset - 16.0f);
     }
 }
 
