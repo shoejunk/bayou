@@ -836,7 +836,7 @@ GameCard supportingCard(std::string_view title)
     {
         GameCard card = baseCard(title, "Hero", 0, 40, 3, {"Civilized", "Corrupt"});
         card.keywords = {"relentless"};
-        card.actions = {action("Axe Dance", MovePattern::Omni, 1, 2, true, true, 1)};
+        card.actions = {action("Axe Dance", MovePattern::Diag, 1, 1, true, true, 1, ActionKind::Capture)};
         return card;
     }
     if (title == "Rowan Leafbound")

@@ -435,7 +435,9 @@
                                              int counterstrike,
                                              bool canControl,
                                              int growTurns,
-                                             const std::string& rebirthTitle) {
+                                             const std::string& rebirthTitle,
+                                             int transformTurns,
+                                             const std::string& transformInto) {
         if (tax > 0)
         {
             descriptions.push_back({
@@ -475,6 +477,13 @@
             descriptions.push_back({
                 "Growth: enters play unable to act for " + std::to_string(growTurns) +
                     " turn(s), then becomes ready at the start of its following turn.",
+                sf::Color(210, 180, 105)});
+        }
+        if (transformTurns >= 0 && !transformInto.empty())
+        {
+            descriptions.push_back({
+                "Transforms into " + transformInto + " after " + std::to_string(transformTurns) +
+                    " more controlling-player turn starts. A blocked larger form waits until it fits.",
                 sf::Color(210, 180, 105)});
         }
         if (!rebirthTitle.empty())
@@ -590,7 +599,8 @@
         appendKeywordRuleDescriptions(descriptions, piece.keywords, piece.summonTitle);
         appendPassiveRuleDescriptions(
             descriptions, piece.tax, piece.gatherResources, piece.healingAura, game_data::damageWithPower(piece.counterstrike, power),
-            piece.canControl, piece.growTurnsRemaining, piece.rebirthTitle);
+            piece.canControl, piece.growTurnsRemaining, piece.rebirthTitle,
+            piece.transformTurnsRemaining, piece.transformInto);
         for (const game_data::Enchantment& enchantment : gameSnapshot.enchantments)
         {
             if (enchantment.target == static_cast<std::uint8_t>(game_data::EnchantmentTarget::Piece) &&
@@ -767,7 +777,8 @@
             appendKeywordRuleDescriptions(descriptions, card.keywords, card.summonTitle);
             appendPassiveRuleDescriptions(
                 descriptions, card.tax, card.gatherResources, card.healingAura, game_data::damageWithPower(card.counterstrike, card.power),
-                card.canControl, card.growTurns, card.rebirthTitle);
+                card.canControl, card.growTurns, card.rebirthTitle,
+                card.transformTurns > 0 ? card.transformTurns : -1, card.transformInto);
             if (card.actions.empty())
             {
                 descriptions.push_back({"Actions: none", sf::Color(225, 170, 150)});
@@ -1527,10 +1538,23 @@
         const bool previewingNextTurn = actingPiece && !sandboxMode &&
             actingPiece->owner != boardSnapshot.activePlayer;
         std::optional<game_data::Piece> nextTurnPiece;
+        std::vector<game_data::Piece> previewPieces;
         if (previewingNextTurn)
         {
-            nextTurnPiece = *actingPiece;
-            game_data::beginPieceTurn(*nextTurnPiece);
+            previewPieces = boardSnapshot.pieces;
+            for (auto& piece : previewPieces)
+                if (piece.owner == actingPiece->owner) game_data::beginPieceTurn(piece);
+            game_data::advanceTimedTransformations(previewPieces, actingPiece->owner,
+                [&](const std::string& title) -> std::optional<game_data::GameCard> {
+                    if (drawStoryMode) return resolvedStoryCardNamed(title);
+                    const auto card = std::find_if(allCardLibrary.begin(), allCardLibrary.end(),
+                        [&](const auto& definition) { return definition.title == title; });
+                    if (card == allCardLibrary.end()) return std::nullopt;
+                    return game_data::toGameCard(*card);
+                });
+            const auto preview = std::find_if(previewPieces.begin(), previewPieces.end(),
+                [&](const auto& piece) { return piece.id == actingPiece->id; });
+            if (preview != previewPieces.end()) nextTurnPiece = *preview;
         }
         const game_data::Piece* highlightedPiece = nextTurnPiece ? &*nextTurnPiece : actingPiece;
         const std::optional<std::pair<int, int>> draggedPieceSquare = [&]()
@@ -1671,14 +1695,15 @@
                 // dematerialized enemies read as open squares (never as
                 // attack targets), so nothing betrays where they hide.
                 const std::vector<game_data::Piece> visiblePieces =
-                    game_data::piecesVisibleTo(boardSnapshot.pieces, highlightedPiece->owner);
+                    game_data::piecesVisibleTo(previewingNextTurn ? previewPieces : boardSnapshot.pieces, highlightedPiece->owner);
                 for (int r = 0; r < game_data::BoardSize; ++r)
                 {
                     for (int c = 0; c < game_data::BoardSize; ++c)
                     {
                         const std::size_t idx = static_cast<std::size_t>(game_data::squareIndex(r, c));
                         const game_data::ActionResolution action = game_data::resolvePieceAction(
-                            visiblePieces, boardSnapshot.holes, *highlightedPiece, r, c);
+                            visiblePieces, boardSnapshot.holes, *highlightedPiece, r, c, false,
+                            highlightedPiece->repeatActionIndex);
                         if (action.legal)
                         {
                             // Healing, control, and non-damaging status actions
@@ -1696,6 +1721,39 @@
                             else
                             {
                                 highlight[idx] = highlightValue;
+                            }
+                        }
+                        if (!action.attacks && !game_data::findPieceAt(visiblePieces, r, c))
+                        {
+                            game_data::Piece square;
+                            square.row = r;
+                            square.column = c;
+                            for (std::size_t i = 0; i < highlightedPiece->actions.size(); ++i)
+                            {
+                                const auto& weapon = highlightedPiece->actions[i];
+                                if (!weapon.canAttack || weapon.state != highlightedPiece->actionState ||
+                                    (highlightedPiece->repeatActionIndex >= 0 &&
+                                     static_cast<int>(i) != highlightedPiece->repeatActionIndex))
+                                    continue;
+                                const auto kind = static_cast<game_data::ActionKind>(weapon.kind);
+                                bool reaches = false;
+                                if (kind == game_data::ActionKind::Ranged)
+                                    reaches = game_data::rangedActionReachesTarget(
+                                        visiblePieces, *highlightedPiece, square, weapon);
+                                else if ((kind == game_data::ActionKind::Capture ||
+                                          (kind == game_data::ActionKind::Slide && !weapon.canMove)) &&
+                                         (!weapon.canMove || highlightedPiece->sleepTurnsRemaining == 0))
+                                    reaches = game_data::actionPatternMatches(weapon.pattern,
+                                        r - highlightedPiece->row, c - highlightedPiece->column,
+                                        weapon.minRange, weapon.maxRange) &&
+                                        (static_cast<game_data::MovePattern>(weapon.pattern) == game_data::MovePattern::Jump ||
+                                         game_data::actionPathClear(visiblePieces, *highlightedPiece, r, c, weapon.passThrough)) &&
+                                        (!weapon.canMove || game_data::pieceFootprintFree(visiblePieces, *highlightedPiece, r, c));
+                                if (reaches)
+                                {
+                                    highlight[idx] = weapon.damage > 0 && weapon.control == 0 ? 2 : 4;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -1744,6 +1802,14 @@
                     }
                 }
             }
+        }
+        if (captureRequest && captureValidationScreen == "game-selected" &&
+            (highlight[game_data::squareIndex(3, 3)] != 1 ||
+             highlight[game_data::squareIndex(4, 4)] != 2 ||
+             highlight[game_data::squareIndex(5, 5)] != 2 ||
+             highlight[game_data::squareIndex(2, 3)] != 0))
+        {
+            failCaptureValidation("Bog Spearman must preview the adjacent thrust and both empty Hooked Spear ranges.");
         }
         if (drawStoryMode && storyTargetRow >= 0 && storyTargetColumn >= 0 &&
             game_data::inBounds(storyTargetRow, storyTargetColumn))
@@ -2023,111 +2089,16 @@
 
                 if (highlight[idx] != 0 && highlight[idx] != 5)
                 {
-                    // Markers sit inside the tile so the surface stays readable.
-                    // A translucent sheet over half the board is what made the old
-                    // move range look like a paint-bucket accident.
-                    struct RangeStyle
-                    {
-                        sf::Color accent;
-                        enum class Marker { Move, Attack, Deploy, Effect } marker;
-                    };
-                    const RangeStyle styles[5] = {
-                        {sf::Color::Transparent, RangeStyle::Marker::Move},
-                        {sf::Color(126, 214, 178), RangeStyle::Marker::Move},
-                        {sf::Color(226, 108, 88), RangeStyle::Marker::Attack},
-                        {BoardBrassBright, RangeStyle::Marker::Deploy},
-                        {sf::Color(186, 138, 234), RangeStyle::Marker::Effect},
-                    };
-                    const RangeStyle& style = styles[highlight[idx]];
-                    const sf::Vector2f anchor = boardCellAnchor(metrics);
-                    const std::array<sf::Vector2f, 4> face = insetQuad(metrics.corners, 0.82f);
-
-                    drawGradientQuad(
-                        window, face, withAlpha(style.accent, 26), withAlpha(style.accent, 46));
+                    const sf::Color colors[] = {
+                        sf::Color::Transparent, sf::Color(126, 214, 178), sf::Color(226, 108, 88),
+                        BoardBrassBright, sf::Color(186, 138, 234)};
+                    const sf::Color color = colors[highlight[idx]];
+                    const auto face = insetQuad(metrics.corners, 0.92f);
+                    drawGradientQuad(window, face, withAlpha(color, 58), withAlpha(color, 90));
                     for (std::size_t i = 0; i < face.size(); ++i)
                     {
-                        drawEdgeLine(
-                            window,
-                            face[i],
-                            face[(i + 1) % face.size()],
-                            1.3f,
-                            withAlpha(style.accent, 168));
-                    }
-                    if (style.marker != RangeStyle::Marker::Deploy)
-                    {
-                        drawSoftEllipse(
-                            window,
-                            {anchor.x, anchor.y - 4.0f * metrics.depthScale},
-                            13.0f * metrics.depthScale,
-                            5.5f * metrics.depthScale,
-                            withAlpha(style.accent, 132),
-                            4);
-                    }
-
-                    if (style.marker == RangeStyle::Marker::Move)
-                    {
-                        // A chevron reads as a destination even for players who
-                        // cannot distinguish the teal from the other target hues.
-                        const float reach = 6.5f * metrics.depthScale;
-                        drawEdgeLine(
-                            window, {anchor.x - reach, anchor.y - 4.0f * metrics.depthScale},
-                            {anchor.x + 1.5f * metrics.depthScale, anchor.y - 4.0f * metrics.depthScale},
-                            2.0f, withAlpha(style.accent, 242));
-                        drawEdgeLine(
-                            window, {anchor.x + 1.5f * metrics.depthScale, anchor.y - 4.0f * metrics.depthScale},
-                            {anchor.x - 1.8f * metrics.depthScale, anchor.y - 7.4f * metrics.depthScale},
-                            2.0f, withAlpha(style.accent, 242));
-                        drawEdgeLine(
-                            window, {anchor.x + 1.5f * metrics.depthScale, anchor.y - 4.0f * metrics.depthScale},
-                            {anchor.x - 1.8f * metrics.depthScale, anchor.y - 0.6f * metrics.depthScale},
-                            2.0f, withAlpha(style.accent, 242));
-                    }
-                    else if (style.marker == RangeStyle::Marker::Attack)
-                    {
-                        // Attack squares get a crosshair and corner brackets, so
-                        // an attack is distinguishable from movement without
-                        // relying on colour alone.
-                        const sf::Vector2f center{anchor.x, anchor.y - 4.0f * metrics.depthScale};
-                        const float cross = 6.2f * metrics.depthScale;
-                        drawEllipseOutline(window, center, cross, cross * 0.48f, 1.4f,
-                                           withAlpha(style.accent, 238));
-                        drawEdgeLine(window, {center.x - cross, center.y}, {center.x + cross, center.y},
-                                     1.8f, withAlpha(style.accent, 242));
-                        drawEdgeLine(window, {center.x, center.y - cross * 0.7f},
-                                     {center.x, center.y + cross * 0.7f}, 1.8f,
-                                     withAlpha(style.accent, 242));
-                        const std::array<sf::Vector2f, 4> outer =
-                            insetQuad(metrics.corners, 0.94f);
-                        for (std::size_t i = 0; i < outer.size(); ++i)
-                        {
-                            const sf::Vector2f corner = outer[i];
-                            const sf::Vector2f next = outer[(i + 1) % outer.size()];
-                            const sf::Vector2f previous = outer[(i + 3) % outer.size()];
-                            drawEdgeLine(
-                                window, corner, corner + (next - corner) * 0.28f, 2.0f,
-                                withAlpha(style.accent, 236));
-                            drawEdgeLine(
-                                window, corner, corner + (previous - corner) * 0.28f, 2.0f,
-                                withAlpha(style.accent, 236));
-                        }
-                    }
-                    else if (style.marker == RangeStyle::Marker::Effect)
-                    {
-                        // Effects use a four-point arcane diamond, separate from
-                        // both the directional move chevron and attack crosshair.
-                        const sf::Vector2f center{anchor.x, anchor.y - 4.0f * metrics.depthScale};
-                        const float radius = 7.0f * metrics.depthScale;
-                        sf::ConvexShape diamond(4);
-                        diamond.setPoint(0, {center.x, center.y - radius});
-                        diamond.setPoint(1, {center.x + radius, center.y});
-                        diamond.setPoint(2, {center.x, center.y + radius});
-                        diamond.setPoint(3, {center.x - radius, center.y});
-                        diamond.setFillColor(withAlpha(style.accent, 54));
-                        diamond.setOutlineThickness(1.5f);
-                        diamond.setOutlineColor(withAlpha(style.accent, 242));
-                        window.draw(diamond);
-                        drawEllipseOutline(window, center, radius * 0.28f, radius * 0.28f, 1.1f,
-                                           withAlpha(BoardParchment, 210));
+                        drawEdgeLine(window, face[i], face[(i + 1) % face.size()],
+                            1.5f, withAlpha(color, 215));
                     }
                 }
 
@@ -2712,86 +2683,7 @@
                 drawCrispText(window, turns);
             }
 
-            if (!foregroundOnly)
-            {
-                bool highlightedAttackTarget = false;
-                for (int row = piece.row;
-                     row < piece.row + piece.height && !highlightedAttackTarget;
-                     ++row)
-                {
-                    for (int column = piece.column;
-                         column < piece.column + piece.width;
-                         ++column)
-                    {
-                        if (row < 0 || column < 0 ||
-                            row >= game_data::BoardSize ||
-                            column >= game_data::BoardSize)
-                        {
-                            continue;
-                        }
-                        const std::size_t targetIndex =
-                            static_cast<std::size_t>(game_data::squareIndex(row, column));
-                        highlightedAttackTarget =
-                            targetIndex < highlight.size() && highlight[targetIndex] == 2;
-                        if (highlightedAttackTarget)
-                        {
-                            break;
-                        }
-                    }
-                }
 
-                if (highlightedAttackTarget)
-                {
-                    // Occupied targets cover the tile-level reticle, so repeat a
-                    // larger crosshair over the plinth after the token is drawn.
-                    // This keeps the board faithful to the command ribbon.
-                    const float footprintWidth = std::max(1.0f, static_cast<float>(piece.width));
-                    const float footprintHeight = std::max(1.0f, static_cast<float>(piece.height));
-                    const sf::Vector2f center = baseCenter;
-                    const float radiusX = 31.0f * pieceScale * footprintWidth;
-                    const float radiusY = 12.5f * pieceScale * footprintHeight;
-                    const sf::Color targetRed(238, 116, 94, 248);
-                    drawRadialGlow(
-                        window,
-                        center,
-                        radiusX * 1.35f,
-                        sf::Color(targetRed.r, targetRed.g, targetRed.b, 38));
-                    drawEllipseOutline(
-                        window,
-                        center,
-                        radiusX,
-                        radiusY,
-                        std::max(1.8f, 2.4f * pieceScale),
-                        targetRed);
-
-                    const float tick = std::max(5.0f, 7.0f * pieceScale);
-                    const float horizontalGap = radiusX * 0.56f;
-                    drawEdgeLine(
-                        window,
-                        {center.x - radiusX - tick, center.y},
-                        {center.x - horizontalGap, center.y},
-                        2.2f,
-                        targetRed);
-                    drawEdgeLine(
-                        window,
-                        {center.x + horizontalGap, center.y},
-                        {center.x + radiusX + tick, center.y},
-                        2.2f,
-                        targetRed);
-                    drawEdgeLine(
-                        window,
-                        {center.x, center.y - radiusY - tick},
-                        {center.x, center.y - radiusY * 0.35f},
-                        2.2f,
-                        targetRed);
-                    drawEdgeLine(
-                        window,
-                        {center.x, center.y + radiusY * 0.35f},
-                        {center.x, center.y + radiusY + tick},
-                        2.2f,
-                        targetRed);
-                }
-            }
         }
         };
         drawPieceLayer(false);
@@ -3563,33 +3455,25 @@
 
             if (highlightedPiece && (hasMove || hasAttack || hasEffect))
             {
-                const auto action = std::find_if(
-                    highlightedPiece->actions.begin(),
-                    highlightedPiece->actions.end(),
-                    [&](const game_data::ActionProfile& candidate) {
-                        return candidate.state == highlightedPiece->actionState;
-                    });
-                title = action != highlightedPiece->actions.end() && !action->name.empty()
-                    ? action->name
-                    : highlightedPiece->name;
+                title = highlightedPiece->name;
                 if (hasAttack && hasMove)
                 {
-                    instruction = "TEAL ARROWS MOVE  |  RED CROSSHAIRS ATTACK";
+                    instruction = "TEAL SQUARES MOVE  |  RED SQUARES ATTACK";
                     accent = sf::Color(226, 132, 108);
                 }
                 else if (hasAttack)
                 {
-                    instruction = "RED CROSSHAIRS MARK DAMAGE TARGETS";
+                    instruction = "RED SQUARES SHOW ATTACK REACH";
                     accent = sf::Color(226, 132, 108);
                 }
                 else if (hasEffect)
                 {
-                    instruction = "VIOLET DIAMONDS MARK EFFECT TARGETS";
+                    instruction = "VIOLET SQUARES SHOW EFFECT REACH";
                     accent = sf::Color(186, 138, 234);
                 }
                 else
                 {
-                    instruction = "TEAL ARROWS MARK LEGAL DESTINATIONS";
+                    instruction = "TEAL SQUARES MARK LEGAL DESTINATIONS";
                     accent = sf::Color(126, 214, 178);
                 }
             }
@@ -3600,12 +3484,12 @@
                 title = card.title;
                 if (hasAttack)
                 {
-                    instruction = "RED CROSSHAIRS MARK DAMAGE TARGETS";
+                    instruction = "RED SQUARES SHOW ATTACK REACH";
                     accent = sf::Color(226, 132, 108);
                 }
                 else if (hasEffect)
                 {
-                    instruction = "VIOLET DIAMONDS MARK EFFECT TARGETS";
+                    instruction = "VIOLET SQUARES SHOW EFFECT REACH";
                     accent = sf::Color(186, 138, 234);
                 }
                 else
@@ -3833,17 +3717,77 @@
                 endTurnButton.setEnabled(true);
             }
 
-            // Warm bloom behind the primary action, so ending the turn outranks
-            // leaving the match instead of the two reading as equal peers.
+            // Use legal actions, not the range overlay: an empty weapon square
+            // can show reach without giving the player an action to take.
+            const auto hasTurnOption = [&]() {
+                if (!pendingCardChoices().empty() || playerCanDrawCard() || playerCanDiscardThisTurn())
+                    return true;
+                const bool repeating = std::any_of(boardSnapshot.pieces.begin(), boardSnapshot.pieces.end(),
+                    [&](const auto& piece) { return piece.owner == me && piece.repeatActionIndex >= 0; });
+                for (const auto& piece : boardSnapshot.pieces)
+                {
+                    if (piece.owner != me || !pieceCanTakeTurnAction(piece, me) ||
+                        (repeating && piece.repeatActionIndex < 0))
+                        continue;
+                    if (!repeating && (game_data::pieceAbilityAvailable(boardSnapshot, piece) ||
+                                       game_data::pieceAbilityAvailable(boardSnapshot, piece, true)))
+                        return true;
+                    for (int r = 0; r < game_data::BoardSize; ++r)
+                        for (int c = 0; c < game_data::BoardSize; ++c)
+                            if (game_data::resolvePieceAction(boardSnapshot.pieces, boardSnapshot.holes,
+                                    piece, r, c, false, piece.repeatActionIndex).legal)
+                                return true;
+                }
+                if (repeating || boardSnapshot.relentlessPieceId || boardSnapshot.commandingPieceId)
+                    return false;
+                for (const auto& card : boardSnapshot.hand)
+                {
+                    if (card.cost > boardSnapshot.players[me - 1].resources ||
+                        !game_data::heroTraitsAllowCard(boardSnapshot.pieces, me, card))
+                        continue;
+                    if (card.type == "Spell")
+                    {
+                        if (game_data::isResourcesEffect(card)) return true;
+                        for (const auto& target : boardSnapshot.pieces)
+                            if ((card.effect == "damage" && target.owner != me) ||
+                                (card.effect == "heal" && target.owner == me)) return true;
+                    }
+                    else if (card.type == "Enchantment")
+                    {
+                        if ((card.target == "player" && card.effect == "resourceDrain") ||
+                            (card.target == "piece" && card.effect == "damage" && !boardSnapshot.pieces.empty()) ||
+                            (card.target == "square" && card.effect == "resources" &&
+                             std::find(boardSnapshot.holes.begin(), boardSnapshot.holes.end(), 0) != boardSnapshot.holes.end()))
+                            return true;
+                    }
+                    else if (card.type == "Unit")
+                    {
+                        for (int r = 0; r < game_data::BoardSize; ++r)
+                            for (int c = 0; c < game_data::BoardSize; ++c)
+                                if (cardFootprintCanDeploy(card, r, c, false)) return true;
+                    }
+                }
+                return false;
+            };
+            float endTurnPulse = 0.0f;
             if (!drawStoryMode || endTurnAvailable)
             {
+                const bool guidedEndTurn = drawStoryMode &&
+                    !storyMissions(storyCampaign)[static_cast<std::size_t>(storyMissionIndex)].script.empty();
+                const bool flash = !sandboxMode && !sceneSnapshot && !storyResultAction &&
+                    phase == game_data::Phase::Playing && (guidedEndTurn || !hasTurnOption());
+                if (captureRequest && captureValidationScreen == "game-no-options" && !flash)
+                    failCaptureValidation("End Turn did not flash after all options were exhausted.");
+                if (captureRequest && captureValidationScreen == "game-selected" && flash)
+                    failCaptureValidation("End Turn flashed while the player could act.");
+                endTurnPulse = flash ? (0.55f + 0.45f * std::sin(animationTime * 4.0f)) : 0.0f;
                 drawCutPlate(
                     {GameActionButtonX - 4.0f, GameActionButtonY - 4.0f},
                     {GameActionButtonWidth + 8.0f, GamePrimaryButtonHeight + 8.0f},
                     11.0f,
-                    withAlpha(BoardBrassBright, 34),
-                    sf::Color::Transparent,
-                    0.0f);
+                    withAlpha(BoardBrassBright, static_cast<int>(34 + 160 * endTurnPulse)),
+                    withAlpha(BoardBrassBright, static_cast<int>(255 * endTurnPulse)),
+                    3.9f * endTurnPulse);
             }
             if (sandboxMode && !drawStoryMode)
             {
@@ -3853,6 +3797,14 @@
             else
             {
                 endTurnButton.draw(window);
+                if (endTurnPulse > 0.0f)
+                {
+                    const sf::Color amber(255, 203, 106);
+                    drawCutPlate(endTurnButton.shape.getPosition() + sf::Vector2f{2.f, 2.f},
+                        endTurnButton.shape.getSize() - sf::Vector2f{4.f, 4.f}, 8.f,
+                        withAlpha(amber, static_cast<int>(54 * endTurnPulse)),
+                        withAlpha(amber, static_cast<int>(235 * endTurnPulse)), 2.f);
+                }
             }
         }
         leaveGameButton.draw(window);

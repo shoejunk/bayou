@@ -2027,7 +2027,7 @@ StoryMission blackthornCapstone()
             "You used every action in the Blackthorn starter deck. Next, choose your own moves in a small open battle.",
             "cards/thaeronBaelstone.png")};
     mission.pieces = {
-        piece("victor", "Victor Greyshard", 1, 6, 7),
+        piece("victor", "Victor Greyshard", 1, 7, 7),
         piece("thaeron", "Thaeron Baelstone", 1, 5, 0),
         piece("foreman", "Blackthorn Foreman", 1, 6, 0),
         piece("grask", "Grask", 1, 5, 3),
@@ -3382,21 +3382,21 @@ StoryMission blackthornCustoms()
         piece("braun", "Braun Stonefist", 1, 3, 1),
         piece("sharpshooter", "Goblin Sharpshooter", 1, 5, 1),
         piece("collector", "Blackthorn Debt Collector", 1, 6, 1),
-        piece("relentless_target_one", "Blackthorn Debt Collector", 2, 0, 1, 1),
-        piece("relentless_target_two", "Blackthorn Debt Collector", 2, 1, 1, 1),
+        piece("relentless_target_one", "Blackthorn Debt Collector", 2, 1, 1, 1),
+        piece("relentless_target_two", "Blackthorn Debt Collector", 2, 2, 2, 1),
         piece("signal_guard", "Bull Gator", 2, 5, 7),
         piece("crest_guard", "Blackthorn Debt Collector", 2, 7, 2)};
     mission.playerResources = 0;
     mission.enemyResources = 12;
     mission.requiredSurvivorRoles = {"victor", "braun", "sharpshooter", "collector"};
     mission.script = {
-        scriptedPieceAction(StoryActionKind::Attack, 1, "victor", 0, 1,
-            "Axe Dance", "VICTOR - AXE DANCE",
-            "Use Axe Dance on the enemy at B1. It has 1 Health. Defeat it to trigger Relentless.",
-            "Choose Victor's Axe Dance and target B1.", "relentless_target_one"),
         scriptedPieceAction(StoryActionKind::Attack, 1, "victor", 1, 1,
+            "Axe Dance", "VICTOR - AXE DANCE",
+            "Use Axe Dance on the enemy at B2. It has 1 Health. Defeat it to trigger Relentless.",
+            "Choose Victor's Axe Dance and target B2.", "relentless_target_one"),
+        scriptedPieceAction(StoryActionKind::Attack, 1, "victor", 2, 2,
             "Axe Dance", "VICTOR - EXTRA ATTACK",
-            "Relentless lets Victor act again. Use Axe Dance on the enemy at B2. It also has 1 Health.",
+            "Relentless lets Victor act again. Use Axe Dance on the enemy at C3. It also has 1 Health.",
             "Use Victor again. The extra action belongs to him. In normal play, you may use End Turn to skip it.", "relentless_target_two"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "SKIP THE EXTRA ACTION",

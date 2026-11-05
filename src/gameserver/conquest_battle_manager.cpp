@@ -381,7 +381,8 @@ public:
     void handleClient(
         std::unique_ptr<bayou::tls::Socket> client,
         std::uint64_t battleId,
-        std::string accessToken)
+        std::string accessToken,
+        bool supportsTransformSnapshots)
     {
         reapRetiredSessions();
         if (!client)
@@ -440,7 +441,7 @@ public:
 
         session->addClient(
             std::move(client),
-            loaded.playerNumber);
+            loaded.playerNumber, supportsTransformSnapshots);
     }
 
 private:
@@ -452,6 +453,7 @@ private:
         std::unique_ptr<bayou::tls::Socket> socket;
         int playerNumber = 0;
         bool connected = true;
+        bool supportsTransformSnapshots = false;
     };
 
     class Session
@@ -521,7 +523,8 @@ private:
 
         void addClient(
             std::unique_ptr<bayou::tls::Socket> socket,
-            int playerNumber)
+            int playerNumber,
+            bool supportsTransformSnapshots)
         {
             if (!socket || (playerNumber != 1 && playerNumber != 2))
             {
@@ -561,7 +564,7 @@ private:
                 pendingConnections.push_back({
                     std::move(socket),
                     playerNumber,
-                    true});
+                    true, supportsTransformSnapshots});
             }
             wake.notify_one();
         }
@@ -981,7 +984,7 @@ private:
             {
                 snapshot.status = statusOverride;
             }
-            game_data::writeSnapshot(packet, snapshot);
+            game_data::writeSnapshot(packet, snapshot, true, true, connection.supportsTransformSnapshots);
             if (connection.socket->send(packet, ClientSendTimeout) !=
                 sf::Socket::Status::Done)
             {
@@ -1356,7 +1359,8 @@ ConquestBattleManager::~ConquestBattleManager() = default;
 void ConquestBattleManager::handleClient(
     std::unique_ptr<bayou::tls::Socket> client,
     std::uint64_t battleId,
-    std::string accessToken)
+    std::string accessToken,
+    bool supportsTransformSnapshots)
 {
-    impl->handleClient(std::move(client), battleId, std::move(accessToken));
+    impl->handleClient(std::move(client), battleId, std::move(accessToken), supportsTransformSnapshots);
 }

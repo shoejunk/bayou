@@ -303,7 +303,7 @@
             drawFilterChip(
                 collectionUi,
                 collectionTypeChips[i],
-                collectionTypeFilterChecked[i],
+                collectionTypeFilter == i,
                 collectionTypeChips[i].rect.contains(collectionPointer()),
                 palette::BrassBright,
                 CollectionChipTextSize);

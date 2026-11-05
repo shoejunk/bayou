@@ -4500,6 +4500,8 @@ private:
         y = addInstructionBullet("health: starting and maximum hit points for a Hero or Unit. Default: 1.", y);
         y = addInstructionBullet("width and height: board squares occupied by a Hero or Unit. Both default to 1 and are clamped to 1-8.", y);
         y = addInstructionBullet("canControl: switch Off for pieces that do not claim their occupied square or influence adjacent territory. Default: On.", y);
+        y = addInstructionBullet("transformTurns: positive number of controlling-player turn starts until transformation, counted from deployment. Zero or an omitted field disables the timer. Acting, damage, Disable and Silence do not reset it.", y);
+        y = addInstructionBullet("transformInto: exact Unit title used when transformTurns reaches zero. The form receives printed health and abilities while retaining identity, ownership, attached enchantments and ongoing status effects. Invalid targets or blocked larger footprints wait at zero and retry on a later controlling-player turn.", y);
         y = addInstructionBullet("growTurns: owner turns a newly summoned piece must wait before it can act. Default: 0.", y);
         y = addInstructionBullet("abilityUses: remaining uses of Dig. Default 0 disables Dig; a positive value is consumed per use, and -1 allows unlimited uses. Other abilities do not consume this field.", y);
         y = addInstructionBullet("gatherResources: passive Resources gained at the start of each owner's turn. It does not remove Resources from the opponent. Default: 0.", y);

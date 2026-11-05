@@ -5,6 +5,7 @@ module;
 
 #include "client_config.hpp"
 #include "../shared/conquest_data.hpp"
+#include "../shared/game_data.hpp"
 #include "../shared/conquest_event_data.hpp"
 #include "../shared/socket_timeout.hpp"
 
@@ -540,7 +541,8 @@ ConquestBattleJoinResult joinConquestBattle(
 
     sf::Packet request;
     request << static_cast<std::uint8_t>(MessageType::JoinConquestBattle)
-            << battleId << accessToken;
+            << battleId << accessToken << game_data::ShriekSnapshotCapability
+            << game_data::TransformSnapshotCapability;
     if (socket->send(request) != sf::Socket::Status::Done)
     {
         socket->disconnect();

@@ -72,6 +72,7 @@ struct JoinedPlayer
     std::string accessToken;
     int rating = 0;
     bool supportsShriekSnapshots = false;
+    bool supportsTransformSnapshots = false;
 };
 
 struct MatchResult
@@ -467,7 +468,9 @@ private:
             std::uint64_t battleId = 0;
             std::string accessToken;
             packet >> battleId >> accessToken;
-            if (!packet)
+            bool shriek = false;
+            bool transforms = false;
+            if (!packet || !readShriekSnapshotCapability(packet, shriek, &transforms))
             {
                 battleId = 0;
                 accessToken.clear();
@@ -475,7 +478,7 @@ private:
             conquestBattles.handleClient(
                 std::move(client),
                 battleId,
-                std::move(accessToken));
+                std::move(accessToken), transforms);
             return;
         }
 
@@ -848,13 +851,14 @@ private:
         int playerNumber = 0;
         std::string accessToken;
         bool supportsShriekSnapshots = false;
+        bool supportsTransformSnapshots = false;
         packet >> msgType >> joinedMatchId >> playerNumber >> accessToken;
 
         if (!packet ||
             static_cast<MessageType>(msgType) != MessageType::JoinGame ||
             joinedMatchId != matchId ||
             (playerNumber != 1 && playerNumber != 2) ||
-            !readShriekSnapshotCapability(packet, supportsShriekSnapshots))
+            !readShriekSnapshotCapability(packet, supportsShriekSnapshots, &supportsTransformSnapshots))
         {
             return std::nullopt;
         }
@@ -869,7 +873,7 @@ private:
         }
 
         fmt::println("{} joined game {} as player {}", username, matchId, playerNumber);
-        return JoinedPlayer{std::move(client), playerNumber, username, accessToken, rating, supportsShriekSnapshots};
+        return JoinedPlayer{std::move(client), playerNumber, username, accessToken, rating, supportsShriekSnapshots, supportsTransformSnapshots};
     }
 
     void sendGameReady(bayou::tls::Socket& client, int playerNumber)
@@ -926,6 +930,15 @@ private:
                 return false;
             }
             cards.push_back(found->second);
+        }
+
+        if (!packet.endOfPacket())
+        {
+            bool shriek = false;
+            bool transforms = false;
+            if (!readShriekSnapshotCapability(packet, shriek, &transforms)) return false;
+            player.supportsShriekSnapshots = shriek;
+            player.supportsTransformSnapshots = transforms;
         }
 
         if (const std::optional<std::string> error = game_data::deckRulesError(cards))
@@ -1016,7 +1029,7 @@ private:
     {
         sf::Packet packet;
         packet << static_cast<uint8_t>(MessageType::GameStateUpdate);
-        writeSnapshot(packet, engine.snapshotFor(player.playerNumber), true, player.supportsShriekSnapshots);
+        writeSnapshot(packet, engine.snapshotFor(player.playerNumber), true, player.supportsShriekSnapshots, player.supportsTransformSnapshots);
         [[maybe_unused]] auto result = player.socket->send(packet);
     }
 

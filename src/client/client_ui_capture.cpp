@@ -1237,6 +1237,7 @@ const std::vector<std::string>& knownScreens()
         "sandbox-loading",
         "deck-editor",
         "deck-editor-cards",
+        "deck-editor-filtered",
         // Collection states that are otherwise only reachable by clicking through
         // a live account: a finished deck, an empty roster, the inspect popup and
         // the unsaved-changes dialog.
@@ -1271,6 +1272,7 @@ const std::vector<std::string>& knownScreens()
         "story-mirewatch-mission-select-final",
         "story-seelie-mission-select-final",
         "story-blackthorn-open-mastery-choice",
+        "story-blackthorn-standard-opening",
         "game",
         // Match states beyond the dedicated Story Mode captures above.
         "game-bases",
@@ -1279,6 +1281,7 @@ const std::vector<std::string>& knownScreens()
         "game-swap",
         "game-hand-hover",
         "game-selected",
+        "game-no-options",
         "game-power-boost",
         "game-power-boost-sacrifice",
         "game-power-boost-detail",

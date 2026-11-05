@@ -212,6 +212,9 @@ void sendSubmitDeck(bayou::tls::Socket& socket, const std::vector<card_data::Car
     {
         card_data::writeCard(packet, card);
     }
+    // Older servers ignore this optional deck trailer. Keep JoinGame in its
+    // existing format so they can admit the player before capability negotiation.
+    packet << game_data::ShriekSnapshotCapability << game_data::TransformSnapshotCapability;
     [[maybe_unused]] auto result = socket.send(packet);
 }
 
@@ -1438,17 +1441,13 @@ ServerResult joinGameServer(
     }
 
     sf::Packet joinRequest;
-    joinRequest << static_cast<uint8_t>(network::MessageType::JoinGame);
-    joinRequest << matchId;
-    joinRequest << playerNumber;
-    joinRequest << accessToken << game_data::ShriekSnapshotCapability;
-
+    joinRequest << static_cast<uint8_t>(network::MessageType::JoinGame)
+                << matchId << playerNumber << accessToken << game_data::ShriekSnapshotCapability;
     if (socket->send(joinRequest) != sf::Socket::Status::Done)
     {
         socket->disconnect();
         return {false, "Failed to join game"};
     }
-
     sf::Packet response;
     if (socket->receive(response) != sf::Socket::Status::Done)
     {

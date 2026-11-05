@@ -1891,4 +1891,36 @@ inline bool pieceAbilityAvailable(const Snapshot& snapshot, const Piece& piece, 
             });
 }
 
+// Each living piece advances once per controlling-player turn. A blocked
+// larger form waits at zero and retries on a later turn without losing the piece.
+template <typename CardLookup>
+inline void advanceTimedTransformations(std::vector<Piece>& pieces, int playerNumber, CardLookup lookup)
+{
+    for (Piece& piece : pieces)
+    {
+        if (piece.owner != playerNumber || piece.health <= 0 || piece.transformTurnsRemaining < 0)
+            continue;
+        if (piece.transformTurnsRemaining > 0) --piece.transformTurnsRemaining;
+        if (piece.transformTurnsRemaining != 0 || piece.transformInto.empty()) continue;
+
+        const auto card = lookup(piece.transformInto);
+        if (!card || card->type != "Unit") continue;
+        Piece replacement = piece;
+        populatePieceFromCard(replacement, *card, piece.isHero);
+        if (!pieceFootprintFree(pieces, replacement, piece.row, piece.column)) continue;
+
+        // Keep identity, ownership, attachments and ongoing status effects.
+        // The new form starts with its printed health, actions and timer.
+        replacement.raisedFromGraveyard = piece.raisedFromGraveyard;
+        replacement.silenceTurnsRemaining = piece.silenceTurnsRemaining;
+        replacement.silenceExpiryPlayer = piece.silenceExpiryPlayer;
+        replacement.actionState = 0;
+        replacement.hidden = false;
+        replacement.repeatActionIndex = -1;
+        replacement.repeatActionState = replacement.repeatActionUses = 0;
+        replacement.hasActed = piece.hasActed || replacement.growTurnsRemaining > 0;
+        piece = std::move(replacement);
+    }
+}
+
 } // namespace game_data

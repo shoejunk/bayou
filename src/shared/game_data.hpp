@@ -466,6 +466,8 @@ struct GameCard
     int silenceTurns = 1;
     bool canControl = true;
     int growTurns = 0;
+    int transformTurns = 0;
+    std::string transformInto;
     std::vector<ActionProfile> actions;
     std::string ability;
     std::string sacrifice;
@@ -521,6 +523,8 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.silenceTurns = normalizedSilenceTurns(cardInt(card, SilenceTurnsField, 1));
     g.canControl = cardInt(card, "canControl", 1) != 0;
     g.growTurns = cardInt(card, "growTurns", 0);
+    g.transformTurns = std::max(0, cardInt(card, "transformTurns", 0));
+    g.transformInto = cardStr(card, "transformInto");
     g.ability = normalizedAbility(cardStr(card, "ability"));
     g.sacrifice = normalizedAbility(cardStr(card, "Sacrifice", cardStr(card, "sacrifice")));
     if (g.title == "Maggie Mudroot" || g.title == "Old Mangletooth")
@@ -778,6 +782,8 @@ struct Piece
     bool attackingMove = false;
     bool canControl = true;
     int growTurnsRemaining = 0;
+    int transformTurnsRemaining = -1; // -1 disables the timer; 0 awaits a valid replacement
+    std::string transformInto;
     int disabledTurns = 0;
     int sleepTurnsRemaining = 0;
     int controlTurnsRemaining = 0;
@@ -867,6 +873,8 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.attackingMove = card.attackingMove;
     piece.canControl = card.canControl;
     piece.growTurnsRemaining = card.growTurns;
+    piece.transformTurnsRemaining = card.transformTurns > 0 ? card.transformTurns : -1;
+    piece.transformInto = card.transformInto;
     piece.actions = card.actions;
     piece.ability = normalizedAbility(card.ability);
     piece.sacrifice = normalizedAbility(card.sacrifice);
@@ -1061,18 +1069,25 @@ struct Snapshot
 
 // ---- serialization helpers -------------------------------------------------
 
-// New clients advertise support in the optional JoinGame trailer. Older
-// servers ignore it; older clients send none and retain the AUR1 wire format.
+// SHR1 is advertised in JoinGame. TRF1 is advertised with SHR1 in SubmitDeck
+// (or JoinConquestBattle), whose trailers pre-transformation servers ignore.
 constexpr std::uint32_t ShriekSnapshotCapability = 0x53485231;
-inline bool readShriekSnapshotCapability(sf::Packet& packet, bool& supported)
+constexpr std::uint32_t TransformSnapshotCapability = 0x54524631;
+inline bool readShriekSnapshotCapability(sf::Packet& packet, bool& supported, bool* transforms = nullptr)
 {
     supported = false;
+    if (transforms) *transforms = false;
     if (!packet) return false;
     if (packet.endOfPacket()) return true;
     std::uint32_t capability = 0;
     packet >> capability;
-    if (!packet || capability != ShriekSnapshotCapability || !packet.endOfPacket()) return false;
+    if (!packet || capability != ShriekSnapshotCapability) return false;
     supported = true;
+    if (packet.endOfPacket()) return true;
+    if (!transforms) return false;
+    packet >> capability;
+    if (!packet || capability != TransformSnapshotCapability || !packet.endOfPacket()) return false;
+    *transforms = true;
     return true;
 }
 
@@ -1125,6 +1140,28 @@ inline bool readPieceAuraFields(sf::Packet& packet, Piece& piece)
     return true;
 }
 
+inline void writeTransformFields(sf::Packet& packet, const GameCard& card)
+{
+    packet << card.transformTurns << card.transformInto;
+}
+
+inline void writeTransformFields(sf::Packet& packet, const Piece& piece)
+{
+    packet << piece.transformTurnsRemaining << piece.transformInto;
+}
+
+inline bool readTransformFields(sf::Packet& packet, GameCard& card)
+{
+    packet >> card.transformTurns >> card.transformInto;
+    return packet && card.transformTurns >= 0;
+}
+
+inline bool readTransformFields(sf::Packet& packet, Piece& piece)
+{
+    packet >> piece.transformTurnsRemaining >> piece.transformInto;
+    return packet && piece.transformTurnsRemaining >= -1;
+}
+
 inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFields = true)
 {
     packet << card.title << card.type;
@@ -1158,6 +1195,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFie
     {
         writeCardAuraFields(packet, card);
         writeShriekFields(packet, card);
+        writeTransformFields(packet, card);
     }
 }
 
@@ -1208,11 +1246,15 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = t
         return false;
     }
     packet >> card.abilityUses >> card.raisedFromGraveyard;
+    card.transformTurns = 0;
+    card.transformInto.clear();
     card.shriekRange = 1;
     card.shriekDamage = 0;
     card.silenceRange = card.silenceTurns = 1;
     return packet && (!auraFields || packet.endOfPacket() ||
-        (readCardAuraFields(packet, card) && (packet.endOfPacket() || readShriekFields(packet, card))));
+        (readCardAuraFields(packet, card) &&
+         (packet.endOfPacket() || (readShriekFields(packet, card) &&
+          (packet.endOfPacket() || readTransformFields(packet, card))))));
 }
 
 inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields = true)
@@ -1250,6 +1292,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields =
     {
         writePieceAuraFields(packet, piece);
         writeShriekFields(packet, piece);
+        writeTransformFields(packet, piece);
     }
 }
 
@@ -1298,6 +1341,8 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
         }
         piece.actions.push_back(action);
     }
+    piece.transformTurnsRemaining = -1;
+    piece.transformInto.clear();
     piece.shriekRange = 1;
     piece.shriekDamage = 0;
     piece.silenceRange = piece.silenceTurns = 1;
@@ -1305,7 +1350,9 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
     piece.abilitySilenced = piece.healingBlocked = false;
     return packet && card_data::readStringVector(packet, piece.abilityLabels) &&
         (!auraFields || packet.endOfPacket() ||
-         (readPieceAuraFields(packet, piece) && (packet.endOfPacket() || readShriekFields(packet, piece))));
+         (readPieceAuraFields(packet, piece) &&
+          (packet.endOfPacket() || (readShriekFields(packet, piece) &&
+           (packet.endOfPacket() || readTransformFields(packet, piece))))));
 }
 
 inline void writeEnchantment(sf::Packet& packet, const Enchantment& enchantment)
@@ -1343,7 +1390,7 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 }
 
 // Writes a complete snapshot payload (without the leading message-type byte).
-inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool auraFields = true, bool shriekFields = true)
+inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool auraFields = true, bool shriekFields = true, bool transformFields = true)
 {
     packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner
            << snapshot.commandingPieceId << snapshot.relentlessPieceId
@@ -1416,6 +1463,14 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
             for (const auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
                                     &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
                 for (const GameCard& card : *zone) writeShriekFields(packet, card);
+            if (transformFields)
+            {
+                packet << TransformSnapshotCapability;
+                for (const Piece& piece : snapshot.pieces) writeTransformFields(packet, piece);
+                for (const auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
+                                        &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
+                    for (const GameCard& card : *zone) writeTransformFields(packet, card);
+            }
         }
     }
 }
@@ -1570,6 +1625,15 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot, bool auraFields
                        &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
         for (GameCard& card : *zone)
             if (!readShriekFields(packet, card)) return false;
+    if (packet.endOfPacket()) return true;
+    packet >> marker;
+    if (!packet || marker != TransformSnapshotCapability) return false;
+    for (Piece& piece : snapshot.pieces)
+        if (!readTransformFields(packet, piece)) return false;
+    for (auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
+                       &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
+        for (GameCard& card : *zone)
+            if (!readTransformFields(packet, card)) return false;
     return packet.endOfPacket();
 }
 }

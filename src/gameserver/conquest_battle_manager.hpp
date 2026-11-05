@@ -40,7 +40,8 @@ public:
     void handleClient(
         std::unique_ptr<bayou::tls::Socket> client,
         std::uint64_t battleId,
-        std::string accessToken);
+        std::string accessToken,
+        bool supportsTransformSnapshots = false);
 
 private:
     class Impl;

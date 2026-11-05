@@ -135,13 +135,13 @@ bool isHiddenCardDetailKey(const std::string& key)
 {
     return key == "Deck Limit" || key == "deckLimit" || key == "cost" || key == "heroCost" || key == "health" || key == "attack" || key == "Tax" || key == "tax" ||
         key == "range" || key == "move" || key == "attackingMove" || key == "power" || key == "Power" ||
-        key == "canControl" || key == "growTurns" || key == "abilityUses" || key == "gatherResources" ||
+        key == "transformTurns" || key == "canControl" || key == "growTurns" || key == "abilityUses" || key == "gatherResources" ||
         key == "ability" || key == "Sacrifice" || key == "sacrifice" || key == "summon" || key == "summonUnit" || key == "abilityLabels" ||
         key == game_data::HealingAuraField || key == game_data::CounterstrikeField ||
         key == game_data::SilenceRangeField || key == game_data::SilenceTurnsField ||
         key == "WalkAnimFrames" || key == "IdleAnimFrames" ||
         key == "AttackAnimFrames" || key == "DamagedAnimFrames" || key == "KilledAnimFrames" ||
-        key == "rarity" || key == "effect" || key == "target" || key == "rebirth" ||
+        key == "transformInto" || key == "rarity" || key == "effect" || key == "target" || key == "rebirth" ||
         key == "movement" || key == "WalkAnim" || key == "IdleAnim" ||
         key == "AttackAnim" || key == "DamagedAnim" || key == "KilledAnim" || key == "Token" ||
         key == "State1Token" ||
@@ -455,6 +455,12 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             details.push_back({"Counterstrike: deal " + std::to_string(game_data::damageWithPower(gameCard.counterstrike, gameCard.power)) +
                                    " damage back when attacked by an adjacent enemy (including diagonals)",
                                sf::Color(224, 210, 176)});
+        }
+        if (gameCard.transformTurns > 0)
+        {
+            details.push_back({"Transforms into " + gameCard.transformInto + " after " +
+                std::to_string(gameCard.transformTurns) + " controlling-player turn starts",
+                sf::Color(210, 180, 105)});
         }
         if (!gameCard.rebirthTitle.empty())
         {

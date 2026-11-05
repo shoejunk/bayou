@@ -2488,6 +2488,12 @@ private:
         player.pieceActionUsedThisTurn = false;
         updateSilenceFieldsAtTurnStart(pieces, playerNumber);
         updatePieceControlAtTurnStart(pieces, playerNumber);
+        for (Piece& piece : pieces)
+        {
+            if (piece.owner == playerNumber) beginPieceTurn(piece);
+        }
+        advanceTimedTransformations(pieces, playerNumber,
+            [&](const std::string& title) { return summonCardByTitle(title); });
         // A controlled piece can return to its original owner at the start of
         // this turn.  Control-derived income must use that restored ownership,
         // not the board-control snapshot from the preceding end turn.
@@ -2518,13 +2524,6 @@ private:
             player.resources,
             playerEnchantmentResourceDrain(enchantments, playerNumber));
         player.resources -= resourceDrain;
-        for (Piece& piece : pieces)
-        {
-            if (piece.owner == playerNumber)
-            {
-                beginPieceTurn(piece);
-            }
-        }
 
         if (!narrationEnabled)
         {

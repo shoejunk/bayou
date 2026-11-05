@@ -1529,12 +1529,8 @@ int main(int argc, char** argv)
     std::vector<card_data::Card> cardLibrary;
     std::vector<card_data::Card> filteredCardLibrary;
     std::vector<card_data::Card> allCardLibrary;
-    std::array<bool, CollectionTypeLabels.size()> collectionTypeFilterChecked = {true, true, true};
-    std::array<bool, game_data::CardTraitLabels.size()> collectionTraitFilterChecked = [] {
-        std::array<bool, game_data::CardTraitLabels.size()> checked{};
-        checked.fill(true);
-        return checked;
-    }();
+    std::optional<std::size_t> collectionTypeFilter;
+    std::array<bool, game_data::CardTraitLabels.size()> collectionTraitFilterChecked{};
     std::vector<deck_data::Deck> playerDecks;
     std::vector<account_data::CollectionCard> playerCollection;
     std::vector<network::AdminUserSummary> adminUsers;
@@ -2881,49 +2877,21 @@ int main(int argc, char** argv)
             return false;
         }
 
-        bool typeMatches = false;
-        if (game_data::isHeroCard(card))
-        {
-            typeMatches = collectionTypeFilterChecked[0];
-        }
-        else if (game_data::isUnitCard(card))
-        {
-            typeMatches = collectionTypeFilterChecked[1];
-        }
-        else if (card.type == "Spell" || card.type == "Enchantment")
-        {
-            typeMatches = collectionTypeFilterChecked[2];
-        }
-        if (!typeMatches)
+        if ((collectionTypeFilter == 0 && !game_data::isHeroCard(card)) ||
+            (collectionTypeFilter == 1 && !game_data::isUnitCard(card)) ||
+            (collectionTypeFilter == 2 && card.type != "Spell" && card.type != "Enchantment"))
         {
             return false;
         }
-
-        const bool allTraitsChecked = std::all_of(
-            collectionTraitFilterChecked.begin(),
-            collectionTraitFilterChecked.end(),
-            [](bool checked) {
-                return checked;
-            });
-        if (allTraitsChecked)
+        for (std::size_t i = 0; i < collectionTraitFilterChecked.size(); ++i)
         {
-            return true;
-        }
-
-        for (const std::string& trait : card.traits)
-        {
-            const std::string normalizedCardTrait = game_data::normalizedTrait(trait);
-            for (std::size_t i = 0; i < game_data::CardTraitLabels.size(); ++i)
+            if (collectionTraitFilterChecked[i] &&
+                !game_data::hasKeyword(card.traits, game_data::CardTraitLabels[i]))
             {
-                if (collectionTraitFilterChecked[i] &&
-                    normalizedCardTrait == game_data::normalizedTrait(game_data::CardTraitLabels[i]))
-                {
-                    return true;
-                }
+                return false;
             }
         }
-
-        return false;
+        return true;
     };
 
     auto applyCollectionFilters = [&]() {
@@ -2972,11 +2940,15 @@ int main(int argc, char** argv)
     };
 
     auto toggleCollectionTypeFilter = [&](std::size_t index) {
-        if (index >= collectionTypeFilterChecked.size())
+        if (index >= CollectionTypeLabels.size())
         {
             return;
         }
-        collectionTypeFilterChecked[index] = !collectionTypeFilterChecked[index];
+        // Types are mutually exclusive. Clicking the active type clears it.
+        if (collectionTypeFilter == index)
+            collectionTypeFilter.reset();
+        else
+            collectionTypeFilter = index;
         libraryOffset = 0;
         applyCollectionFilters();
     };
@@ -3050,8 +3022,8 @@ int main(int argc, char** argv)
         filteredCardLibrary.clear();
         allCardLibrary.clear();
         adminCardLibrary.clear();
-        collectionTypeFilterChecked.fill(true);
-        collectionTraitFilterChecked.fill(true);
+        collectionTypeFilter.reset();
+        collectionTraitFilterChecked.fill(false);
         deckEditorMode = DeckEditorMode::DeckList;
         starterDeckMode = false;
         starterDeckExitRequested = false;
@@ -3227,8 +3199,8 @@ int main(int argc, char** argv)
         clearFocus();
         cardLibrary.clear();
         filteredCardLibrary.clear();
-        collectionTypeFilterChecked.fill(true);
-        collectionTraitFilterChecked.fill(true);
+        collectionTypeFilter.reset();
+        collectionTraitFilterChecked.fill(false);
         playerDecks.clear();
         editingDeck = {};
         activeDeckOriginalName.clear();
@@ -3765,8 +3737,8 @@ int main(int argc, char** argv)
         clearFocus();
         cardLibrary.clear();
         filteredCardLibrary.clear();
-        collectionTypeFilterChecked.fill(true);
-        collectionTraitFilterChecked.fill(true);
+        collectionTypeFilter.reset();
+        collectionTraitFilterChecked.fill(false);
         playerDecks.clear();
         editingDeck = {};
         activeDeckOriginalName.clear();
@@ -5054,8 +5026,8 @@ int main(int argc, char** argv)
         playerDecks.clear();
         cardLibrary.clear();
         filteredCardLibrary.clear();
-        collectionTypeFilterChecked.fill(true);
-        collectionTraitFilterChecked.fill(true);
+        collectionTypeFilter.reset();
+        collectionTraitFilterChecked.fill(false);
         selectedDeck.reset();
         deckListOffset = 0;
         setMessageY(messageText, 524.0f);
@@ -7176,8 +7148,16 @@ int main(int argc, char** argv)
         int idleFrame,
         int footprintWidth = 1,
         int footprintHeight = 1) {
-        const sf::FloatRect target = pieceTargetRect(
+        sf::FloatRect target = pieceTargetRect(
             anchor, scale, true, footprintWidth, footprintHeight);
+        if (tokenPath.ends_with("maggieMudroot_mounted.png"))
+        {
+            // On the 512px mounted canvas the feet straddle x=135. The long
+            // snout makes the canvas center a poor stand point. The animation
+            // sheets share this registration, including their padded frames.
+            target.position.x += (flipX ? -1.f : 1.f) * target.size.x * (121.f / 512.f);
+            target.position.y += target.size.x * (58.f / 512.f);
+        }
 
         auto drawAnimFrame = [&](const std::string& sheetPath, int frameCountValue, int frame) {
             if (sf::Texture* sheet = walkAnimTexture(sheetPath))
@@ -8936,6 +8916,13 @@ int main(int argc, char** argv)
                 game_data::beginPieceTurn(piece);
             }
         }
+        game_data::advanceTimedTransformations(next.pieces, startingPlayer,
+            [&](const std::string& title) -> std::optional<game_data::GameCard> {
+                const auto found = std::find_if(allCardLibrary.begin(), allCardLibrary.end(),
+                    [&](const auto& card) { return card.title == title; });
+                if (found == allCardLibrary.end()) return std::nullopt;
+                return game_data::toGameCard(*found);
+            });
         next.status = "Sandbox advanced timing to Player " + std::to_string(startingPlayer) + ".";
         commitSandboxSnapshot(std::move(next));
     };
@@ -12128,6 +12115,8 @@ int main(int argc, char** argv)
         // Every key starts from the same service-backed fixture. This makes the
         // gallery independent of request order instead of inheriting mutations
         // from the screen captured immediately before it.
+        collectionTypeFilter.reset();
+        collectionTraitFilterChecked.fill(false);
         seedCaptureState();
         captureValidationScreen = screen;
         storyActionCaptureInvariant.reset();
@@ -12389,7 +12378,7 @@ int main(int argc, char** argv)
             playerDecks.clear();
             selectedDeck.reset();
         }
-        else if (screen == "deck-editor-cards" || screen == "deck-editor-full" ||
+        else if (screen == "deck-editor-cards" || screen == "deck-editor-filtered" || screen == "deck-editor-full" ||
                  screen == "deck-editor-popup" || screen == "deck-editor-unsaved" ||
                  screen == "deck-editor-drag-add" || screen == "deck-editor-drag-remove")
         {
@@ -12397,14 +12386,31 @@ int main(int argc, char** argv)
             deckEditorMode = DeckEditorMode::EditDeck;
             // "cards" edits the half-built deck so the warning slot has something
             // to say; "full" edits the legal one so every counter is satisfied.
-            editingDeck = screen == "deck-editor-cards" && playerDecks.size() > 1
+            editingDeck = (screen == "deck-editor-cards" || screen == "deck-editor-filtered") && playerDecks.size() > 1
                 ? playerDecks[1]
                 : ui_capture::sampleLegalDeck(allCardLibrary);
             activeDeckOriginalName = editingDeck.name;
             deckNameInput.setContent(editingDeck.name);
             selectedDeckCard = 0;
             selectedLibraryCard = 0;
-            if (screen == "deck-editor-popup")
+            if (screen == "deck-editor-filtered")
+            {
+                toggleCollectionTypeFilter(0);
+                for (std::size_t i = 0; i < game_data::CardTraitLabels.size(); ++i)
+                {
+                    const std::string_view trait = game_data::CardTraitLabels[i];
+                    if (trait == "Fey" || trait == "Arcane") toggleCollectionTraitFilter(i);
+                }
+                if (filteredCardLibrary.empty() || std::any_of(filteredCardLibrary.begin(),
+                    filteredCardLibrary.end(), [](const auto& card) {
+                        return !game_data::isHeroCard(card) || !game_data::hasKeyword(card.traits, "Fey") ||
+                            !game_data::hasKeyword(card.traits, "Arcane");
+                    }))
+                {
+                    failCaptureValidation("The collection did not require every selected type and trait.");
+                }
+            }
+            else if (screen == "deck-editor-popup")
             {
                 if (!editingDeck.cardTitles.empty())
                 {
@@ -14766,6 +14772,17 @@ int main(int argc, char** argv)
         else if (screen == "game-selected")
         {
             seedCaptureMatch("selected");
+            const auto card = packagedStoryCard("Bog Spearman");
+            for (auto& piece : gameSnapshot.pieces)
+                if (piece.name == "Bog Spearman" && card) piece.actions = card->actions;
+        }
+        else if (screen == "game-no-options")
+        {
+            seedCaptureMatch("midgame");
+            gameSnapshot.players[0].pieceActionUsedThisTurn = true;
+            gameSnapshot.players[0].drawPileCount = 0;
+            gameSnapshot.hand.clear();
+            gameSnapshot.players[0].handCount = 0;
         }
         else if (screen == "game-popup" || screen == "game-popup-tooltip")
         {

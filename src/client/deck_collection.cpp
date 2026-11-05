@@ -1252,11 +1252,19 @@ void drawCardRow(const UiContext& ui, const CardRow& row)
     drawText(ui.window, ui.font, card.title, 15, {textX, rect.position.y + 5.0f}, palette::Ink, textWidth);
 
     std::string subline = hero ? std::string("Hero") : card.type;
-    if (!card.traits.empty() && !card.traits.front().empty())
+    for (const std::string& trait : card.traits)
     {
-        subline += Middot + card.traits.front();
+        if (!trait.empty()) subline += Middot + trait;
     }
-    drawText(ui.window, ui.font, subline, 11, {textX, rect.position.y + rect.size.y - 17.0f}, palette::MutedDim, textWidth);
+    // The holdings count sits on the title line. Use the full lower line for traits.
+    sf::Text traitsText(ui.font, subline, 11);
+    const float availableWidth = rect.position.x + rect.size.x - 8.0f - textX;
+    const float lineWidth = traitsText.getLocalBounds().size.x;
+    if (lineWidth > availableWidth)
+        traitsText.setScale({availableWidth / lineWidth, 1.0f});
+    traitsText.setPosition({textX, rect.position.y + rect.size.y - 17.0f});
+    traitsText.setFillColor(palette::MutedDim);
+    drawCrispText(ui.window, traitsText);
 
     // Holdings as a single struck count. Pips and an "x2" were two encodings of
     // the same fact, and at row height neither was legible; the count going gold
@@ -1277,7 +1285,7 @@ void drawCardRow(const UiContext& ui, const CardRow& row)
             ui.font,
             count,
             15,
-            {clusterRight - countText.getLocalBounds().size.x, rect.position.y + rect.size.y * 0.5f - 10.0f},
+            {clusterRight - countText.getLocalBounds().size.x, rect.position.y + 5.0f},
             countColor);
     }
 
