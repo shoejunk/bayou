@@ -57,7 +57,9 @@ export struct TabStrip
 
     std::optional<std::size_t> clickedIndex(sf::Vector2f mousePos) const
     {
-        return tabIndexAt(mousePos);
+        const auto index = tabIndexAt(mousePos);
+        if (index) bayou::client::emitUiSound(bayou::client::UiSound::Tap);
+        return index;
     }
 
     void draw(sf::RenderWindow& window) const
@@ -103,6 +105,8 @@ private:
     void drawTab(sf::RenderWindow& window, std::size_t index) const
     {
         const sf::Vector2f pos = tabPosition(index);
+        bayou::client::observeUiHoverRect(pos.x, pos.y, tabSize.x, tabSize.y,
+            hoveredIndex && *hoveredIndex == index);
         const bool active = index == activeIndex;
         const bool hovered = hoveredIndex && *hoveredIndex == index;
         const sf::Color fill = active
@@ -217,6 +221,7 @@ export struct SliderControl
         }
 
         dragging = true;
+        bayou::client::emitUiSound(bayou::client::UiSound::Drag);
         setValueFromMouse(mousePos);
         return true;
     }
@@ -228,17 +233,22 @@ export struct SliderControl
             return false;
         }
 
+        const int oldStep = static_cast<int>(std::lround(value * 20.0f));
         setValueFromMouse(mousePos);
+        if (oldStep != static_cast<int>(std::lround(value * 20.0f)))
+            bayou::client::emitUiSound(bayou::client::UiSound::Slider);
         return true;
     }
 
     void endDrag()
     {
+        if (dragging) bayou::client::emitUiSound(bayou::client::UiSound::Tap);
         dragging = false;
     }
 
     void draw(sf::RenderWindow& window) const
     {
+        bayou::client::observeUiHoverRect(position.x, position.y, size.x, size.y, hovered);
         const sf::Color labelColor = focused
             ? bayou::client::palette::FocusBright
             : (hovered || dragging ? bayou::client::palette::InkBright : bayou::client::palette::Ink);

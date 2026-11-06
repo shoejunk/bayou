@@ -391,6 +391,13 @@ public:
         return shape.getGlobalBounds();
     }
 
+    bool clicked(sf::Vector2f point) const
+    {
+        const bool hit = contains(point);
+        if (hit) bayou::client::emitUiSound(bayou::client::UiSound::Tap);
+        return hit;
+    }
+
     void setPosition(sf::Vector2f position)
     {
         shape.setPosition(position);
@@ -428,6 +435,9 @@ public:
 
     void draw(sf::RenderWindow& window) const
     {
+        const auto hit = bounds();
+        bayou::client::observeUiHoverRect(hit.position.x, hit.position.y,
+            hit.size.x, hit.size.y, enabled && isHovered);
         bayou::client::PlateStyle style;
         style.fill = shape.getFillColor();
         style.frame = !enabled
@@ -718,7 +728,7 @@ public:
             if (const auto* mousePressed = event.getIf<sf::Event::MouseButtonPressed>())
             {
                 const sf::Vector2f mouse = window.mapPixelToCoords(mousePressed->position);
-                if (mousePressed->button == sf::Mouse::Button::Left && instructionsBackButton.contains(mouse))
+                if (mousePressed->button == sf::Mouse::Button::Left && instructionsBackButton.clicked(mouse))
                 {
                     instructionsVisible = false;
                 }
@@ -755,15 +765,15 @@ public:
                 const sf::Vector2f mouse = window.mapPixelToCoords(mousePressed->position);
                 if (mousePressed->button == sf::Mouse::Button::Left)
                 {
-                    if (saveChangesButton.contains(mouse))
+                    if (saveChangesButton.clicked(mouse))
                     {
                         shouldClose = saveAndContinue();
                     }
-                    else if (discardChangesButton.contains(mouse))
+                    else if (discardChangesButton.clicked(mouse))
                     {
                         shouldClose = discardAndContinue();
                     }
-                    else if (keepEditingButton.contains(mouse))
+                    else if (keepEditingButton.clicked(mouse))
                     {
                         keepEditing();
                     }
@@ -1098,6 +1108,12 @@ public:
 
     void render(sf::RenderWindow& window)
     {
+        const int surface = static_cast<int>(editorMode) | (instructionsVisible ? 2 : 0) |
+            (unsavedChangesPopupVisible ? 4 : 0);
+        if (surface != lastAudioSurface && lastAudioSurface >= 0)
+            bayou::client::emitUiSound(surface < lastAudioSurface
+                ? bayou::client::UiSound::Close : bayou::client::UiSound::Open);
+        lastAudioSurface = surface;
         const sf::View previousView = window.getView();
         window.setView(makeEditorView(window));
         // The main compositor owns the supplied Gloomthorn reference backdrop.
@@ -1205,6 +1221,7 @@ private:
     sf::Font& font;
     CardEditorEndpoint endpoint;
     EditorMode editorMode = EditorMode::Cards;
+    int lastAudioSurface = -1;
     std::vector<card_data::Card> cards;
     std::vector<std::size_t> visibleCardIndices;
     std::optional<std::size_t> selectedCard;
@@ -2041,6 +2058,7 @@ private:
 
     void closeActionDropdown()
     {
+        if (openActionDropdownIndex) bayou::client::emitUiSound(bayou::client::UiSound::Close);
         closeRarityDropdown();
         closeActionKindDropdown();
         openActionDropdownIndex.reset();
@@ -2084,6 +2102,7 @@ private:
             return;
         }
         openActionDropdownIndex = referenceIndex;
+        bayou::client::emitUiSound(bayou::client::UiSound::Open);
         actionDropdownFiltering = filterByCurrentValue;
         actionDropdownOffset = 0;
         actionDropdownSelection = 0;
@@ -2126,6 +2145,7 @@ private:
             return;
         }
         const std::size_t referenceIndex = *openActionDropdownIndex;
+        bayou::client::emitUiSound(bayou::client::UiSound::Tap);
         const std::string& actionName = actions[matches[filteredIndex]].name;
         actionRefFields[referenceIndex].setValue(actionName);
         if (referenceIndex < actionDisplayNameFields.size() &&
@@ -2201,6 +2221,7 @@ private:
 
     void closeActionKindDropdown()
     {
+        if (actionKindDropdownOpen) bayou::client::emitUiSound(bayou::client::UiSound::Close);
         actionKindDropdownOpen = false;
         actionKindDropdownOffset = 0;
         actionKindDropdownSelection = 0;
@@ -2234,6 +2255,7 @@ private:
     {
         closeActionDropdown();
         actionKindDropdownOpen = true;
+        bayou::client::emitUiSound(bayou::client::UiSound::Open);
         actionKindDropdownOffset = 0;
         actionKindDropdownSelection = 0;
         const std::string currentValue = lowerKey(trim(actionKindField.getValue()));
@@ -2268,6 +2290,7 @@ private:
             return;
         }
         actionKindField.setValue(ActionKindOptions[optionIndex]);
+        bayou::client::emitUiSound(bayou::client::UiSound::Tap);
         closeActionKindDropdown();
     }
 
@@ -2333,6 +2356,7 @@ private:
 
     void closeRarityDropdown()
     {
+        if (openRarityDropdownIndex) bayou::client::emitUiSound(bayou::client::UiSound::Close);
         openRarityDropdownIndex.reset();
         rarityDropdownOffset = 0;
         rarityDropdownSelection = 0;
@@ -2372,6 +2396,7 @@ private:
         }
         closeRarityDropdown();
         openRarityDropdownIndex = valueIndex;
+        bayou::client::emitUiSound(bayou::client::UiSound::Open);
         const std::string currentValue = lowerKey(trim(stringValueFields[valueIndex].getValue()));
         for (std::size_t i = 0; i < CardRarityOptions.size(); ++i)
         {
@@ -2405,6 +2430,7 @@ private:
             return;
         }
         stringValueFields[*openRarityDropdownIndex].setValue(CardRarityOptions[optionIndex]);
+        bayou::client::emitUiSound(bayou::client::UiSound::Tap);
         closeRarityDropdown();
     }
 
@@ -2641,6 +2667,7 @@ private:
 
     bool requestTransition(PendingTransition transition, std::string selectionName = {})
     {
+        bayou::client::emitUiSound(bayou::client::UiSound::Paper);
         pendingTransition = transition;
         pendingSelectionName = std::move(selectionName);
         if (!hasUnsavedChanges())
@@ -3349,6 +3376,8 @@ private:
         }
         const int maxOffset = static_cast<int>(visibleCardIndices.size() - VisibleCardRows);
         const int next = std::clamp(static_cast<int>(listOffset) + rows, 0, maxOffset);
+        if (listOffset != static_cast<std::size_t>(next))
+            bayou::client::emitUiSound(bayou::client::UiSound::Slider);
         listOffset = static_cast<std::size_t>(next);
     }
 
@@ -3372,6 +3401,7 @@ private:
 
     void scrollActionList(int rows)
     {
+        const auto previous = actionListOffset;
         if (visibleActionIndices.size() <= VisibleActionRows)
         {
             actionListOffset = 0;
@@ -3380,6 +3410,7 @@ private:
         const int maxOffset = static_cast<int>(visibleActionIndices.size() - VisibleActionRows);
         actionListOffset = static_cast<std::size_t>(
             std::clamp(static_cast<int>(actionListOffset) + rows, 0, maxOffset));
+        if (actionListOffset != previous) bayou::client::emitUiSound(bayou::client::UiSound::Slider);
     }
 
     bool isInActionTargetFilterViewport(sf::Vector2f point) const
@@ -4002,7 +4033,7 @@ private:
             }
         }
 
-        if (instructionsButton.contains(mouse))
+        if (instructionsButton.clicked(mouse))
         {
             instructionsVisible = true;
             instructionScroll = 0.0f;
@@ -4012,7 +4043,7 @@ private:
             }
             return false;
         }
-        if (backButton.contains(mouse))
+        if (backButton.clicked(mouse))
         {
             return requestTransition(PendingTransition::CloseScreen);
         }
@@ -4028,20 +4059,20 @@ private:
                 ? PendingTransition::ShowCards
                 : PendingTransition::ShowActions);
         }
-        if (newButton.contains(mouse))
+        if (newButton.clicked(mouse))
         {
             return requestTransition(editorMode == EditorMode::Cards
                 ? PendingTransition::NewCard
                 : PendingTransition::NewAction);
         }
-        if (refreshButton.contains(mouse))
+        if (refreshButton.clicked(mouse))
         {
             return requestTransition(editorMode == EditorMode::Cards
                 ? PendingTransition::RefreshCards
                 : PendingTransition::RefreshActions);
         }
-        if ((editorMode == EditorMode::Cards && copyButton.contains(mouse)) ||
-            (editorMode == EditorMode::Actions && copyActionButton.contains(mouse)))
+        if ((editorMode == EditorMode::Cards && copyButton.clicked(mouse)) ||
+            (editorMode == EditorMode::Actions && copyActionButton.clicked(mouse)))
         {
             if (editorMode == EditorMode::Cards)
             {
@@ -4053,8 +4084,8 @@ private:
             }
             return false;
         }
-        if ((editorMode == EditorMode::Cards && saveButton.contains(mouse)) ||
-            (editorMode == EditorMode::Actions && saveActionButton.contains(mouse)))
+        if ((editorMode == EditorMode::Cards && saveButton.clicked(mouse)) ||
+            (editorMode == EditorMode::Actions && saveActionButton.clicked(mouse)))
         {
             if (editorMode == EditorMode::Cards)
             {
@@ -4066,7 +4097,7 @@ private:
             }
             return false;
         }
-        if (deleteButton.contains(mouse))
+        if (deleteButton.clicked(mouse))
         {
             if (editorMode == EditorMode::Cards)
             {
@@ -4100,14 +4131,14 @@ private:
                 openActionKindDropdown();
                 return false;
             }
-            if (addActionTargetFilterButton.contains(mouse))
+            if (addActionTargetFilterButton.clicked(mouse))
             {
                 addActionTargetFilter();
                 return false;
             }
             for (std::size_t i = 0; i < removeActionTargetFilterButtons.size(); ++i)
             {
-                if (removeActionTargetFilterButtons[i].contains(mouse))
+                if (removeActionTargetFilterButtons[i].clicked(mouse))
                 {
                     removeActionTargetFilter(actionTargetFilterOffset + i);
                     return false;
@@ -4146,39 +4177,39 @@ private:
         }
         if (isInArrayViewport(mouse))
         {
-            if (isVisibleInArrayViewport(addTraitButton.bounds()) && addTraitButton.contains(mouse))
+            if (isVisibleInArrayViewport(addTraitButton.bounds()) && addTraitButton.clicked(mouse))
             {
                 addTrait();
                 return false;
             }
-            if (isVisibleInArrayViewport(addKeywordButton.bounds()) && addKeywordButton.contains(mouse))
+            if (isVisibleInArrayViewport(addKeywordButton.bounds()) && addKeywordButton.clicked(mouse))
             {
                 addKeyword();
                 return false;
             }
-            if (isVisibleInArrayViewport(addIntegerButton.bounds()) && addIntegerButton.contains(mouse))
+            if (isVisibleInArrayViewport(addIntegerButton.bounds()) && addIntegerButton.clicked(mouse))
             {
                 addIntegerField();
                 return false;
             }
-            if (isVisibleInArrayViewport(addStringButton.bounds()) && addStringButton.contains(mouse))
+            if (isVisibleInArrayViewport(addStringButton.bounds()) && addStringButton.clicked(mouse))
             {
                 addStringField();
                 return false;
             }
-            if (isVisibleInArrayViewport(addListButton.bounds()) && addListButton.contains(mouse))
+            if (isVisibleInArrayViewport(addListButton.bounds()) && addListButton.clicked(mouse))
             {
                 addStringList();
                 return false;
             }
-            if (isVisibleInArrayViewport(addActionRefButton.bounds()) && addActionRefButton.contains(mouse))
+            if (isVisibleInArrayViewport(addActionRefButton.bounds()) && addActionRefButton.clicked(mouse))
             {
                 addActionReference();
                 return false;
             }
             for (std::size_t i = 0; i < removeTraitButtons.size(); ++i)
             {
-                if (isVisibleInArrayViewport(removeTraitButtons[i].bounds()) && removeTraitButtons[i].contains(mouse))
+                if (isVisibleInArrayViewport(removeTraitButtons[i].bounds()) && removeTraitButtons[i].clicked(mouse))
                 {
                     removeTrait(i);
                     return false;
@@ -4186,7 +4217,7 @@ private:
             }
             for (std::size_t i = 0; i < removeKeywordButtons.size(); ++i)
             {
-                if (isVisibleInArrayViewport(removeKeywordButtons[i].bounds()) && removeKeywordButtons[i].contains(mouse))
+                if (isVisibleInArrayViewport(removeKeywordButtons[i].bounds()) && removeKeywordButtons[i].clicked(mouse))
                 {
                     removeKeyword(i);
                     return false;
@@ -4194,7 +4225,7 @@ private:
             }
             for (std::size_t i = 0; i < removeIntegerButtons.size(); ++i)
             {
-                if (isVisibleInArrayViewport(removeIntegerButtons[i].bounds()) && removeIntegerButtons[i].contains(mouse))
+                if (isVisibleInArrayViewport(removeIntegerButtons[i].bounds()) && removeIntegerButtons[i].clicked(mouse))
                 {
                     removeIntegerField(i);
                     return false;
@@ -4202,7 +4233,7 @@ private:
             }
             for (std::size_t i = 0; i < removeStringButtons.size(); ++i)
             {
-                if (isVisibleInArrayViewport(removeStringButtons[i].bounds()) && removeStringButtons[i].contains(mouse))
+                if (isVisibleInArrayViewport(removeStringButtons[i].bounds()) && removeStringButtons[i].clicked(mouse))
                 {
                     removeStringField(i);
                     return false;
@@ -4210,7 +4241,7 @@ private:
             }
             for (std::size_t i = 0; i < addListValueButtons.size(); ++i)
             {
-                if (isVisibleInArrayViewport(addListValueButtons[i].bounds()) && addListValueButtons[i].contains(mouse))
+                if (isVisibleInArrayViewport(addListValueButtons[i].bounds()) && addListValueButtons[i].clicked(mouse))
                 {
                     addStringListValue(i);
                     return false;
@@ -4218,7 +4249,7 @@ private:
             }
             for (std::size_t i = 0; i < removeListButtons.size(); ++i)
             {
-                if (isVisibleInArrayViewport(removeListButtons[i].bounds()) && removeListButtons[i].contains(mouse))
+                if (isVisibleInArrayViewport(removeListButtons[i].bounds()) && removeListButtons[i].clicked(mouse))
                 {
                     removeStringList(i);
                     return false;
@@ -4238,7 +4269,7 @@ private:
             }
             for (std::size_t i = 0; i < removeActionRefButtons.size(); ++i)
             {
-                if (isVisibleInArrayViewport(removeActionRefButtons[i].bounds()) && removeActionRefButtons[i].contains(mouse))
+                if (isVisibleInArrayViewport(removeActionRefButtons[i].bounds()) && removeActionRefButtons[i].clicked(mouse))
                 {
                     removeActionReference(i);
                     return false;
@@ -4402,6 +4433,7 @@ private:
 
     void drawUnsavedChangesPopup(sf::RenderWindow& window)
     {
+        bayou::client::clearUiHoverTargets();
         sf::RectangleShape shade({EditorWidth, EditorHeight});
         shade.setFillColor(sf::Color(0, 0, 0, 170));
         window.draw(shade);
@@ -4684,6 +4716,7 @@ private:
                 const float y = CardListRowStartY + static_cast<float>(i - actionListOffset) * ListRowHeight;
                 const bool selected = selectedAction && *selectedAction == actionIndex;
                 const bool hovered = hoveredAction && *hoveredAction == actionIndex;
+                bayou::client::observeUiHoverRect(42.0f, y, 230.0f, 48.0f, hovered);
                 bayou::client::drawBeveledPlate(
                     window,
                     {42.0f, y},
@@ -4738,6 +4771,7 @@ private:
             const float y = CardListRowStartY + static_cast<float>(i - listOffset) * ListRowHeight;
             const bool selected = selectedCard && *selectedCard == cardIndex;
             const bool hovered = hoveredCard && *hoveredCard == cardIndex;
+            bayou::client::observeUiHoverRect(42.0f, y, 230.0f, 48.0f, hovered);
             bayou::client::drawBeveledPlate(
                 window,
                 {42.0f, y},
@@ -4894,6 +4928,9 @@ private:
         {
             return;
         }
+        bayou::client::clearUiHoverTargets();
+        if (hoveredActionDropdownItem)
+            bayou::client::observeUiHover(0xD0000000ULL + *hoveredActionDropdownItem, true);
         bayou::client::drawMaterialPlate(
             window,
             layout->bounds.position,
@@ -5003,6 +5040,9 @@ private:
         {
             return;
         }
+        bayou::client::clearUiHoverTargets();
+        if (hoveredRarityDropdownItem)
+            bayou::client::observeUiHover(0xD1000000ULL + *hoveredRarityDropdownItem, true);
 
         bayou::client::drawMaterialPlate(
             window,
@@ -5092,6 +5132,9 @@ private:
         {
             return;
         }
+        bayou::client::clearUiHoverTargets();
+        if (hoveredActionKindDropdownItem)
+            bayou::client::observeUiHover(0xD2000000ULL + *hoveredActionKindDropdownItem, true);
 
         bayou::client::drawMaterialPlate(
             window,
@@ -5635,6 +5678,7 @@ private:
 
     void setStatus(const std::string& message, sf::Color color)
     {
+        if (status != message) bayou::client::emitUiStatus(message, color != Warn);
         status = message;
         statusColor = color;
     }

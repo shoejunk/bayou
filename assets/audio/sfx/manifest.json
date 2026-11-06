@@ -1,0 +1,1726 @@
+{
+  "version": 1,
+  "title": "Bayou Bonanza compact sound library",
+  "date": "2026-11-04",
+  "design_master_count": 41,
+  "new_generations": 38,
+  "reused_previews": 3,
+  "model": "ElevenLabs Sound Effects v2",
+  "status": "complete",
+  "masters": [
+    {
+      "id": "ui_tap",
+      "number": 1,
+      "category": "UI",
+      "name": "Soft interface tap",
+      "duration_seconds": 0.5,
+      "uses": "Buttons, tabs, checkboxes, focus changes, dropdowns, slider detents; very quiet hover variant",
+      "prompt": "One soft tactile fantasy game interface click: muted wood tap with a tiny smooth glass tick, immediate response and very short dry decay. Warm, clean, restrained, comfortable when repeated often. One click only, followed by silence. No music, speech, ambience or harsh digital beep.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/ui_tap.mp3",
+      "wav": "assets/audio/sfx/wav/ui_tap.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "PC0xOs0H71A1tmc3S3Rr",
+      "session_id": "MbXWSWyYVVUtnU4Nr27T",
+      "generation_id": "503FdQSwCFFOeEMqaNDw",
+      "duration_actual": 0.48,
+      "wav_duration": 0.48,
+      "sha256": "a171bdfd383583a2c54b37720373dee950f65ff857c41d10d15d97e7db6fe86e",
+      "wav_sha256": "bf59d26deb920a0e531f7b3d20e2ad4cea646cc8a8a8a749151631e6b4ac4319",
+      "normalization_gain_db": -5.39,
+      "loop_export_crossfade_ms": 0,
+      "slices": []
+    },
+    {
+      "id": "card_paper",
+      "number": 2,
+      "category": "UI",
+      "name": "Card and page swish",
+      "duration_seconds": 0.8,
+      "uses": "Draw, discard, drag pickup/drop, hand fan, deck add/remove, story page, popup transitions",
+      "prompt": "One crisp paper card handling swish with a soft cardstock flick and light landing tap. Short isolated close dry game interface effect. Natural paper texture, subtle magical polish, clean attack and quick decay. No music, voices or background sounds.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/card_paper.mp3",
+      "wav": "assets/audio/sfx/wav/card_paper.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "dUCEyKhNcnhTqTQjILlO",
+      "session_id": "5g3qawXz5B0kwRFOXugK",
+      "generation_id": "1ybYWnPRA66ATmT13Szq",
+      "duration_actual": 0.8,
+      "wav_duration": 0.8,
+      "sha256": "47733ba743c612d8b51cda453171ac9e8cfee6cf1f9a857eb551406937cb0298",
+      "wav_sha256": "58f67d36fdf75e85ffbcf67c812e9362b2588fb8d28f3709825c28cc72ad9116",
+      "normalization_gain_db": -5.6,
+      "loop_export_crossfade_ms": 0,
+      "slices": []
+    },
+    {
+      "id": "ui_confirm",
+      "number": 3,
+      "category": "UI",
+      "name": "Positive confirmation",
+      "duration_seconds": 0.8,
+      "uses": "Save/login/claim success, match found, ready, objective complete, turn ready",
+      "prompt": "A brief positive fantasy game confirmation: two warm clear glass notes rising gently, with a tiny wooden tick at the start. Friendly and confident, short soft tail, restrained rather than triumphant. Isolated dry interface sound. No speech or background music.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/ui_confirm.mp3",
+      "wav": "assets/audio/sfx/wav/ui_confirm.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "RHLXDngSzHXXVXs1aR7i",
+      "session_id": "VxBEQ9Wya0rHQQ4NvMXz",
+      "generation_id": "fGfSCryW4U2uwaIH3VuN",
+      "duration_actual": 0.8,
+      "wav_duration": 0.8,
+      "sha256": "60f12bf66fd266194d7372f38f91664083271a3a1a4027d91ead3620a3427e21",
+      "wav_sha256": "b4eabce7496c59263980050ec6310903290d60ce25875ff3a1157e11588c5657",
+      "normalization_gain_db": 7.21,
+      "loop_export_crossfade_ms": 0,
+      "slices": []
+    },
+    {
+      "id": "ui_reject",
+      "number": 4,
+      "category": "UI",
+      "name": "Invalid action / cancellation",
+      "duration_seconds": 0.6,
+      "uses": "Illegal target, failed validation, insufficient funds, server error; quieter cancellation variant",
+      "prompt": "A short gentle negative fantasy interface cue: two soft low wooden and glass knocks descending slightly, communicating cannot do that without startling the player. Compact dry decay, no buzzer, no harsh alarm, no speech, no music or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/ui_reject.mp3",
+      "wav": "assets/audio/sfx/wav/ui_reject.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "fNuL8A0a3DNJhPjfdKmo",
+      "session_id": "trhKPQgnxcVVLxdFaPTI",
+      "generation_id": "k80i53HqPSmmnsy5Dhau",
+      "duration_actual": 0.6,
+      "wav_duration": 0.6,
+      "sha256": "eac76402e530bbb6a280d08b792f527a5e1572f9b266ebe162105035fbe71682",
+      "wav_sha256": "bd64d4a44b7aea6875ade8395fa1261792795046aa87161f90281116eccb55b6",
+      "normalization_gain_db": 6.95,
+      "loop_export_crossfade_ms": 0,
+      "slices": []
+    },
+    {
+      "id": "alert_bell",
+      "number": 5,
+      "category": "UI",
+      "name": "Attention bell",
+      "duration_seconds": 1.2,
+      "uses": "Match ready, clock thresholds, connection loss, story alarm/bell, conquest deadline",
+      "prompt": "One small bronze fantasy warning bell with a clear readable strike and a short controlled ringing tail. Urgent but not shrill, suitable for a turn timer or match-ready notification. Close isolated recording, no background, speech or music.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/alert_bell.mp3",
+      "wav": "assets/audio/sfx/wav/alert_bell.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "mPrbfcAhwRXMligQJOuA",
+      "session_id": "ojjyEPCtUySFbVwgu65M",
+      "generation_id": "0xRu6TMWXvbSs7lUPIuK",
+      "duration_actual": 1.2,
+      "wav_duration": 1.2,
+      "sha256": "c7d75237a42f9e9c3264bab661ffd7ae96a0007a222212b23b39c8c793c2724c",
+      "wav_sha256": "88594111bca8fd304d78506d49a8acebbc82f55068586d673b676fa7989adff1",
+      "normalization_gain_db": -4.38,
+      "loop_export_crossfade_ms": 0,
+      "slices": []
+    },
+    {
+      "id": "resource_coins",
+      "number": 6,
+      "category": "UI",
+      "name": "Resource / reward coins",
+      "duration_seconds": 1.2,
+      "uses": "Resource gain/spend/tax/drain, shop purchase, rewards, conquest supply",
+      "prompt": "A short handful of three small old coins clinking into a leather pouch, bright delicate metal ticks and one soft final clunk. Clear satisfying fantasy strategy game resource cue. Close dry isolated sound, quick decay. No speech, music, cash register or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/resource_coins.mp3",
+      "wav": "assets/audio/sfx/wav/resource_coins.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "LgYQwV0s1QONWfcf2zmT",
+      "session_id": "vM1ZpdjAJOgU75dv6Ffi",
+      "generation_id": "1UHzG4ryej3AAEkd0UHr",
+      "duration_actual": 1.2,
+      "wav_duration": 1.2,
+      "sha256": "5e0bfc1957960764e0f0a519fab329a0e7db0b1c88c8edb1cb9c5fa1797791bf",
+      "wav_sha256": "f8a24d5e05a7612e137636b6ba86c7513bc9f53007c3a3f28962774cf290449c",
+      "normalization_gain_db": -2.07,
+      "loop_export_crossfade_ms": 0,
+      "slices": []
+    },
+    {
+      "id": "victory",
+      "number": 7,
+      "category": "Outcome",
+      "name": "Victory flourish",
+      "duration_seconds": 3,
+      "uses": "Win, mission complete, campaign milestone, conquest victory",
+      "prompt": "A compact fantasy strategy game victory sound: a warm bronze strike blooms into a bright rising crystalline flourish and a gentle resonant finish. Satisfying hopeful success, elegant and modest, three seconds, no long melody or drum rhythm. No speech or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/victory.mp3",
+      "wav": "assets/audio/sfx/wav/victory.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "69shdl8QymGvyxeIlpPU",
+      "session_id": "tSWn50AgfpU2I5P9ShUr",
+      "generation_id": "jPCmVcGcwXhLyDfI7Iqh",
+      "duration_actual": 3.0,
+      "wav_duration": 3.0,
+      "sha256": "41549e3faa8b4050a91ad937e291c44a51300d05ca3e99636fbde4999ac2670e",
+      "wav_sha256": "b5e6e6edb2ec94ee198ccca53bad6fa952e69d34b3b82ae1cb249befc736342f",
+      "normalization_gain_db": -5.44,
+      "loop_export_crossfade_ms": 0,
+      "slices": []
+    },
+    {
+      "id": "defeat",
+      "number": 8,
+      "category": "Outcome",
+      "name": "Defeat flourish",
+      "duration_seconds": 2.5,
+      "uses": "Loss, mission failure, defeat/timeout/resignation result",
+      "prompt": "A compact fantasy strategy game defeat sound: a soft deep bronze strike, falling hollow glass tones and a subdued dark airy decay. Clear finality, dignified and restrained, not frightening or overwhelming. No speech, no song, no rhythm, no background ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/defeat.mp3",
+      "wav": "assets/audio/sfx/wav/defeat.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "05CRilGyA06bQvs0pRgx",
+      "session_id": "VFPpZpZbSZhKVFFzPnz2",
+      "generation_id": "V6QyGJYrwb4DlPD5yjcm",
+      "duration_actual": 2.48,
+      "wav_duration": 2.48,
+      "sha256": "18609c38ab0029c8a21579c3141e433ee872e40ecc58b0295b75058254e68e43",
+      "wav_sha256": "e286a6ee46e6b89f5d1e931b969f78d479b25df776ba833dc608e21374ad56ca",
+      "normalization_gain_db": 12.0,
+      "loop_export_crossfade_ms": 0,
+      "slices": []
+    },
+    {
+      "id": "foot_soft",
+      "number": 9,
+      "category": "Movement",
+      "name": "Light footstep pair",
+      "duration_seconds": 1.2,
+      "uses": "Humans, goblins, light creatures; crop alternating steps; cloth fidgets",
+      "prompt": "Two distinct light boot footsteps on dry packed earth with a little cloth and leather movement, separated by a short pause. Natural close dry fantasy game foley. Soft heel and toe detail, no gravel crunch, no walking away, no reverb, speech, music or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/foot_soft.mp3",
+      "wav": "assets/audio/sfx/wav/foot_soft.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "dfimEH3M0MZxvcVw9fjV",
+      "session_id": "6QNQ54MXRL6UTkDQJkYe",
+      "generation_id": "AFrtEmdPYnyIRyW7qPiu",
+      "duration_actual": 1.2,
+      "wav_duration": 1.2,
+      "sha256": "b44a1bf6f59d2b0a505a519e2aed674d89d1c09bf058c664f3d79b6549c8cc34",
+      "wav_sha256": "f6f03317daea1e0333dde3b32b8257d3422beb710688323a205eda78a67e2c27",
+      "normalization_gain_db": -4.67,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/foot_soft_01.wav",
+          "offset_seconds": 0.0,
+          "duration_seconds": 0.36,
+          "transient_seconds": 0.09
+        },
+        {
+          "file": "assets/audio/sfx/slices/foot_soft_02.wav",
+          "offset_seconds": 0.31,
+          "duration_seconds": 0.36,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "foot_heavy",
+      "number": 10,
+      "category": "Movement",
+      "name": "Heavy step / earth thump",
+      "duration_seconds": 1.5,
+      "uses": "Giants, tree folk, gator mount, heavy landing, blunt charge body layer",
+      "prompt": "Two massive heavy creature footsteps on firm earth, separated by a short pause. Deep weighty thumps with little grit and a dry bark-like creak, powerful but controlled bass. Close isolated fantasy game foley. No voices, music, long rumble or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/foot_heavy.mp3",
+      "wav": "assets/audio/sfx/wav/foot_heavy.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "VOkhjvnBPRTFflHJVBhy",
+      "session_id": "H4Cd30GlH4CAHGPCwgfd",
+      "generation_id": "iIf5Plv8hyuz4dSunonb",
+      "duration_actual": 1.48,
+      "wav_duration": 1.48,
+      "sha256": "0b5ae862a60440bd099af42ab4678293b337f60924ed3c913898424b3cf5e6a0",
+      "wav_sha256": "7b18d0e2a8a00793734c52fe66f8c5fc72ff3211714187d4e9c2ebe5947b710e",
+      "normalization_gain_db": -5.65,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/foot_heavy_01.wav",
+          "offset_seconds": 0.0,
+          "duration_seconds": 0.36,
+          "transient_seconds": 0.06
+        },
+        {
+          "file": "assets/audio/sfx/slices/foot_heavy_02.wav",
+          "offset_seconds": 0.28,
+          "duration_seconds": 0.36,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "hoof_crystal",
+      "number": 11,
+      "category": "Movement",
+      "name": "Crystalline hoof walk",
+      "duration_seconds": 4,
+      "uses": "Crystal Unicorn and Glimmer Stag movement; identity sparkle layer",
+      "prompt": null,
+      "reuse_source": "output/sfx-preview/crystal-unicorn-walk.mp3",
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/hoof_crystal.mp3",
+      "wav": "assets/audio/sfx/wav/hoof_crystal.wav",
+      "status": "complete",
+      "loop": false,
+      "generation_id": "ePYU2QHcv3hCUSRsUMwT",
+      "provenance": "Existing ElevenLabs recording generated earlier in this chat",
+      "duration_actual": 4.0,
+      "wav_duration": 4.0,
+      "sha256": "0493f3e1d3e41c158172762da8be19cba5ddb97091520d57c640b0abe414e3f0",
+      "wav_sha256": "432f5d1540afe51302c333ef76efcaae0097487b48413e3e7cc70ce77c8afa0c",
+      "normalization_gain_db": -0.02,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/hoof_crystal_01.wav",
+          "offset_seconds": 0.5,
+          "duration_seconds": 0.36,
+          "transient_seconds": 0.1
+        },
+        {
+          "file": "assets/audio/sfx/slices/hoof_crystal_02.wav",
+          "offset_seconds": 1.56,
+          "duration_seconds": 0.36,
+          "transient_seconds": 0.1
+        },
+        {
+          "file": "assets/audio/sfx/slices/hoof_crystal_03.wav",
+          "offset_seconds": 2.01,
+          "duration_seconds": 0.36,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "wing_feather",
+      "number": 12,
+      "category": "Movement",
+      "name": "Feather / leathery wingbeat",
+      "duration_seconds": 1.4,
+      "uses": "Griffin, batlike stalker, birdlike movement, dives, soft air swooshes",
+      "prompt": "Two strong close wingbeats from a large feathered fantasy bird with a faint leathery flex. Soft broad air rush, distinct flap transients and a quick natural decay. Isolated dry movement effect, no bird calls, wind ambience, speech or music.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/wing_feather.mp3",
+      "wav": "assets/audio/sfx/wav/wing_feather.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "bjZi8DavsWQKjdsEZ6tM",
+      "session_id": "ENzs2m43apa08FeAwFIM",
+      "generation_id": "Tv2xeUVFa3HFInEWlOOo",
+      "duration_actual": 1.36,
+      "wav_duration": 1.36,
+      "sha256": "44ccf25422264e27a73eff957219aa35a2cf6b78c2c065a33fff27ab3a1c6e66",
+      "wav_sha256": "574b4235f32268ce580770d92611218506bb0cae5366380000a7a7af3a75ed82",
+      "normalization_gain_db": -4.07,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/wing_feather_01.wav",
+          "offset_seconds": 0.0,
+          "duration_seconds": 0.36,
+          "transient_seconds": 0.01
+        },
+        {
+          "file": "assets/audio/sfx/slices/wing_feather_02.wav",
+          "offset_seconds": 0.23,
+          "duration_seconds": 0.36,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "wing_insect",
+      "number": 13,
+      "category": "Movement",
+      "name": "Insect / fey wing flutter",
+      "duration_seconds": 1.6,
+      "uses": "Fairies, moth/bee royalty, tiny flyers; swarm/infestation layer",
+      "prompt": "A short close burst of tiny fairy insect wings fluttering: fine papery wing rattles with a soft organic buzzing hum, a little rise and fall, delicate rather than annoying. Dry isolated fantasy game movement cue. No voices, music or surrounding insects.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/wing_insect.mp3",
+      "wav": "assets/audio/sfx/wav/wing_insect.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "OCnL0lBp0WkByo9LajZM",
+      "session_id": "evlJc7IcEMZGTw5XLUo1",
+      "generation_id": "4TiRNJNTkqesLvGFEzCs",
+      "duration_actual": 1.6,
+      "wav_duration": 1.6,
+      "sha256": "12c3bacb3a97f32155665332574b3bb9b3cecb428f033c09fafd2d3a50b1abdd",
+      "wav_sha256": "204161d01ad31feb4c0d7a475eeff611f701bc9fe0930b17217bf456c0869235",
+      "normalization_gain_db": -2.49,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/wing_insect_01.wav",
+          "offset_seconds": 0.47,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "swamp_squelch",
+      "number": 14,
+      "category": "Movement",
+      "name": "Wet step / slither",
+      "duration_seconds": 1.4,
+      "uses": "Bull Gator, Scooter, frog mount, slugs/roots, muddy step overlays",
+      "prompt": "Two short heavy wet muddy squelches with a low sliding slither and tiny water droplets. Organic swamp creature movement on wet earth, tactile and close, clean separate foot contacts. Isolated dry game foley. No voices, music or continuous swamp ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/swamp_squelch.mp3",
+      "wav": "assets/audio/sfx/wav/swamp_squelch.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "AibavKKXdF3pdYSDKIfF",
+      "session_id": "c4cgSLwjxa3lphv66UiO",
+      "generation_id": "gkXhdvrIIGYjE6zLdpqw",
+      "duration_actual": 1.36,
+      "wav_duration": 1.36,
+      "sha256": "aef6c790b9ec4aaca5a4c3092ff37099934bbf8095575c25ec16c79f4dcbe713",
+      "wav_sha256": "36dc428ad1f3692321c8c4a14515c9557ed8feee881c507e91bae637ed40e7aa",
+      "normalization_gain_db": 1.96,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/swamp_squelch_01.wav",
+          "offset_seconds": 0.0,
+          "duration_seconds": 0.36,
+          "transient_seconds": 0.06
+        },
+        {
+          "file": "assets/audio/sfx/slices/swamp_squelch_02.wav",
+          "offset_seconds": 0.69,
+          "duration_seconds": 0.36,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "mechanism",
+      "number": 15,
+      "category": "Movement",
+      "name": "Clockwork ratchet / clank",
+      "duration_seconds": 1.8,
+      "uses": "Construct movement, repair, build, aim/weapon raise/lower, clockwork fidget",
+      "prompt": "A short close mechanical ratchet sequence: brass gears turn, two articulated metal joints clack, a spring winds and a small latch clicks shut. Clear separated transients, tactile old clockwork, no electrical motor. Isolated dry fantasy game foley, no music, speech or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/mechanism.mp3",
+      "wav": "assets/audio/sfx/wav/mechanism.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "HiVJd0SgKBNuQy7iNQIe",
+      "session_id": "5zfgx5SYmOUZ2AiHPWyF",
+      "generation_id": "aUQkSCVOtONyukQS9hsj",
+      "duration_actual": 1.76,
+      "wav_duration": 1.76,
+      "sha256": "a9574df1ff2dd7c1ce7df8d43a5b72507a4831ac530b3918a84e2af7dc00c9dc",
+      "wav_sha256": "cedf8d88fe71aec83bec0021373d8a04b76cc1069003707126809c4a5675e8b3",
+      "normalization_gain_db": -5.65,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/mechanism_01.wav",
+          "offset_seconds": 0.03,
+          "duration_seconds": 0.36,
+          "transient_seconds": 0.1
+        },
+        {
+          "file": "assets/audio/sfx/slices/mechanism_02.wav",
+          "offset_seconds": 0.47,
+          "duration_seconds": 0.36,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "blade",
+      "number": 16,
+      "category": "Combat",
+      "name": "Blade / spear / axe swish",
+      "duration_seconds": 1,
+      "uses": "Knives, swords, axes, spears, scythes; pitch/weight changes by weapon",
+      "prompt": "One fast steel weapon swing: crisp short cutting air whoosh followed by a tight metallic edge flick. Dry close fantasy melee attack, sharp and weighty without a large impact. Suitable for sword, axe or spear by pitch adjustment. No voices, music, reverb or repeated swings.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/blade.mp3",
+      "wav": "assets/audio/sfx/wav/blade.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "9A1v3fzuTZi4j0KMww5Z",
+      "session_id": "VCAh9sY9SYAyWHDMQ3Ws",
+      "generation_id": "KxB1urdXowEcbSJ62SGq",
+      "duration_actual": 1.0,
+      "wav_duration": 1.0,
+      "sha256": "d89430fe9932bcbb3c27cce90186e0663d48da9282dea9417d639e14c29a9df7",
+      "wav_sha256": "90076168f20c81c4b34e9b69fc33ef04d7f075e5d3086d1404b47b7d94dc52fc",
+      "normalization_gain_db": -6.94,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/blade_01.wav",
+          "offset_seconds": 0.08,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "blunt",
+      "number": 17,
+      "category": "Combat",
+      "name": "Punch / shield / heavy strike",
+      "duration_seconds": 0.8,
+      "uses": "Punches, shield bash, staff, horn/antler collision, charge impacts",
+      "prompt": "One solid close body blow with a short heavy air rush, a firm low leather thud and a tiny dry crack. Punchy controlled fantasy game impact for a punch, staff or shield bash. No gore, voices, music, explosion, extended bass or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/blunt.mp3",
+      "wav": "assets/audio/sfx/wav/blunt.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "jYuQ9QJ45Kl0X6KMKSko",
+      "session_id": "ngzkDrQ7lzVz8g19yjTH",
+      "generation_id": "G6QHc0tgpU0m6F1d4zCM",
+      "duration_actual": 0.8,
+      "wav_duration": 0.8,
+      "sha256": "b2072acb17dd81a0f60d37db335c137f7de49432fc6bfa93a3ab5980acc381bb",
+      "wav_sha256": "03d8fc8626d101342ffec1ba624e4831f44ffc41dcb754c85c5e711f5c2a7d58",
+      "normalization_gain_db": -6.2,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/blunt_01.wav",
+          "offset_seconds": 0.0,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.07
+        }
+      ]
+    },
+    {
+      "id": "bow",
+      "number": 18,
+      "category": "Combat",
+      "name": "Bow / slingshot release",
+      "duration_seconds": 0.9,
+      "uses": "Reed, Birdie, bows, sling, dart/thorn launch, projectile travel",
+      "prompt": "One taut wooden bowstring pluck and snap releasing an arrow with a quick thin air whistle. Crisp light woody attack, clean short decay, close dry isolated game sound. Single release only, no target impact, voices, music or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/bow.mp3",
+      "wav": "assets/audio/sfx/wav/bow.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "riNpfb06L8bPAuAWj912",
+      "session_id": "7c8gAdJlrUzg76PtL0QJ",
+      "generation_id": "bZ8HxPuPMmEJUAihK10i",
+      "duration_actual": 0.88,
+      "wav_duration": 0.88,
+      "sha256": "cca65d10c90ecf2d336fbe50958759fbe05cc91ea066d312d7d1efc4fd9902db",
+      "wav_sha256": "c59dafc38f11066eaf13900b98150c3e6e4756259e7ccd89c5d82d25443ae3b7",
+      "normalization_gain_db": -7.17,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/bow_01.wav",
+          "offset_seconds": 0.07,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "gun",
+      "number": 19,
+      "category": "Combat",
+      "name": "Black powder shot",
+      "duration_seconds": 1.2,
+      "uses": "Goblin Sharpshooter, spectral volley; explosion donor for story firearms",
+      "prompt": "One single old black powder musket shot, a sharp compact crack with a warm low punch and a very short smoky hiss. Readable game-scale sound, controlled peak, not deafening, no echoing battlefield or shell casings. No voices, music or repeated shots.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/gun.mp3",
+      "wav": "assets/audio/sfx/wav/gun.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "1xA850B1Q8VFWc38yPLO",
+      "session_id": "5fpIJf2zxUJrQkMnoScq",
+      "generation_id": "vNGIBTrveymLpu7suBHg",
+      "duration_actual": 1.2,
+      "wav_duration": 1.2,
+      "sha256": "7e3fd3f538bb1d2db3fd3dc895b6d051ae536c331265c921d36ee5ad63858fe1",
+      "wav_sha256": "4bb345250707feca0334c1b0765481e25b05e11a6b896dc101840b89a5d99877",
+      "normalization_gain_db": -6.55,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/gun_01.wav",
+          "offset_seconds": 0.0,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.01
+        }
+      ]
+    },
+    {
+      "id": "magic_bright",
+      "number": 20,
+      "category": "Combat",
+      "name": "Bright magic bolt",
+      "duration_seconds": 1.1,
+      "uses": "Spark, Star Dart, Sun Sprite, staff light, solar/arcane attacks",
+      "prompt": "One small bright fantasy magic bolt: fast airy rising charge, crisp sparkling snap release and a short clean glassy energy impact. Luminous, precise, punchy, not a huge explosion. Close dry isolated game effect. No speech, music, chanting or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/magic_bright.mp3",
+      "wav": "assets/audio/sfx/wav/magic_bright.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "5tyayxMMXoSuTDza55gJ",
+      "session_id": "fSxaHOHIQqxNN62Y7gb1",
+      "generation_id": "8AAkLYuCnnFLDGK5gBgr",
+      "duration_actual": 1.08,
+      "wav_duration": 1.08,
+      "sha256": "f536d037cedda43303bb02e43ada8c23c9d8ca4fdae57ba12ed58b6a7079beb9",
+      "wav_sha256": "640cdf70ad5d885f8b8c95dba9194a3ee48c0e9662caa0d77ee65e70116a002d",
+      "normalization_gain_db": -4.99,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/magic_bright_01.wav",
+          "offset_seconds": 0.12,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "magic_dark",
+      "number": 21,
+      "category": "Combat",
+      "name": "Dark magic strike",
+      "duration_seconds": 2.48,
+      "uses": "Hexes, dark bolts, spectral attacks, curses/drain layers; original Thaeron preview",
+      "prompt": null,
+      "reuse_source": "output/sfx-preview/thaeron-baelstone-attack.mp3",
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/magic_dark.mp3",
+      "wav": "assets/audio/sfx/wav/magic_dark.wav",
+      "status": "complete",
+      "loop": false,
+      "generation_id": "FeiYaPomNfxO9zCuckSz",
+      "provenance": "Existing ElevenLabs recording generated earlier in this chat",
+      "duration_actual": 2.48,
+      "wav_duration": 2.48,
+      "sha256": "f5caa2a8a37cb72e36e680d8292ae8d27642c2d3ccc202eb2a6ecd2c20495e20",
+      "wav_sha256": "8e303a704293a88bae60b1a4907150d4ab1e30efdcd6cc3c31aaea51a29bfc12",
+      "normalization_gain_db": -5.66,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/magic_dark_01.wav",
+          "offset_seconds": 0.5,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "beast_bite",
+      "number": 22,
+      "category": "Combat",
+      "name": "Beast growl / bite",
+      "duration_seconds": 2.48,
+      "uses": "Bull Gator and giant mount, beast claw/bite; extract growl and jaw snap separately",
+      "prompt": null,
+      "reuse_source": "output/sfx-preview/bull-gator-attack.mp3",
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/beast_bite.mp3",
+      "wav": "assets/audio/sfx/wav/beast_bite.wav",
+      "status": "complete",
+      "loop": false,
+      "generation_id": "BUi1lzBolE0zveEJrhLy",
+      "provenance": "Existing ElevenLabs recording generated earlier in this chat",
+      "duration_actual": 2.48,
+      "wav_duration": 2.48,
+      "sha256": "17fc1042a616450bb537f1a1de5ddda008cbf4256a201491157ae3a89b60e367",
+      "wav_sha256": "d7a03f88915ec27b1c28f2fcf0597f009a889d2cad588ca50952106d019c3cc2",
+      "normalization_gain_db": -6.98,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/beast_bite_01.wav",
+          "offset_seconds": 0.83,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "body_hit",
+      "number": 23,
+      "category": "Combat",
+      "name": "Flesh / cloth damage hit",
+      "duration_seconds": 0.7,
+      "uses": "Generic damage, creature collisions, death body fall, wooden UI drop low layer",
+      "prompt": "One clean non-gory fantasy creature damage impact: a compact soft flesh-and-leather slap with a short low thud and tiny cloth rustle. Dry close isolated foley, readable but restrained. No voice, scream, music, wet gore, weapon whoosh or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/body_hit.mp3",
+      "wav": "assets/audio/sfx/wav/body_hit.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "A3flWOBPlPflOD6gBIt2",
+      "session_id": "sGN8u8OTINXzNvboFfsM",
+      "generation_id": "0oOAhvSER4OxN06UVRKq",
+      "duration_actual": 0.6802,
+      "wav_duration": 0.6802,
+      "sha256": "865420114de22b97da0d274a612641cd481d79f99d1e7b538d8123e15b1023f7",
+      "wav_sha256": "891c297678872ac8126581dc9c8702db69db949b8265858723fab6842bd10520",
+      "normalization_gain_db": -6.3,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/body_hit_01.wav",
+          "offset_seconds": 0.0,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.05
+        }
+      ]
+    },
+    {
+      "id": "metal_hit",
+      "number": 24,
+      "category": "Combat",
+      "name": "Metal hit / armor / cage",
+      "duration_seconds": 1.1,
+      "uses": "Construct damage/death, block/intercept/bodyguard, shields, cage lock, repair accent",
+      "prompt": "One sharp steel-on-brass impact with a solid low clank, a brief small rattle and a short controlled metallic ring. Close dry isolated fantasy game effect for armor, a construct or cage. No sword swing, voices, music, workshop ambience or long ringing.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/metal_hit.mp3",
+      "wav": "assets/audio/sfx/wav/metal_hit.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "AWjRyS0sIGqkabsd91Sw",
+      "session_id": "RRg7fWCRRx5i5FLuCOTm",
+      "generation_id": "aLN8vfj7SkOfCKNYYyk0",
+      "duration_actual": 1.08,
+      "wav_duration": 1.08,
+      "sha256": "60b2336afc390500e7142dd41b3d5583391590f8c8cbc0ec9af26906d74c2b91",
+      "wav_sha256": "7a37ca119e5f571c91e41c99467c5e76415dc54f92a608f916eddd1747f0524f",
+      "normalization_gain_db": -4.48,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/metal_hit_01.wav",
+          "offset_seconds": 0.24,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "wood_hit",
+      "number": 25,
+      "category": "Combat",
+      "name": "Wood / bone crack",
+      "duration_seconds": 1.1,
+      "uses": "Tree/plant/undead damage and death, wood structures, broken plank, bone joints",
+      "prompt": "One dry woody crack and short scatter of light brittle fragments, like a thick branch or old wooden shield breaking. A small low knock underneath, crisp clean tail. Close isolated fantasy game foley, no voices, gore, music, falling tree or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/wood_hit.mp3",
+      "wav": "assets/audio/sfx/wav/wood_hit.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "wWqp8dEUcEJ0lOOW7gJW",
+      "session_id": "hMgkRsWXA8UnjcpAt073",
+      "generation_id": "8hxswQkK5kb3vF3ukFmp",
+      "duration_actual": 1.08,
+      "wav_duration": 1.08,
+      "sha256": "69abca4a143a7da16ba1d6d32feaa0a0ae4acb638764e1d720304eab11ffc4a9",
+      "wav_sha256": "8274e747559355b1e46da2e05427294cad07807522fd47bd1c6fbf2944f7ad16",
+      "normalization_gain_db": -6.29,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/wood_hit_01.wav",
+          "offset_seconds": 0.0,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.02
+        }
+      ]
+    },
+    {
+      "id": "crystal",
+      "number": 26,
+      "category": "Magic",
+      "name": "Crystal / mirror shimmer",
+      "duration_seconds": 1.4,
+      "uses": "Unicorn, mirror magic, rare reveal, magical ward, cleansing accent, identity layer",
+      "prompt": "A short luminous crystalline shimmer: a precise glass chink blooms into tiny high sparkling chimes, then decays cleanly. Elegant magical prismatic resonance, soft and delicate rather than piercing. Close isolated fantasy game effect. No tune, music, speech, wind or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/crystal.mp3",
+      "wav": "assets/audio/sfx/wav/crystal.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "4A2QYlJO7IAd4SURuTdl",
+      "session_id": "EINKJjRTwTaZlnY3lutX",
+      "generation_id": "cVcLHRC3qGpZUMk6Fsch",
+      "duration_actual": 1.36,
+      "wav_duration": 1.36,
+      "sha256": "eafa3db677b54ef9f185f6a8a5bfdfa0c7a51f51c6606fb31be061888642b5e4",
+      "wav_sha256": "9d6785aef51ee710c5d622ca3712f1071aa0252a0d581b71e1d24c69577110a7",
+      "normalization_gain_db": -0.41,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/crystal_01.wav",
+          "offset_seconds": 0.0,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.04
+        }
+      ]
+    },
+    {
+      "id": "heal",
+      "number": 27,
+      "category": "Magic",
+      "name": "Healing / restoration bloom",
+      "duration_seconds": 1.6,
+      "uses": "All healing actions/auras, cleanse, rebirth layer, growth, medical success",
+      "prompt": "One gentle fantasy healing pulse: warm soft airy bloom, subtle waterlike sparkle and a smooth rising resonant tone resolving peacefully. Clear short attack and a clean soft tail. Restorative, organic, not a song. Isolated game sound, no voices, music or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/heal.mp3",
+      "wav": "assets/audio/sfx/wav/heal.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "h40KuKAGYXe2YiKf54ex",
+      "session_id": "4NK0C3zaA320jLBgSSkD",
+      "generation_id": "Dayi6FbHKHSRAX5fhxmD",
+      "duration_actual": 1.6,
+      "wav_duration": 1.6,
+      "sha256": "24b5ae95ec4e48c5d2ad7de753fb41db83d05fd63124a5563a5fc69de955a188",
+      "wav_sha256": "611acf08b6c37ddf8e23fa32969bde6c9aa707618bd80be4cd85010a9d78690d",
+      "normalization_gain_db": 0.57,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/heal_01.wav",
+          "offset_seconds": 0.25,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "roots",
+      "number": 28,
+      "category": "Magic",
+      "name": "Roots / web / binding fibers",
+      "duration_seconds": 1.4,
+      "uses": "Entangle, thorns, webs, growth, plant movement, infestation physical layer",
+      "prompt": "A tight burst of twisting roots and taut fibrous vines rapidly wrapping shut: dry woody creaks, fine leaf rustles and a final soft tension snap. Close isolated organic fantasy binding sound, compact and tactile. No voices, music, creature cries or forest ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/roots.mp3",
+      "wav": "assets/audio/sfx/wav/roots.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "vsMcdYiqwEiUpG3mqasg",
+      "session_id": "cGcL7qeZ4lCWCr9wBlGq",
+      "generation_id": "92itsGbtNJielTrJwcBT",
+      "duration_actual": 1.36,
+      "wav_duration": 1.36,
+      "sha256": "7a61055ff9755b073ce0dec7aee25a4937e7406e5dbc56dfcd5f791e72531139",
+      "wav_sha256": "1653441b20e56fc6d7caa639cbcf23e532c0a1995294795f78fea846665b60c3",
+      "normalization_gain_db": -5.66,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/roots_01.wav",
+          "offset_seconds": 1.0,
+          "duration_seconds": 0.36,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "teleport",
+      "number": 29,
+      "category": "Magic",
+      "name": "Phase / summon / vanish",
+      "duration_seconds": 1.5,
+      "uses": "Dematerialize, teleport, swap, summon, reveal, evacuation, transformation",
+      "prompt": "One compact magical phase transition: airy suction rises into a crisp hollow pop, followed by a fine shimmering rush fading quickly. Ethereal fantasy teleport or materialization, precise and readable. Dry isolated game effect, no voices, music, long drone or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/teleport.mp3",
+      "wav": "assets/audio/sfx/wav/teleport.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "Vkbyy1QV6NI0v7fiI5Vy",
+      "session_id": "WntVtgVNDZw8pfVKgHgK",
+      "generation_id": "uQB0pxvF6MWxJLcaFmKN",
+      "duration_actual": 1.48,
+      "wav_duration": 1.48,
+      "sha256": "b9184543e012686e46351eb64d24e6d5be7b86e8208c8404363b63bde4aac35c",
+      "wav_sha256": "5d46ac7714246f5b51e61b10eaf1d6248d73013d472f02289938f3bfd801265c",
+      "normalization_gain_db": -6.12,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/teleport_01.wav",
+          "offset_seconds": 0.0,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.05
+        }
+      ]
+    },
+    {
+      "id": "power",
+      "number": 30,
+      "category": "Magic",
+      "name": "Power / rally / command pulse",
+      "duration_seconds": 1.3,
+      "uses": "Command, Power Boost, relentless readiness, swarm gain, enchant/last stand",
+      "prompt": "One confident fantasy empowerment pulse: low warm resonant thump lifts into a brief bright bronze-and-air accent, finishing with a short energized shimmer. Strong and encouraging, compact, no fanfare melody or drum beat. Dry isolated effect, no voice, speech or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/power.mp3",
+      "wav": "assets/audio/sfx/wav/power.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "Jp8cMkZNWE79ZFl0LEQS",
+      "session_id": "F2KJp6EM4wo8NEu48GM4",
+      "generation_id": "1SjbRl1mgO8StWCIbdkq",
+      "duration_actual": 1.28,
+      "wav_duration": 1.28,
+      "sha256": "04075a9271bd872329723d651a0d4ac827881c73b45ab9669eab6307a1702131",
+      "wav_sha256": "44f95ac56f0dd60de9a0b04158986a493ab3a4b239a432155629311862cb9fc5",
+      "normalization_gain_db": 12.0,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/power_01.wav",
+          "offset_seconds": 0.0,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.02
+        }
+      ]
+    },
+    {
+      "id": "potion",
+      "number": 31,
+      "category": "Magic",
+      "name": "Potion / venom splash",
+      "duration_seconds": 1.2,
+      "uses": "Alchemist, venom, marsh remedies, liquid magic, honey/wax/acid future effects",
+      "prompt": "One small glass vial clink followed by a quick liquid splash and brief fizzy bubbling sizzle. Close dry fantasy alchemy effect, tactile and compact, droplets settle quickly. Useful for a healing elixir or venom potion. No voices, music, glass explosion or background ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/potion.mp3",
+      "wav": "assets/audio/sfx/wav/potion.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "xqd6HNvATFvlLsoObLHw",
+      "session_id": "XO6lnU9oNFx6gxBfz5m3",
+      "generation_id": "E2UvMZhvCmINNX7YSno1",
+      "duration_actual": 1.2,
+      "wav_duration": 1.2,
+      "sha256": "588f9d4f1ec330a28f59e2a388e8ac5c058785879eae39427a43933b0550f466",
+      "wav_sha256": "d08468f41d7a14465c485daeca0ed7a44fd74be606c00848772e84526ec6de3f",
+      "normalization_gain_db": -5.82,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/potion_01.wav",
+          "offset_seconds": 0.8,
+          "duration_seconds": 0.4,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "steam",
+      "number": 32,
+      "category": "Magic",
+      "name": "Steam / hush / null pressure",
+      "duration_seconds": 1.4,
+      "uses": "Steam power, silence field, mechanical pressure, rot aura onset, fuse hiss",
+      "prompt": "One short controlled release of steam from an old brass valve: small mechanical tick, soft pressurized hiss, quick airy taper into silence. Close dry fantasy machinery effect, not a continuous engine, no huge explosion. No music, voice or background ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/steam.mp3",
+      "wav": "assets/audio/sfx/wav/steam.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "vuGwnXE8xc9u0MToJPML",
+      "session_id": "aEqozS540YNQCI0MHwi9",
+      "generation_id": "PFZHjvxaNmx5OHd1TVMM",
+      "duration_actual": 1.36,
+      "wav_duration": 1.36,
+      "sha256": "ed79b75f328126eb1f6af7828c35e7b4602300d9f258acfaa9d61dc0f65f4609",
+      "wav_sha256": "077bf09a6b4777c029b4553f214697654958bb6b20a5a455030a155553d6f3b8",
+      "normalization_gain_db": -6.21,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/steam_01.wav",
+          "offset_seconds": 0.0,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.05
+        }
+      ]
+    },
+    {
+      "id": "explosion",
+      "number": 33,
+      "category": "Magic",
+      "name": "Compact powder explosion",
+      "duration_seconds": 1.7,
+      "uses": "Keg, detonation, bombs, chain reaction, destruction; scale by size",
+      "prompt": "One compact black powder explosion: a sharp ignition crack, tight low boom and a short gritty debris rattle with a little smoky air. Punchy game-scale fantasy blast, controlled bass and clean tail, no prolonged rumble. Isolated, no screams, voices, music or battlefield ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/explosion.mp3",
+      "wav": "assets/audio/sfx/wav/explosion.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "MpktftXJ4OuXm9nJDHRv",
+      "session_id": "sVDCcuwdFM3QZxGwzI00",
+      "generation_id": "kLmgRG8cx0ix1Eme2vuX",
+      "duration_actual": 1.68,
+      "wav_duration": 1.68,
+      "sha256": "57dd1bd57d031d0c70beef2a764e56ab8436cf37b346687f73ce1c8a7c28ccb7",
+      "wav_sha256": "347ba7561025597b08cbc01965dbd67bd9105a321bd788ecdf76fbdfc38bf358",
+      "normalization_gain_db": -5.49,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/explosion_01.wav",
+          "offset_seconds": 0.1,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "shriek",
+      "number": 34,
+      "category": "Magic",
+      "name": "Creature / sonic shriek",
+      "duration_seconds": 1.3,
+      "uses": "Shriek, bat sonic dart, fear, aggressive creature vocalization",
+      "prompt": "One short piercing supernatural creature shriek with a raspy animal edge and a focused rising sonic flutter, then a quick breathy fade. Menacing fantasy game attack, controlled high frequencies, no words or human distress. Close isolated sound, no music or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/shriek.mp3",
+      "wav": "assets/audio/sfx/wav/shriek.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "og3EOj2nq2Y8VQmX10dI",
+      "session_id": "YOUdeZJiCuYkmp3WAWhn",
+      "generation_id": "yYR16q0qSEmGf5I4sZ0c",
+      "duration_actual": 1.28,
+      "wav_duration": 1.28,
+      "sha256": "cda97ca666c610ebd231d1117740a512b0d47dedaf00e36e6c86e38a3dbcca82",
+      "wav_sha256": "6d463956b70533d6e1894ccd429a871cd86dd869e4f98a520b77fae4200e88ad",
+      "normalization_gain_db": -7.05,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/shriek_01.wav",
+          "offset_seconds": 0.71,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "charm_pipes",
+      "number": 35,
+      "category": "Magic",
+      "name": "Enchanting pipes / control",
+      "duration_seconds": 1.5,
+      "uses": "Pavo pipes; charm, lull/sleep, lure, mind control as pitched versions",
+      "prompt": "A brief breathy enchanted wooden pipe trill, three soft wavering notes with a delicate hypnotic magical shimmer. Intimate, elegant, slightly uncanny, no long melody, beat or accompaniment. Short isolated fantasy charm spell cue, no voices or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/charm_pipes.mp3",
+      "wav": "assets/audio/sfx/wav/charm_pipes.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "h2p1OA93F0eM95Gm6Toy",
+      "session_id": "FA2kkaZ14doOSwE3QnP0",
+      "generation_id": "RrBXhTAG8L1ppR76LK1s",
+      "duration_actual": 1.48,
+      "wav_duration": 1.48,
+      "sha256": "024a6d27b2725c7becd3f268dba6c195f66dd610c72e455efa2899b29f347f78",
+      "wav_sha256": "c6b0ef5e383742ac869533ce131700fc38451f9c8376ddb4d4dc25e69d64cb0a",
+      "normalization_gain_db": -2.63,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/charm_pipes_01.wav",
+          "offset_seconds": 0.0,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "death",
+      "number": 36,
+      "category": "Magic",
+      "name": "Spirit / death dissolve",
+      "duration_seconds": 1.6,
+      "uses": "Unit removal, exile, undead death, sacrifice, enchant expiry, spirit rise reversed",
+      "prompt": "A short fantasy spirit release: soft low hollow pulse, airy dissolving sigh without a human voice, fine drifting particles and a clean fading tail. Restrained ethereal death or disappearance cue. Close isolated game sound, no words, screams, music or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/death.mp3",
+      "wav": "assets/audio/sfx/wav/death.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "6vGkk7cceXHCndK4TmXZ",
+      "session_id": "QQ34GS3aCK0mOxF8Cgmx",
+      "generation_id": "x0EUBSWBEPlxyXMYYyS5",
+      "duration_actual": 1.6,
+      "wav_duration": 1.6,
+      "sha256": "98b6fe55f7d827d468645c9e3a1676ff35be232827af016e717fdb030a4727e9",
+      "wav_sha256": "9837fd31748f1682e718a0a3fe9161032a71c211e1ff1e72b4d9bd5d518a739d",
+      "normalization_gain_db": -1.15,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/death_01.wav",
+          "offset_seconds": 0.0,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.01
+        }
+      ]
+    },
+    {
+      "id": "water",
+      "number": 37,
+      "category": "World",
+      "name": "Water splash / ripple",
+      "duration_seconds": 2,
+      "uses": "River movement, boat/raft, frog landing, floodgate, wet projectile impact",
+      "prompt": "One medium close splash of water followed by quick gentle ripples and a few clear droplets. Natural clean river-water texture with a short rolling finish, no large waves. Isolated fantasy game foley for a landing or boat movement. No voices, music, birds or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/water.mp3",
+      "wav": "assets/audio/sfx/wav/water.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "tzBxP5ir0WyA0No1V2LN",
+      "session_id": "rtjddsv3Ocmsk8B8TI1P",
+      "generation_id": "BCpYSIvyJ6KR8K7ND15H",
+      "duration_actual": 2.0,
+      "wav_duration": 2.0,
+      "sha256": "4027d6b92038fe4f0b5f573c885233b62ad3e61149ad87b8fb4364bfaadd838b",
+      "wav_sha256": "20850ab44b00ccf72aae6b415ce31bd55602af6f14f02cfc5d3d622a420bf0f8",
+      "normalization_gain_db": -7.11,
+      "loop_export_crossfade_ms": 0,
+      "slices": []
+    },
+    {
+      "id": "fire",
+      "number": 38,
+      "category": "World",
+      "name": "Fire / fuse crackle",
+      "duration_seconds": 4,
+      "uses": "Burn, fuse, camp fire, burning boats, flame magic accents",
+      "prompt": "A short steady patch of close small fire crackling, soft flame flutter and a few distinct dry sparks. Warm restrained detailed texture, usable beneath a fire spell or burning object. No giant roaring blaze, voices, music, wind or other background sounds.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/fire.mp3",
+      "wav": "assets/audio/sfx/wav/fire.wav",
+      "status": "complete",
+      "loop": true,
+      "node_id": "2P1aOfDx39CRhkrKu6lQ",
+      "session_id": "nfXGEIm7drgkXoKPRHnX",
+      "generation_id": "q0ljJrZcS38vCTTgEfda",
+      "duration_actual": 4.0,
+      "wav_duration": 3.85,
+      "sha256": "517d9d21ec8054f9df05a93834c0e696fcba9e8a33f36b269f1c425c0fa1d6c5",
+      "wav_sha256": "11ae5de5cd3d7fe57d644d5bb9330e80cc276749ab466733c73ff8426596c13e",
+      "normalization_gain_db": 2.1,
+      "loop_export_crossfade_ms": 150,
+      "slices": []
+    },
+    {
+      "id": "creak",
+      "number": 39,
+      "category": "World",
+      "name": "Gate / timber / rope creak",
+      "duration_seconds": 1.8,
+      "uses": "Doors, gates, cage opening, wagons, raft timber, structural strain",
+      "prompt": "One old wooden gate or heavy timber hinge creaks under tension, then stops with a solid restrained wooden latch clunk. Dry groaning wood fibers and faint rope strain, close isolated fantasy foley. No wind, voices, music, footsteps or ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/creak.mp3",
+      "wav": "assets/audio/sfx/wav/creak.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "HizzuABNQlXjNnI5A3b2",
+      "session_id": "boE7f3WsbOG4fyqwmbFb",
+      "generation_id": "NbhZ0D9phIhn69OGmmWF",
+      "duration_actual": 1.76,
+      "wav_duration": 1.76,
+      "sha256": "4cdee2d6adfb5430e977fe09ca24a1f382403c100a3d9f887d91defa8d30d93c",
+      "wav_sha256": "f4d9b8db14a3c59585d44f56cf67cd82cb836ca956d35385f8a9616512ce3193",
+      "normalization_gain_db": -5.8,
+      "loop_export_crossfade_ms": 0,
+      "slices": []
+    },
+    {
+      "id": "bayou",
+      "number": 40,
+      "category": "World",
+      "name": "Quiet bayou atmosphere",
+      "duration_seconds": 8,
+      "uses": "Optional menu/story/map environmental bed, river/forest scene variation",
+      "prompt": "A quiet seamless bayou night ambience: soft distant insects, gentle low water lapping and a faint leafy air texture. Sparse calm natural atmosphere with no prominent animal calls, no loud splashes, no identifiable rhythm. Consistent subtle background bed for fantasy strategy. No speech or music.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/bayou.mp3",
+      "wav": "assets/audio/sfx/wav/bayou.wav",
+      "status": "complete",
+      "loop": true,
+      "node_id": "SURFaR6k9uE5y9cSyd2X",
+      "session_id": "JqCCbmUp0ny5l6OFDiMD",
+      "generation_id": "NxJOawEuXeVJnjqtAcqi",
+      "duration_actual": 8.0,
+      "wav_duration": 7.85,
+      "sha256": "cb9a1fabba217ce3ffae129230bbcfc349125b66065db19ec9162c3b1affc715",
+      "wav_sha256": "abbfa7e614612caebc506a6280e24000d1f1e1b319e5cd33cbd23597faeecb6e",
+      "normalization_gain_db": 29.01,
+      "loop_export_crossfade_ms": 150,
+      "slices": []
+    },
+    {
+      "id": "ghost_chorus",
+      "number": 41,
+      "category": "Magic",
+      "name": "Spectral chorus pulse",
+      "duration_seconds": 1.8,
+      "uses": "The Choir sizes, spirit voices, fear/mimic/echo, Unseelie identity",
+      "prompt": "One brief eerie wordless spectral choir pulse, several soft breathy hollow vowel tones swelling together into a dissonant shimmer then fading cleanly. Otherworldly fantasy creature magic, intimate and uncanny rather than loud or epic. No words, chanting, lyrics, instruments, rhythm or background ambience.",
+      "reuse_source": null,
+      "model_id": "eleven_text_to_sound_v2",
+      "file": "assets/audio/sfx/masters/ghost_chorus.mp3",
+      "wav": "assets/audio/sfx/wav/ghost_chorus.wav",
+      "status": "complete",
+      "loop": false,
+      "node_id": "zIN9XWe1DRONWmXqFv26",
+      "session_id": "AlaNjKpAtAIxdodI37b8",
+      "generation_id": "8CCyCkh4hVlAnDscbsWc",
+      "duration_actual": 1.76,
+      "wav_duration": 1.76,
+      "sha256": "1828da189086a7f2a85a6b03fda08d5edf81771daeb1edc117512a0ee61077d2",
+      "wav_sha256": "fc587914691a215e2f9ab10d8e79fd07b17ed6f82852bfc88781a13d710376db",
+      "normalization_gain_db": 3.8,
+      "loop_export_crossfade_ms": 0,
+      "slices": [
+        {
+          "file": "assets/audio/sfx/slices/ghost_chorus_01.wav",
+          "offset_seconds": 0.25,
+          "duration_seconds": 0.42,
+          "transient_seconds": 0.1
+        }
+      ]
+    }
+  ],
+  "flow_id": "4404phKVvFBShIfJfft2",
+  "estimated_cost": {
+    "credits": 252,
+    "price_cents": 5.04,
+    "generations_count": 1,
+    "currency": "usd",
+    "estimated_runtime_seconds": 8
+  },
+  "format": {
+    "sample_rate": 44100,
+    "channels": 1,
+    "wav_bits": 16,
+    "peak_ceiling_dbfs": -3,
+    "source_recordings": 41
+  },
+  "demonstrations": [
+    {
+      "id": "bull_gator_attack",
+      "name": "Bull Gator attack",
+      "file": "assets/audio/sfx/demos/bull_gator_attack.wav",
+      "layers": [
+        {
+          "id": "beast_bite",
+          "gain": 1,
+          "delay_seconds": 0
+        },
+        {
+          "id": "swamp_squelch",
+          "gain": 0.18,
+          "delay_seconds": 0
+        }
+      ]
+    },
+    {
+      "id": "crystal_unicorn_attack",
+      "name": "Crystal Unicorn prismatic attack",
+      "file": "assets/audio/sfx/demos/crystal_unicorn_attack.wav",
+      "layers": [
+        {
+          "id": "magic_bright",
+          "gain": 0.75,
+          "delay_seconds": 0
+        },
+        {
+          "id": "crystal",
+          "gain": 0.35,
+          "delay_seconds": 0.08
+        }
+      ]
+    },
+    {
+      "id": "thaeron_attack",
+      "name": "Thaeron magic and blade attack",
+      "file": "assets/audio/sfx/demos/thaeron_attack.wav",
+      "layers": [
+        {
+          "id": "magic_dark",
+          "gain": 0.85,
+          "delay_seconds": 0
+        },
+        {
+          "id": "blade",
+          "gain": 0.2,
+          "delay_seconds": 0.04
+        }
+      ]
+    },
+    {
+      "id": "gearjaw_attack",
+      "name": "Gearjaw mechanical bite",
+      "file": "assets/audio/sfx/demos/gearjaw_attack.wav",
+      "layers": [
+        {
+          "id": "mechanism",
+          "gain": 0.65,
+          "delay_seconds": 0
+        },
+        {
+          "id": "metal_hit",
+          "gain": 0.55,
+          "delay_seconds": 0.1
+        }
+      ]
+    },
+    {
+      "id": "sylvara_bind",
+      "name": "Sylvara roots and thorns",
+      "file": "assets/audio/sfx/demos/sylvara_bind.wav",
+      "layers": [
+        {
+          "id": "roots",
+          "gain": 0.75,
+          "delay_seconds": 0
+        },
+        {
+          "id": "magic_bright",
+          "gain": 0.35,
+          "delay_seconds": 0.04
+        }
+      ]
+    },
+    {
+      "id": "choir_hex",
+      "name": "The Choir spectral hex",
+      "file": "assets/audio/sfx/demos/choir_hex.wav",
+      "layers": [
+        {
+          "id": "ghost_chorus",
+          "gain": 0.8,
+          "delay_seconds": 0
+        },
+        {
+          "id": "magic_dark",
+          "gain": 0.28,
+          "delay_seconds": 0.04
+        }
+      ]
+    },
+    {
+      "id": "pavo_charm",
+      "name": "Pavo enchanting pipes",
+      "file": "assets/audio/sfx/demos/pavo_charm.wav",
+      "layers": [
+        {
+          "id": "charm_pipes",
+          "gain": 0.8,
+          "delay_seconds": 0
+        },
+        {
+          "id": "crystal",
+          "gain": 0.15,
+          "delay_seconds": 0.12
+        }
+      ]
+    },
+    {
+      "id": "keg_detonation",
+      "name": "Black Powder Keg",
+      "file": "assets/audio/sfx/demos/keg_detonation.wav",
+      "layers": [
+        {
+          "id": "fire",
+          "gain": 0.2,
+          "delay_seconds": 0
+        },
+        {
+          "id": "explosion",
+          "gain": 0.8,
+          "delay_seconds": 0.15
+        }
+      ]
+    }
+  ],
+  "audition_reel": {
+    "mp3": "assets/audio/sfx/audition-reel.mp3",
+    "wav": "assets/audio/sfx/audition-reel.wav",
+    "duration_seconds": 81.53,
+    "chapters": [
+      {
+        "number": 1,
+        "id": "ui_tap",
+        "name": "Soft interface tap",
+        "start_seconds": 0,
+        "duration_seconds": 0.48
+      },
+      {
+        "number": 2,
+        "id": "card_paper",
+        "name": "Card and page swish",
+        "start_seconds": 0.88,
+        "duration_seconds": 0.8
+      },
+      {
+        "number": 3,
+        "id": "ui_confirm",
+        "name": "Positive confirmation",
+        "start_seconds": 2.08,
+        "duration_seconds": 0.8
+      },
+      {
+        "number": 4,
+        "id": "ui_reject",
+        "name": "Invalid action / cancellation",
+        "start_seconds": 3.28,
+        "duration_seconds": 0.6
+      },
+      {
+        "number": 5,
+        "id": "alert_bell",
+        "name": "Attention bell",
+        "start_seconds": 4.28,
+        "duration_seconds": 1.2
+      },
+      {
+        "number": 6,
+        "id": "resource_coins",
+        "name": "Resource / reward coins",
+        "start_seconds": 5.88,
+        "duration_seconds": 1.2
+      },
+      {
+        "number": 7,
+        "id": "victory",
+        "name": "Victory flourish",
+        "start_seconds": 7.48,
+        "duration_seconds": 3.0
+      },
+      {
+        "number": 8,
+        "id": "defeat",
+        "name": "Defeat flourish",
+        "start_seconds": 10.88,
+        "duration_seconds": 2.48
+      },
+      {
+        "number": 9,
+        "id": "foot_soft",
+        "name": "Light footstep pair",
+        "start_seconds": 13.76,
+        "duration_seconds": 1.2
+      },
+      {
+        "number": 10,
+        "id": "foot_heavy",
+        "name": "Heavy step / earth thump",
+        "start_seconds": 15.36,
+        "duration_seconds": 1.48
+      },
+      {
+        "number": 11,
+        "id": "hoof_crystal",
+        "name": "Crystalline hoof walk",
+        "start_seconds": 17.24,
+        "duration_seconds": 4.0
+      },
+      {
+        "number": 12,
+        "id": "wing_feather",
+        "name": "Feather / leathery wingbeat",
+        "start_seconds": 21.64,
+        "duration_seconds": 1.36
+      },
+      {
+        "number": 13,
+        "id": "wing_insect",
+        "name": "Insect / fey wing flutter",
+        "start_seconds": 23.4,
+        "duration_seconds": 1.6
+      },
+      {
+        "number": 14,
+        "id": "swamp_squelch",
+        "name": "Wet step / slither",
+        "start_seconds": 25.4,
+        "duration_seconds": 1.36
+      },
+      {
+        "number": 15,
+        "id": "mechanism",
+        "name": "Clockwork ratchet / clank",
+        "start_seconds": 27.16,
+        "duration_seconds": 1.76
+      },
+      {
+        "number": 16,
+        "id": "blade",
+        "name": "Blade / spear / axe swish",
+        "start_seconds": 29.32,
+        "duration_seconds": 1.0
+      },
+      {
+        "number": 17,
+        "id": "blunt",
+        "name": "Punch / shield / heavy strike",
+        "start_seconds": 30.72,
+        "duration_seconds": 0.8
+      },
+      {
+        "number": 18,
+        "id": "bow",
+        "name": "Bow / slingshot release",
+        "start_seconds": 31.92,
+        "duration_seconds": 0.88
+      },
+      {
+        "number": 19,
+        "id": "gun",
+        "name": "Black powder shot",
+        "start_seconds": 33.2,
+        "duration_seconds": 1.2
+      },
+      {
+        "number": 20,
+        "id": "magic_bright",
+        "name": "Bright magic bolt",
+        "start_seconds": 34.8,
+        "duration_seconds": 1.08
+      },
+      {
+        "number": 21,
+        "id": "magic_dark",
+        "name": "Dark magic strike",
+        "start_seconds": 36.28,
+        "duration_seconds": 2.48
+      },
+      {
+        "number": 22,
+        "id": "beast_bite",
+        "name": "Beast growl / bite",
+        "start_seconds": 39.16,
+        "duration_seconds": 2.48
+      },
+      {
+        "number": 23,
+        "id": "body_hit",
+        "name": "Flesh / cloth damage hit",
+        "start_seconds": 42.04,
+        "duration_seconds": 0.68
+      },
+      {
+        "number": 24,
+        "id": "metal_hit",
+        "name": "Metal hit / armor / cage",
+        "start_seconds": 43.12,
+        "duration_seconds": 1.08
+      },
+      {
+        "number": 25,
+        "id": "wood_hit",
+        "name": "Wood / bone crack",
+        "start_seconds": 44.6,
+        "duration_seconds": 1.08
+      },
+      {
+        "number": 26,
+        "id": "crystal",
+        "name": "Crystal / mirror shimmer",
+        "start_seconds": 46.08,
+        "duration_seconds": 1.36
+      },
+      {
+        "number": 27,
+        "id": "heal",
+        "name": "Healing / restoration bloom",
+        "start_seconds": 47.84,
+        "duration_seconds": 1.6
+      },
+      {
+        "number": 28,
+        "id": "roots",
+        "name": "Roots / web / binding fibers",
+        "start_seconds": 49.84,
+        "duration_seconds": 1.36
+      },
+      {
+        "number": 29,
+        "id": "teleport",
+        "name": "Phase / summon / vanish",
+        "start_seconds": 51.6,
+        "duration_seconds": 1.48
+      },
+      {
+        "number": 30,
+        "id": "power",
+        "name": "Power / rally / command pulse",
+        "start_seconds": 53.48,
+        "duration_seconds": 1.28
+      },
+      {
+        "number": 31,
+        "id": "potion",
+        "name": "Potion / venom splash",
+        "start_seconds": 55.16,
+        "duration_seconds": 1.2
+      },
+      {
+        "number": 32,
+        "id": "steam",
+        "name": "Steam / hush / null pressure",
+        "start_seconds": 56.76,
+        "duration_seconds": 1.36
+      },
+      {
+        "number": 33,
+        "id": "explosion",
+        "name": "Compact powder explosion",
+        "start_seconds": 58.52,
+        "duration_seconds": 1.68
+      },
+      {
+        "number": 34,
+        "id": "shriek",
+        "name": "Creature / sonic shriek",
+        "start_seconds": 60.6,
+        "duration_seconds": 1.28
+      },
+      {
+        "number": 35,
+        "id": "charm_pipes",
+        "name": "Enchanting pipes / control",
+        "start_seconds": 62.28,
+        "duration_seconds": 1.48
+      },
+      {
+        "number": 36,
+        "id": "death",
+        "name": "Spirit / death dissolve",
+        "start_seconds": 64.16,
+        "duration_seconds": 1.6
+      },
+      {
+        "number": 37,
+        "id": "water",
+        "name": "Water splash / ripple",
+        "start_seconds": 66.16,
+        "duration_seconds": 2.0
+      },
+      {
+        "number": 38,
+        "id": "fire",
+        "name": "Fire / fuse crackle",
+        "start_seconds": 68.56,
+        "duration_seconds": 3.85
+      },
+      {
+        "number": 39,
+        "id": "creak",
+        "name": "Gate / timber / rope creak",
+        "start_seconds": 72.81,
+        "duration_seconds": 1.76
+      },
+      {
+        "number": 40,
+        "id": "bayou",
+        "name": "Quiet bayou atmosphere",
+        "start_seconds": 74.97,
+        "duration_seconds": 4.0
+      },
+      {
+        "number": 41,
+        "id": "ghost_chorus",
+        "name": "Spectral chorus pulse",
+        "start_seconds": 79.37,
+        "duration_seconds": 1.76
+      }
+    ]
+  }
+}

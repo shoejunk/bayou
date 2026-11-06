@@ -579,6 +579,12 @@ void centerButtonText(sf::Text& text, sf::Vector2f center)
 
 void setMessage(sf::Text& text, const std::string& message, const sf::Color& color)
 {
+    if (text.getString() != sf::String(message))
+    {
+        const bool error = color.r > 180 && color.g < 145 && color.b < 145;
+        const bool success = color.g > color.r && color.g > 180;
+        if (error || success) emitUiStatus(message, !error);
+    }
     text.setString(message);
     text.setFillColor(color);
     centerText(text, 400.0f);
@@ -1443,6 +1449,7 @@ void drawRow(
     bool selected,
     bool hovered)
 {
+    observeUiHoverRect(position.x, position.y, size.x, size.y, hovered);
     PlateStyle style;
     style.fill = selected ? palette::SurfaceWarm
                           : (hovered ? palette::SurfaceTop : palette::Plate);
@@ -1527,6 +1534,7 @@ bool isInsideRect(sf::Vector2f mouse, float x, float y, float width, float heigh
 
 void scrollList(std::size_t& offset, std::size_t totalRows, std::size_t visibleRows, float delta)
 {
+    const auto previous = offset;
     if (delta < 0.0f)
     {
         if (offset + visibleRows < totalRows)
@@ -1538,12 +1546,14 @@ void scrollList(std::size_t& offset, std::size_t totalRows, std::size_t visibleR
     {
         --offset;
     }
+    if (offset != previous) emitUiSound(UiSound::Slider);
 }
 
 void drawToggleSwitch(
     sf::RenderWindow& window, const sf::Font& font, sf::FloatRect bounds,
     bool on, bool hovered, bool focused)
 {
+    observeUiHoverRect(bounds.position.x, bounds.position.y, bounds.size.x, bounds.size.y, hovered);
     const sf::Vector2f position = bounds.position;
     const sf::Vector2f size = bounds.size;
     drawMaterialPlate(window, position, size, PlateStyle{

@@ -1700,6 +1700,20 @@ void validateTeachingCopy()
             opening != missions.end() &&
                 has(copyFor(*opening), {"drag", "release", "keyboard", "enter"}),
             "each independently selectable campaign explains mouse and keyboard play");
+        for (const StoryMission& mission : missions)
+        {
+            const std::string copy = copyFor(mission);
+            for (std::string_view obsoletePrompt : {
+                     "inspect a unit to read its actions. choose",
+                     "read a unit's card, choose an action",
+                     "read a friendly card by double-clicking",
+                     "then choose one printed action"})
+            {
+                check(copy.find(obsoletePrompt) == std::string::npos,
+                    std::string(mission.id) +
+                        ": tutorial controls do not send players to an inspector to act");
+            }
+        }
     }
 
     const StoryMission* river = missionById(StoryCampaign::Mirewatch, "mw01_river_teeth");
@@ -2247,9 +2261,8 @@ void validateExpandedMirewatchBattles()
             toll->objectiveSpec.kind == StoryObjectiveKind::DefeatAllEnemies &&
             unitCount(*toll, 1) == 4 && unitCount(*toll, 2) == 4 &&
             hasRequiredSurvivor(*toll, "reed") &&
-            hasRequiredSurvivor(*toll, "vanya") &&
-            hasRequiredSurvivor(*toll, "birdie"),
-        "MW18 is an open four-versus-four toll battle that preserves its three bounded allies");
+            toll->requiredSurvivorRoles == std::vector<std::string_view>{"reed"},
+        "MW18 is an open four-versus-four toll battle that allows allies to be knocked out while Reed survives");
     check(
         finale && finale->script.empty() &&
             finale->objectiveSpec.kind == StoryObjectiveKind::DefeatRole &&
@@ -2505,7 +2518,7 @@ void validateBlackthornTrainingContract()
             ownerCount(*fieldJudgment, 2) == 4 &&
             fieldJudgment->requiredSurvivorRoles.size() == 1 &&
             requiresRole(*fieldJudgment, "thaeron") &&
-            fieldJudgment->hint.find("press I") != std::string_view::npos &&
+            fieldJudgment->hint.find("Drag a unit") != std::string_view::npos &&
             bayou::client::storyAiSearchDepth(
                 StoryCampaign::Blackthorn, fieldJudgment->id) == 2,
         "Blackthorn offers an optional four-versus-four depth-two battle after the story");
@@ -3006,6 +3019,191 @@ bool replayScript(
     return true;
 }
 
+void validateOpenBoardInputs(const StoryMission& mission, const GameEngine& setup)
+{
+    // Reproduce the direct-target resolver used by dragging and keyboard play.
+    // Each legal profile is submitted on its own copy: no inspector, scripted
+    // action index, skipped opponent turn, or fabricated card is needed to act.
+    const int player = setup.currentPlayer();
+    const auto visible = game_data::piecesVisibleTo(setup.boardPieces(), player);
+    std::size_t legalTargets = 0;
+    for (const game_data::Piece& actor : setup.boardPieces())
+    {
+        if (actor.owner != player) continue;
+        for (int row = 0; row < game_data::BoardSize; ++row)
+        {
+            for (int column = 0; column < game_data::BoardSize; ++column)
+            {
+                for (std::size_t index = 0; index < actor.actions.size(); ++index)
+                {
+                    const int actionIndex = static_cast<int>(index);
+                    const auto source = game_data::resolvePieceAction(
+                        visible, setup.boardHoles(), actor, row, column,
+                        false, actionIndex);
+                    if (!source.legal) continue;
+                    const auto outcome = game_data::resolvePieceActionThroughHidden(
+                        setup.boardPieces(), setup.boardHoles(), actor,
+                        row, column, actionIndex);
+                    if (!outcome.action.legal) continue;
+                    ++legalTargets;
+                    GameEngine attempt = setup;
+                    const bool accepted = source.attacks
+                        ? attempt.attackPiece(player, actor.id, row, column, actionIndex)
+                        : attempt.movePiece(player, actor.id, row, column, actionIndex);
+                    check(accepted,
+                        std::string(mission.id) + ": highlighted " +
+                            actor.actions[index].name + " target for " + actor.name +
+                            " is accepted by the battle engine");
+                }
+            }
+        }
+    }
+    check(legalTargets > 0,
+        std::string(mission.id) + ": open battle offers a direct board action at setup");
+}
+
+void validateMirewatchTollBattle(const StoryMission& mission, const GameEngine& setup)
+{
+    if (mission.id != "mw18_allies_dishonestly") return;
+    const auto findNamed = [&](std::string_view name) {
+        return std::find_if(setup.boardPieces().begin(), setup.boardPieces().end(),
+            [&](const game_data::Piece& piece) { return piece.name == name; });
+    };
+    const auto reed = findNamed("Reed Baelstone");
+    const auto collector = findNamed("Blackthorn Debt Collector");
+    check(reed != setup.boardPieces().end() && collector != setup.boardPieces().end(),
+        "MW18 starts with Reed and the nearby toll guard");
+    if (reed == setup.boardPieces().end() || collector == setup.boardPieces().end()) return;
+    const auto bow = std::find_if(reed->actions.begin(), reed->actions.end(),
+        [](const auto& action) { return action.name == "Bow"; });
+    check(bow != reed->actions.end(), "MW18 Reed has his printed Bow action");
+    if (bow == reed->actions.end()) return;
+    const int bowIndex = static_cast<int>(std::distance(reed->actions.begin(), bow));
+    GameEngine opening = setup;
+    const int collectorId = collector->id;
+    check(opening.attackPiece(1, reed->id, collector->row, collector->column, bowIndex) &&
+            std::none_of(opening.boardPieces().begin(), opening.boardPieces().end(),
+                [&](const auto& piece) { return piece.id == collectorId; }) &&
+            opening.scenarioObjectiveProgress().remaining == 3,
+        "MW18 offers an immediate legal Bow shot that defeats the toll guard");
+    check(std::none_of(setup.boardPieces().begin(), setup.boardPieces().end(),
+            [](const auto& piece) {
+                return piece.owner == 2 && game_data::normalizedAbility(piece.ability) == "summon";
+            }),
+        "MW18 keeps its four-guard goal finite without reinforcement summons");
+
+    // Recorded from ordinary depth-two play against the configured depth-two
+    // opponent. Both sides moved, attacked, hid, and ended turns normally. Replay
+    // every accepted command so completion is checked beyond the first input.
+    struct Command { int player; int kind; int actor; int row; int column; int action; };
+    const Command commands[] = {
+        {1, 1, 2, 3, 2, 1},
+        {1, 1, 2, 2, 3, 1},
+        {1, 0, 0, 0, 0, -1},
+        {2, 3, 6, 0, 0, -1},
+        {2, 0, 0, 0, 0, -1},
+        {1, 2, 1, 3, 3, 1},
+        {1, 0, 0, 0, 0, -1},
+        {2, 1, 7, 4, 4, 0},
+        {2, 0, 0, 0, 0, -1},
+        {1, 1, 2, 3, 4, 1},
+        {1, 1, 2, 4, 5, 1},
+        {1, 0, 0, 0, 0, -1},
+        {2, 2, 6, 4, 5, 2},
+        {2, 0, 0, 0, 0, -1},
+        {1, 1, 3, 6, 3, 0},
+        {1, 0, 0, 0, 0, -1},
+        {2, 2, 6, 4, 5, 0},
+        {2, 0, 0, 0, 0, -1},
+        {1, 1, 4, 3, 2, 0},
+        {1, 0, 0, 0, 0, -1},
+        {2, 3, 6, 0, 0, -1},
+        {2, 0, 0, 0, 0, -1},
+        {1, 1, 4, 4, 3, 0},
+        {1, 0, 0, 0, 0, -1},
+        {2, 1, 7, 3, 4, 0},
+        {2, 0, 0, 0, 0, -1},
+        {1, 1, 3, 2, 7, 0},
+        {1, 0, 0, 0, 0, -1},
+        {2, 1, 8, 5, 5, 0},
+        {2, 0, 0, 0, 0, -1},
+        {1, 2, 4, 4, 5, 2},
+        {1, 0, 0, 0, 0, -1},
+        {2, 1, 7, 3, 3, 0},
+        {2, 0, 0, 0, 0, -1},
+        {1, 2, 4, 4, 5, 2},
+        {1, 0, 0, 0, 0, -1},
+        {2, 2, 8, 5, 4, 0},
+        {2, 0, 0, 0, 0, -1},
+        {1, 2, 4, 3, 3, 2},
+        {1, 0, 0, 0, 0, -1},
+        {2, 1, 8, 5, 3, 0},
+        {2, 0, 0, 0, 0, -1},
+        {1, 2, 4, 3, 3, 2},
+        {1, 0, 0, 0, 0, -1},
+        {2, 1, 8, 6, 3, 0},
+        {2, 0, 0, 0, 0, -1},
+        {1, 2, 4, 3, 3, 2},
+        {1, 0, 0, 0, 0, -1},
+        {2, 1, 8, 7, 3, 0},
+        {2, 0, 0, 0, 0, -1},
+        {1, 1, 4, 5, 4, 0},
+        {1, 0, 0, 0, 0, -1},
+        {2, 1, 8, 6, 3, 0},
+        {2, 0, 0, 0, 0, -1},
+        {1, 1, 1, 3, 1, 0},
+        {1, 0, 0, 0, 0, -1},
+        {2, 1, 8, 6, 2, 0},
+        {2, 0, 0, 0, 0, -1},
+        {1, 1, 4, 6, 3, 0},
+        {1, 0, 0, 0, 0, -1},
+        {2, 1, 8, 6, 1, 0},
+        {2, 0, 0, 0, 0, -1},
+        {1, 2, 4, 6, 1, 2},
+        {1, 0, 0, 0, 0, -1},
+        {2, 0, 0, 0, 0, -1},
+        {1, 2, 4, 6, 1, 2},
+        {1, 0, 0, 0, 0, -1},
+        {2, 0, 0, 0, 0, -1},
+        {1, 2, 4, 6, 1, 2},
+    };
+    std::vector<int> actorIds{0};
+    for (const auto& placement : mission.pieces)
+    {
+        const auto actor = std::find_if(setup.boardPieces().begin(), setup.boardPieces().end(),
+            [&](const auto& piece) {
+                return piece.owner == placement.owner && piece.row == placement.row &&
+                    piece.column == placement.column;
+            });
+        if (actor == setup.boardPieces().end()) return;
+        actorIds.push_back(actor->id);
+    }
+    GameEngine battle = setup;
+    for (const auto& command : commands)
+    {
+        bool accepted = battle.currentPlayer() == command.player;
+        const int actorId = actorIds.at(static_cast<std::size_t>(command.actor));
+        if (accepted)
+        {
+            switch (command.kind)
+            {
+            case 0: accepted = battle.endTurn(command.player); break;
+            case 1: accepted = battle.movePiece(command.player, actorId,
+                        command.row, command.column, command.action); break;
+            case 2: accepted = battle.attackPiece(command.player, actorId,
+                        command.row, command.column, command.action); break;
+            case 3: accepted = battle.useAbility(command.player, actorId, false); break;
+            default: accepted = false; break;
+            }
+        }
+        check(accepted, "MW18 winning battle replay accepts every ordinary command");
+        if (!accepted) return;
+    }
+    const auto result = battle.scenarioObjectiveProgress();
+    check(battle.winner() == 1 && result.complete && !result.failed && result.remaining == 0,
+        "MW18 can defeat all four active guards while keeping Reed alive");
+}
+
 bool validateStandardMatchPath(const StoryMission& mission)
 {
     bool valid = true;
@@ -3107,6 +3305,10 @@ bool validateStandardMatchPath(const StoryMission& mission)
             playerView.pieces.begin(), playerView.pieces.end(),
             [](const game_data::Piece& piece) { return piece.owner == 2 && piece.isHero; })) == 2,
         "opposing Heroes become visible only after placement ends");
+    if (valid)
+    {
+        validateOpenBoardInputs(mission, engine);
+    }
 
     game_data::GameCard finishingHero;
     finishingHero.title = "Victory Test Hero";
@@ -4102,6 +4304,8 @@ int main()
                     std::string(mission.id));
             if (loadedAndReplayed && mission.script.empty())
             {
+                validateOpenBoardInputs(mission, engine);
+                validateMirewatchTollBattle(mission, engine);
                 const int playerPieces = static_cast<int>(std::count_if(
                     engine.boardPieces().begin(), engine.boardPieces().end(),
                     [](const game_data::Piece& piece) { return piece.owner == 1; }));

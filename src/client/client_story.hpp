@@ -26,6 +26,8 @@ struct StoryPanel
     std::string_view speaker;
     std::string_view text;
     std::string_view artPath;
+    // Optional, explicitly authored foley. Never inferred from dialogue words.
+    std::string_view soundEffect;
 };
 
 bool storyPanelHasCharacterSpeaker(const StoryPanel& panel);

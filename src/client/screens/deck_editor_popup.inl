@@ -3,6 +3,7 @@
         {
             return;
         }
+        clearUiHoverTargets();
 
         const card_data::Card* card = cardByTitle(*inspectedDeckEditorCardTitle);
         if (!card)

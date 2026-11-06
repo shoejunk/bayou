@@ -1203,6 +1203,7 @@ void drawFactionRoster(const UiContext& ui, sf::FloatRect rect, const std::strin
 
 void drawCardRow(const UiContext& ui, const CardRow& row)
 {
+    observeUiHoverRect(row.rect.position.x, row.rect.position.y, row.rect.size.x, row.rect.size.y, row.hovered);
     if (!row.card)
     {
         return;
@@ -1308,6 +1309,7 @@ void drawDeckRosterRow(
     bool selected,
     bool hovered)
 {
+    observeUiHoverRect(rect.position.x, rect.position.y, rect.size.x, rect.size.y, hovered);
     const FactionStyle& style = summary.faction ? *summary.faction : unalignedStyle();
 
     rowPlate(
@@ -1578,6 +1580,7 @@ void drawFilterChip(
     unsigned int textSize)
 {
     const sf::FloatRect rect = chip.rect;
+    observeUiHoverRect(rect.position.x, rect.position.y, rect.size.x, rect.size.y, hovered);
     // Every chip frames in steel whatever it filters. Tinting the whole chip by
     // its trait turned nine enabled filters into a paint chart; the trait colour
     // survives as the gem in the well, which is where the eye needs it.
@@ -1619,6 +1622,7 @@ void drawFilterChip(
 
 void drawPackObject(const UiContext& ui, sf::FloatRect rect, float time, bool hovered)
 {
+    observeUiHoverRect(rect.position.x, rect.position.y, rect.size.x, rect.size.y, hovered);
     const sf::Vector2f center{rect.position.x + rect.size.x * 0.5f, rect.position.y + rect.size.y * 0.5f};
     const float breathe = 0.5f + 0.5f * std::sin(time * 1.35f);
 

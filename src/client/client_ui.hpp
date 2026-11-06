@@ -1,5 +1,7 @@
 #pragma once
 
+#include "client_audio_events.hpp"
+
 #include <SFML/Graphics.hpp>
 
 #include <cstdint>

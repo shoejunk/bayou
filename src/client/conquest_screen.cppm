@@ -72,6 +72,13 @@ sf::FloatRect rect(float x, float y, float width, float height)
     return {{x, y}, {width, height}};
 }
 
+bool audioClick(sf::FloatRect bounds, sf::Vector2f mouse)
+{
+    const bool hit = bounds.contains(mouse);
+    if (hit) emitUiSound(UiSound::Tap);
+    return hit;
+}
+
 void drawText(
     sf::RenderWindow& window,
     sf::Font& font,
@@ -153,6 +160,8 @@ void drawButton(
     bool primary = false,
     bool destructive = false)
 {
+    observeUiHoverRect(bounds.position.x, bounds.position.y,
+        bounds.size.x, bounds.size.y, enabled && hovered);
     const sf::Color fill = !enabled
         ? sf::Color(45, 48, 47, 235)
         : destructive
@@ -571,6 +580,7 @@ public:
 
     void setStatus(std::string message, bool success)
     {
+        if (status != message) emitUiStatus(message, success);
         status = std::move(message);
         statusSuccess = success;
     }
@@ -1017,6 +1027,9 @@ public:
 
     void draw(sf::RenderWindow& window)
     {
+        const int surface = static_cast<int>(view);
+        if (surface != lastAudioSurface && lastAudioSurface >= 0) emitUiSound(UiSound::Open);
+        lastAudioSurface = surface;
         // A tint rather than the near-opaque plate this used to draw: the swamp
         // backdrop every other screen shows should still read through here.
         // The main compositor already paints the exact supplied menu reference;
@@ -1146,6 +1159,7 @@ private:
         EventCreate,
         Event
     };
+    int lastAudioSurface = -1;
 
     enum class CommandKind
     {
@@ -1439,6 +1453,19 @@ private:
                         const bool keepDraft = ordersDirty &&
                             result.state.summary.turn == eventState.summary.turn &&
                             result.state.summary.phase == conquest_data::EventPhase::Planning;
+                        if (eventState.summary.id == result.state.summary.id &&
+                            !eventState.summary.name.empty() &&
+                            (eventState.summary.turn != result.state.summary.turn ||
+                             eventState.summary.phase != result.state.summary.phase))
+                            emitUiSound(UiSound::Alert);
+                        for (const auto& battle : result.state.battles)
+                        {
+                            const auto old = std::find_if(eventState.battles.begin(), eventState.battles.end(),
+                                [&](const auto& value) { return value.id == battle.id; });
+                            if (battle.canJoin && battle.status == conquest_data::BattleStatus::Ready &&
+                                old != eventState.battles.end() && old->status != battle.status)
+                                emitUiSound(UiSound::Alert);
+                        }
                         eventState = std::move(result.state);
                         if (!keepDraft)
                         {
@@ -1657,6 +1684,7 @@ private:
     void handleScroll(sf::Vector2f mouse, int direction)
     {
         auto scroll = [direction](std::size_t& offset, std::size_t count, std::size_t visible) {
+            const auto previous = offset;
             const std::size_t maximum = count > visible ? count - visible : 0;
             if (direction > 0)
             {
@@ -1666,6 +1694,7 @@ private:
             {
                 --offset;
             }
+            if (offset != previous) emitUiSound(UiSound::Slider);
         };
 
         if (view == View::Events)
@@ -1708,8 +1737,8 @@ private:
     {
         if (exitOrdersConfirmationVisible)
         {
-            if (rect(210, 408, 170, 40).contains(mouse)) exitOrdersConfirmationVisible = false;
-            else if (rect(410, 408, 180, 40).contains(mouse))
+            if (audioClick(rect(210, 408, 170, 40), mouse)) exitOrdersConfirmationVisible = false;
+            else if (audioClick(rect(410, 408, 180, 40), mouse))
             {
                 exitOrdersConfirmationVisible = false;
                 ordersDirty = false;
@@ -1724,19 +1753,19 @@ private:
         }
         if (joinConfirmationVisible)
         {
-            if (!pendingCommand && rect(210, 408, 170, 40).contains(mouse))
+            if (!pendingCommand && audioClick(rect(210, 408, 170, 40), mouse))
                 joinConfirmationVisible = false;
-            else if (!pendingCommand && rect(410, 408, 180, 40).contains(mouse))
+            else if (!pendingCommand && audioClick(rect(410, 408, 180, 40), mouse))
                 submitJoin();
             return;
         }
         if (forceEndConfirmationVisible)
         {
-            if (!pendingCommand && rect(220, 370, 160, 42).contains(mouse))
+            if (!pendingCommand && audioClick(rect(220, 370, 160, 42), mouse))
             {
                 forceEndConfirmationVisible = false;
             }
-            else if (!pendingCommand && rect(420, 370, 160, 42).contains(mouse))
+            else if (!pendingCommand && audioClick(rect(420, 370, 160, 42), mouse))
             {
                 submitForceEnd();
             }
@@ -1766,23 +1795,23 @@ private:
 
     void clickEvents(sf::Vector2f mouse)
     {
-        if (rect(20, 64, 112, 36).contains(mouse))
+        if (audioClick(rect(20, 64, 112, 36), mouse))
         {
             goBack();
             return;
         }
-        if (rect(144, 64, 130, 36).contains(mouse))
+        if (audioClick(rect(144, 64, 130, 36), mouse))
         {
             view = View::Loadout;
             refreshLoadout();
             return;
         }
-        if (rect(666, 64, 114, 36).contains(mouse))
+        if (audioClick(rect(666, 64, 114, 36), mouse))
         {
             refreshEvents();
             return;
         }
-        if (accountIsAdmin && !busy() && rect(498, 64, 156, 36).contains(mouse))
+        if (accountIsAdmin && !busy() && audioClick(rect(498, 64, 156, 36), mouse))
         {
             eventNameInput.clear();
             eventNameInput.setActive(true);
@@ -1799,7 +1828,7 @@ private:
         // The empty-state call to action uses this same transition. Keep its
         // destination in the existing navigation flow rather than adding a
         // one-off route for presentation.
-        if (events.empty() && !pendingEvents && rect(310, 504, 180, 38).contains(mouse))
+        if (events.empty() && !pendingEvents && audioClick(rect(310, 504, 180, 38), mouse))
         {
             view = View::Loadout;
             refreshLoadout();
@@ -1812,7 +1841,7 @@ private:
             {
                 break;
             }
-            if (rect(34, EventRowY + row * EventRowHeight, 732, EventRowHeight - 6).contains(mouse))
+            if (audioClick(rect(34, EventRowY + row * EventRowHeight, 732, EventRowHeight - 6), mouse))
             {
                 selectedEvent = index;
                 openEvent(events[index].id);
@@ -1823,24 +1852,24 @@ private:
 
     void clickLoadout(sf::Vector2f mouse)
     {
-        if (rect(20, 64, 112, 36).contains(mouse))
+        if (audioClick(rect(20, 64, 112, 36), mouse))
         {
             goBack();
             return;
         }
-        if (rect(144, 64, 130, 36).contains(mouse))
+        if (audioClick(rect(144, 64, 130, 36), mouse))
         {
             goBack();
             return;
         }
-        if (rect(498, 64, 156, 36).contains(mouse) && !busy())
+        if (audioClick(rect(498, 64, 156, 36), mouse) && !busy())
         {
             army.deckIds = savedArmyDeckIds;
             selectedArmySlot.reset();
             setStatus("Restored your saved army.", true);
             return;
         }
-        if (rect(666, 64, 114, 36).contains(mouse))
+        if (audioClick(rect(666, 64, 114, 36), mouse))
         {
             if (army.deckIds != savedArmyDeckIds)
             {
@@ -1855,7 +1884,7 @@ private:
         {
             const std::size_t index = deckOffset + row;
             if (index < decks.size() &&
-                rect(30, LoadoutRowY + row * LoadoutRowHeight, 340, LoadoutRowHeight - 4).contains(mouse))
+                audioClick(rect(30, LoadoutRowY + row * LoadoutRowHeight, 340, LoadoutRowHeight - 4), mouse))
             {
                 selectedDeck = index;
                 return;
@@ -1865,7 +1894,7 @@ private:
         {
             const std::size_t slot = armyOffset + row;
             if (slot < army.deckIds.size() &&
-                rect(410, LoadoutRowY + row * LoadoutRowHeight, 360, LoadoutRowHeight - 4).contains(mouse))
+                audioClick(rect(410, LoadoutRowY + row * LoadoutRowHeight, 360, LoadoutRowHeight - 4), mouse))
             {
                 selectedArmySlot = slot;
                 const auto found = std::find_if(decks.begin(), decks.end(), [&](const auto& deck) {
@@ -1878,15 +1907,15 @@ private:
                 return;
             }
         }
-        if (rect(24, 492, 100, 38).contains(mouse))
+        if (audioClick(rect(24, 492, 100, 38), mouse))
         {
             beginEdit({});
         }
-        else if (rect(132, 492, 100, 38).contains(mouse) && selectedDeck)
+        else if (audioClick(rect(132, 492, 100, 38), mouse) && selectedDeck)
         {
             beginEdit(decks[*selectedDeck]);
         }
-        else if (rect(240, 492, 124, 38).contains(mouse) && selectedDeck && !pendingCommand)
+        else if (audioClick(rect(240, 492, 124, 38), mouse) && selectedDeck && !pendingCommand)
         {
             const conquest_data::ConquestDeck deck = decks[*selectedDeck];
             commandKind = CommandKind::DeleteDeck;
@@ -1898,11 +1927,11 @@ private:
             pendingCommandGeneration = sessionGeneration;
             pendingCommandEventId = 0;
         }
-        else if (rect(410, 492, 182, 38).contains(mouse) && selectedDeck)
+        else if (audioClick(rect(410, 492, 182, 38), mouse) && selectedDeck)
         {
             toggleArmyDeck(decks[*selectedDeck].id);
         }
-        else if (rect(600, 492, 170, 38).contains(mouse) && !pendingArmySave)
+        else if (audioClick(rect(600, 492, 170, 38), mouse) && !pendingArmySave)
         {
             if (army.deckIds.empty()) return;
             if (captureMode)
@@ -1953,7 +1982,7 @@ private:
 
     void clickDeckEditor(sf::Vector2f mouse)
     {
-        if (rect(20, 24, 112, 36).contains(mouse))
+        if (audioClick(rect(20, 24, 112, 36), mouse))
         {
             goBack();
             return;
@@ -1963,7 +1992,7 @@ private:
         {
             const std::size_t index = editingCardOffset + row;
             if (index < titles.size() &&
-                rect(24, CardRowY + row * CardRowHeight, 340, CardRowHeight - 3).contains(mouse))
+                audioClick(rect(24, CardRowY + row * CardRowHeight, 340, CardRowHeight - 3), mouse))
             {
                 selectedEditingTitle = index;
                 return;
@@ -1974,13 +2003,13 @@ private:
         {
             const std::size_t index = libraryOffset + row;
             if (index < library.size() &&
-                rect(392, CardRowY + row * CardRowHeight, 384, CardRowHeight - 3).contains(mouse))
+                audioClick(rect(392, CardRowY + row * CardRowHeight, 384, CardRowHeight - 3), mouse))
             {
                 selectedLibraryCard = index;
                 return;
             }
         }
-        if (rect(24, 500, 150, 38).contains(mouse) && selectedEditingTitle)
+        if (audioClick(rect(24, 500, 150, 38), mouse) && selectedEditingTitle)
         {
             if (*selectedEditingTitle < titles.size())
             {
@@ -1994,7 +2023,7 @@ private:
                 selectedEditingTitle.reset();
             }
         }
-        else if (rect(392, 500, 150, 38).contains(mouse) && selectedLibraryCard)
+        else if (audioClick(rect(392, 500, 150, 38), mouse) && selectedLibraryCard)
         {
             if (*selectedLibraryCard < library.size())
             {
@@ -2002,7 +2031,7 @@ private:
                 selectedLibraryCard.reset();
             }
         }
-        else if (rect(626, 500, 150, 38).contains(mouse))
+        else if (audioClick(rect(626, 500, 150, 38), mouse))
         {
             saveEditingDeck();
         }
@@ -2164,7 +2193,7 @@ private:
 
     std::optional<int> regionAt(sf::Vector2f mouse) const
     {
-        if (!rect(MapPosition.x, MapPosition.y, MapSize.x, MapSize.y).contains(mouse))
+        if (!audioClick(rect(MapPosition.x, MapPosition.y, MapSize.x, MapSize.y), mouse))
         {
             return std::nullopt;
         }
@@ -2205,12 +2234,12 @@ private:
 
     void clickEvent(sf::Vector2f mouse)
     {
-        if (rect(20, 24, 140, 36).contains(mouse))
+        if (audioClick(rect(20, 24, 140, 36), mouse))
         {
             goBack();
             return;
         }
-        if (rect(666, 24, 114, 36).contains(mouse))
+        if (audioClick(rect(666, 24, 114, 36), mouse))
         {
             refreshEventState();
             return;
@@ -2218,7 +2247,7 @@ private:
         if (accountIsAdmin && !pendingCommand &&
             eventState.summary.id != 0 &&
             eventState.summary.phase != conquest_data::EventPhase::Complete &&
-            rect(530, 24, 124, 36).contains(mouse))
+            audioClick(rect(530, 24, 124, 36), mouse))
         {
             forceEndConfirmationVisible = true;
             return;
@@ -2226,13 +2255,13 @@ private:
         if (accountIsAdmin &&
             (joinedEvent() || !joinSetupActive) &&
             eventState.summary.phase == conquest_data::EventPhase::Registration &&
-            rect(606, 520, 158, 32).contains(mouse))
+            audioClick(rect(606, 520, 158, 32), mouse))
         {
             submitForceStart();
             return;
         }
 
-        if (!joinedEvent() && rect(606, 460, 158, 32).contains(mouse))
+        if (!joinedEvent() && audioClick(rect(606, 460, 158, 32), mouse))
         {
             returnToEventAfterLoadout = true;
             view = View::Loadout;
@@ -2240,7 +2269,7 @@ private:
             return;
         }
         if (!joinedEvent() && joinSetupActive && !pendingCommand &&
-            rect(606, 500, 158, 32).contains(mouse))
+            audioClick(rect(606, 500, 158, 32), mouse))
         {
             std::erase_if(placements, [&](const auto& placement) {
                 return selectedEventDeckId == placement.deckId;
@@ -2248,7 +2277,7 @@ private:
             setStatus("Placement removed. Select a deck, then a highlighted region.", true);
             return;
         }
-        if (rect(606, 414, 158, 36).contains(mouse))
+        if (audioClick(rect(606, 414, 158, 36), mouse))
         {
             if (joinedEvent() && eventState.summary.phase == conquest_data::EventPhase::Planning)
                 submitOrders();
@@ -2269,7 +2298,7 @@ private:
             return;
         }
 
-        if (rect(590, 396, 188, 16).contains(mouse))
+        if (audioClick(rect(590, 396, 188, 16), mouse))
         {
             handleScroll(mouse, mouse.x >= 684 ? 1 : -1);
             return;
@@ -2283,7 +2312,7 @@ private:
             {
                 const std::size_t index = eventDeckOffset + row;
                 if (index < eventDecks.size() &&
-                    rect(590, 146 + row * 42.0f, 188, 38).contains(mouse))
+                    audioClick(rect(590, 146 + row * 42.0f, 188, 38), mouse))
                 {
                     selectedEventDeckId = eventDecks[index]->id;
                     return;
@@ -2297,7 +2326,7 @@ private:
             {
                 const std::size_t index = eventDeckOffset + row;
                 if (index < armyDecks.size() &&
-                    rect(590, 146 + row * 42.0f, 188, 38).contains(mouse))
+                    audioClick(rect(590, 146 + row * 42.0f, 188, 38), mouse))
                 {
                     selectedEventDeckId = static_cast<std::uint64_t>(armyDecks[index]->id);
                     return;
@@ -2309,7 +2338,7 @@ private:
         for (std::size_t row = 0; row < 2; ++row)
         {
             const std::size_t index = battleOffset + row;
-            if (index < battles.size() && rect(24, 492 + row * 33.0f, 552, 29).contains(mouse))
+            if (index < battles.size() && audioClick(rect(24, 492 + row * 33.0f, 552, 29), mouse))
             {
                 pendingAction = ConquestScreenAction{
                     ConquestScreenAction::Kind::JoinBattle,
@@ -2325,7 +2354,7 @@ private:
             return;
         }
 
-        if (joinedEvent() && rect(606, 520, 158, 32).contains(mouse))
+        if (joinedEvent() && audioClick(rect(606, 520, 158, 32), mouse))
         {
             submitReinforcement();
         }
@@ -3009,12 +3038,12 @@ private:
 
     void clickEventCreate(sf::Vector2f mouse)
     {
-        if (rect(20, 64, 112, 36).contains(mouse))
+        if (audioClick(rect(20, 64, 112, 36), mouse))
         {
             goBack();
             return;
         }
-        if (rect(566, 464, 186, 42).contains(mouse))
+        if (audioClick(rect(566, 464, 186, 42), mouse))
         {
             submitEventCreate();
         }

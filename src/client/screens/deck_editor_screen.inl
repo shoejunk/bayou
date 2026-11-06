@@ -3,6 +3,7 @@
         {
             return;
         }
+        clearUiHoverTargets();
 
         sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
         overlay.setPosition({ui_canvas::Left, 0.0f});

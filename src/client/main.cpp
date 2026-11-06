@@ -3,6 +3,7 @@
 #include <SFML/Network.hpp>
 #include "tls_socket.hpp"
 
+#include "client_audio.hpp"
 #include "client_board_layout.hpp"
 #include "client_card_text.hpp"
 #include "client_clock_warning.hpp"
@@ -67,19 +68,6 @@ namespace
 {
 using namespace bayou::client;
 
-enum class AudioCue
-{
-    ButtonClick,
-    PiecePlace,
-    UnitMove,
-    UnitAttack,
-    UnitDeath,
-    Dematerialize,
-    Victory,
-    Defeat,
-    ClockWarning
-};
-
 constexpr std::size_t MinimumPasswordLength = 7;
 constexpr std::size_t MaximumPasswordLength = 128;
 constexpr const char* PasswordRequirementMessage =
@@ -119,397 +107,11 @@ bool isValidNewPassword(const std::string& password)
     return hasLowercase && hasUppercase && hasDigit && hasSpecial;
 }
 
-class AudioSystem
-{
-public:
-    AudioSystem()
-    {
-        makeEffects();
-        startMusic();
-    }
-
-    void play(AudioCue cue, float volumeScale = 1.0f)
-    {
-        if (allMuted || soundEffectsMuted)
-        {
-            return;
-        }
-
-        trimStoppedSounds();
-        sf::SoundBuffer& buffer = effectBuffers[static_cast<std::size_t>(cue)];
-        sf::Sound& sound = activeSounds.emplace_back(buffer);
-        sound.setVolume(effectVolume(cue) * volumeScale * allVolume * soundEffectsVolume);
-        sound.play();
-    }
-
-    void update()
-    {
-        trimStoppedSounds();
-        updateMusicVolume();
-        if (music && music->getStatus() != sf::SoundSource::Status::Playing)
-        {
-            music->play();
-        }
-    }
-
-    void setAllVolume(float volume)
-    {
-        allVolume = std::clamp(volume, 0.0f, 1.0f);
-        updateMusicVolume();
-    }
-
-    float getAllVolume() const
-    {
-        return allVolume;
-    }
-
-    void setMusicVolume(float volume)
-    {
-        musicVolume = std::clamp(volume, 0.0f, 1.0f);
-        updateMusicVolume();
-    }
-
-    float getMusicVolume() const
-    {
-        return musicVolume;
-    }
-
-    void setSoundEffectsVolume(float volume)
-    {
-        soundEffectsVolume = std::clamp(volume, 0.0f, 1.0f);
-    }
-
-    float getSoundEffectsVolume() const
-    {
-        return soundEffectsVolume;
-    }
-
-    account_data::AudioSettings getSettings() const
-    {
-        return {
-            toPercent(allVolume),
-            toPercent(musicVolume),
-            toPercent(soundEffectsVolume),
-            allMuted,
-            musicMuted,
-            soundEffectsMuted};
-    }
-
-    void applySettings(const account_data::AudioSettings& settings)
-    {
-        setAllVolume(static_cast<float>(settings.allVolumePercent) / 100.0f);
-        setMusicVolume(static_cast<float>(settings.musicVolumePercent) / 100.0f);
-        setSoundEffectsVolume(static_cast<float>(settings.soundEffectsVolumePercent) / 100.0f);
-        setAllMuted(settings.allMuted);
-        setMusicMuted(settings.musicMuted);
-        setSoundEffectsMuted(settings.soundEffectsMuted);
-    }
-
-    void setAllMuted(bool muted)
-    {
-        allMuted = muted;
-        if (allMuted)
-        {
-            stopActiveSounds();
-        }
-        updateMusicVolume();
-    }
-
-    bool isAllMuted() const
-    {
-        return allMuted;
-    }
-
-    void setMusicMuted(bool muted)
-    {
-        musicMuted = muted;
-        updateMusicVolume();
-    }
-
-    bool isMusicMuted() const
-    {
-        return musicMuted;
-    }
-
-    void setSoundEffectsMuted(bool muted)
-    {
-        soundEffectsMuted = muted;
-        if (soundEffectsMuted)
-        {
-            stopActiveSounds();
-        }
-    }
-
-    bool isSoundEffectsMuted() const
-    {
-        return soundEffectsMuted;
-    }
-
-private:
-    static constexpr unsigned int SampleRate = 44100;
-    static constexpr int EffectCount = 9;
-    std::array<sf::SoundBuffer, EffectCount> effectBuffers;
-    std::unique_ptr<sf::Music> music;
-    std::list<sf::Sound> activeSounds;
-    float allVolume = 1.0f;
-    float musicVolume = 1.0f;
-    float soundEffectsVolume = 1.0f;
-    bool allMuted = false;
-    bool musicMuted = false;
-    bool soundEffectsMuted = false;
-
-    static std::uint8_t toPercent(float volume)
-    {
-        return static_cast<std::uint8_t>(std::lround(std::clamp(volume, 0.0f, 1.0f) * 100.0f));
-    }
-
-    static float envelope(float t, float duration, float attack, float release)
-    {
-        if (t < attack)
-        {
-            return t / attack;
-        }
-        if (t > duration - release)
-        {
-            return std::max(0.0f, (duration - t) / release);
-        }
-        return 1.0f;
-    }
-
-    static sf::SoundBuffer bufferFromSamples(const std::vector<std::int16_t>& samples)
-    {
-        sf::SoundBuffer buffer;
-        const bool loaded = buffer.loadFromSamples(samples.data(), samples.size(), 1, SampleRate, {sf::SoundChannel::Mono});
-        (void)loaded;
-        return buffer;
-    }
-
-    static std::vector<std::int16_t> makeTone(
-        float duration,
-        float startFrequency,
-        float endFrequency,
-        float volume,
-        float noiseAmount = 0.0f)
-    {
-        const int sampleCount = static_cast<int>(duration * static_cast<float>(SampleRate));
-        std::vector<std::int16_t> samples(static_cast<std::size_t>(sampleCount));
-        std::uint32_t noise = 0x9e3779b9u;
-        float phase = 0.0f;
-
-        for (int i = 0; i < sampleCount; ++i)
-        {
-            const float t = static_cast<float>(i) / static_cast<float>(SampleRate);
-            const float p = duration > 0.0f ? t / duration : 0.0f;
-            const float frequency = startFrequency + (endFrequency - startFrequency) * p;
-            phase += 2.0f * Pi * frequency / static_cast<float>(SampleRate);
-            noise = noise * 1664525u + 1013904223u;
-            const float noiseSample = (static_cast<float>((noise >> 16) & 0xffffu) / 32767.5f) - 1.0f;
-            const float wave = std::sin(phase) * (1.0f - noiseAmount) + noiseSample * noiseAmount;
-            const float amp = wave * volume * envelope(t, duration, 0.008f, std::min(0.12f, duration * 0.42f));
-            samples[static_cast<std::size_t>(i)] =
-                static_cast<std::int16_t>(std::clamp(amp, -1.0f, 1.0f) * 32767.0f);
-        }
-        return samples;
-    }
-
-    static std::vector<std::int16_t> makeMoveSamples()
-    {
-        const float duration = 0.34f;
-        const int sampleCount = static_cast<int>(duration * static_cast<float>(SampleRate));
-        std::vector<std::int16_t> samples(static_cast<std::size_t>(sampleCount));
-        for (int i = 0; i < sampleCount; ++i)
-        {
-            const float t = static_cast<float>(i) / static_cast<float>(SampleRate);
-            const float stepPulse = std::sin(2.0f * Pi * 7.0f * t);
-            const float body = std::sin(2.0f * Pi * (92.0f + 34.0f * t) * t);
-            const float clank = std::sin(2.0f * Pi * 680.0f * t) * std::max(0.0f, stepPulse);
-            const float amp = (body * 0.42f + clank * 0.18f) * envelope(t, duration, 0.012f, 0.12f) * 0.38f;
-            samples[static_cast<std::size_t>(i)] =
-                static_cast<std::int16_t>(std::clamp(amp, -1.0f, 1.0f) * 32767.0f);
-        }
-        return samples;
-    }
-
-    static std::vector<std::int16_t> makePlaceSamples()
-    {
-        const float duration = 0.26f;
-        const int sampleCount = static_cast<int>(duration * static_cast<float>(SampleRate));
-        std::vector<std::int16_t> samples(static_cast<std::size_t>(sampleCount));
-        std::uint32_t noise = 0x85ebca6bu;
-
-        for (int i = 0; i < sampleCount; ++i)
-        {
-            const float t = static_cast<float>(i) / static_cast<float>(SampleRate);
-            const float p = duration > 0.0f ? t / duration : 0.0f;
-            noise = noise * 1664525u + 1013904223u;
-            const float noiseSample = (static_cast<float>((noise >> 16) & 0xffffu) / 32767.5f) - 1.0f;
-            const float thud = std::sin(2.0f * Pi * (92.0f - 22.0f * p) * t);
-            const float clack = std::sin(2.0f * Pi * 520.0f * t) * std::max(0.0f, 1.0f - p * 5.5f);
-            const float dust = noiseSample * std::max(0.0f, 1.0f - p * 3.2f);
-            const float amp = (thud * 0.54f + clack * 0.24f + dust * 0.12f) *
-                envelope(t, duration, 0.004f, 0.15f) * 0.46f;
-            samples[static_cast<std::size_t>(i)] =
-                static_cast<std::int16_t>(std::clamp(amp, -1.0f, 1.0f) * 32767.0f);
-        }
-
-        return samples;
-    }
-
-    static std::vector<std::int16_t> makeClockWarningSamples()
-    {
-        constexpr float duration = 0.72f;
-        constexpr float pulseDuration = 0.20f;
-        const int sampleCount = static_cast<int>(duration * static_cast<float>(SampleRate));
-        std::vector<std::int16_t> samples(static_cast<std::size_t>(sampleCount));
-
-        for (int i = 0; i < sampleCount; ++i)
-        {
-            const float t = static_cast<float>(i) / static_cast<float>(SampleRate);
-            const int pulseIndex = std::min(2, static_cast<int>(t / 0.24f));
-            const float pulseTime = t - static_cast<float>(pulseIndex) * 0.24f;
-            if (pulseTime < 0.0f || pulseTime >= pulseDuration)
-            {
-                continue;
-            }
-
-            const float frequency = 660.0f + static_cast<float>(pulseIndex) * 110.0f;
-            const float tone = std::sin(2.0f * Pi * frequency * pulseTime) * 0.72f +
-                std::sin(2.0f * Pi * frequency * 2.0f * pulseTime) * 0.28f;
-            const float amp = tone * envelope(pulseTime, pulseDuration, 0.008f, 0.07f) * 0.42f;
-            samples[static_cast<std::size_t>(i)] =
-                static_cast<std::int16_t>(std::clamp(amp, -1.0f, 1.0f) * 32767.0f);
-        }
-        return samples;
-    }
-
-    void makeEffects()
-    {
-        effectBuffers[static_cast<std::size_t>(AudioCue::ButtonClick)] =
-            bufferFromSamples(makeTone(0.075f, 760.0f, 1040.0f, 0.34f));
-        sf::SoundBuffer& placeBuffer = effectBuffers[static_cast<std::size_t>(AudioCue::PiecePlace)];
-        const std::optional<std::filesystem::path> placePath = resolveAssetPath("audio/place.wav");
-        if (!placePath || !placeBuffer.loadFromFile(*placePath))
-        {
-            placeBuffer = bufferFromSamples(makePlaceSamples());
-        }
-        effectBuffers[static_cast<std::size_t>(AudioCue::UnitMove)] =
-            bufferFromSamples(makeMoveSamples());
-        sf::SoundBuffer& attackBuffer = effectBuffers[static_cast<std::size_t>(AudioCue::UnitAttack)];
-        const std::optional<std::filesystem::path> attackPath = resolveAssetPath("audio/attack.wav");
-        if (!attackPath || !attackBuffer.loadFromFile(*attackPath))
-        {
-            attackBuffer = bufferFromSamples(makeTone(0.24f, 520.0f, 92.0f, 0.58f, 0.22f));
-        }
-        sf::SoundBuffer& deathBuffer = effectBuffers[static_cast<std::size_t>(AudioCue::UnitDeath)];
-        const std::optional<std::filesystem::path> deathPath = resolveAssetPath("audio/death.wav");
-        if (!deathPath || !deathBuffer.loadFromFile(*deathPath))
-        {
-            deathBuffer = bufferFromSamples(makeTone(0.46f, 180.0f, 42.0f, 0.56f, 0.34f));
-        }
-        sf::SoundBuffer& dematerializeBuffer =
-            effectBuffers[static_cast<std::size_t>(AudioCue::Dematerialize)];
-        const std::optional<std::filesystem::path> dematerializePath =
-            resolveAssetPath("audio/dematerialize.wav");
-        if (!dematerializePath || !std::filesystem::exists(*dematerializePath) ||
-            !dematerializeBuffer.loadFromFile(*dematerializePath))
-        {
-            // Airy descending shimmer for a piece fading out of sight.
-            dematerializeBuffer = bufferFromSamples(makeTone(0.55f, 940.0f, 180.0f, 0.42f, 0.45f));
-        }
-        sf::SoundBuffer& victoryBuffer = effectBuffers[static_cast<std::size_t>(AudioCue::Victory)];
-        const std::optional<std::filesystem::path> victoryPath = resolveAssetPath("audio/victory.wav");
-        if (!victoryPath || !victoryBuffer.loadFromFile(*victoryPath))
-        {
-            victoryBuffer = bufferFromSamples(makeTone(0.6f, 440.0f, 880.0f, 0.4f, 0.2f));
-        }
-        sf::SoundBuffer& defeatBuffer = effectBuffers[static_cast<std::size_t>(AudioCue::Defeat)];
-        const std::optional<std::filesystem::path> defeatPath = resolveAssetPath("audio/defeat.wav");
-        if (!defeatPath || !defeatBuffer.loadFromFile(*defeatPath))
-        {
-            defeatBuffer = bufferFromSamples(makeTone(0.6f, 220.0f, 80.0f, 0.4f, 0.3f));
-        }
-        effectBuffers[static_cast<std::size_t>(AudioCue::ClockWarning)] =
-            bufferFromSamples(makeClockWarningSamples());
-    }
-
-    void startMusic()
-    {
-        const std::optional<std::filesystem::path> musicPath = resolveAssetPath("audio/GT soundtrack 006.mp3");
-        if (!musicPath)
-        {
-            return;
-        }
-
-        auto loadedMusic = std::make_unique<sf::Music>();
-        if (!loadedMusic->openFromFile(*musicPath))
-        {
-            return;
-        }
-
-        loadedMusic->setLooping(true);
-        loadedMusic->setVolume(22.0f);
-        loadedMusic->play();
-        music = std::move(loadedMusic);
-    }
-
-    void updateMusicVolume()
-    {
-        if (music)
-        {
-            music->setVolume((allMuted || musicMuted) ? 0.0f : 22.0f * allVolume * musicVolume);
-        }
-    }
-
-    void trimStoppedSounds()
-    {
-        for (auto sound = activeSounds.begin(); sound != activeSounds.end();)
-        {
-            if (sound->getStatus() == sf::SoundSource::Status::Stopped)
-            {
-                sound = activeSounds.erase(sound);
-            }
-            else
-            {
-                ++sound;
-            }
-        }
-    }
-
-    void stopActiveSounds()
-    {
-        for (sf::Sound& sound : activeSounds)
-        {
-            sound.stop();
-        }
-        trimStoppedSounds();
-    }
-
-    static float effectVolume(AudioCue cue)
-    {
-        switch (cue)
-        {
-            case AudioCue::ButtonClick: return 38.0f;
-            case AudioCue::PiecePlace: return 52.0f;
-            case AudioCue::UnitMove: return 44.0f;
-            case AudioCue::UnitAttack: return 78.0f;
-            case AudioCue::UnitDeath: return 45.0f;
-            case AudioCue::Dematerialize: return 50.0f;
-            case AudioCue::Victory: return 35.0f;
-            case AudioCue::Defeat: return 35.0f;
-            case AudioCue::ClockWarning: return 64.0f;
-        }
-        return 50.0f;
-    }
-};
-
 AudioSystem* activeAudioSystem = nullptr;
 
 void playButtonClickSound()
 {
-    if (activeAudioSystem)
-    {
-        activeAudioSystem->play(AudioCue::ButtonClick);
-    }
+    emitUiSound(UiSound::Tap);
 }
 
 constexpr bool EnableCoinPurchases = false;
@@ -626,12 +228,16 @@ struct PasswordVisibilityIcon
 
     bool isClicked(sf::Vector2f mousePos) const
     {
-        return bounds().contains(mousePos);
+        const bool hit = bounds().contains(mousePos);
+        if (hit) emitUiSound(UiSound::Tap);
+        return hit;
     }
 
     void draw(sf::RenderWindow& window, bool passwordVisible) const
     {
         const sf::FloatRect hitBounds = bounds();
+        observeUiHoverRect(hitBounds.position.x, hitBounds.position.y,
+            hitBounds.size.x, hitBounds.size.y, hovered);
         if (hovered || focused)
         {
             drawBeveledPlate(
@@ -734,11 +340,16 @@ struct CheckboxControl
 
     bool isClicked(sf::Vector2f mousePos) const
     {
-        return bounds().contains(mousePos);
+        const bool hit = bounds().contains(mousePos);
+        if (hit) emitUiSound(UiSound::Tap);
+        return hit;
     }
 
     void draw(sf::RenderWindow& window, bool checked) const
     {
+        const auto hitBounds = bounds();
+        observeUiHoverRect(hitBounds.position.x, hitBounds.position.y,
+            hitBounds.size.x, hitBounds.size.y, hovered);
         drawBeveledPlate(
             window,
             box.getPosition(),
@@ -1088,6 +699,15 @@ void resetForm(InputBox& usernameInput, InputBox& passwordInput, InputBox& confi
 int main(int argc, char** argv)
 {
     setExecutableDirectory(argc > 0 ? argv[0] : nullptr);
+    for (int i = 1; i < argc; ++i)
+    {
+        const std::string_view argument(argv[i]);
+        if (argument.starts_with("--audio-smoke-test="))
+        {
+            AudioSystem audio(false);
+            return audio.smokeTest(std::filesystem::path(std::string(argument.substr(19)))) ? 0 : 1;
+        }
+    }
 
     std::optional<ui_capture::Request> captureRequest =
         ui_capture::parseCommandLine(argc, argv);
@@ -1436,7 +1056,8 @@ int main(int argc, char** argv)
         {clientConfig().card.host, clientConfig().card.port},
         fontPath->parent_path());
     ConquestScreen conquestScreen(font, textures);
-    AudioSystem audioSystem;
+    AudioSystem audioSystem(!captureRequest);
+    audioSystem.setEnabled(!captureRequest);
     activeAudioSystem = &audioSystem;
     setButtonClickHandler(playButtonClickSound);
 
@@ -2568,6 +2189,7 @@ int main(int argc, char** argv)
     };
 
     auto drawExitDesktopPopup = [&]() {
+        clearUiHoverTargets();
         sf::RectangleShape overlay({ui_canvas::Width, ui_canvas::Height});
         overlay.setPosition({ui_canvas::Left, 0.0f});
         overlay.setFillColor(sf::Color(0, 0, 0, 170));
@@ -2581,6 +2203,7 @@ int main(int argc, char** argv)
     };
 
     auto drawResignConfirmationPopup = [&]() {
+        clearUiHoverTargets();
         std::string heading = "Resign Match?";
         std::string firstLine = "Are you sure you want to resign";
         std::string secondLine = "this game?";
@@ -4823,6 +4446,7 @@ int main(int argc, char** argv)
         }
 
         editingDeck.cardTitles.push_back(title);
+        emitUiSound(UiSound::Paper);
         const std::vector<std::string> deckTitles = deckUniqueTitles();
         const auto added = std::find(deckTitles.begin(), deckTitles.end(), title);
         selectedDeckCard = static_cast<std::size_t>(std::distance(deckTitles.begin(), added));
@@ -4859,6 +4483,7 @@ int main(int argc, char** argv)
         const std::string title = deckTitles[uniqueIndex];
         const auto lastCopy = std::find(editingDeck.cardTitles.rbegin(), editingDeck.cardTitles.rend(), title);
         editingDeck.cardTitles.erase(std::next(lastCopy).base());
+        emitUiSound(UiSound::Paper);
 
         const std::size_t uniqueCount = deckUniqueTitles().size();
         if (uniqueCount == 0)
@@ -5223,6 +4848,9 @@ int main(int argc, char** argv)
 
         if (!haveSnapshot)
         {
+            // Initial synchronization is silent, while the just-queued match
+            // ready alert and navigation feedback must remain audible.
+            audioSystem.resetMatch(true);
             for (const game_data::Piece& piece : nextSnapshot.pieces)
             {
                 schedulePieceFidget(piece);
@@ -5251,11 +4879,6 @@ int main(int argc, char** argv)
                 }),
             dematerializeGhosts.end());
 
-        bool playedMoveSound = false;
-        bool playedPlaceSound = false;
-        bool playedAttackSound = false;
-        bool playedDeathSound = false;
-        bool playedDematerializeSound = false;
         for (const game_data::Piece& currentPiece : gameSnapshot.pieces)
         {
             if (pieceByIdInSnapshot(nextSnapshot, currentPiece.id))
@@ -5268,11 +4891,9 @@ int main(int argc, char** argv)
                 std::string::npos)
             {
                 dematerializeGhosts.push_back({currentPiece, animationTime});
-                playedDematerializeSound = true;
             }
             else
             {
-                playedDeathSound = true;
                 startPieceKilledAnimation(currentPiece);
             }
         }
@@ -5283,7 +4904,6 @@ int main(int argc, char** argv)
             const game_data::Piece* currentPiece = pieceByIdInSnapshot(gameSnapshot, nextPiece.id);
             if (!currentPiece)
             {
-                playedPlaceSound = true;
                 schedulePieceFidget(nextPiece);
                 continue;
             }
@@ -5299,7 +4919,6 @@ int main(int argc, char** argv)
                     animationTime,
                     PieceMoveAnimationDurationSeconds};
                 schedulePieceFidget(nextPiece, PieceMoveAnimationDurationSeconds);
-                playedMoveSound = true;
             }
             else if (nextPiece.fidgetAnimPath.empty())
             {
@@ -5392,32 +5011,12 @@ int main(int argc, char** argv)
                     }
 
                     startPieceAttackAnimation(currentPiece.id, currentTarget.row, currentTarget.column);
-                    playedAttackSound = true;
                     break;
                 }
             }
         }
 
-        if (playedPlaceSound)
-        {
-            audioSystem.play(AudioCue::PiecePlace);
-        }
-        if (playedMoveSound)
-        {
-            audioSystem.play(AudioCue::UnitMove);
-        }
-        if (playedAttackSound)
-        {
-            audioSystem.play(AudioCue::UnitAttack, playedDeathSound ? 0.9f : 1.0f);
-        }
-        if (playedDeathSound)
-        {
-            audioSystem.play(AudioCue::UnitDeath, playedAttackSound ? 0.5f : 1.0f);
-        }
-        if (playedDematerializeSound)
-        {
-            audioSystem.play(AudioCue::Dematerialize);
-        }
+        audioSystem.transition(gameSnapshot, nextSnapshot, haveSnapshot);
     };
 
     auto squareAtPixel = [&](sf::Vector2f point) -> std::optional<std::pair<int, int>> {
@@ -5691,6 +5290,7 @@ int main(int argc, char** argv)
     const auto failCaptureValidation = [&](std::string message) {
         captureValidationFailed = true;
         storyCorrection = message;
+        emitUiSound(UiSound::Reject);
         gameSnapshot.status = message;
         fmt::println(
             "[UI capture validation failure]{}{}",
@@ -6345,6 +5945,7 @@ int main(int argc, char** argv)
                                   int targetColumn,
                                   std::string_view cardTitle = {},
                                   int selectedActionIndex = -1) {
+
         if (!storyMode)
         {
             return true;
@@ -9159,6 +8760,7 @@ int main(int argc, char** argv)
                 if (!accepted)
                 {
                     storyStage = StoryStage::Failed;
+                    emitUiSound(UiSound::Reject);
                     gameSnapshot.status =
                         "Mission data error: a scripted automatic action was no longer legal.";
                     endTurnButton.setLabel("Retry Mission");
@@ -9172,6 +8774,7 @@ int main(int argc, char** argv)
                         storyEngine->commandingPiece()))
                 {
                     storyStage = StoryStage::Failed;
+                    emitUiSound(UiSound::Reject);
                     gameSnapshot.status =
                         "Mission data error: a scripted automatic ability did not produce its authored result.";
                     endTurnButton.setLabel("Retry Mission");
@@ -9211,6 +8814,7 @@ int main(int argc, char** argv)
                 {
                     storyAiPending = false;
                     storyStage = StoryStage::Failed;
+                    emitUiSound(UiSound::Reject);
                     gameSnapshot.status =
                         "Opponent AI error: its planned action was not legal in the current game state.";
                     endTurnButton.setLabel("Retry Mission");
@@ -9272,6 +8876,7 @@ int main(int argc, char** argv)
             {
                 accepted = false;
                 storyStage = StoryStage::Failed;
+                emitUiSound(UiSound::Reject);
                 gameSnapshot.status =
                     "Mission data error: the ability did not produce its authored result.";
                 endTurnButton.setLabel("Retry Mission");
@@ -9293,6 +8898,7 @@ int main(int argc, char** argv)
                 {
                     accepted = false;
                     storyStage = StoryStage::Failed;
+                    emitUiSound(UiSound::Reject);
                     gameSnapshot.status =
                         "Mission data error: the deployed unit did not arrive exhausted on its authored square.";
                     endTurnButton.setLabel("Retry Mission");
@@ -9343,6 +8949,7 @@ int main(int argc, char** argv)
     };
 
     auto sendPlayCard = [&](int handIndex, int row, int column) {
+        audioSystem.expect({audio::Intent::Kind::PlayCard, 0, row, column, -1, handIndex});
         if (storyMode && storyEngine)
         {
             const std::string cardTitle = handIndex >= 0 &&
@@ -9369,6 +8976,7 @@ int main(int argc, char** argv)
 
     auto sendMovePiece = [&](int pieceId, int row, int column,
                              int selectedActionIndex = -1) {
+        audioSystem.expect({audio::Intent::Kind::Action, pieceId, row, column, selectedActionIndex});
         if (storyMode && storyEngine)
         {
             if (!storyActionAllowed(
@@ -9403,6 +9011,7 @@ int main(int argc, char** argv)
 
     auto sendAttackPiece = [&](int attackerId, int row, int column,
                                int selectedActionIndex = -1) {
+        audioSystem.expect({audio::Intent::Kind::Action, attackerId, row, column, selectedActionIndex});
         if (storyMode && storyEngine)
         {
             if (!storyActionAllowed(
@@ -9510,7 +9119,7 @@ int main(int argc, char** argv)
                 else
                 {
                     storyCorrection =
-                        "That unit has no legal action on that square. Inspect it with double-click or focus + I.";
+                        "That target is out of reach or blocked. Drag to a lit square to move closer, or onto a lit enemy to attack.";
                 }
             }
             return;
@@ -9572,6 +9181,7 @@ int main(int argc, char** argv)
                 selectedActionIndex);
         if (!selectedSourceAction.legal)
         {
+            emitUiSound(UiSound::Reject);
             gameSnapshot.status =
                 "That printed action is no longer legal on the chosen square.";
             return;
@@ -9612,6 +9222,7 @@ int main(int argc, char** argv)
                 selectedActionIndex);
         if (!selectedOutcome.action.legal)
         {
+            emitUiSound(UiSound::Reject);
             gameSnapshot.status =
                 "That printed action is no longer legal on the chosen square.";
             return;
@@ -9629,6 +9240,7 @@ int main(int argc, char** argv)
                 selectedActionIndex);
         if (!selectedSourceAction.legal)
         {
+            emitUiSound(UiSound::Reject);
             gameSnapshot.status =
                 "That printed action is no longer legal on the chosen square.";
             return;
@@ -9652,6 +9264,7 @@ int main(int argc, char** argv)
     };
 
     auto sendUseAbility = [&](int pieceId, bool sacrifice = false) {
+        audioSystem.expect({audio::Intent::Kind::Ability, pieceId, -1, -1, -1, -1, sacrifice});
         if (storyMode && storyEngine)
         {
             if (!storyActionAllowed(StoryActionKind::UseAbility, 1, pieceId, -1, -1))
@@ -9823,6 +9436,7 @@ int main(int argc, char** argv)
     };
 
     auto sendDiscardCard = [&](int handIndex) {
+        audioSystem.expect({audio::Intent::Kind::Discard, 0, -1, -1, -1, handIndex});
         if (storyMode && storyEngine)
         {
             const std::string cardTitle = handIndex >= 0 &&
@@ -9930,6 +9544,7 @@ int main(int argc, char** argv)
         selectedPieceId.reset();
         if (card.type == "Spell" && !game_data::isSupportedSpellEffect(card))
         {
+            emitUiSound(UiSound::Reject);
             gameSnapshot.status =
                 "This spell has no defined game effect and cannot be played.";
             selectedHandIndex.reset();
@@ -10046,6 +9661,7 @@ int main(int argc, char** argv)
             const game_data::GameCard& card = gameSnapshot.hand[*handIndex];
             if (card.type == "Spell" && !game_data::isSupportedSpellEffect(card))
             {
+                emitUiSound(UiSound::Reject);
                 gameSnapshot.status =
                     "This spell has no defined game effect and cannot be played.";
                 selectedHandIndex.reset();
@@ -10107,6 +9723,9 @@ int main(int argc, char** argv)
             resetGameDrag();
             return false;
         }
+
+        emitUiSound(squareAtPixel(releasePos) || isDiscardTrashCanAtPixel(releasePos) ||
+            playerReadoutAtPixel(releasePos) ? UiSound::Drop : UiSound::Close);
 
         if (gameDragKind == GameDragKind::HandCard && draggingHandIndex &&
             *draggingHandIndex < gameSnapshot.hand.size() &&
@@ -10340,6 +9959,7 @@ int main(int argc, char** argv)
     };
 
     auto leaveGame = [&]() {
+        audioSystem.resetMatch();
         const bool wasSandbox = sandboxMode;
         const bool wasConquestBattle = conquestBattleMode;
         if (activeGameSocket)
@@ -10673,6 +10293,7 @@ int main(int argc, char** argv)
             {86.0f, 27.0f});
     };
     const auto drawActionChoicePopup = [&]() {
+        clearUiHoverTargets();
         if (!pendingPieceActionChoice)
         {
             return;
@@ -10724,6 +10345,8 @@ int main(int argc, char** argv)
 
         const float rowX = ActionChoiceDialogX + ActionChoiceRowInset;
         const float rowWidth = ActionChoiceDialogWidth - ActionChoiceRowInset * 2.0f;
+        if (const auto option = actionChoiceOptionAt(pointer))
+            observeUiHover(0xA0000000ULL + static_cast<std::uint64_t>(*option), true);
         const float firstY = dialogY + ActionChoiceHeaderHeight;
         for (std::size_t option = 0;
              option < pendingPieceActionChoice->actionIndices.size();
@@ -10813,6 +10436,7 @@ int main(int argc, char** argv)
 
         const sf::FloatRect cancel = actionChoiceCancelRect();
         const bool cancelHovered = cancel.contains(pointer);
+        observeUiHoverRect(cancel.position.x, cancel.position.y, cancel.size.x, cancel.size.y, cancelHovered);
             drawBeveledPlate(
                 window,
                 cancel.position,
@@ -11272,6 +10896,7 @@ int main(int argc, char** argv)
 
             if (storyMissionStep == previousStep)
             {
+                emitUiSound(UiSound::Reject);
                 gameSnapshot.status =
                     "Capture replay error: River Teeth action was rejected.";
                 break;
@@ -11408,6 +11033,32 @@ int main(int argc, char** argv)
     // path. The target step's panelsBefore (or the genuine final aftermath)
     // remain queued; earlier modal panels are dismissed without writing
     // campaign progression.
+    // Exercise the same press/drag/release and target-choice paths as players.
+    // Engine-only replays cannot detect an unreachable UI action.
+    const auto dragStoryPieceForCapture =
+        [&](int actorId, int row, int column, int expectedActionIndex) {
+            const auto* actor = gamePieceById(actorId);
+            if (!actor || inspectedPieceId || inspectedHandIndex) return false;
+            const auto start = boardFootprintCenter(
+                actor->row, actor->column, 1, 1, gameSnapshot.yourPlayer);
+            const auto target = boardFootprintCenter(
+                row, column, 1, 1, gameSnapshot.yourPlayer);
+            beginPotentialGameDrag(start);
+            handleGameClick(start);
+            if (draggingPieceId != actorId) return false;
+            gameDragCurrentPos = target;
+            gameDragActive = true;
+            if (!finishGameDrag(target)) return false;
+            if (pendingPieceActionChoice)
+            {
+                const auto& choices = pendingPieceActionChoice->actionIndices;
+                const auto choice = std::find(choices.begin(), choices.end(), expectedActionIndex);
+                if (choice == choices.end()) return false;
+                submitPendingPieceActionChoice(static_cast<int>(choice - choices.begin()));
+            }
+            return !inspectedPieceId && !inspectedHandIndex;
+        };
+
     const auto replayScriptedStoryForCapture =
         [&](std::size_t stopBeforeStep) {
             const StoryMission& mission = activeStoryMission();
@@ -11506,21 +11157,11 @@ int main(int argc, char** argv)
                                 "could not resolve the exact printed action at "
                                 "step " + std::to_string(previousStep + 1) + ".");
                         }
-                        if (step.kind == StoryActionKind::Move)
+                        if (!dragStoryPieceForCapture(
+                                actorId, targetRow, targetColumn, *actionIndex))
                         {
-                            sendMovePiece(
-                                actorId,
-                                targetRow,
-                                targetColumn,
-                                *actionIndex);
-                        }
-                        else
-                        {
-                            sendAttackPiece(
-                                actorId,
-                                targetRow,
-                                targetColumn,
-                                *actionIndex);
+                            return replayFailure("could not drag the unit to its target at step " +
+                                std::to_string(previousStep + 1) + ".");
                         }
                         break;
                     }
@@ -12614,6 +12255,56 @@ int main(int argc, char** argv)
                 {
                     fmt::println("[Conquest interaction checks] All checks passed.");
                 }
+            }
+        }
+        else if (screen == "story-input-all-scripted")
+        {
+            int checkedMissions = 0;
+            for (const auto campaign : {StoryCampaign::Mirewatch,
+                    StoryCampaign::Blackthorn, StoryCampaign::Seelie})
+            {
+                const auto& missions = storyMissions(campaign);
+                for (std::size_t index = 0; index < missions.size(); ++index)
+                {
+                    if (missions[index].script.empty()) continue;
+                    storyCampaign = campaign;
+                    storyMissionIndex = static_cast<int>(index);
+                    if (!replayScriptedStoryForCapture(missions[index].script.size())) return;
+                    ++checkedMissions;
+                }
+            }
+            fmt::println("[Story input checks] {} scripted missions completed through board drag/target controls.", checkedMissions);
+        }
+        else if (screen.starts_with("story-input-open-"))
+        {
+            storyCampaign = StoryCampaign::Mirewatch;
+            storyMissionIndex = storyMissionIndexById(storyCampaign, "mw18_allies_dishonestly");
+            beginStory();
+            dismissStoryPanelsForCapture();
+            captureHoverPoint = sf::Vector2f{-50.0f, -50.0f};
+            storyKeyboardNavigationActive = false;
+            const int reedId = storyPieceIdForRole("reed");
+            if (screen == "story-input-open-selected" || screen == "story-input-open-inspect")
+            {
+                const auto* reed = gamePieceById(reedId);
+                handleGameClick(boardFootprintCenter(reed->row, reed->column, 1, 1, 1));
+                if (screen == "story-input-open-inspect") inspectedPieceId = reedId;
+            }
+            else if (screen == "story-input-open-moved")
+            {
+                if (!dragStoryPieceForCapture(reedId, 3, 1, 0) ||
+                    !gamePieceById(reedId) || gamePieceById(reedId)->column != 1 ||
+                    !storyCaptureSnapshotMatchesEngine())
+                    failCaptureValidation("Open battle could not move Reed by dragging D1 to D2.");
+            }
+            else if (screen == "story-input-open-attacked")
+            {
+                const int collectorId = storyPieceIdForRole("collector");
+                if (!dragStoryPieceForCapture(reedId, 3, 3, 1) ||
+                    gamePieceById(collectorId) || !gamePieceById(reedId) ||
+                    gamePieceById(reedId)->column != 0 ||
+                    !storyCaptureSnapshotMatchesEngine())
+                    failCaptureValidation("Open battle could not fire Reed's opening Bow shot by dragging onto the guard.");
             }
         }
         else if (screen.starts_with("story-ui-"))
@@ -14042,11 +13733,13 @@ int main(int argc, char** argv)
                 }
                 commitLocalSnapshot(std::move(opening));
                 storyAiPending = false;
+                emitUiSound(UiSound::Reject);
                 gameSnapshot.status =
                     "ORDINARY STORY MATCH - opening turn; packaged capture fixture.";
             }
             else
             {
+                emitUiSound(UiSound::Reject);
                 gameSnapshot.status =
                     "UI CAPTURE FIXTURE ONLY - packaged cards; live catalog authority is not claimed.";
             }
@@ -15369,7 +15062,7 @@ int main(int argc, char** argv)
     };
 
     auto storyIntroContinue = [&]() {
-        playButtonClickSound();
+        emitUiSound(UiSound::Paper);
         const StoryMission& mission = activeStoryMission();
         if (storyComicPage + 1 < static_cast<int>(mission.briefing.size()))
         {
@@ -15391,7 +15084,7 @@ int main(int argc, char** argv)
     };
 
     auto advanceStoryPopup = [&]() {
-        playButtonClickSound();
+        emitUiSound(UiSound::Paper);
         if (storyPopupPage + 1 < storyPopupPanels.size())
         {
             ++storyPopupPage;
@@ -15412,7 +15105,7 @@ int main(int argc, char** argv)
     auto retreatStoryPopup = [&]() {
         if (storyPopupPage > 0)
         {
-            playButtonClickSound();
+            emitUiSound(UiSound::Paper);
             --storyPopupPage;
             storyPopupKeyboardFocus = storyPopupPage > 0 ? 0 : 1;
         }
@@ -15970,10 +15663,31 @@ int main(int argc, char** argv)
             sf::Color(224, 232, 218));
     };
 
+    std::string lastAudioPanel;
+    std::string lastAudioSelection;
+    int lastAudioFocus = -1;
+    const auto audioDialogMask = [&]() -> std::uint64_t {
+        const bool dialogs[] = {passwordChangedPopupVisible, exitDesktopPopupVisible,
+            deckUnsavedChangesPopupVisible, resignConfirmPopupVisible, addCardPopupVisible,
+            giveStarterDeckPopupVisible, giveAllCardsPopupVisible, deleteUserPopupVisible,
+            storySpoilerConfirmationVisible, !storyPopupPanels.empty(),
+            pendingPieceActionChoice.has_value(), inspectedPieceId.has_value(),
+            inspectedHandIndex.has_value(), inspectedDeckEditorCardTitle.has_value()};
+        std::uint64_t mask = 0;
+        for (std::size_t i = 0; i < std::size(dialogs); ++i)
+            if (dialogs[i]) mask |= 1ULL << i;
+        return mask;
+    };
+    std::uint64_t lastAudioDialogs = audioDialogMask();
     while (window.isOpen())
     {
+        beginUiSoundFrame(static_cast<std::uint64_t>(currentState) | (audioDialogMask() << 8),
+            !captureRequest && window.hasFocus());
         const float deltaTime = clock.restart().asSeconds();
         animationTime += deltaTime;
+        audioSystem.setAmbient(currentState == GameState::StorySelect ||
+            currentState == GameState::StoryMissionSelect || currentState == GameState::StoryIntro ||
+            currentState == GameState::Conquest || (currentState == GameState::Game && storyMode));
         audioSystem.update();
         sf::Vector2f mousePos = window.mapPixelToCoords(sf::Mouse::getPosition(window));
         if (captureRequest && captureRequest->screens[captureIndex] == "story-ui-board-hover-left" &&
@@ -16042,6 +15756,7 @@ int main(int argc, char** argv)
             if (result.success)
             {
                 loggedInUsername = result.username.empty() ? usernameInput.getContent() : result.username;
+                emitUiSound(UiSound::Confirm);
                 activeAccessToken = std::move(result.accessToken);
                 bool rememberSaveFailed = false;
                 if (!result.rememberToken.empty())
@@ -16142,6 +15857,7 @@ int main(int argc, char** argv)
                 playerCollection = std::move(result.collection);
                 if (coinPurchasePolling && result.success && result.coins > coinPurchaseStartingCoins)
                 {
+                    emitUiSound(UiSound::Coins);
                     const int coinsAdded = result.coins - coinPurchaseStartingCoins;
                     coinPurchasePolling = false;
                     setMessage(
@@ -16197,6 +15913,8 @@ int main(int argc, char** argv)
                 incrementCollection(result.cardTitle);
                 revealedCardTitle = result.cardTitle;
                 revealStartedAt = animationTime;
+                emitUiSound(UiSound::Coins);
+                emitUiSound(UiSound::Reveal);
                 setMessage(messageText, result.message + " Dismiss it before buying another.", sf::Color(120, 220, 150));
             }
             else if (!loggedInUsername.empty())
@@ -16485,6 +16203,8 @@ int main(int argc, char** argv)
             playAiButton.setLabel("Play vs AI");
             if (result.success)
             {
+                emitUiSound(UiSound::Alert);
+                emitUiSound(UiSound::Confirm);
                 showGameScreen(result.gameSocket);
             }
             else
@@ -18070,6 +17790,7 @@ int main(int argc, char** argv)
                 const sf::Vector2f delta = dragCurrentPos - dragStartPos;
                 if (delta.x * delta.x + delta.y * delta.y > 16.0f)
                 {
+                    if (!dragActive) emitUiSound(UiSound::Drag);
                     dragActive = true;
                 }
             }
@@ -18081,6 +17802,7 @@ int main(int argc, char** argv)
                 const sf::Vector2f delta = gameDragCurrentPos - gameDragStartPos;
                 if (delta.x * delta.x + delta.y * delta.y > GameDragStartDistanceSquared)
                 {
+                    if (!gameDragActive) emitUiSound(UiSound::Drag);
                     gameDragActive = true;
                     pendingHandClickIndex.reset();
                     lastClickedPieceId.reset();
@@ -19048,6 +18770,7 @@ int main(int argc, char** argv)
                         (adjustLeft || adjustRight))
                     {
                         const float delta = adjustRight ? 0.05f : -0.05f;
+                        emitUiSound(UiSound::Tap);
                         if (optionsFocus == 3)
                         {
                             allAudioSlider.setValue(allAudioSlider.getValue() + delta);
@@ -20003,8 +19726,62 @@ int main(int argc, char** argv)
             }
         }
 
+        const auto dialogs = audioDialogMask();
+        if (currentState != lastFrameState)
+            emitUiSound(UiSound::Open);
+        else if (dialogs != lastAudioDialogs)
+            emitUiSound((dialogs & ~lastAudioDialogs) ? UiSound::Open : UiSound::Close);
+        lastAudioDialogs = dialogs;
+        if (currentState == GameState::Game && !dialogs && !gameDragActive && haveSnapshot)
+        {
+            if (const auto* piece = gamePieceAtPixel(mousePos);
+                piece && (!piece->hidden || piece->owner == gameSnapshot.yourPlayer))
+                observeUiHover(0xB0000000ULL + static_cast<std::uint64_t>(piece->id), true);
+            if (const auto hand = handCardAtPixel(mousePos))
+                observeUiHover(0xC0000000ULL + static_cast<std::uint64_t>(*hand), true);
+        }
+        const int audioFocus = currentState == GameState::Menu ? menuFocus
+            : currentState == GameState::Authenticated ? authenticatedMenuFocus
+            : currentState == GameState::Options ? optionsFocus : -1;
+        if (audioFocus != lastAudioFocus && audioFocus >= 0)
+            emitUiSound(UiSound::Select);
+        lastAudioFocus = audioFocus;
+        const std::string audioSelection = currentState == GameState::Game
+            ? std::to_string(selectedPieceId.value_or(-1)) + ":" +
+                std::to_string(selectedHandIndex.value_or(static_cast<std::size_t>(-1))) + ":" +
+                std::to_string(inspectedPieceId.value_or(-1)) + ":" +
+                std::to_string(inspectedHandIndex.value_or(static_cast<std::size_t>(-1)))
+            : currentState == GameState::DeckEditor
+                ? std::to_string(selectedLibraryCard.value_or(static_cast<std::size_t>(-1))) + ":" +
+                    std::to_string(selectedDeckCard.value_or(static_cast<std::size_t>(-1)))
+                : std::string();
+        if (audioSelection != lastAudioSelection && !lastAudioSelection.empty())
+            emitUiSound(currentState == GameState::DeckEditor ? UiSound::Paper : UiSound::Select);
+        lastAudioSelection = audioSelection;
+        const StoryPanel* audioPanel = nullptr;
+        if (currentState == GameState::StoryIntro)
+        {
+            const auto& panels = activeStoryMission().briefing;
+            if (storyComicPage >= 0 && storyComicPage < static_cast<int>(panels.size()))
+                audioPanel = &panels[static_cast<std::size_t>(storyComicPage)];
+        }
+        else if (currentState == GameState::Game && storyMode && storyPopupPage < storyPopupPanels.size())
+        {
+            audioPanel = &storyPopupPanels[storyPopupPage];
+        }
+        const std::string panelIdentity = audioPanel
+            ? std::to_string(storyMissionIndex) + ":" + std::string(audioPanel->text) : std::string();
+        if (panelIdentity != lastAudioPanel)
+        {
+            if (!lastAudioPanel.empty() && audioPanel) emitUiSound(UiSound::Paper);
+            lastAudioPanel = panelIdentity;
+            if (audioPanel && !audioPanel->soundEffect.empty())
+                audioSystem.play(audioPanel->soundEffect, .55f, audio::Bus::Accent);
+        }
+
         // Lets a screen tell that this is its first frame (matchmaking arms its
         // elapsed-search timer off this).
+        finishUiSoundFrame();
         lastFrameState = currentState;
         window.display();
 

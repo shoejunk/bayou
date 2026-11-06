@@ -166,6 +166,7 @@ export struct InputBox
 
     void setActive(bool next)
     {
+        if (next && !active) bayou::client::emitUiSound(bayou::client::UiSound::Tap);
         active = next;
         cursorTimer = 0.0f;
         showCursor = true;
@@ -195,6 +196,7 @@ export struct InputBox
         {
             setValue(isOn() ? "0" : "1");
             errored = false;
+            bayou::client::emitUiSound(bayou::client::UiSound::Tap);
         }
     }
 
@@ -302,6 +304,10 @@ export struct InputBox
 
     void draw(sf::RenderWindow& window) const
     {
+        const auto hitBounds = bounds();
+        bayou::client::observeUiHoverRect(hitBounds.position.x, hitBounds.position.y,
+            hitBounds.size.x, hitBounds.size.y,
+            hitBounds.contains(window.mapPixelToCoords(sf::Mouse::getPosition(window))));
         if (label)
         {
             sf::Text drawnLabel = *label;

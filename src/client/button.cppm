@@ -145,6 +145,9 @@ export struct Button
     // `focusPhase` drives the focus-ring pulse; pass the frame's animation time.
     void draw(sf::RenderWindow& window, float focusPhase) const
     {
+        const auto bounds = shape.getGlobalBounds();
+        bayou::client::observeUiHoverRect(bounds.position.x, bounds.position.y,
+            bounds.size.x, bounds.size.y, enabled && hovered);
         using bayou::client::PlateState;
         using bayou::client::PlateStyle;
 

@@ -64,7 +64,7 @@ void reviseBlackthornNovel(std::vector<StoryMission>& missions)
         {
             panel("Narrator", "Thaeron admits destroying Reed's family to protect his fortune. He knew Reed's mother was inside their home. When Reed refuses him, a guard stabs Reed and Thaeron traps his wrist with magic.", "cards/thaeronBaelstone.png"),
             panel("Reed", "You knew she was there. And you still call this protecting our family?", "cards/reedBaelstone.png"),
-            panel("Narrator", "Reed throws the guard against the table, knocking over a lamp. Burning oil breaks Thaeron's focus and the spell lets go. Reed abandons the Mirror and escapes through a window. His friends reach him outside.", "cards/birdieTheWise.png"),
+            panel("Narrator", "Reed throws the guard against the table, knocking over a lamp. Burning oil breaks Thaeron's focus and the spell lets go. Reed abandons the Mirror and escapes through a window. His friends reach him outside.", "cards/birdieTheWise.png", "fire"),
             panel("Maggie", "Bring him inside. Mangletooth can carry the house away while I care for him. Mind the steps when he moves.", "cards/maggieMudroot.png"),
             panel("Vesper", "An entire house on an undead alligator. Reed, you chose a remarkable place to recover. Rest. We still have to find where they took the Mirror.", "cards/princeVesper.png")
         });
@@ -76,14 +76,14 @@ void reviseBlackthornNovel(std::vector<StoryMission>& missions)
             panel("Pavo", "I can draw the next guard outside. Get his keys. There are people upstairs, and a mother with children beneath the stairs.", "cards/pavoQuickstep.png"),
             panel("Erevan", "The keys worked. Here is the Mirror, locked in this cupboard. Take the case to the boat. I will help bring the prisoners out.", "cards/erevanTheShadow.png"),
             panel("Donella", "Iven has been forced to care for this living branch for years. I can carry its frame outside. Help her reach the boat.", "cards/donellaOfTheMarsh.png"),
-            panel("Narrator", "A hidden trap shuts the exits and floods the hall. Falling timber crushes Reed's arm. His friends pull him free. Iven survives, and her branch and the Mirror reach safety. Other prisoners remain behind a locked barrier.", "cards/reedBaelstone.png"),
+            panel("Narrator", "A hidden trap shuts the exits and floods the hall. Falling timber crushes Reed's arm. His friends pull him free. Iven survives, and her branch and the Mirror reach safety. Other prisoners remain behind a locked barrier.", "cards/reedBaelstone.png", "water"),
             panel("Erevan", "I can still hear them knocking. We brought people out, but there are more. We cannot forget them.", "cards/erevanTheShadow.png")
         });
 
     novelScene(missions, "s03_published_mystery", "What the Mirror Remembers",
         "Novel chapters 23-28", "Learn why the rescued Mirror matters.",
         {
-            panel("Narrator", "At Maggie's refuge, Vesper looks into the rescued Mirror. He must use it each morning to recover his memories. Today he remembers Queen Caltheriel and the life they shared.", "cards/princeVesper.png"),
+            panel("Narrator", "At Maggie's refuge, Vesper looks into the rescued Mirror. He must use it each morning to recover his memories. Today he remembers Queen Caltheriel and the life they shared.", "cards/princeVesper.png", "crystal"),
             panel("Vesper", "Caltheriel is a prisoner. I love her, and I have to find her. Sylvara might know a way. She guards the forest across the eastern crossing; her life is tied to her own tree.", "cards/princeVesper.png"),
             panel("Donella", "Iven wants to stay here with the living branch while her hands heal. It needs its own homeland to do its work. We cannot promise to fix every wound with it.", "cards/donellaOfTheMarsh.png"),
             panel("Rowan", "My friend Elliot is still missing beyond the eastern crossing. He is a carpenter. His drawing may show us the way to him, and to the workers taken east.", "cards/rowanLeafbound.png")

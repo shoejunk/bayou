@@ -4,7 +4,7 @@ void reviseMirewatchNovel(std::vector<StoryMission>& missions)
 {
     novelScene(missions, "mw01_river_teeth", "Teeth in the River", "Chapter 1",
         "Help Reed and his friends reach the riverbank.", {
-        panel("Narrator", "Reed is eighteen and hiding from the people who killed his family. He rides toward Mirewatch in the merchant Telos's boat. A crocodile grabs his boot and pulls him overboard!", "cards/reedBaelstone.png"),
+        panel("Narrator", "Reed is eighteen and hiding from the people who killed his family. He rides toward Mirewatch in the merchant Telos's boat. A crocodile grabs his boot and pulls him overboard!", "cards/reedBaelstone.png", "water"),
         panel("Narrator", "Erevan, a half-elf scout, catches Reed's shirt. On the bank, a gnome healer named Donella raises her staff as another crocodile closes in.", "cards/donellaOfTheMarsh.png"),
         panel("Erevan", "Reed! Take my hand. Donella, can you stop the other one?", "cards/erevanTheShadow.png"),
         panel("Donella", "Bring the boat to the bank. I can raise a root beneath its jaws!", "cards/donellaOfTheMarsh.png")}, {
@@ -15,7 +15,7 @@ void reviseMirewatchNovel(std::vector<StoryMission>& missions)
         panel("Narrator", "Mirewatch rises above the water on wooden posts. Families fleeing soldiers crowd its docks. Blackthorn guards are taking their belongings.", "cards/mirewatchInformant.png"),
         panel("Reed", "Those people need their food and blankets. Let them through!", "cards/reedBaelstone.png"),
         panel("Joni", "Bring them to my inn. We can make room. But keep your eyes open: a company wagon just passed with someone locked inside.", "cards/joniPumpernickel.png")}, {
-        panel("Narrator", "The families reach Joni's inn. Across the channel, a frightened child calls from the boatyard. Erevan turns toward the sound.", "cards/erevanTheShadow.png")});
+        panel("Narrator", "The families reach Joni's inn. Across the channel, a frightened child calls from the boatyard. Erevan turns toward the sound.", "cards/erevanTheShadow.png", "creak")});
 
     novelScene(missions, "mw04_watcher_protects", "Juniper Holds the Line", "Mirewatch game scene / alongside Chapters 1-3",
         "Help Juniper and Erevan bring the children to safety.", {

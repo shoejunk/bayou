@@ -966,6 +966,7 @@
         {
             return;
         }
+        clearUiHoverTargets();
 
         const game_data::Piece* piece = nullptr;
         const game_data::GameCard* card = nullptr;
@@ -1344,6 +1345,13 @@
             discardCardButton.draw(window);
         }
         closePiecePopupButton.draw(window);
+        if (storyMode && piece)
+        {
+            drawWrappedText(window, font,
+                "Close this card, then drag the unit to a lit square or target to act.",
+                12, {PiecePopupX + 22.0f, popupButtonY + 3.0f},
+                BoardParchmentMuted, 312.0f, 0.0f);
+        }
         drawDetailTooltip(detailTooltip);
     };
 
@@ -3455,25 +3463,27 @@
 
             if (highlightedPiece && (hasMove || hasAttack || hasEffect))
             {
+                // Highlights cover all legal actions, not just the first
+                // profile (for example Reed's Step AND Bow).
                 title = highlightedPiece->name;
                 if (hasAttack && hasMove)
                 {
-                    instruction = "TEAL SQUARES MOVE  |  RED SQUARES ATTACK";
+                    instruction = "DRAG: TEAL TO MOVE | RED TO ATTACK";
                     accent = sf::Color(226, 132, 108);
                 }
                 else if (hasAttack)
                 {
-                    instruction = "RED SQUARES SHOW ATTACK REACH";
+                    instruction = "DRAG ONTO A RED TARGET TO ATTACK";
                     accent = sf::Color(226, 132, 108);
                 }
                 else if (hasEffect)
                 {
-                    instruction = "VIOLET SQUARES SHOW EFFECT REACH";
+                    instruction = "DRAG ONTO A VIOLET TARGET FOR AN EFFECT";
                     accent = sf::Color(186, 138, 234);
                 }
                 else
                 {
-                    instruction = "TEAL SQUARES MARK LEGAL DESTINATIONS";
+                    instruction = "DRAG TO A TEAL SQUARE TO MOVE";
                     accent = sf::Color(126, 214, 178);
                 }
             }
@@ -3484,12 +3494,12 @@
                 title = card.title;
                 if (hasAttack)
                 {
-                    instruction = "RED SQUARES SHOW ATTACK REACH";
+                    instruction = "DRAG ONTO A RED TARGET TO ATTACK";
                     accent = sf::Color(226, 132, 108);
                 }
                 else if (hasEffect)
                 {
-                    instruction = "VIOLET SQUARES SHOW EFFECT REACH";
+                    instruction = "DRAG ONTO A VIOLET TARGET FOR AN EFFECT";
                     accent = sf::Color(186, 138, 234);
                 }
                 else
@@ -4035,15 +4045,10 @@
             else if (openObjective &&
                      mission.objectiveSpec.kind == StoryObjectiveKind::DefeatAllEnemies)
             {
-                stepHeading = "CHOOSE A UNIT";
-                stepBody = "Inspect a unit (double-click or focus + I), then choose one printed action. " +
+                stepHeading = "BREAK THROUGH";
+                stepBody = "Drag a unit to a lit square to move, or onto an enemy to attack. Then End Turn. " +
                     std::to_string(authoritativeStoryEnemyProgress(mission).remaining) +
                     " enemies remain.";
-                const std::string required = storyRequiredSurvivorNames(mission);
-                if (!required.empty())
-                {
-                    stepBody += " Keep " + required + " alive.";
-                }
             }
             int stepNumber = 1;
             const int totalGuidedSteps =
@@ -4289,8 +4294,8 @@
                     }
                     else
                     {
-                        stepHeading = "CHOOSE A UNIT";
-                        stepBody = "Inspect a unit (double-click or focus + I), then choose one printed action. " +
+                        stepHeading = "BREAK THROUGH";
+                        stepBody = "Drag a unit to a lit square to move, or onto an enemy to attack. Then End Turn. " +
                             std::to_string(authoritativeStoryEnemyProgress(mission).remaining) +
                             " enemies remain.";
                     }
@@ -4302,6 +4307,38 @@
                     stepHeading = "MISSION GOAL";
                     stepBody = std::string(mission.objective);
                     break;
+                }
+            }
+            const bool openCombat = openObjective && !mission.standardMatch &&
+                (mission.objectiveSpec.kind == StoryObjectiveKind::DefeatAllEnemies ||
+                 mission.objectiveSpec.kind == StoryObjectiveKind::DefeatRole);
+            if (openCombat)
+            {
+                if (boardSnapshot.activePlayer != me)
+                {
+                    stepHeading = "HOLD THE LINE";
+                    stepBody = "The enemy is acting. Your next move is coming.";
+                }
+                else if (boardSnapshot.relentlessPieceId != 0)
+                {
+                    stepHeading = "KEEP GOING";
+                    stepBody = "Your unit can act again. Drag it to another lit target, or use End Turn.";
+                }
+                else if (mine.pieceActionUsedThisTurn && boardSnapshot.hand.empty())
+                {
+                    stepHeading = "END YOUR TURN";
+                    stepBody = "Your unit has acted. Use End Turn. After the enemy acts, you can move or attack again.";
+                }
+                else
+                {
+                    stepHeading = mission.objectiveSpec.kind == StoryObjectiveKind::DefeatRole
+                        ? "DEFEAT THE TARGET" : "BREAK THROUGH";
+                    stepBody = storyKeyboardNavigationActive
+                        ? "Enter selects a unit. Arrows choose a lit target; Enter acts. Then End Turn. "
+                        : "Drag a unit to a lit square to move, or onto a lit enemy to attack. Release, then End Turn. ";
+                    stepBody += mission.objectiveSpec.kind == StoryObjectiveKind::DefeatAllEnemies
+                        ? std::to_string(authoritativeStoryEnemyProgress(mission).remaining) + " enemies remain."
+                        : "Defeat the marked enemy.";
                 }
             }
             const float bodyWidth = std::max(

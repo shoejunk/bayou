@@ -111,6 +111,8 @@ if(BAYOU_BUILD_CLIENTS)
     target_sources(client
         PUBLIC
             src/client/main.cpp
+            src/client/client_audio.cpp
+            src/client/client_audio_plan.cpp
             src/client/card_editor_assets.cpp
             src/client/client_board_layout.cpp
             src/client/client_card_text.cpp
@@ -149,6 +151,9 @@ if(BAYOU_BUILD_CLIENTS)
         target_link_libraries(client PRIVATE Crypt32)
     endif()
     set_target_properties(client PROPERTIES OUTPUT_NAME "SteamTactics")
+
+    add_executable(audiotest src/audiotest/main.cpp src/client/client_audio_plan.cpp)
+    target_link_libraries(audiotest PRIVATE fmt::fmt SFML::System SFML::Network)
 
     add_custom_command(TARGET client POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

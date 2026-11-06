@@ -41,9 +41,10 @@ bool heroTitle(std::string_view title)
         title == "Queen Nyxara";
 }
 
-StoryPanel panel(std::string_view speaker, std::string_view text, std::string_view art)
+StoryPanel panel(std::string_view speaker, std::string_view text, std::string_view art,
+                 std::string_view soundEffect = {})
 {
-    return {speaker, text, art};
+    return {speaker, text, art, soundEffect};
 }
 
 std::string_view generatedScenarioArtPath(
@@ -1093,7 +1094,7 @@ StoryMission mirewatchFirstOpenCheck()
     mission.sourceChapter = "After the rescue / optional practice";
     mission.lesson = "OPTIONAL FIGHT - CHOOSE YOUR OWN MOVES";
     mission.objective = "Defeat all three enemies and keep Reed alive. Choose any legal actions.";
-    mission.hint = "Inspect a unit to read its actions. Choose your own moves, then use End Turn. There are no marked steps to follow.";
+    mission.hint = "Drag a unit to a lit square to move, or onto a lit enemy to attack. Use End Turn after acting. You choose how to win this fight.";
     mission.briefing.push_back(panel("Controls",
         "Mouse: drag a unit to a lit square or target and release the mouse button. Keyboard: focus a unit and press Enter. Choose a target with the arrows, then press Enter again. Press I to inspect a card or A for an available ability.", "cards/donellaOfTheMarsh.png"));
     mission.briefing.push_back(panel("Coach",
@@ -1131,7 +1132,7 @@ StoryMission blackthornFirstOpenCheck(const MissionEntry& entry)
     mission.objective =
         "Defeat all three enemies and keep Thaeron alive. Choose your own moves in this optional practice battle.";
     mission.hint =
-        "Read a unit's card, choose an action, and use End Turn when you are done. The opponent will fight back.";
+        "Drag a unit to a lit square to move or onto a lit enemy to attack. Release to act, then use End Turn. The opponent will fight back.";
     mission.briefing = {
         panel("Practice battle",
             "Choose your moves against three training opponents, or continue the story. To win, defeat all three enemies and keep Thaeron alive.",
@@ -2345,13 +2346,13 @@ StoryMission blackthornFieldJudgment()
     mission.objective =
         "Defeat four opposing units while keeping Thaeron alive.";
     mission.hint =
-        "Double-click a unit, or focus it and press I, to read its card. Choose an action, then use End Turn to let the opponent act.";
+        "Drag a unit to a lit square or enemy and release to act. If two actions fit that target, choose one when the action menu appears. Then use End Turn.";
     mission.briefing = {
         panel("Practice battle",
             "Choose your moves in this optional battle. Four Blackthorn cards face four training opponents. The opponent will fight back.",
             "cards/blackthornAlchemist.png"),
         panel("Coach",
-            "Read a friendly card by double-clicking its unit, or focus it and press I. Choose a legal action. Use End Turn when you are done. Earlier drills are available from Missions.",
+            "Drag a unit to a lit square to move, or onto a lit enemy to attack. Release to act, then use End Turn. Keyboard: select with Enter, aim with arrows, then Enter again.",
             "cards/thaeronBaelstone.png"),
         panel("Coach",
             "Defeat all four enemies and keep Thaeron alive. Choose when to move, heal, attack, use Command, or Summon a new unit.",
@@ -2610,7 +2611,7 @@ const std::vector<MissionEntry> MirewatchEntries = {
         "Chapter 22",
         "OPEN BATTLE",
         "Defeat all four Company guards. Keep Reed, Vanya, and Birdie alive.",
-        "Use the familiar team to open the road for the families. Inspect a card to check its moves.",
+        "Break through the guards! Drag a unit to a lit square to move or onto a lit enemy to attack. End Turn after acting.",
         "Reed Baelstone",
         "Pavo Quickstep",
         "Nettle Starbright",
@@ -3706,8 +3707,8 @@ StoryMission mirewatchTollAlliance()
 {
     StoryMission mission = chronicleFromEntry(MirewatchEntries[8]);
     mission.lesson = "OPEN BATTLE - TEAMWORK AND SURVIVAL";
-    mission.objective = "Defeat all four Company guards. Keep Reed, Vanya, and Birdie alive.";
-    mission.hint = "Use the team you know. Reed and Birdie shoot from a distance. Vanya can repeat Blade Dance. Donella heals allies. Double-click a card, or focus it and press I, to inspect it.";
+    mission.objective = "Defeat all four Company guards. Keep Reed alive.";
+    mission.hint = "Reed has a clear shot at the nearest guard! Drag Reed onto that guard to fire. Drag Donella onto a wounded ally to heal. Move closer if no enemy is in range, then End Turn.";
     mission.briefing = {
         panel("Narrator",
             "Reed sees Victor's wagons turn toward the World Tree. At the gate behind him, Company guards block families trying to leave. He can chase the wagons or turn back to help.",
@@ -3716,7 +3717,7 @@ StoryMission mirewatchTollAlliance()
             "Victor can wait. These people cannot. Open that road!",
             "cards/reedBaelstone.png"),
         panel("Coach",
-            "Defeat the guards to open the road. Keep Reed, Vanya, and Birdie alive. Inspect a card if you need to check its moves.",
+            "Reed has a clear shot! Drag him onto the nearest guard to fire. Then End Turn. Break through all four guards and keep Reed alive.",
             "cards/vanyaBluewater.png")
     };
     mission.aftermath = {
@@ -3729,14 +3730,14 @@ StoryMission mirewatchTollAlliance()
         piece("vanya", "Vanya Bluewater", 1, 2, 1),
         piece("birdie", "Birdie the Wise", 1, 4, 1),
         piece("donella", "Donella of the Marsh", 1, 5, 0),
-        piece("collector", "Blackthorn Debt Collector", 2, 2, 5),
+        piece("collector", "Blackthorn Debt Collector", 2, 3, 3),
         piece("ambusher", "Goblin Ambusher", 2, 3, 6),
         piece("lumberjack", "Blackthorn Lumberjack", 2, 4, 5),
-        piece("foreman", "Blackthorn Foreman", 2, 5, 6)};
+        piece("foreman", "Blackthorn Lumberjack", 2, 5, 6)};
     mission.playerResources = 0;
     mission.enemyResources = 0;
     mission.objectiveSpec.kind = StoryObjectiveKind::DefeatAllEnemies;
-    mission.requiredSurvivorRoles = {"reed", "vanya", "birdie"};
+    mission.requiredSurvivorRoles = {"reed"};
     return mission;
 }
 
@@ -3804,7 +3805,7 @@ StoryMission seelieTwoMenOneVacancy()
     mission.objective =
         "Move Rowan Leafbound to G4. Keep him alive so the workers can keep leaving the lifts. You can leave other enemies standing.";
     mission.hint =
-        "Keep Rowan near allies he can protect with Bodyguard. The Knight can protect allies too. The Sister heals nearby friends and enemies. The Messenger can fly past pieces. Double-click a unit, or highlight it and press I, to read its card.";
+        "Drag units to lit squares or enemies to act. Keep Rowan and the Knight near allies to protect them. The Sister heals nearby friends and enemies. The Messenger can fly past pieces.";
     mission.briefing = {
         panel("Reed",
             "The lifts are still coming. Keep this landing clear. The wounded need room to pass.",
@@ -4529,7 +4530,7 @@ StoryMission seelieRulesUnderPressure()
             "You start with 15 squares. Reach 22 and keep Pavo alive. Choose one unit action, then use End Turn.",
             ""),
         panel("Coach",
-            "The Sister heals adjacent friends and enemies at the end of your turn. The Unicorn can charge down a clear line. Double-click a unit, or highlight it and press I, to read its actions.",
+            "Drag a unit to a lit square or enemy, then End Turn. The Sister heals adjacent friends and enemies when your turn ends. The Unicorn can charge down a clear line.",
             "cards/heartwoodSister.png")};
     mission.aftermath = {
         panel("Narrator",
@@ -4559,7 +4560,7 @@ StoryMission seelieWarmChannel()
     mission.objective =
         "Defeat every enemy in the signal group. Their lights are guiding the invasion ships toward the city.";
     mission.hint =
-        "There are no guided highlights. The Griffin and mounted Nettle can fly past pieces. Lark needs a clear diagonal. Vesper attacks at range. Read a card by double-clicking it, or highlight it and press I.";
+        "Choose your own moves: drag a unit to a lit square or enemy. The Griffin and mounted Nettle can fly past pieces. Lark needs a clear diagonal. Vesper attacks at range.";
     mission.briefing = {
         panel("Vesper",
             "Lash's wall stops the ships ahead of us. But those Fairies are showing them a gap along the shore. Put out their signals!",
@@ -4606,7 +4607,7 @@ StoryMission seelieCryptDefense()
             "I am through the bars. The cage still commands the guards! Pavo, weaken its hold while we get the other prisoners out.",
             "characters/caltheriel.png"),
         panel("Coach",
-            "Defeat every attacker. There are no guided highlights. Choose one unit action, then use End Turn. Double-click a unit, or highlight it and press I, to read its card.",
+            "Defeat every attacker. Drag a unit to a lit square to move, or onto a lit enemy to attack. Release to act, then End Turn. You choose the route; no fixed steps.",
             ""),
         panel("Coach",
             "Bodyguard takes damage aimed at an adjacent ally that lacks Bodyguard. If several Knights can help, they split the damage. Keep your healers close. Their auras heal adjacent enemies too.",
