@@ -344,6 +344,7 @@ std::vector<std::string> gameCardMismatchFields(
         compareAction("damage", packagedAction.damage, liveAction.damage);
         compareAction("heal", packagedAction.heal, liveAction.heal);
         compareAction("statusTurns", packagedAction.statusTurns, liveAction.statusTurns);
+        compareAction("slow", packagedAction.slow, liveAction.slow);
         compareAction("cooldownTurns", packagedAction.cooldownTurns, liveAction.cooldownTurns);
         compareAction("control", packagedAction.control, liveAction.control);
         compareAction("repeat", packagedAction.repeat, liveAction.repeat);

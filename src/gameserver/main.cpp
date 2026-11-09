@@ -73,6 +73,8 @@ struct JoinedPlayer
     int rating = 0;
     bool supportsShriekSnapshots = false;
     bool supportsTransformSnapshots = false;
+    bool supportsCommandRestrictionSnapshots = false;
+    bool supportsSlowSnapshots = false;
 };
 
 struct MatchResult
@@ -882,7 +884,7 @@ private:
         response << static_cast<uint8_t>(MessageType::GameReady);
         response << matchId;
         response << playerNumber;
-        response << std::string("Game ready");
+        response << std::string("Game ready") << CommandRestrictionSnapshotCapability << SlowSnapshotCapability;
         [[maybe_unused]] auto result = client.send(response);
     }
 
@@ -901,7 +903,16 @@ private:
 
         uint8_t msgType = 0;
         std::uint32_t count = 0;
-        packet >> msgType >> count;
+        packet >> msgType;
+        if (packet && static_cast<MessageType>(msgType) == MessageType::EnableCommandRestrictionSnapshots)
+        {
+            if (!readSlowSnapshotOptIn(packet, player.supportsSlowSnapshots)) return false;
+            player.supportsCommandRestrictionSnapshots = true;
+            packet.clear();
+            if (player.socket->receive(packet) != sf::Socket::Status::Done) return false;
+            packet >> msgType;
+        }
+        packet >> count;
         if (!packet ||
             static_cast<MessageType>(msgType) != MessageType::SubmitDeck ||
             count > MaxDeckPacketCards)
@@ -914,7 +925,7 @@ private:
         for (std::uint32_t i = 0; i < count; ++i)
         {
             card_data::Card submitted;
-            if (!card_data::readCard(packet, submitted))
+            if (!card_data::readReferencedCard(packet, submitted))
             {
                 return false;
             }
@@ -1029,7 +1040,8 @@ private:
     {
         sf::Packet packet;
         packet << static_cast<uint8_t>(MessageType::GameStateUpdate);
-        writeSnapshot(packet, engine.snapshotFor(player.playerNumber), true, player.supportsShriekSnapshots, player.supportsTransformSnapshots);
+        writeSnapshot(packet, engine.snapshotFor(player.playerNumber), true, player.supportsShriekSnapshots,
+                      player.supportsTransformSnapshots, player.supportsCommandRestrictionSnapshots, player.supportsSlowSnapshots);
         [[maybe_unused]] auto result = player.socket->send(packet);
     }
 

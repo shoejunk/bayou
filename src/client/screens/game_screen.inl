@@ -341,20 +341,16 @@
     };
 
     auto appendAbilityRuleDescription = [&](DetailRows& descriptions,
-                                            const std::string& abilityValue,
-                                            const std::string& summonTitle,
-                                            const std::vector<std::string>& labels,
+                                            const auto& source,
                                             int state,
-                                            int abilityUses,
-                                            int shriekRange,
-                                            int shriekDamage,
                                             bool sacrifice = false) {
-        const std::string ability = game_data::normalizedAbility(abilityValue);
+        const std::string ability = game_data::normalizedAbility(sacrifice ? source.sacrifice : source.ability);
         if (ability.empty())
         {
             return;
         }
         std::string label = "Use Ability";
+        const auto& labels = source.abilityLabels;
         if (!labels.empty())
         {
             label = labels[static_cast<std::size_t>(
@@ -377,21 +373,21 @@
         }
         else if (ability == "summon")
         {
-            if (summonTitle.empty())
+            if (source.summonTitle.empty())
             {
                 descriptions.push_back({
                     std::string(sacrifice ? "Sacrifice" : "Ability") + " unavailable: this live card names Summon but defines no Unit to create.",
                     sf::Color(225, 170, 150)});
                 return;
             }
-            rule = "creates " + summonTitle +
+            rule = "creates " + source.summonTitle +
                 " in the square directly in front (right for Player 1, left for Player 2); the new Unit cannot act until its owner's next turn. If an opposing hidden piece is there, Summon instead spends this action, creates no Unit, and materializes that piece Disabled for its next owner-turn activation";
         }
         else if (ability == "shriek")
         {
-            rule = "reveals all hidden units within " + std::to_string(shriekRange) +
+            rule = "reveals all hidden units within " + std::to_string(source.shriekRange) +
                 " squares, friend or foe, including this unit if hidden; includes diagonals and full footprints. Revealing alone does not Disable. " +
-                (shriekDamage > 0 ? "Deals " + std::to_string(shriekDamage) +
+                (source.shriekDamage > 0 ? "Deals " + std::to_string(source.shriekDamage) +
                     " damage to each revealed unit (Bodyguard protection applies)" : "Deals no damage");
         }
         else if (ability == "power boost")
@@ -400,7 +396,12 @@
         }
         else if (ability == "command")
         {
-            rule = "spends this piece's action, then lets one ready adjacent friendly piece take an immediate action; card plays, draws, and discards wait until it resolves, End Turn may decline it, and the turn's normal piece action remains available afterward";
+            if (source.commandRestriction && source.commandRestriction->empty())
+                rule = "has no eligible targets (CommandRestriction is blank)";
+            else
+                rule = "spends this piece's action, then lets one ready adjacent friendly piece" +
+                    game_data::commandTargetQualifier(source.commandRestriction) +
+                    " act immediately. Card plays, draws, and discards wait until it resolves. End Turn may decline it. The turn's normal piece action remains available afterward";
         }
         else if (ability == "transform")
         {
@@ -417,9 +418,9 @@
         std::string uses;
         if (ability == "dig")
         {
-            uses = abilityUses < 0
+            uses = source.abilityUses < 0
                 ? " Uses are unlimited."
-                : " Uses remaining: " + std::to_string(std::max(0, abilityUses)) + ".";
+                : " Uses remaining: " + std::to_string(std::max(0, source.abilityUses)) + ".";
         }
         descriptions.push_back({
             std::string(sacrifice ? "Sacrifice - " : "Ability - ") + label + ": " + rule +
@@ -571,6 +572,11 @@
             descriptions.push_back({"Disabled: " + std::to_string(piece.disabledTurns) + " turns",
                                     sf::Color(225, 130, 110)});
         }
+        if (piece.slowTurnsRemaining > 0)
+        {
+            descriptions.push_back({"Slowed: " + std::to_string(piece.slowTurnsRemaining) +
+                " turn(s) - can move at most one square per turn using its normal moves", sf::Color(120, 190, 230)});
+        }
         if (piece.sleepTurnsRemaining > 0)
         {
             descriptions.push_back({"Sleeping: " + std::to_string(piece.sleepTurnsRemaining) +
@@ -590,12 +596,8 @@
             descriptions.push_back({"Infested: " + piece.infestationTitle,
                                     sf::Color(194, 150, 235)});
         }
-        appendAbilityRuleDescription(
-            descriptions, piece.ability, piece.summonTitle, piece.abilityLabels,
-            piece.actionState, piece.abilityUses, piece.shriekRange, piece.shriekDamage);
-        appendAbilityRuleDescription(
-            descriptions, piece.sacrifice, piece.summonTitle, piece.abilityLabels,
-            piece.actionState, piece.abilityUses, piece.shriekRange, piece.shriekDamage, true);
+        appendAbilityRuleDescription(descriptions, piece, piece.actionState);
+        appendAbilityRuleDescription(descriptions, piece, piece.actionState, true);
         appendKeywordRuleDescriptions(descriptions, piece.keywords, piece.summonTitle);
         appendPassiveRuleDescriptions(
             descriptions, piece.tax, piece.gatherResources, piece.healingAura, game_data::damageWithPower(piece.counterstrike, power),
@@ -768,12 +770,8 @@
                     " to damage dealt (attacks, Counterstrike, and push collisions)",
                     sf::Color(248, 214, 112)});
             }
-            appendAbilityRuleDescription(
-                descriptions, card.ability, card.summonTitle, card.abilityLabels,
-                0, card.abilityUses, card.shriekRange, card.shriekDamage);
-            appendAbilityRuleDescription(
-                descriptions, card.sacrifice, card.summonTitle, card.abilityLabels,
-                0, card.abilityUses, card.shriekRange, card.shriekDamage, true);
+            appendAbilityRuleDescription(descriptions, card, 0);
+            appendAbilityRuleDescription(descriptions, card, 0, true);
             appendKeywordRuleDescriptions(descriptions, card.keywords, card.summonTitle);
             appendPassiveRuleDescriptions(
                 descriptions, card.tax, card.gatherResources, card.healingAura, game_data::damageWithPower(card.counterstrike, card.power),
@@ -1750,7 +1748,8 @@
                                         visiblePieces, *highlightedPiece, square, weapon);
                                 else if ((kind == game_data::ActionKind::Capture ||
                                           (kind == game_data::ActionKind::Slide && !weapon.canMove)) &&
-                                         (!weapon.canMove || highlightedPiece->sleepTurnsRemaining == 0))
+                                         (!weapon.canMove || (highlightedPiece->sleepTurnsRemaining == 0 &&
+                                          game_data::slowAllowsMove(*highlightedPiece, r, c))))
                                     reaches = game_data::actionPatternMatches(weapon.pattern,
                                         r - highlightedPiece->row, c - highlightedPiece->column,
                                         weapon.minRange, weapon.maxRange) &&

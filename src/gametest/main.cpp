@@ -34,6 +34,7 @@
 #include "../client/client_sandbox.hpp"
 #include "swarm_tests.hpp"
 #include "bristle_tests.hpp"
+#include "slow_tests.hpp"
 #include "aura_tests.hpp"
 #include "shriek_tests.hpp"
 #include "timed_transform_tests.hpp"
@@ -741,6 +742,82 @@ void testPowerBoost()
           "Power applies to every target of a multi-target attack");
 }
 
+void testCommandRestriction()
+{
+    card_data::Card definition;
+    definition.title = "Commander";
+    definition.type = "Unit";
+    definition.stringValues = {{"ability", "command"}};
+    const GameCard unrestricted = toGameCard(definition);
+    definition.stringValues.push_back({"CommandRestriction", "  MeChaniCal  "});
+    const GameCard restricted = toGameCard(definition);
+    Piece commander;
+    populatePieceFromCard(commander, restricted, false);
+    commander.id = commander.owner = 1;
+    Piece ally;
+    ally.id = 2;
+    ally.owner = 1;
+    ally.row = ally.column = 1;
+    ally.keywords = {"Biomechanical"};
+    check(commander.commandRestriction == "mechanical" &&
+          !pieceAbilityAvailable({commander, ally}, commander),
+          "CommandRestriction reads the String Field and requires a whole trait or keyword");
+    ally.traits = {"MECHANICAL"};
+    check(pieceCanReceiveCommand(commander, ally), "CommandRestriction accepts a matching trait diagonally");
+    ally.traits.clear();
+    ally.keywords = {"Mechanical"};
+    check(pieceCanReceiveCommand(commander, ally), "CommandRestriction also accepts a matching keyword");
+    ally.hasActed = true;
+    check(!pieceCanReceiveCommand(commander, ally), "a matching ally must still be ready");
+    ally.hasActed = false;
+    definition.stringValues.back().value.clear();
+    populatePieceFromCard(commander, toGameCard(definition), false);
+    check(!pieceCanReceiveCommand(commander, ally), "an explicitly blank CommandRestriction matches no ally");
+    populatePieceFromCard(commander, unrestricted, false);
+    ally.keywords.clear();
+    check(pieceCanReceiveCommand(commander, ally), "omitting CommandRestriction allows an untagged ally");
+
+    definition.stringValues = {{"ability", "dig"}};
+    definition.integerValues = {{"abilityUses", 1}};
+    GameCard worker = toGameCard(definition);
+    worker.title = "Worker";
+    GameCard machine = worker;
+    machine.title = "Machine";
+    machine.keywords = {"Mechanical"};
+    GameEngine engine(103, {});
+    check(engine.loadScenario({{1, restricted, 3, 3}, {1, worker, 4, 3}, {1, machine, 2, 2}},
+                              {}, {}, 0, 0, 1, "Restricted Command", false),
+          "restricted Command scenario loads");
+    const int commanderId = engine.boardPieces()[0].id;
+    const int workerId = engine.boardPieces()[1].id;
+    const int machineId = engine.boardPieces()[2].id;
+    check(engine.useAbility(1, commanderId) && !engine.useAbility(1, workerId) &&
+          !engine.movePiece(1, workerId, 5, 3) && engine.commandingPiece() == commanderId &&
+          !engine.boardPieces()[1].hasActed && engine.useAbility(1, machineId) &&
+          engine.boardHoles()[squareIndex(2, 2)] && !engine.playerState(1).pieceActionUsedThisTurn,
+          "server rejects ineligible moves and abilities, then accepts a matching ally without spending the normal action");
+
+    Snapshot snapshot = engine.snapshotFor(1);
+    snapshot.hand = snapshot.foresightChoices = snapshot.graveyard =
+        snapshot.exiled = snapshot.raiseUndeadChoices = {restricted};
+    sf::Packet packet;
+    writeSnapshot(packet, snapshot);
+    Snapshot decoded;
+    check(readSnapshot(packet, decoded) && packet.endOfPacket() &&
+          decoded.pieces[0].commandRestriction == "mechanical" && !decoded.pieces[1].commandRestriction &&
+          decoded.hand[0].commandRestriction == "mechanical" &&
+          decoded.foresightChoices[0].commandRestriction == "mechanical" &&
+          decoded.graveyard[0].commandRestriction == "mechanical" &&
+          decoded.exiled[0].commandRestriction == "mechanical" &&
+          decoded.raiseUndeadChoices[0].commandRestriction == "mechanical",
+          "snapshot preserves CommandRestriction for pieces and all card zones");
+    sf::Packet legacy;
+    writeSnapshot(legacy, snapshot, true, true, true, false);
+    check(readSnapshot(legacy, decoded) && legacy.endOfPacket() &&
+          !decoded.pieces[0].commandRestriction && !decoded.hand[0].commandRestriction,
+          "pre-restriction snapshots read as unrestricted even when reusing a snapshot");
+}
+
 void testSacrifice()
 {
     card_data::Card source;
@@ -858,23 +935,28 @@ void testSacrifice()
                   "Sacrifice Swap finishes discarding and drawing before death");
     }
     actor.sacrifice = "command";
+    actor.commandRestriction = "mechanical";
     GameCard worker = held;
     worker.ability = "dig";
     worker.abilityUses = 1;
+    GameCard ineligibleWorker = worker;
+    worker.traits = {"Mechanical"};
     GameEngine command(98, {});
-    check(command.loadScenario({{1, actor, 3, 3, false}, {1, worker, 2, 3, false}},
+    check(command.loadScenario({{1, actor, 3, 3, false}, {1, worker, 2, 3, false}, {1, ineligibleWorker, 3, 4, false}},
                                {}, {}, 0, 0, 1, "Sacrifice Command", false),
           "Sacrifice Command scenario loads");
     const int commanderId = command.boardPieces()[0].id;
     const int workerId = command.boardPieces()[1].id;
     check(command.useAbility(1, commanderId, true) && present(command, commanderId) &&
+              !command.useAbility(1, command.boardPieces()[2].id) &&
               command.commandingPiece() == commanderId && command.useAbility(1, workerId) &&
               !present(command, commanderId) && present(command, workerId) &&
               command.boardHoles()[squareIndex(2, 3)] == 1 &&
               !command.playerState(1).pieceActionUsedThisTurn,
-          "Sacrifice Command completes the commanded ability before killing the commander");
+          "Sacrifice Command enforces CommandRestriction and completes the matching ally's ability before killing the commander");
 
     actor.sacrifice = "raise undead";
+    actor.commandRestriction.reset();
     actor.traits = {"Undead"};
     GameCard victim = held;
     victim.traits = {"Undead"};
@@ -1309,12 +1391,14 @@ int main(int argc, char** argv)
     testTimedTransformation(check);
     testSwarm(check);
     testBristle(check);
+    testSlow(check);
     testAdjacentStep(ActionKind::RallyStep, "rally step");
     testAdjacentStep(ActionKind::AssaultStep, "assault step");
     testLifedrain();
     testEvacuate();
     testShelter();
     testSwap();
+    testCommandRestriction();
     testSacrifice();
     testPowerBoost();
     bayou::client::ClockWarningTracker clockWarnings;
@@ -3447,6 +3531,7 @@ int main(int argc, char** argv)
     encodedHealingAction.heal = 4;
     encodedHealingAction.nextState = 2;
     encodedHealingAction.control = 3;
+    encodedHealingAction.slow = 2;
     sf::Packet actionPacket;
     card_data::writeAction(actionPacket, encodedHealingAction);
     card_data::Action roundTrippedAction;
@@ -3458,9 +3543,9 @@ int main(int argc, char** argv)
               roundTrippedAction.repeat == 2 &&
               roundTrippedAction.infest == encodedHealingAction.infest &&
               roundTrippedAction.pull == encodedHealingAction.pull &&
-              roundTrippedAction.lifedrain == encodedHealingAction.lifedrain &&
+              roundTrippedAction.lifedrain == encodedHealingAction.lifedrain && roundTrippedAction.slow == 2 &&
               roundTrippedAction.targetFilter == encodedHealingAction.targetFilter,
-          "schema-12 action serialization preserves Lifedrain and all existing action fields");
+          "schema-13 action serialization preserves Slow and all existing action fields");
 
     sf::Packet legacyCardListPacket;
     legacyCardListPacket << static_cast<std::uint32_t>(1);
@@ -3493,6 +3578,7 @@ int main(int argc, char** argv)
     bool currentActionsIncludeInfest = false;
     bool currentActionsIncludePull = false;
     bool currentActionsIncludeLifedrain = false;
+    bool currentActionsIncludeSlow = false;
     check(card_data::readCardListHeader(
               currentCardListHeader,
               currentCardCount,
@@ -3502,13 +3588,13 @@ int main(int argc, char** argv)
               &currentActionsIncludeRepeat,
               &currentActionsIncludeInfest,
               &currentActionsIncludePull,
-              &currentActionsIncludeLifedrain) &&
+              &currentActionsIncludeLifedrain, &currentActionsIncludeSlow) &&
               currentCardCount == 3 && !currentCardFormatIsLegacy &&
               currentActionsIncludeNextState && currentActionsIncludeControl && currentActionsIncludeRepeat &&
-              currentActionsIncludeInfest && currentActionsIncludePull && currentActionsIncludeLifedrain,
-          "schema-12 card-list headers advertise every serialized action extension");
+              currentActionsIncludeInfest && currentActionsIncludePull && currentActionsIncludeLifedrain && currentActionsIncludeSlow,
+          "schema-13 card-list headers advertise every serialized action extension");
 
-    // A schema-11 action is the current record without its final Lifedrain byte.
+    // Schema 11 predates both Lifedrain and Slow.
     sf::Packet schemaElevenHeader;
     schemaElevenHeader << card_data::CardListSchemaMarker << std::uint32_t(11) << std::uint32_t(1);
     std::uint32_t schemaElevenCount = 0;
@@ -3519,16 +3605,22 @@ int main(int argc, char** argv)
               schemaElevenCount == 1 && !schemaElevenLegacy && !schemaElevenLifedrain,
           "schema-11 catalogs advertise Lifedrain as absent");
     sf::Packet oldActionPacket;
-    oldActionPacket.append(actionPacket.getData(), actionPacket.getDataSize() - 1);
+    sf::Packet schemaTwelve;
+    card_data::writeAction(schemaTwelve, encodedHealingAction, false);
+    oldActionPacket.append(schemaTwelve.getData(), schemaTwelve.getDataSize() - 1);
     card_data::Action oldAction;
     oldAction.lifedrain = true;
-    check(card_data::readAction(oldActionPacket, oldAction, true, true, true, true, true, true, true, true, false) &&
+    check(card_data::readAction(oldActionPacket, oldAction, true, true, true, true, true, true, true, true, false, false) &&
               oldActionPacket.endOfPacket() && !oldAction.lifedrain && oldAction.pull,
           "schema-11 actions load with Lifedrain disabled and preserve Pull");
+    oldAction.slow = 99;
+    check(card_data::readCatalogAction(schemaTwelve, oldAction, false) && schemaTwelve.endOfPacket() &&
+              oldAction.slow == 0 && oldAction.lifedrain == encodedHealingAction.lifedrain,
+          "schema-12 actions preserve Lifedrain and default Slow to zero");
     sf::Packet truncatedActionPacket;
     truncatedActionPacket.append(actionPacket.getData(), actionPacket.getDataSize() - 1);
     check(!card_data::readAction(truncatedActionPacket, oldAction),
-          "schema-12 actions reject a missing Lifedrain field");
+          "schema-13 actions reject a truncated Slow field");
 
     sf::Packet schemaTenCardListHeader;
     schemaTenCardListHeader << card_data::CardListSchemaMarker << static_cast<std::uint32_t>(10)
@@ -3623,6 +3715,7 @@ int main(int argc, char** argv)
     serializedCard.fidgetAnimFrames = 10;
     serializedCard.ability = "transform";
     serializedCard.summonTitle = "Serialized Summon";
+    serializedCard.commandRestriction = "mechanical";
     serializedCard.rebirthTitle = "Serialized Rebirth";
     serializedCard.abilityLabels = {"Ready", "Lower"};
     serializedCard.abilityUses = 2;
@@ -3669,6 +3762,7 @@ int main(int argc, char** argv)
               roundTrippedCard.killedAnimFrames == 9 &&
               roundTrippedCard.fidgetAnimFrames == 10 &&
               roundTrippedCard.summonTitle == "Serialized Summon" &&
+              roundTrippedCard.commandRestriction == "mechanical" &&
               roundTrippedCard.rebirthTitle == "Serialized Rebirth" &&
               roundTrippedCard.abilityLabels.size() == 2 &&
               roundTrippedCard.abilityUses == 2 &&
@@ -3681,6 +3775,7 @@ int main(int argc, char** argv)
     Piece serializedPiece = profilePiece;
     serializedPiece.ability = "dig";
     serializedPiece.summonTitle = "Serialized Summon";
+    serializedPiece.commandRestriction = "mechanical";
     serializedPiece.rebirthTitle = "Serialized Rebirth";
     serializedPiece.traits = {"corrupt"};
     serializedPiece.keywords = {"future-rule"};
@@ -3762,6 +3857,7 @@ int main(int argc, char** argv)
               roundTrippedPiece.fidgetAnimFrames == 9 &&
               roundTrippedPiece.ability == "dig" &&
               roundTrippedPiece.summonTitle == "Serialized Summon" &&
+              roundTrippedPiece.commandRestriction == "mechanical" &&
               roundTrippedPiece.rebirthTitle == "Serialized Rebirth" &&
               roundTrippedPiece.gatherResources == 7 &&
               roundTrippedPiece.healingAura == 5 && roundTrippedPiece.counterstrike == 4 &&
@@ -7032,7 +7128,7 @@ int main(int argc, char** argv)
         packet << static_cast<std::uint32_t>(deck.size());
         for (const card_data::Card& card : deck)
         {
-            card_data::writeCard(packet, card);
+            card_data::writeCard(packet, card, false);
         }
         send(socket, packet);
     };

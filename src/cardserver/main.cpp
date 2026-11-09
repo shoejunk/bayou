@@ -28,22 +28,29 @@ namespace
 constexpr unsigned short CardServerPort = 55004;
 constexpr auto InitialRequestTimeout = std::chrono::seconds(2);
 
-void writeCards(sf::Packet& packet, const std::vector<card_data::Card>& cards)
+void writeCards(sf::Packet& packet, const std::vector<card_data::Card>& cards, bool includesSlow)
 {
-    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(cards.size()));
+    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(cards.size()), includesSlow);
     for (const card_data::Card& card : cards)
     {
-        card_data::writeCard(packet, card);
+        card_data::writeCard(packet, card, includesSlow);
     }
 }
 
-void writeActions(sf::Packet& packet, const std::vector<card_data::Action>& actions)
+void writeActions(sf::Packet& packet, const std::vector<card_data::Action>& actions, bool includesSlow)
 {
-    packet << static_cast<std::uint32_t>(actions.size());
+    if (includesSlow) card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(actions.size()));
+    else packet << static_cast<std::uint32_t>(actions.size());
     for (const card_data::Action& action : actions)
     {
-        card_data::writeAction(packet, action);
+        card_data::writeAction(packet, action, includesSlow);
     }
+}
+
+bool requestsSlowFields(sf::Packet& request)
+{
+    std::uint32_t version = 0;
+    return !request.endOfPacket() && (request >> version) && version >= 13;
 }
 
 bool hasDeckLimitField(const card_data::Card& card)
@@ -266,7 +273,8 @@ private:
              "next_state INTEGER NOT NULL,"
              "infest TEXT NOT NULL DEFAULT '',"
              "pull INTEGER NOT NULL DEFAULT 0,"
-             "lifedrain INTEGER NOT NULL DEFAULT 0"
+             "lifedrain INTEGER NOT NULL DEFAULT 0,"
+             "slow INTEGER NOT NULL DEFAULT 0"
             ")");
         if (!columnExists("actions", "heal"))
         {
@@ -296,6 +304,10 @@ private:
         if (!columnExists("actions", "pull"))
         {
             database->exec("ALTER TABLE actions ADD COLUMN pull INTEGER NOT NULL DEFAULT 0");
+        }
+        if (!columnExists("actions", "slow"))
+        {
+            database->exec("ALTER TABLE actions ADD COLUMN slow INTEGER NOT NULL DEFAULT 0");
         }
         if (!columnExists("actions", "lifedrain"))
         {
@@ -370,7 +382,7 @@ private:
         switch (static_cast<MessageType>(msgType))
         {
             case MessageType::CardListRequest:
-                handleListCards(client);
+                handleListCards(client, requestsSlowFields(request));
                 break;
             case MessageType::CardUpsertRequest:
                 handleUpsertCard(client, request);
@@ -382,7 +394,7 @@ private:
                 handleDeleteCard(client, request);
                 break;
             case MessageType::ActionListRequest:
-                handleListActions(client);
+                handleListActions(client, requestsSlowFields(request));
                 break;
             case MessageType::ActionUpsertRequest:
                 handleUpsertAction(client, request);
@@ -401,7 +413,7 @@ private:
         }
     }
 
-    void handleListCards(bayou::tls::Socket& client)
+    void handleListCards(bayou::tls::Socket& client, bool includesSlow)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::CardListResponse);
@@ -410,12 +422,12 @@ private:
         {
             const std::vector<card_data::Card> cards = loadCards();
             response << true << std::string("OK");
-            writeCards(response, cards);
+            writeCards(response, cards, includesSlow);
         }
         catch (const std::exception& error)
         {
             response << false << std::string(error.what());
-            card_data::writeCardListHeader(response, 0);
+            card_data::writeCardListHeader(response, 0, includesSlow);
         }
 
         [[maybe_unused]] auto result = client.send(response);
@@ -424,7 +436,7 @@ private:
     void handleUpsertCard(bayou::tls::Socket& client, sf::Packet& request)
     {
         card_data::Card card;
-        if (!card_data::readCard(request, card))
+        if (!card_data::readReferencedCard(request, card))
         {
             sendUpsertResponse(client, false, "Invalid card payload");
             return;
@@ -452,7 +464,7 @@ private:
         std::string originalTitle;
         card_data::Card card;
         request >> originalTitle;
-        if (!request || !card_data::readCard(request, card))
+        if (!request || !card_data::readReferencedCard(request, card))
         {
             sendCommandResponse(client, MessageType::CardUpdateResponse, false, "Invalid card update payload");
             return;
@@ -508,7 +520,7 @@ private:
         }
     }
 
-    void handleListActions(bayou::tls::Socket& client)
+    void handleListActions(bayou::tls::Socket& client, bool includesSlow)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::ActionListResponse);
@@ -516,7 +528,7 @@ private:
         {
             const std::vector<card_data::Action> actions = loadActions();
             response << true << std::string("OK");
-            writeActions(response, actions);
+            writeActions(response, actions, includesSlow);
         }
         catch (const std::exception& error)
         {
@@ -528,14 +540,14 @@ private:
     void handleUpsertAction(bayou::tls::Socket& client, sf::Packet& request)
     {
         card_data::Action action;
-        if (!card_data::readAction(request, action) || action.name.empty())
+        if (!card_data::readCatalogAction(request, action, false) || action.name.empty())
         {
             sendCommandResponse(client, MessageType::ActionUpsertResponse, false, "Invalid action payload");
             return;
         }
         try
         {
-            saveAction("", action);
+            saveAction("", action, request);
             sendCommandResponse(client, MessageType::ActionUpsertResponse, true, "Action saved");
         }
         catch (const std::exception& error)
@@ -549,14 +561,14 @@ private:
         std::string originalName;
         card_data::Action action;
         request >> originalName;
-        if (!request || !card_data::readAction(request, action) || originalName.empty() || action.name.empty())
+        if (!request || !card_data::readCatalogAction(request, action, false) || originalName.empty() || action.name.empty())
         {
             sendCommandResponse(client, MessageType::ActionUpdateResponse, false, "Invalid action update payload");
             return;
         }
         try
         {
-            saveAction(originalName, action);
+            saveAction(originalName, action, request);
             sendCommandResponse(client, MessageType::ActionUpdateResponse, true, "Action saved");
         }
         catch (const std::exception& error)
@@ -828,22 +840,35 @@ private:
         statement.bind(offset + 18, action.infest);
         statement.bind(offset + 19, action.pull ? 1 : 0);
         statement.bind(offset + 20, action.lifedrain ? 1 : 0);
+        statement.bind(offset + 21, std::max(0, action.slow));
     }
 
-    void saveAction(const std::string& originalName, const card_data::Action& action)
+    void saveAction(const std::string& originalName, card_data::Action& action, sf::Packet& extension)
     {
         SQLite::Transaction transaction(*database);
+        if (!extension.endOfPacket())
+        {
+            if (!(extension >> action.slow) || !extension.endOfPacket())
+                throw std::runtime_error("Invalid Slow field");
+        }
+        else
+        {
+            // A legacy editor cannot change an existing action's Slow.
+            SQLite::Statement existing(*database, "SELECT slow FROM actions WHERE name = ?");
+            existing.bind(1, originalName.empty() ? action.name : originalName);
+            if (existing.executeStep()) action.slow = existing.getColumn(0).getInt();
+        }
         SQLite::Statement upsert(
             *database,
             "INSERT INTO actions (name, state, kind, pattern, min_range, max_range, damage, heal, can_move, "
-             "can_attack, pass_through, line_of_sight, status_turns, cooldown_turns, push, control, repeat, next_state, infest, pull, lifedrain) "
-             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+             "can_attack, pass_through, line_of_sight, status_turns, cooldown_turns, push, control, repeat, next_state, infest, pull, lifedrain, slow) "
+             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(name) DO UPDATE SET state=excluded.state, kind=excluded.kind, pattern=excluded.pattern, "
             "min_range=excluded.min_range, max_range=excluded.max_range, damage=excluded.damage, heal=excluded.heal, "
              "can_move=excluded.can_move, can_attack=excluded.can_attack, pass_through=excluded.pass_through, "
              "line_of_sight=excluded.line_of_sight, status_turns=excluded.status_turns, "
              "cooldown_turns=excluded.cooldown_turns, push=excluded.push, control=excluded.control, "
-             "repeat=excluded.repeat, infest=excluded.infest, pull=excluded.pull, lifedrain=excluded.lifedrain, "
+             "repeat=excluded.repeat, infest=excluded.infest, pull=excluded.pull, lifedrain=excluded.lifedrain, slow=excluded.slow, "
              "next_state=excluded.next_state");
         bindAction(upsert, action);
         upsert.exec();
@@ -909,8 +934,8 @@ private:
             SQLite::Statement insertAction(
                 *database,
                 "INSERT OR IGNORE INTO actions (name, state, kind, pattern, min_range, max_range, damage, heal, "
-                "can_move, can_attack, pass_through, line_of_sight, status_turns, cooldown_turns, push, control, repeat, next_state, infest, pull, lifedrain) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                "can_move, can_attack, pass_through, line_of_sight, status_turns, cooldown_turns, push, control, repeat, next_state, infest, pull, lifedrain, slow) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             bindAction(insertAction, *action);
             insertAction.exec();
             SQLite::Statement insertReference(

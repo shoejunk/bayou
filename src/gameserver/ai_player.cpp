@@ -389,7 +389,7 @@ int pieceActionPower(const Piece& piece, int effectivePower)
             continue;
         }
         int power = damageWithPower(action.damage, effectivePower) * ActionDamageValue + action.heal * ActionHealValue +
-            action.statusTurns * ActionStatusValue + action.control * ActionControlValue +
+            action.statusTurns * ActionStatusValue + std::min(action.slow, 3) * ActionPushValue + action.control * ActionControlValue +
             action.push * ActionPushValue + (action.pull ? ActionPullValue : 0);
         if (action.canMove)
         {
@@ -1013,7 +1013,7 @@ std::vector<AiCandidate> generateCandidates(
                         const int damage = damageWithPower(resolution.damage +
                             pieceEnchantmentDamageBonus(engine.boardEnchantments(), piece.id), effectivePiecePower(engine.boardPieces(), piece));
                         order = 200 + damage * 12 + resolution.heal * 8 +
-                            resolution.statusTurns * 10 + resolution.control * 30 +
+                            resolution.statusTurns * 10 + std::min(resolution.slow, 3) * 6 + resolution.control * 30 +
                             resolution.push * 6 + (resolution.pull ? 12 : 0);
                         for (int targetId : resolution.targetIds)
                         {

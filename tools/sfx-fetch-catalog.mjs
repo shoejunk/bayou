@@ -7,7 +7,7 @@ const out = path.resolve('output/sfx-audit');
 fs.mkdirSync(out, { recursive: true });
 const packet = await new Promise((resolve, reject) => {
   const s = tls.connect({ host: 'game.gloomthorn.com', port: 55004, servername: 'game.gloomthorn.com', rejectUnauthorized: true }, () => {
-    s.write(Buffer.from([0, 0, 0, 1, 10])); // CardListRequest; no writes or account access.
+    s.write(Buffer.from([0, 0, 0, 5, 10, 0, 0, 0, 13])); // CardListRequest; no writes or account access.
   });
   let data = Buffer.alloc(0);
   s.setTimeout(15000, () => s.destroy(new Error('Catalog request timed out')));
@@ -31,7 +31,7 @@ const response = u8(), success = u8(), message = str();
 if (response !== 11 || !success) throw Error('Catalog rejected: ' + message);
 if (u32() !== 0xffffffff) throw Error('Legacy catalog not expected');
 const version = u32(), count = u32();
-if (version < 6 || version > 12 || count > 4096) throw Error('Unsupported catalog schema');
+if (version < 6 || version > 13 || count > 4096) throw Error('Unsupported catalog schema');
 const action = () => {
   const a = {name:str(), state:i32()};
   if (version >= 7) a.nextState = i32();
@@ -42,6 +42,7 @@ const action = () => {
   if (version >= 10) a.infest = str();
   if (version >= 11) a.pull = !!u8();
   if (version >= 12) a.lifedrain = !!u8();
+  if (version >= 13) a.slow = i32();
   return a;
 };
 const cards = Array.from({length:count}, () => {

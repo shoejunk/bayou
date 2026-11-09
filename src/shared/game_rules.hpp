@@ -165,6 +165,12 @@ inline const Piece* findOtherPieceAt(
         (piece.id == 0 || occupant->id != piece.id) ? occupant : nullptr;
 }
 
+inline bool slowAllowsMove(const Piece& piece, int toRow, int toColumn)
+{
+    return piece.slowTurnsRemaining <= 0 || (!piece.movedThisTurn &&
+        chebyshev(piece.row, piece.column, toRow, toColumn) <= 1);
+}
+
 // Shared rules used by both the authoritative server and the client (for
 // highlighting reachable squares). The server remains the source of truth.
 inline bool hasLegalMoveGeometry(
@@ -174,7 +180,7 @@ inline bool hasLegalMoveGeometry(
     int toColumn,
     bool allowOccupiedDestination)
 {
-    if (!pieceFootprintInBounds(piece, toRow, toColumn) ||
+    if (!slowAllowsMove(piece, toRow, toColumn) || !pieceFootprintInBounds(piece, toRow, toColumn) ||
         (!allowOccupiedDestination && !pieceFootprintFree(pieces, piece, toRow, toColumn)))
     {
         return false;
@@ -295,6 +301,7 @@ struct ActionResolution
     int damage = 0;
     int heal = 0;
     int statusTurns = 0;
+    int slow = 0;
     int cooldownTurns = 0;
     int control = 0;
     int push = 0;
@@ -328,13 +335,14 @@ inline std::string canonicalActionTargetFilter(std::string value)
     return value == "construct" ? "mechanical" : value;
 }
 
-inline bool pieceMatchesActionTargetFilter(
-    const Piece& target,
-    const std::string& required)
+inline bool pieceHasTraitOrKeyword(const Piece& piece, const std::string& value)
 {
-    const std::string canonicalRequired = canonicalActionTargetFilter(required);
-    return hasKeyword(target.traits, canonicalRequired) ||
-        hasKeyword(target.keywords, canonicalRequired);
+    return hasKeyword(piece.traits, value) || hasKeyword(piece.keywords, value);
+}
+
+inline bool pieceMatchesActionTargetFilter(const Piece& target, const std::string& required)
+{
+    return pieceHasTraitOrKeyword(target, canonicalActionTargetFilter(required));
 }
 
 // Each side faces away from its home column. Shelter covers only the one-column
@@ -673,6 +681,7 @@ inline ActionResolution resolvePieceAction(
         candidate.damage = action.damage;
         candidate.heal = action.heal;
         candidate.statusTurns = action.statusTurns;
+        candidate.slow = action.slow;
         candidate.cooldownTurns = action.cooldownTurns;
         candidate.control = action.control;
         candidate.push = action.push;
@@ -880,18 +889,19 @@ inline ActionResolution resolvePieceAction(
         {
             candidate.legal = false;
         }
-        if (!candidate.legal || (candidate.moves && piece.sleepTurnsRemaining > 0) ||
+        if (!candidate.legal || (candidate.moves &&
+                (piece.sleepTurnsRemaining > 0 || !slowAllowsMove(piece, toRow, toColumn))) ||
             (attackingMovesOnly && !(candidate.moves && candidate.attacks)))
         {
             continue;
         }
 
         const int candidateImpact = candidate.attacks
-            ? std::max(candidate.damage, candidate.heal) + candidate.statusTurns + candidate.control + candidate.push +
+            ? std::max(candidate.damage, candidate.heal) + candidate.statusTurns + (candidate.slow > 0 ? 1 : 0) + candidate.control + candidate.push +
                 (candidate.pull ? 1 : 0)
             : 0;
         const int bestImpact = best.attacks
-            ? std::max(best.damage, best.heal) + best.statusTurns + best.control + best.push +
+            ? std::max(best.damage, best.heal) + best.statusTurns + (best.slow > 0 ? 1 : 0) + best.control + best.push +
                 (best.pull ? 1 : 0)
             : 0;
         if (!best.legal || candidateImpact > bestImpact)
@@ -1161,6 +1171,7 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
     outcome.action.heal = 0;
     outcome.action.push = 0;
     outcome.action.statusTurns = 0;
+    outcome.action.slow = 0;
     outcome.action.moves = stopRow != piece.row || stopColumn != piece.column;
     outcome.destinationRow = stopRow;
     outcome.destinationColumn = stopColumn;
@@ -1738,7 +1749,8 @@ inline PieceAttackDamageResolution resolvePieceAttackDamage(
     int stagingColumn,
     RandomEngine& randomEngine,
     bool lifedrain = false,
-    ActionKind attackKind = ActionKind::Slide)
+    ActionKind attackKind = ActionKind::Slide,
+    int slow = 0)
 {
     PieceAttackDamageResolution result;
     result.attack = resolveDamageWithBodyguardsAndIntercepts(
@@ -1761,6 +1773,7 @@ inline PieceAttackDamageResolution resolvePieceAttackDamage(
     {
         return result;
     }
+    defender->slowTurnsRemaining = std::max(defender->slowTurnsRemaining, slow);
     Piece strikingPiece = *attacker;
     strikingPiece.row = stagingRow;
     strikingPiece.column = stagingColumn;
@@ -1802,7 +1815,14 @@ inline bool pieceCanReceiveCommand(const Piece& commander, const Piece& target)
 {
     return commander.id != target.id && commander.owner == target.owner &&
         !target.hasActed && target.growTurnsRemaining <= 0 && target.disabledTurns <= 0 &&
-        piecesAreAdjacent(commander, target);
+        piecesAreAdjacent(commander, target) &&
+        (!commander.commandRestriction ||
+         (!commander.commandRestriction->empty() && pieceHasTraitOrKeyword(target, *commander.commandRestriction)));
+}
+
+inline std::string commandTargetQualifier(const std::optional<std::string>& restriction)
+{
+    return restriction ? " with the " + *restriction + " trait or keyword" : "";
 }
 
 inline std::pair<int, int> summonDestination(const Piece& piece)

@@ -953,7 +953,8 @@ private:
         }
         if (commandedAction && !pieceCanReceiveCommand(*commander, *piece))
         {
-            setStatusFor(playerNumber, "Command must activate a ready adjacent friendly piece.");
+            setStatusFor(playerNumber, "Command must activate a ready adjacent friendly piece" +
+                         commandTargetQualifier(commander->commandRestriction) + ".");
             return false;
         }
 
@@ -1042,8 +1043,8 @@ private:
             if (narrationEnabled)
             {
                 status = fmt::format(
-                    "{} used Command. Activate one adjacent friendly piece.",
-                    actingPieceName);
+                    "{} used Command. Activate one adjacent friendly piece{}.",
+                    actingPieceName, commandTargetQualifier(piece->commandRestriction));
             }
             return true;
         }
@@ -1965,7 +1966,8 @@ private:
         }
         if (commandedAction && !pieceCanReceiveCommand(*commander, *piece))
         {
-            setStatusFor(playerNumber, "Command must activate a ready adjacent friendly piece.");
+            setStatusFor(playerNumber, "Command must activate a ready adjacent friendly piece" +
+                         commandTargetQualifier(commander->commandRestriction) + ".");
             return false;
         }
 
@@ -2049,7 +2051,7 @@ private:
                 {
                     const PieceAttackDamageResolution attackResolution = resolvePieceAttackDamage(
                         pieces, attackerId, targetId, attackDamage, action.statusTurns,
-                        action.stagingRow, action.stagingColumn, rng, action.lifedrain, action.kind);
+                        action.stagingRow, action.stagingColumn, rng, action.lifedrain, action.kind, action.slow);
                     const DamageResolution& damageResolution = attackResolution.attack;
                     retaliationDamage.insert(retaliationDamage.end(),
                         attackResolution.counterstrike.begin(), attackResolution.counterstrike.end());
@@ -2198,6 +2200,8 @@ private:
                     survivingAttacker->column = action.stagingColumn;
                 }
             }
+            if (survivingAttacker->row != originRow || survivingAttacker->column != originColumn)
+                survivingAttacker->movedThisTurn = true;
         }
         survivingAttacker->disabledTurns =
             std::max(survivingAttacker->disabledTurns, action.cooldownTurns);
@@ -2308,6 +2312,8 @@ private:
             {
                 result += fmt::format(" and disabled surviving targets for {} turn(s)", effectiveDisabledTurns);
             }
+            if (action.slow > 0 && !damagedTargetNames.empty())
+                result += fmt::format(" and applied Slow {}", action.slow);
             if (!controlledTargetNames.empty())
             {
                 result += fmt::format(
@@ -2600,10 +2606,7 @@ private:
     {
         for (Piece& piece : pieces)
         {
-            if (piece.owner == playerNumber && piece.sleepTurnsRemaining > 0)
-            {
-                --piece.sleepTurnsRemaining;
-            }
+            if (piece.owner == playerNumber) endPieceTurn(piece);
         }
         applyHealingAuras(pieces, playerNumber);
         applyRevealKeywords(pieces, playerNumber);

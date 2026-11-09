@@ -454,6 +454,8 @@ private:
         int playerNumber = 0;
         bool connected = true;
         bool supportsTransformSnapshots = false;
+        bool supportsCommandRestrictionSnapshots = false;
+        bool supportsSlowSnapshots = false;
     };
 
     class Session
@@ -747,7 +749,8 @@ private:
             sf::Packet ready;
             ready << static_cast<std::uint8_t>(network::MessageType::ConquestBattleReady)
                   << true << data.battleId << connection.playerNumber
-                  << std::string("Conquest battle ready");
+                  << std::string("Conquest battle ready") << game_data::CommandRestrictionSnapshotCapability
+                  << game_data::SlowSnapshotCapability;
             if (connection.socket->send(ready, ClientSendTimeout) !=
                 sf::Socket::Status::Done)
             {
@@ -792,6 +795,20 @@ private:
                     continue;
                 }
                 const auto type = static_cast<network::MessageType>(rawType);
+                if (type == network::MessageType::EnableCommandRestrictionSnapshots &&
+                    game_data::readSlowSnapshotOptIn(packet, connection.supportsSlowSnapshots))
+                {
+                    connection.supportsCommandRestrictionSnapshots = true;
+                    sf::Packet acknowledged;
+                    acknowledged << rawType;
+                    if (connection.socket->send(acknowledged, ClientSendTimeout) != sf::Socket::Status::Done)
+                    {
+                        connection.connected = false;
+                        return;
+                    }
+                    sendSnapshot(connection);
+                    continue;
+                }
                 if (type == network::MessageType::Disconnect ||
                     type == network::MessageType::LeaveConquestBattle)
                 {
@@ -984,7 +1001,8 @@ private:
             {
                 snapshot.status = statusOverride;
             }
-            game_data::writeSnapshot(packet, snapshot, true, true, connection.supportsTransformSnapshots);
+            game_data::writeSnapshot(packet, snapshot, true, true, connection.supportsTransformSnapshots,
+                                     connection.supportsCommandRestrictionSnapshots, connection.supportsSlowSnapshots);
             if (connection.socket->send(packet, ClientSendTimeout) !=
                 sf::Socket::Status::Done)
             {

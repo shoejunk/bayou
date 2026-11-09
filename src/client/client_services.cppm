@@ -210,7 +210,7 @@ void sendSubmitDeck(bayou::tls::Socket& socket, const std::vector<card_data::Car
     packet << static_cast<std::uint32_t>(cards.size());
     for (const card_data::Card& card : cards)
     {
-        card_data::writeCard(packet, card);
+        card_data::writeCard(packet, card, false);
     }
     // Older servers ignore this optional deck trailer. Keep JoinGame in its
     // existing format so they can admit the player before capability negotiation.
@@ -368,7 +368,7 @@ CardListResult fetchCards()
     }
 
     sf::Packet request;
-    request << static_cast<std::uint8_t>(network::MessageType::CardListRequest);
+    request << static_cast<std::uint8_t>(network::MessageType::CardListRequest) << card_data::CardListSchemaVersion;
     if (socket.send(request) != sf::Socket::Status::Done)
     {
         socket.disconnect();
@@ -406,6 +406,7 @@ CardListResult fetchCards()
     bool actionIncludesInfest = false;
     bool actionIncludesPull = false;
     bool actionIncludesLifedrain = false;
+    bool actionIncludesSlow = false;
     if (!card_data::readCardListHeader(
             response,
             count,
@@ -415,7 +416,8 @@ CardListResult fetchCards()
             &actionIncludesRepeat,
             &actionIncludesInfest,
             &actionIncludesPull,
-            &actionIncludesLifedrain))
+            &actionIncludesLifedrain,
+            &actionIncludesSlow))
     {
         socket.disconnect();
         return {false, "Unsupported card list payload"};
@@ -435,7 +437,8 @@ CardListResult fetchCards()
                 actionIncludesRepeat,
                 actionIncludesInfest,
                 actionIncludesPull,
-                actionIncludesLifedrain))
+                actionIncludesLifedrain,
+                actionIncludesSlow))
         {
             socket.disconnect();
             return {false, "Invalid card list payload"};
@@ -1468,6 +1471,15 @@ ServerResult joinGameServer(
         return {false, "Unexpected game server response"};
     }
 
+    bool supportsSlow = false;
+    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow))
+    {
+        sf::Packet optIn;
+        optIn << static_cast<std::uint8_t>(network::MessageType::EnableCommandRestrictionSnapshots);
+        if (supportsSlow) optIn << game_data::SlowSnapshotCapability;
+        if (socket->send(optIn) != sf::Socket::Status::Done)
+            return {false, "Could not negotiate game snapshots"};
+    }
     return {true, message, socket};
 }
 

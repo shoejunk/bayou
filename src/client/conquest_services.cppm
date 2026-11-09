@@ -138,6 +138,7 @@ struct ConquestBattleJoinResult : ConquestCommandResult
     std::shared_ptr<bayou::tls::Socket> socket;
     std::uint64_t battleId = 0;
     int playerNumber = 0;
+    bool awaitingSnapshotUpgrade = false;
 };
 
 ConquestLoadoutResult fetchConquestLoadout(const std::string& accessToken)
@@ -571,6 +572,16 @@ ConquestBattleJoinResult joinConquestBattle(
     {
         socket->disconnect();
         return result;
+    }
+    bool supportsSlow = false;
+    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow))
+    {
+        sf::Packet optIn;
+        optIn << static_cast<std::uint8_t>(MessageType::EnableCommandRestrictionSnapshots);
+        if (supportsSlow) optIn << game_data::SlowSnapshotCapability;
+        if (socket->send(optIn) != sf::Socket::Status::Done)
+            return {false, "Could not negotiate Conquest snapshots"};
+        result.awaitingSnapshotUpgrade = true;
     }
     result.socket = std::move(socket);
     return result;

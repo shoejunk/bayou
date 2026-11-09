@@ -24,6 +24,7 @@ struct ActionDescription
     int damage = 0;
     int heal = 0;
     int stun = 0;
+    int slow = 0;
     int cooldown = 0;
     int control = 0;
     int repeat = 0;

@@ -63,17 +63,17 @@ const Piece* find(const game_data::Snapshot& s, int id)
 bool changed(const Piece& a, const Piece& b)
 {
     return std::tie(a.row,a.column,a.health,a.disabledTurns,a.actionState,a.hasActed,a.owner,
-        a.controlTurnsRemaining,a.power,a.abilityUses,a.hidden,a.infestationTitle,a.sacrificePending,
+        a.slowTurnsRemaining,a.controlTurnsRemaining,a.power,a.abilityUses,a.hidden,a.infestationTitle,a.sacrificePending,
         a.silenceTurnsRemaining,a.abilitySilenced,a.healingBlocked,a.repeatActionUses,a.growTurnsRemaining)
         != std::tie(b.row,b.column,b.health,b.disabledTurns,b.actionState,b.hasActed,b.owner,
-        b.controlTurnsRemaining,b.power,b.abilityUses,b.hidden,b.infestationTitle,b.sacrificePending,
+        b.slowTurnsRemaining,b.controlTurnsRemaining,b.power,b.abilityUses,b.hidden,b.infestationTitle,b.sacrificePending,
         b.silenceTurnsRemaining,b.abilitySilenced,b.healingBlocked,b.repeatActionUses,b.growTurnsRemaining);
 }
 bool moved(const Piece& a, const Piece& b) { return a.row != b.row || a.column != b.column; }
 bool outcomeChanged(const Piece& a, const Piece* b)
 {
     return !b || a.health != b->health || a.disabledTurns != b->disabledTurns ||
-        a.owner != b->owner || a.controlTurnsRemaining != b->controlTurnsRemaining ||
+        a.slowTurnsRemaining != b->slowTurnsRemaining || a.owner != b->owner || a.controlTurnsRemaining != b->controlTurnsRemaining ||
         a.infestationTitle != b->infestationTitle || moved(a,*b);
 }
 bool namedEvent(const game_data::Snapshot& a, const game_data::Snapshot& b, const Piece& p)
@@ -252,7 +252,7 @@ std::vector<Request> planTransition(const game_data::Snapshot& before,
             if(a.name==action.name || a.internalName==action.name) {recipe=&a;break;}
         auto generic=action.heal>0?std::vector<Layer>{{"heal"}}:
             action.control>0?std::vector<Layer>{{"charm_pipes"}}:
-            action.statusTurns>0?std::vector<Layer>{{"roots"},{"magic_dark",.25f}}:
+            (action.statusTurns>0 || action.slow>0)?std::vector<Layer>{{"roots"},{"magic_dark",.25f}}:
             action.kind==static_cast<std::uint8_t>(game_data::ActionKind::Ranged)?
                 std::vector<Layer>{{"magic_bright"}}:std::vector<Layer>{{"blade"}};
         auto layers=recipe?recipe->layers:generic;

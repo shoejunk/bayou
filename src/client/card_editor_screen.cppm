@@ -1306,7 +1306,9 @@ private:
     InputBox actionCanAttackField;
     InputBox actionPassThroughField;
     InputBox actionLineOfSightField;
+    bool serverSupportsSlow = false;
     InputBox actionStatusTurnsField;
+    InputBox actionSlowField;
     InputBox actionCooldownTurnsField;
     InputBox actionPushField;
     InputBox actionControlField;
@@ -1396,7 +1398,7 @@ private:
         }
 
         sf::Packet request;
-        request << static_cast<std::uint8_t>(network::MessageType::CardListRequest);
+        request << static_cast<std::uint8_t>(network::MessageType::CardListRequest) << card_data::CardListSchemaVersion;
         if (socket.send(request) != sf::Socket::Status::Done)
         {
             socket.disconnect();
@@ -1434,6 +1436,7 @@ private:
         bool actionIncludesInfest = false;
         bool actionIncludesPull = false;
         bool actionIncludesLifedrain = false;
+        bool actionIncludesSlow = false;
         if (!card_data::readCardListHeader(
                 response,
                 count,
@@ -1443,7 +1446,8 @@ private:
                 &actionIncludesRepeat,
                 &actionIncludesInfest,
                 &actionIncludesPull,
-                &actionIncludesLifedrain))
+                &actionIncludesLifedrain,
+                &actionIncludesSlow))
         {
             socket.disconnect();
             return {false, "Unsupported card list payload"};
@@ -1463,7 +1467,8 @@ private:
                     actionIncludesRepeat,
                     actionIncludesInfest,
                     actionIncludesPull,
-                    actionIncludesLifedrain))
+                    actionIncludesLifedrain,
+                    actionIncludesSlow))
             {
                 socket.disconnect();
                 return {false, "Invalid card list payload"};
@@ -1476,7 +1481,7 @@ private:
         return {success, message, std::move(loadedCards)};
     }
 
-    ActionListResult fetchActionsFromServer() const
+    ActionListResult fetchActionsFromServer()
     {
         bayou::tls::Socket socket;
         if (!connectToServer(socket))
@@ -1485,7 +1490,7 @@ private:
         }
 
         sf::Packet request;
-        request << static_cast<std::uint8_t>(network::MessageType::ActionListRequest);
+        request << static_cast<std::uint8_t>(network::MessageType::ActionListRequest) << card_data::CardListSchemaVersion;
         if (socket.send(request) != sf::Socket::Status::Done)
         {
             socket.disconnect();
@@ -1503,8 +1508,11 @@ private:
         bool success = false;
         std::string message;
         std::uint32_t count = 0;
-        response >> responseType >> success >> message >> count;
-        if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::ActionListResponse)
+        response >> responseType >> success >> message;
+        bool unversioned = false;
+        if (!response || static_cast<network::MessageType>(responseType) != network::MessageType::ActionListResponse ||
+            !card_data::readCardListHeader(response, count, unversioned, nullptr, nullptr, nullptr, nullptr,
+                nullptr, nullptr, &serverSupportsSlow))
         {
             socket.disconnect();
             return {false, "Unexpected action list response"};
@@ -1515,7 +1523,7 @@ private:
         for (std::uint32_t i = 0; i < count; ++i)
         {
             card_data::Action action;
-            if (!card_data::readAction(response, action))
+            if (!card_data::readCatalogAction(response, action, serverSupportsSlow))
             {
                 socket.disconnect();
                 return {false, "Invalid action list payload"};
@@ -1558,7 +1566,7 @@ private:
 
         sf::Packet request;
         request << static_cast<std::uint8_t>(network::MessageType::CardUpsertRequest);
-        card_data::writeCard(request, card);
+        card_data::writeCard(request, card, false);
         if (socket.send(request) != sf::Socket::Status::Done)
         {
             socket.disconnect();
@@ -1584,7 +1592,7 @@ private:
         sf::Packet request;
         request << static_cast<std::uint8_t>(network::MessageType::CardUpdateRequest);
         request << originalTitle;
-        card_data::writeCard(request, card);
+        card_data::writeCard(request, card, false);
         if (socket.send(request) != sf::Socket::Status::Done)
         {
             socket.disconnect();
@@ -1627,7 +1635,9 @@ private:
         }
         sf::Packet request;
         request << static_cast<std::uint8_t>(network::MessageType::ActionUpsertRequest);
-        card_data::writeAction(request, action);
+        if (action.slow > 0 && !serverSupportsSlow)
+            return {false, "This card server does not support Slow yet"};
+        card_data::writeAction(request, action, serverSupportsSlow);
         if (socket.send(request) != sf::Socket::Status::Done)
         {
             socket.disconnect();
@@ -1647,7 +1657,9 @@ private:
         }
         sf::Packet request;
         request << static_cast<std::uint8_t>(network::MessageType::ActionUpdateRequest) << originalName;
-        card_data::writeAction(request, action);
+        if (action.slow > 0 && !serverSupportsSlow)
+            return {false, "This card server does not support Slow yet"};
+        card_data::writeAction(request, action, serverSupportsSlow);
         if (socket.send(request) != sf::Socket::Status::Done)
         {
             socket.disconnect();
@@ -1723,7 +1735,8 @@ private:
         actionCanAttackField = makeCompactField("0", {210.0f, 32.0f});
         actionPassThroughField = makeCompactField("0", {210.0f, 32.0f});
         actionLineOfSightField = makeCompactField("0", {210.0f, 32.0f});
-        actionStatusTurnsField = makeCompactField("0", {210.0f, 32.0f});
+        actionStatusTurnsField = makeCompactField("0", {110.0f, 32.0f});
+        actionSlowField = makeCompactField("0", {100.0f, 32.0f});
         actionCooldownTurnsField = makeCompactField("0", {210.0f, 32.0f});
         actionPushField = makeCompactField("0", {110.0f, 32.0f});
         actionControlField = makeCompactField("0", {110.0f, 32.0f});
@@ -1863,6 +1876,7 @@ private:
                 &actionPassThroughField,
                 &actionLineOfSightField,
                 &actionStatusTurnsField,
+                &actionSlowField,
                 &actionCooldownTurnsField,
                 &actionPushField,
                 &actionControlField,
@@ -2516,6 +2530,7 @@ private:
             &actionPassThroughField,
             &actionLineOfSightField,
             &actionStatusTurnsField,
+            &actionSlowField,
             &actionCooldownTurnsField,
             &actionPushField,
             &actionControlField,
@@ -2841,6 +2856,7 @@ private:
         action.passThrough = formBool(actionPassThroughField);
         action.lineOfSight = formBool(actionLineOfSightField);
         action.statusTurns = formInt(actionStatusTurnsField, 0);
+        action.slow = std::max(0, formInt(actionSlowField, 0));
         action.cooldownTurns = formInt(actionCooldownTurnsField, 0);
         action.push = std::max(0, formInt(actionPushField, 0));
         action.control = std::max(0, formInt(actionControlField, 0));
@@ -2877,6 +2893,7 @@ private:
         actionPassThroughField.setValue("0");
         actionLineOfSightField.setValue("0");
         actionStatusTurnsField.setValue("0");
+        actionSlowField.setValue("0");
         actionCooldownTurnsField.setValue("0");
         actionPushField.setValue("0");
         actionControlField.setValue("0");
@@ -2917,6 +2934,7 @@ private:
         actionPassThroughField.setValue(action.passThrough ? "1" : "0");
         actionLineOfSightField.setValue(action.lineOfSight ? "1" : "0");
         actionStatusTurnsField.setValue(std::to_string(action.statusTurns));
+        actionSlowField.setValue(std::to_string(action.slow));
         actionCooldownTurnsField.setValue(std::to_string(action.cooldownTurns));
         actionPushField.setValue(std::to_string(action.push));
         actionControlField.setValue(std::to_string(action.control));
@@ -4561,6 +4579,7 @@ private:
         y = addInstructionBullet("Can move lets the action target an empty destination. With Can attack enabled, positive Damage targets and hurts enemies, while positive Heal targets and restores friendlies up to maximum health. Damage and Heal must not be negative.", y);
         y = addInstructionBullet("Target filter entries restrict attacks, healing, and status effects. A target must match every listed string across its Traits and Keywords; an empty filter accepts any otherwise-valid target. The legacy schema-11 value construct means Mechanical and is shown to players as Mechanical.", y);
         y = addInstructionBullet("Push moves each surviving enemy target up to that many squares directly away from the attack's staging square. Blocked push distance becomes 1 extra damage per prevented square.", y);
+        y = addInstructionBullet("Slow: number of the attacked unit's turns in which it may move at most one square total. Only its existing adjacent moves are legal; Hop alone cannot move. Stationary attacks keep their range. Reapplying Slow keeps the longer remaining duration. Default: 0.", y);
         y = addInstructionBullet("Lifedrain: heals the acting unit for damage this action deals, capped at maximum health. Includes Power, Bodyguard/Intercept redirection, overkill, and push collisions. Attack healing resolves before Counterstrike; it cannot revive a defeated unit. Default: Off.", y);
         y = addInstructionBullet("Pull on a ranged attack draws each surviving enemy target toward the attacker until it is adjacent. The pull flag is ignored on other action kinds.", y);
         y = addInstructionBullet("Control temporarily changes an attacked enemy non-Hero piece to the attacking player for that many later turns of the attacking player. The attack turn is not counted; the original controller regains it on their following turn.", y);
@@ -4588,6 +4607,7 @@ private:
         y = addInstructionBullet("Swap requires a card in hand. Choose a hand card to discard to the bottom of the deck, then draw up to 2 cards, limited by hand space. This does not spend Resources or the normal discard allowance.", y);
         y = addInstructionBullet("Power Boost: gives every other adjacent friendly unit +1 Power, including diagonals and large footprints. Power stacks and remains on the unit while in play. Power adds to damage from attacks, Counterstrike, and push collisions, but not healing. Set the power (or Power) Integer Field on a Unit or Hero for starting Power. Also supported by Sacrifice; the boost happens before the source dies.", y);
         y = addInstructionBullet("Rot Aura: add rot aura to Keywords. Adjacent enemies cannot regain Health through actions, spells, healing auras or Lifedrain. Includes diagonals and large footprints. It is passive and works while the living bearer remains adjacent, even while Disabled or Silenced.", y);
+        y = addInstructionBullet("CommandRestriction limits Command to ready adjacent allies with the specified trait or keyword. For example, mechanical matches the Mechanical trait or keyword. Omit the field to allow any ready adjacent ally.", y);
         y = addInstructionBullet("Shriek: set ability=shriek. Reveals all hidden units within shriek range, including allies and a hidden caster, by returning them to State 0. Revealing alone does not Disable. If shriek damage is greater than zero, deals that damage to each revealed unit with normal damage Disable. Visible units are not selected. Uses the normal ability button and costs a piece action.", y);
         y = addInstructionBullet("Silence Field: set ability to silence field and optionally add silenceRange and silenceTurns Integer Fields (both default 1). The existing ability button starts a field around the caster: other units, including allies, cannot use ability or Sacrifice buttons in range. Movement, drag attacks and passives remain usable. The field follows the caster, ends on expiry or removal, and does not stack durations when reactivated. Another caster's field can silence this caster.", y);
         y = addInstructionBullet("Swarm: add swarm to Keywords for +1 Power per adjacent living unit with exactly the same name, regardless of owner. Diagonals and large footprints count; each neighbor counts once and need not have Swarm. This bonus updates as units move or die and stacks with permanent Power.", y);
@@ -5350,6 +5370,7 @@ private:
         actionPassThroughField.setPosition({340.0f, 522.0f});
         actionLineOfSightField.setPosition({600.0f, 522.0f});
         actionStatusTurnsField.setPosition({340.0f, 580.0f});
+        actionSlowField.setPosition({460.0f, 580.0f});
         actionCooldownTurnsField.setPosition({600.0f, 580.0f});
         actionPushField.setPosition({340.0f, 638.0f});
         actionControlField.setPosition({460.0f, 638.0f});
@@ -5387,6 +5408,7 @@ private:
             {"Pass through", {340.0f, 498.0f}},
             {"Line of sight", {600.0f, 498.0f}},
             {"Status turns", {340.0f, 556.0f}},
+            {"Slow", {460.0f, 556.0f}},
             {"Cooldown turns", {600.0f, 556.0f}},
             {"Push", {340.0f, 614.0f}},
             {"Control", {460.0f, 614.0f}},

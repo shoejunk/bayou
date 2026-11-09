@@ -343,6 +343,7 @@ ActionDescription actionDescription(const game_data::ActionProfile& action, std:
     description.damage = std::max(0, action.damage);
     description.heal = std::max(0, action.heal);
     description.stun = std::max(0, action.statusTurns);
+    description.slow = std::max(0, action.slow);
     description.cooldown = std::max(0, action.cooldownTurns);
     description.control = std::max(0, action.control);
     description.repeat = std::max(0, action.repeat);
@@ -503,6 +504,10 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             else if (ability == "command")
             {
                 abilityText = "Ability: Command a ready adjacent friendly piece";
+                if (gameCard.commandRestriction && gameCard.commandRestriction->empty())
+                    abilityText = "Ability: Command has no eligible targets (CommandRestriction is blank)";
+                else
+                    abilityText += game_data::commandTargetQualifier(gameCard.commandRestriction);
             }
             else if (ability == "raise undead")
             {

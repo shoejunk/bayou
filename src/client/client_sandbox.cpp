@@ -52,6 +52,7 @@ game_data::GameCard cardFromDestroyedPiece(const game_data::Piece& piece)
     card.canControl = piece.canControl;
     card.actions = piece.actions;
     card.ability = piece.ability;
+    card.commandRestriction = piece.commandRestriction;
     card.sacrifice = piece.sacrifice;
     card.summonTitle = piece.summonTitle;
     card.rebirthTitle = piece.rebirthTitle;

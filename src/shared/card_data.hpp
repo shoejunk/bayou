@@ -12,7 +12,7 @@ namespace card_data
 // crafted packet cannot trigger a huge allocation.
 constexpr std::uint32_t MaxSerializedItems = 4096;
 constexpr std::uint32_t CardListSchemaMarker = 0xffffffffu;
-constexpr std::uint32_t CardListSchemaVersion = 12;
+constexpr std::uint32_t CardListSchemaVersion = 13;
 constexpr int DefaultNextState = (-2147483647 - 1);
 
 struct KeyIntPair
@@ -57,6 +57,7 @@ struct Action
     int nextState = DefaultNextState;
     bool pull = false;
     bool lifedrain = false;
+    int slow = 0;
 };
 
 inline int actionNextState(const Action& action)
@@ -113,7 +114,7 @@ inline bool readStringVector(sf::Packet& packet, std::vector<std::string>& value
     return true;
 }
 
-inline void writeAction(sf::Packet& packet, const Action& action)
+inline void writeAction(sf::Packet& packet, const Action& action, bool includesSlow = true)
 {
     packet << action.name << action.state << actionNextState(action) << action.kind << action.pattern
            << action.minRange << action.maxRange << action.damage << action.heal
@@ -121,6 +122,7 @@ inline void writeAction(sf::Packet& packet, const Action& action)
            << action.statusTurns << action.cooldownTurns << action.push << action.control << action.repeat;
     writeStringVector(packet, action.targetFilter);
     packet << action.infest << action.pull << action.lifedrain;
+    if (includesSlow) packet << action.slow;
 }
 
 inline bool readAction(
@@ -134,7 +136,8 @@ inline bool readAction(
     bool includesRepeat = true,
     bool includesInfest = true,
     bool includesPull = true,
-    bool includesLifedrain = true)
+    bool includesLifedrain = true,
+    bool includesSlow = true)
 {
     packet >> action.name >> action.state;
     if (includesNextState)
@@ -214,12 +217,20 @@ inline bool readAction(
     {
         packet >> action.lifedrain;
     }
+    action.slow = 0;
+    if (includesSlow) packet >> action.slow;
     return static_cast<bool>(packet);
 }
 
-inline void writeCardListHeader(sf::Packet& packet, std::uint32_t count)
+// Unversioned action lists and single-action edit requests predate Slow.
+inline bool readCatalogAction(sf::Packet& packet, Action& action, bool includesSlow)
 {
-    packet << CardListSchemaMarker << CardListSchemaVersion << count;
+    return readAction(packet, action, true, true, true, true, true, true, true, true, true, includesSlow);
+}
+
+inline void writeCardListHeader(sf::Packet& packet, std::uint32_t count, bool includesSlow = true)
+{
+    packet << CardListSchemaMarker << (includesSlow ? CardListSchemaVersion : 12u) << count;
 }
 
 inline bool readCardListHeader(
@@ -231,7 +242,8 @@ inline bool readCardListHeader(
     bool* actionIncludesRepeat = nullptr,
     bool* actionIncludesInfest = nullptr,
     bool* actionIncludesPull = nullptr,
-    bool* actionIncludesLifedrain = nullptr)
+    bool* actionIncludesLifedrain = nullptr,
+    bool* actionIncludesSlow = nullptr)
 {
     std::uint32_t markerOrCount = 0;
     packet >> markerOrCount;
@@ -269,9 +281,8 @@ inline bool readCardListHeader(
         {
             *actionIncludesLifedrain = version >= 12;
         }
-        return static_cast<bool>(packet) &&
-            (version == 6 || version == 7 || version == 8 || version == 9 || version == 10 || version == 11 ||
-             version == CardListSchemaVersion) &&
+        if (actionIncludesSlow) *actionIncludesSlow = version >= 13;
+        return static_cast<bool>(packet) && version >= 6 && version <= CardListSchemaVersion &&
             count <= MaxSerializedItems;
     }
 
@@ -301,10 +312,11 @@ inline bool readCardListHeader(
     {
         *actionIncludesLifedrain = false;
     }
+    if (actionIncludesSlow) *actionIncludesSlow = false;
     return count <= MaxSerializedItems;
 }
 
-inline void writeCard(sf::Packet& packet, const Card& card)
+inline void writeCard(sf::Packet& packet, const Card& card, bool includesSlow = true)
 {
     packet << card.title;
     packet << card.type;
@@ -337,7 +349,7 @@ inline void writeCard(sf::Packet& packet, const Card& card)
     packet << static_cast<std::uint32_t>(card.actions.size());
     for (const Action& action : card.actions)
     {
-        writeAction(packet, action);
+        writeAction(packet, action, includesSlow);
     }
 }
 
@@ -353,7 +365,8 @@ inline bool readCardRemaining(
     bool actionIncludesRepeat = true,
     bool actionIncludesInfest = true,
     bool actionIncludesPull = true,
-    bool actionIncludesLifedrain = true)
+    bool actionIncludesLifedrain = true,
+    bool actionIncludesSlow = true)
 {
     std::uint32_t integerCount = 0;
     packet >> integerCount;
@@ -450,7 +463,8 @@ inline bool readCardRemaining(
                 actionIncludesRepeat,
                 actionIncludesInfest,
                 actionIncludesPull,
-                actionIncludesLifedrain))
+                actionIncludesLifedrain,
+                actionIncludesSlow))
         {
             return false;
         }
@@ -468,7 +482,8 @@ inline bool readCard(
     bool actionIncludesRepeat = true,
     bool actionIncludesInfest = true,
     bool actionIncludesPull = true,
-    bool actionIncludesLifedrain = true)
+    bool actionIncludesLifedrain = true,
+    bool actionIncludesSlow = true)
 {
     packet >> card.title >> card.type >> card.imagePath;
     if (!packet || !readStringVector(packet, card.traits) || !readStringVector(packet, card.keywords))
@@ -487,7 +502,15 @@ inline bool readCard(
         actionIncludesRepeat,
         actionIncludesInfest,
         actionIncludesPull,
-        actionIncludesLifedrain);
+        actionIncludesLifedrain,
+        actionIncludesSlow);
+}
+
+// Deck submissions and editor card saves use action references; their embedded
+// definitions are ignored by the server. Keep their existing schema-12 layout.
+inline bool readReferencedCard(sf::Packet& packet, Card& card)
+{
+    return readCard(packet, card, true, true, true, true, true, true, false);
 }
 
 inline bool readLegacyCard(sf::Packet& packet, Card& card)
@@ -498,7 +521,7 @@ inline bool readLegacyCard(sf::Packet& packet, Card& card)
         return false;
     }
     card.keywords.clear();
-    return readCardRemaining(packet, card, false, false, false, false, false, false, false, false, false, false);
+    return readCardRemaining(packet, card, false, false, false, false, false, false, false, false, false, false, false);
 }
 
 inline bool readListedCard(
@@ -510,7 +533,8 @@ inline bool readListedCard(
     bool actionIncludesRepeat = true,
     bool actionIncludesInfest = true,
     bool actionIncludesPull = true,
-    bool actionIncludesLifedrain = true)
+    bool actionIncludesLifedrain = true,
+    bool actionIncludesSlow = true)
 {
     return legacyFormat
         ? readLegacyCard(packet, card)
@@ -522,6 +546,7 @@ inline bool readListedCard(
             actionIncludesRepeat,
             actionIncludesInfest,
             actionIncludesPull,
-            actionIncludesLifedrain);
+            actionIncludesLifedrain,
+            actionIncludesSlow);
 }
 }

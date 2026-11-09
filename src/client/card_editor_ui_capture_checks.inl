@@ -37,6 +37,15 @@
             click(bounds.position.x + bounds.size.x * 0.5f,
                   bounds.position.y + bounds.size.y * 0.5f);
         };
+        const auto originalSlow = actionSlowField.getValue();
+        clickField(actionSlowField);
+        key(sf::Keyboard::Key::End);
+        type("2");
+        if (!check(actionSlowField.isActive() && actionFromForm().slow == std::stoi(originalSlow + "2") &&
+                   hasUnsavedChanges(), "Slow must accept a typed duration and mark the action as changed.")) return false;
+        key(sf::Keyboard::Key::Backspace);
+        if (!check(actionSlowField.getValue() == originalSlow && !hasUnsavedChanges(),
+                   "Restoring the Slow duration must restore the clean form.")) return false;
         const std::array<std::pair<InputBox*, bool card_data::Action::*>, 6> flags = {{
             {&actionCanMoveField, &card_data::Action::canMove},
             {&actionCanAttackField, &card_data::Action::canAttack},

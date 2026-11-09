@@ -292,6 +292,7 @@ struct ActionProfile
     std::string infest;
     bool pull = false;
     bool lifedrain = false;
+    int slow = 0;
 };
 
 inline int actionNextState(const ActionProfile& action)
@@ -342,16 +343,22 @@ inline std::string movePatternName(std::uint8_t pattern)
     }
 }
 
-inline std::string cardStr(const card_data::Card& card, const std::string& key, const std::string& fallback = "")
+inline const std::string* findCardString(const card_data::Card& card, const std::string& key)
 {
     for (const card_data::KeyStringPair& item : card.stringValues)
     {
         if (item.key == key)
         {
-            return item.value;
+            return &item.value;
         }
     }
-    return fallback;
+    return nullptr;
+}
+
+inline std::string cardStr(const card_data::Card& card, const std::string& key, const std::string& fallback = "")
+{
+    const std::string* value = findCardString(card, key);
+    return value ? *value : fallback;
 }
 
 inline std::vector<std::string> cardList(const card_data::Card& card, const std::string& key)
@@ -470,6 +477,7 @@ struct GameCard
     std::string transformInto;
     std::vector<ActionProfile> actions;
     std::string ability;
+    std::optional<std::string> commandRestriction;
     std::string sacrifice;
     std::string summonTitle;
     std::string rebirthTitle;
@@ -526,6 +534,8 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.transformTurns = std::max(0, cardInt(card, "transformTurns", 0));
     g.transformInto = cardStr(card, "transformInto");
     g.ability = normalizedAbility(cardStr(card, "ability"));
+    if (const std::string* restriction = findCardString(card, "CommandRestriction"))
+        g.commandRestriction = normalizedAbility(*restriction);
     g.sacrifice = normalizedAbility(cardStr(card, "Sacrifice", cardStr(card, "sacrifice")));
     if (g.title == "Maggie Mudroot" || g.title == "Old Mangletooth")
     {
@@ -568,6 +578,7 @@ inline GameCard toGameCard(const card_data::Card& card)
         action.infest = definition.infest;
         action.pull = definition.pull;
         action.lifedrain = definition.lifedrain;
+        action.slow = std::max(0, definition.slow);
         g.actions.push_back(action);
         if (actionLooksLikeAttackingMove(definition))
         {
@@ -786,6 +797,8 @@ struct Piece
     std::string transformInto;
     int disabledTurns = 0;
     int sleepTurnsRemaining = 0;
+    int slowTurnsRemaining = 0;
+    bool movedThisTurn = false;
     int controlTurnsRemaining = 0;
     std::string infestationTitle;
     int infestationOwner = 0;
@@ -795,6 +808,7 @@ struct Piece
     int repeatActionState = 0;
     int repeatActionUses = 0;
     std::string ability;
+    std::optional<std::string> commandRestriction;
     std::string sacrifice;
     bool sacrificePending = false;
     std::string summonTitle;
@@ -877,6 +891,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.transformInto = card.transformInto;
     piece.actions = card.actions;
     piece.ability = normalizedAbility(card.ability);
+    piece.commandRestriction = card.commandRestriction;
     piece.sacrifice = normalizedAbility(card.sacrifice);
     piece.sacrificePending = false;
     piece.summonTitle = card.summonTitle;
@@ -968,6 +983,7 @@ inline void beginPieceTurn(Piece& piece)
 {
     piece.hasActed = false;
     piece.interceptUsedThisTurn = false;
+    piece.movedThisTurn = false;
     if (piece.growTurnsRemaining > 0)
     {
         --piece.growTurnsRemaining;
@@ -978,6 +994,13 @@ inline void beginPieceTurn(Piece& piece)
         --piece.disabledTurns;
         piece.hasActed = true;
     }
+}
+
+// Movement statuses apply through the end of the affected piece's own turn.
+inline void endPieceTurn(Piece& piece)
+{
+    if (piece.sleepTurnsRemaining > 0) --piece.sleepTurnsRemaining;
+    if (piece.slowTurnsRemaining > 0) --piece.slowTurnsRemaining;
 }
 
 // Returns the Unit card traits not supplied by any friendly hero.
@@ -1073,6 +1096,46 @@ struct Snapshot
 // (or JoinConquestBattle), whose trailers pre-transformation servers ignore.
 constexpr std::uint32_t ShriekSnapshotCapability = 0x53485231;
 constexpr std::uint32_t TransformSnapshotCapability = 0x54524631;
+constexpr std::uint32_t CommandRestrictionSnapshotCapability = 0x434d4431; // CMD1
+constexpr std::uint32_t SlowSnapshotCapability = 0x534c5731; // SLW1
+
+// Ready responses can advertise extensions without changing the join requests
+// that older servers parse strictly. An absent advertisement uses the legacy format.
+inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr)
+{
+    std::uint32_t marker = 0;
+    if (slow) *slow = false;
+    if (ready.endOfPacket() || !(ready >> marker) || marker != CommandRestrictionSnapshotCapability)
+        return false;
+    if (slow && !ready.endOfPacket())
+        *slow = (ready >> marker) && marker == SlowSnapshotCapability;
+    return true;
+}
+
+// Older clients opt in to CMD1 with an empty payload.
+inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow)
+{
+    slow = false;
+    if (packet.endOfPacket()) return true;
+    std::uint32_t marker = 0;
+    slow = (packet >> marker) && marker == SlowSnapshotCapability && packet.endOfPacket();
+    return slow;
+}
+
+inline void writeCommandRestriction(sf::Packet& packet, const std::optional<std::string>& restriction)
+{
+    packet << restriction.has_value();
+    if (restriction) packet << *restriction;
+}
+
+inline bool readCommandRestriction(sf::Packet& packet, std::optional<std::string>& restriction)
+{
+    bool present = false;
+    if (!(packet >> present)) return false;
+    restriction.reset();
+    return !present || (packet >> restriction.emplace());
+}
+
 inline bool readShriekSnapshotCapability(sf::Packet& packet, bool& supported, bool* transforms = nullptr)
 {
     supported = false;
@@ -1162,6 +1225,30 @@ inline bool readTransformFields(sf::Packet& packet, Piece& piece)
     return packet && piece.transformTurnsRemaining >= -1;
 }
 
+inline void writeActionSlows(sf::Packet& packet, const std::vector<ActionProfile>& actions)
+{
+    for (const auto& action : actions) packet << action.slow;
+}
+
+inline bool readActionSlows(sf::Packet& packet, std::vector<ActionProfile>& actions)
+{
+    for (auto& action : actions)
+        if (!(packet >> action.slow) || action.slow < 0) return false;
+    return true;
+}
+
+inline void writeSlowFields(sf::Packet& packet, const Piece& piece)
+{
+    packet << piece.slowTurnsRemaining << piece.movedThisTurn;
+    writeActionSlows(packet, piece.actions);
+}
+
+inline bool readSlowFields(sf::Packet& packet, Piece& piece)
+{
+    return (packet >> piece.slowTurnsRemaining >> piece.movedThisTurn) &&
+        piece.slowTurnsRemaining >= 0 && readActionSlows(packet, piece.actions);
+}
+
 inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFields = true)
 {
     packet << card.title << card.type;
@@ -1196,6 +1283,8 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFie
         writeCardAuraFields(packet, card);
         writeShriekFields(packet, card);
         writeTransformFields(packet, card);
+        writeCommandRestriction(packet, card.commandRestriction);
+        writeActionSlows(packet, card.actions);
     }
 }
 
@@ -1248,13 +1337,19 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = t
     packet >> card.abilityUses >> card.raisedFromGraveyard;
     card.transformTurns = 0;
     card.transformInto.clear();
+    card.commandRestriction.reset();
     card.shriekRange = 1;
     card.shriekDamage = 0;
     card.silenceRange = card.silenceTurns = 1;
-    return packet && (!auraFields || packet.endOfPacket() ||
-        (readCardAuraFields(packet, card) &&
-         (packet.endOfPacket() || (readShriekFields(packet, card) &&
-          (packet.endOfPacket() || readTransformFields(packet, card))))));
+    if (!packet || !auraFields || packet.endOfPacket()) return static_cast<bool>(packet);
+    if (!readCardAuraFields(packet, card)) return false;
+    if (packet.endOfPacket()) return true;
+    if (!readShriekFields(packet, card)) return false;
+    if (packet.endOfPacket()) return true;
+    if (!readTransformFields(packet, card)) return false;
+    if (packet.endOfPacket()) return true;
+    return readCommandRestriction(packet, card.commandRestriction) &&
+        (packet.endOfPacket() || readActionSlows(packet, card.actions));
 }
 
 inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields = true)
@@ -1293,6 +1388,8 @@ inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields =
         writePieceAuraFields(packet, piece);
         writeShriekFields(packet, piece);
         writeTransformFields(packet, piece);
+        writeCommandRestriction(packet, piece.commandRestriction);
+        writeSlowFields(packet, piece);
     }
 }
 
@@ -1343,16 +1440,24 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
     }
     piece.transformTurnsRemaining = -1;
     piece.transformInto.clear();
+    piece.commandRestriction.reset();
+    piece.slowTurnsRemaining = 0;
+    piece.movedThisTurn = false;
     piece.shriekRange = 1;
     piece.shriekDamage = 0;
     piece.silenceRange = piece.silenceTurns = 1;
     piece.silenceTurnsRemaining = piece.silenceExpiryPlayer = 0;
     piece.abilitySilenced = piece.healingBlocked = false;
-    return packet && card_data::readStringVector(packet, piece.abilityLabels) &&
-        (!auraFields || packet.endOfPacket() ||
-         (readPieceAuraFields(packet, piece) &&
-          (packet.endOfPacket() || (readShriekFields(packet, piece) &&
-           (packet.endOfPacket() || readTransformFields(packet, piece))))));
+    if (!packet || !card_data::readStringVector(packet, piece.abilityLabels)) return false;
+    if (!auraFields || packet.endOfPacket()) return true;
+    if (!readPieceAuraFields(packet, piece)) return false;
+    if (packet.endOfPacket()) return true;
+    if (!readShriekFields(packet, piece)) return false;
+    if (packet.endOfPacket()) return true;
+    if (!readTransformFields(packet, piece)) return false;
+    if (packet.endOfPacket()) return true;
+    return readCommandRestriction(packet, piece.commandRestriction) &&
+        (packet.endOfPacket() || readSlowFields(packet, piece));
 }
 
 inline void writeEnchantment(sf::Packet& packet, const Enchantment& enchantment)
@@ -1390,7 +1495,9 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 }
 
 // Writes a complete snapshot payload (without the leading message-type byte).
-inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool auraFields = true, bool shriekFields = true, bool transformFields = true)
+inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool auraFields = true,
+                          bool shriekFields = true, bool transformFields = true, bool commandFields = true,
+                          bool slowFields = true)
 {
     packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner
            << snapshot.commandingPieceId << snapshot.relentlessPieceId
@@ -1470,6 +1577,22 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
                 for (const auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
                                         &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
                     for (const GameCard& card : *zone) writeTransformFields(packet, card);
+                if (commandFields)
+                {
+                    packet << CommandRestrictionSnapshotCapability;
+                    for (const Piece& piece : snapshot.pieces) writeCommandRestriction(packet, piece.commandRestriction);
+                    for (const auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
+                                            &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
+                        for (const GameCard& card : *zone) writeCommandRestriction(packet, card.commandRestriction);
+                    if (slowFields)
+                    {
+                        packet << SlowSnapshotCapability;
+                        for (const Piece& piece : snapshot.pieces) writeSlowFields(packet, piece);
+                        for (const auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
+                                                &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
+                            for (const GameCard& card : *zone) writeActionSlows(packet, card.actions);
+                    }
+                }
             }
         }
     }
@@ -1634,6 +1757,23 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot, bool auraFields
                        &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
         for (GameCard& card : *zone)
             if (!readTransformFields(packet, card)) return false;
+    if (packet.endOfPacket()) return true;
+    packet >> marker;
+    if (!packet || marker != CommandRestrictionSnapshotCapability) return false;
+    for (Piece& piece : snapshot.pieces)
+        if (!readCommandRestriction(packet, piece.commandRestriction)) return false;
+    for (auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
+                       &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
+        for (GameCard& card : *zone)
+            if (!readCommandRestriction(packet, card.commandRestriction)) return false;
+    if (packet.endOfPacket()) return true;
+    if (!(packet >> marker) || marker != SlowSnapshotCapability) return false;
+    for (Piece& piece : snapshot.pieces)
+        if (!readSlowFields(packet, piece)) return false;
+    for (auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
+                       &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
+        for (GameCard& card : *zone)
+            if (!readActionSlows(packet, card.actions)) return false;
     return packet.endOfPacket();
 }
 }

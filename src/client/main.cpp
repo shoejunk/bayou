@@ -1119,6 +1119,7 @@ int main(int argc, char** argv)
     float coinPurchasePollDeadline = 0.0f;
     std::shared_ptr<bayou::tls::Socket> activeGameSocket;
     bool conquestBattleMode = false;
+    bool awaitingSnapshotUpgrade = false;
     std::string loggedInUsername;
     std::string activeAccessToken;
     std::string activeRememberToken;
@@ -3221,6 +3222,7 @@ int main(int argc, char** argv)
                               bool isConquestBattle = false) {
         activeGameSocket = std::move(gameSocket);
         conquestBattleMode = isConquestBattle;
+        awaitingSnapshotUpgrade = false;
         currentState = GameState::Game;
         abilityButton.setPosition({GameActionButtonX, GameAbilityButtonY});
         endTurnButton.setLabel("End Turn");
@@ -5003,6 +5005,7 @@ int main(int argc, char** argv)
                     const bool targetChanged = nextTarget == nullptr ||
                         nextTarget->health < currentTarget.health ||
                         nextTarget->disabledTurns != currentTarget.disabledTurns ||
+                        nextTarget->slowTurnsRemaining != currentTarget.slowTurnsRemaining ||
                         nextTarget->owner != currentTarget.owner ||
                         nextTarget->controlTurnsRemaining != currentTarget.controlTurnsRemaining;
                     if (!targetChanged)
@@ -7022,6 +7025,11 @@ int main(int argc, char** argv)
                     std::to_string(action.push) +
                     " square(s) directly away from the attack's staging square. Every square blocked by a piece or board edge becomes 1 collision damage."});
         }
+        if (action.slow > 0)
+        {
+            badges.push_back({"Slow " + std::to_string(action.slow), "Slow",
+                "For " + std::to_string(action.slow) + " turn(s), the target can move only one square per turn, and only if one of its moves can reach an adjacent square."});
+        }
         if (action.lifedrain)
         {
             badges.push_back({"Lifedrain", "Lifedrain",
@@ -7907,7 +7915,8 @@ int main(int argc, char** argv)
         const bool commandedAction = commander != nullptr;
         if (commandedAction && !game_data::pieceCanReceiveCommand(*commander, *piece))
         {
-            next.status = "Command must activate a ready adjacent friendly piece.";
+            next.status = "Command must activate a ready adjacent friendly piece" +
+                game_data::commandTargetQualifier(commander->commandRestriction) + ".";
             commitSandboxSnapshot(std::move(next));
             return;
         }
@@ -7997,7 +8006,7 @@ int main(int argc, char** argv)
                             action.stagingRow,
                             action.stagingColumn,
                             sandboxDamageRandomEngine,
-                            action.lifedrain, action.kind);
+                            action.lifedrain, action.kind, action.slow);
                     const game_data::DamageResolution& damageResolution = attackResolution.attack;
                     retaliationDamage.insert(retaliationDamage.end(),
                         attackResolution.counterstrike.begin(), attackResolution.counterstrike.end());
@@ -8137,6 +8146,8 @@ int main(int argc, char** argv)
                     acting->column = action.stagingColumn;
                 }
             }
+            if (acting->row != originRow || acting->column != originColumn)
+                acting->movedThisTurn = true;
         }
         acting->disabledTurns = std::max(acting->disabledTurns, action.cooldownTurns);
         bool repeatRemaining = false;
@@ -8212,6 +8223,8 @@ int main(int argc, char** argv)
                 next.status += " and disabled surviving targets for " +
                     std::to_string(effectiveDisabledTurns) + " turn(s)";
             }
+            if (action.slow > 0 && !damagedTargetNames.empty())
+                next.status += " and applied Slow " + std::to_string(action.slow);
             if (!controlledTargetNames.empty())
             {
                 next.status += " and controlled " + joinTargets(controlledTargetNames) +
@@ -8351,7 +8364,8 @@ int main(int argc, char** argv)
         const bool commandedAction = commander != nullptr;
         if (commandedAction && !game_data::pieceCanReceiveCommand(*commander, *piece))
         {
-            next.status = "Command must activate a ready adjacent friendly piece.";
+            next.status = "Command must activate a ready adjacent friendly piece" +
+                game_data::commandTargetQualifier(commander->commandRestriction) + ".";
             commitSandboxSnapshot(std::move(next));
             return;
         }
@@ -8435,7 +8449,8 @@ int main(int argc, char** argv)
             next.relentlessPieceId = 0;
             next.commandingPieceId = piece->id;
             piece->sacrificePending = sacrifice;
-            next.status = pieceName + " used Command. Activate one adjacent friendly piece.";
+            next.status = pieceName + " used Command. Activate one adjacent friendly piece" +
+                game_data::commandTargetQualifier(piece->commandRestriction) + ".";
             commitSandboxSnapshot(std::move(next));
             return;
         }
@@ -8498,10 +8513,7 @@ int main(int argc, char** argv)
         const int endingPlayer = std::clamp(next.activePlayer, 1, 2);
         for (game_data::Piece& piece : next.pieces)
         {
-            if (piece.owner == endingPlayer && piece.sleepTurnsRemaining > 0)
-            {
-                --piece.sleepTurnsRemaining;
-            }
+            if (piece.owner == endingPlayer) game_data::endPieceTurn(piece);
         }
         game_data::applyHealingAuras(next.pieces, endingPlayer);
         game_data::applyRevealKeywords(next.pieces, endingPlayer);
@@ -9826,10 +9838,17 @@ int main(int argc, char** argv)
         {
             std::uint8_t type = 0;
             packet >> type;
-            if (static_cast<network::MessageType>(type) == network::MessageType::GameStateUpdate)
+            if (static_cast<network::MessageType>(type) == network::MessageType::EnableCommandRestrictionSnapshots)
+            {
+                awaitingSnapshotUpgrade = false;
+            }
+            else if (static_cast<network::MessageType>(type) == network::MessageType::GameStateUpdate)
             {
                 game_data::Snapshot snapshot;
-                if (game_data::readSnapshot(packet, snapshot))
+                // Conquest queues its first board before the client opts in.
+                // Show a playable board only after the negotiated metadata arrives.
+                if (game_data::readSnapshot(packet, snapshot) &&
+                    (!awaitingSnapshotUpgrade || static_cast<game_data::Phase>(snapshot.phase) == game_data::Phase::GameOver))
                 {
                     updatePieceMoveAnimations(snapshot);
                     gameSnapshot = snapshot;
@@ -10416,6 +10435,7 @@ int main(int argc, char** argv)
             appendAmount("DMG", description.damage);
             appendAmount("HEAL", description.heal);
             appendAmount("DISABLE", description.stun);
+            appendAmount("SLOW", description.slow);
             appendAmount("COOLDOWN", description.cooldown);
             appendAmount("CONTROL", description.control);
             if (description.pull) summary += "  PULL";
@@ -16471,6 +16491,7 @@ int main(int argc, char** argv)
             if (result.success && currentState == GameState::Conquest && sameAuthenticatedSession)
             {
                 showGameScreen(std::move(result.socket), true);
+                awaitingSnapshotUpgrade = result.awaitingSnapshotUpgrade;
             }
             else
             {
