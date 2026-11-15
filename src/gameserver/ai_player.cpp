@@ -736,6 +736,14 @@ bool canDeployCard(const GameEngine& engine, int playerNumber, const GameCard& c
 int abilityOrderBonus(const Piece& piece, const std::vector<Piece>& pieces)
 {
     const std::string ability = normalizedAbility(piece.ability);
+    if (ability == "silence")
+    {
+        const int targets = static_cast<int>(std::count_if(pieces.begin(), pieces.end(),
+            [&](const Piece& target) { return target.owner != piece.owner && target.health > 0 &&
+                (!target.ability.empty() || !target.sacrifice.empty()) &&
+                target.silencedTurnsRemaining < normalizedSilenceTurns(piece.silenceTurns); }));
+        return targets > 0 ? 200 * targets : -10000;
+    }
     if (ability == "area heal")
     {
         const int recovered = static_cast<int>(std::count_if(pieces.begin(), pieces.end(),

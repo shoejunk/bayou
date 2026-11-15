@@ -458,6 +458,7 @@ private:
         bool supportsSlowSnapshots = false;
         bool supportsChrysalisSnapshots = false;
     bool supportsAreaHealSnapshots = false;
+    bool supportsSilenceSnapshots = false;
     };
 
     class Session
@@ -752,7 +753,7 @@ private:
             ready << static_cast<std::uint8_t>(network::MessageType::ConquestBattleReady)
                   << true << data.battleId << connection.playerNumber
                   << std::string("Conquest battle ready") << game_data::CommandRestrictionSnapshotCapability
-                  << game_data::SlowSnapshotCapability << game_data::ChrysalisSnapshotCapability << game_data::AreaHealSnapshotCapability;
+                  << game_data::SlowSnapshotCapability << game_data::ChrysalisSnapshotCapability << game_data::AreaHealSnapshotCapability << game_data::SilenceSnapshotCapability;
             if (connection.socket->send(ready, ClientSendTimeout) !=
                 sf::Socket::Status::Done)
             {
@@ -798,7 +799,7 @@ private:
                 }
                 const auto type = static_cast<network::MessageType>(rawType);
                 if (type == network::MessageType::EnableCommandRestrictionSnapshots &&
-                    game_data::readSlowSnapshotOptIn(packet, connection.supportsSlowSnapshots, &connection.supportsChrysalisSnapshots, &connection.supportsAreaHealSnapshots))
+                    game_data::readSlowSnapshotOptIn(packet, connection.supportsSlowSnapshots, &connection.supportsChrysalisSnapshots, &connection.supportsAreaHealSnapshots, &connection.supportsSilenceSnapshots))
                 {
                     connection.supportsCommandRestrictionSnapshots = true;
                     sf::Packet acknowledged;
@@ -1004,7 +1005,7 @@ private:
                 snapshot.status = statusOverride;
             }
             game_data::writeSnapshot(packet, snapshot, true, true, connection.supportsTransformSnapshots,
-                                     connection.supportsCommandRestrictionSnapshots, connection.supportsSlowSnapshots, connection.supportsChrysalisSnapshots, connection.supportsAreaHealSnapshots);
+                                     connection.supportsCommandRestrictionSnapshots, connection.supportsSlowSnapshots, connection.supportsChrysalisSnapshots, connection.supportsAreaHealSnapshots, connection.supportsSilenceSnapshots);
             if (connection.socket->send(packet, ClientSendTimeout) !=
                 sf::Socket::Status::Done)
             {

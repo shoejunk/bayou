@@ -794,6 +794,9 @@ struct Piece
     int silenceTurns = 1;
     int silenceTurnsRemaining = 0;
     int silenceExpiryPlayer = 0; // activating player; ownership changes do not change the clock
+    // Negative Silence status, independent of a caster-bound Silence Field.
+    int silencedTurnsRemaining = 0;
+    int silencedExpiryPlayer = 0; // affected enemy-player turn-end clock
     // View-only facts include effects of concealed sources without revealing them.
     bool abilitySilenced = false;
     bool healingBlocked = false;
@@ -892,6 +895,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.silenceTurns = normalizedSilenceTurns(card.silenceTurns);
     piece.silenceTurnsRemaining = 0;
     piece.silenceExpiryPlayer = 0;
+    piece.silencedTurnsRemaining = piece.silencedExpiryPlayer = 0;
     piece.abilitySilenced = false;
     piece.healingBlocked = false;
     piece.power = std::max(0, card.power);
@@ -1127,16 +1131,18 @@ constexpr std::uint32_t TransformSnapshotCapability = 0x54524631;
 constexpr std::uint32_t CommandRestrictionSnapshotCapability = 0x434d4431; // CMD1
 constexpr std::uint32_t SlowSnapshotCapability = 0x534c5731; // SLW1
 constexpr std::uint32_t AreaHealSnapshotCapability = 0x48454131; // HEA1
+constexpr std::uint32_t SilenceSnapshotCapability = 0x53494c31; // SIL1
 constexpr std::uint32_t ChrysalisSnapshotCapability = 0x43485231; // CHR1
 
 // Ready responses can advertise extensions without changing the join requests
 // that older servers parse strictly. An absent advertisement uses the legacy format.
-inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr, bool* areaHeal = nullptr)
+inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr)
 {
     std::uint32_t marker = 0;
     if (slow) *slow = false;
     if (chrysalis) *chrysalis = false;
     if (areaHeal) *areaHeal = false;
+    if (silence) *silence = false;
     if (ready.endOfPacket() || !(ready >> marker) || marker != CommandRestrictionSnapshotCapability)
         return false;
     if (slow && !ready.endOfPacket())
@@ -1145,15 +1151,18 @@ inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nu
         *chrysalis = (ready >> marker) && marker == ChrysalisSnapshotCapability;
     if (areaHeal && chrysalis && *chrysalis && !ready.endOfPacket())
         *areaHeal = (ready >> marker) && marker == AreaHealSnapshotCapability;
+    if (silence && areaHeal && *areaHeal && !ready.endOfPacket())
+        *silence = (ready >> marker) && marker == SilenceSnapshotCapability;
     return true;
 }
 
 // Older clients opt in to CMD1 with an empty payload.
-inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr, bool* areaHeal = nullptr)
+inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr)
 {
     slow = false;
     if (chrysalis) *chrysalis = false;
     if (areaHeal) *areaHeal = false;
+    if (silence) *silence = false;
     if (packet.endOfPacket()) return true;
     std::uint32_t marker = 0;
     slow = (packet >> marker) && marker == SlowSnapshotCapability;
@@ -1164,8 +1173,12 @@ inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysali
     if (!*chrysalis) return false;
     if (packet.endOfPacket()) return true;
     if (!areaHeal) return false;
-    *areaHeal = (packet >> marker) && marker == AreaHealSnapshotCapability && packet.endOfPacket();
-    return *areaHeal;
+    *areaHeal = (packet >> marker) && marker == AreaHealSnapshotCapability;
+    if (!*areaHeal) return false;
+    if (packet.endOfPacket()) return true;
+    if (!silence) return false;
+    *silence = (packet >> marker) && marker == SilenceSnapshotCapability && packet.endOfPacket();
+    return *silence;
 }
 
 template <typename T>
@@ -1263,6 +1276,19 @@ inline bool readPieceAuraFields(sf::Packet& packet, Piece& piece)
     piece.silenceRange = normalizedSilenceRange(piece.silenceRange);
     piece.silenceTurns = normalizedSilenceTurns(piece.silenceTurns);
     return true;
+}
+
+inline void writeSilenceFields(sf::Packet& packet, const Piece& piece)
+{
+    packet << piece.silencedTurnsRemaining << piece.silencedExpiryPlayer;
+}
+
+inline bool readSilenceFields(sf::Packet& packet, Piece& piece)
+{
+    return (packet >> piece.silencedTurnsRemaining >> piece.silencedExpiryPlayer) &&
+        piece.silencedTurnsRemaining >= 0 && piece.silencedExpiryPlayer >= 0 &&
+        piece.silencedExpiryPlayer <= 2 &&
+        ((piece.silencedTurnsRemaining == 0) == (piece.silencedExpiryPlayer == 0));
 }
 
 inline void writeTransformFields(sf::Packet& packet, const GameCard& card)
@@ -1463,6 +1489,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields =
         writeSlowFields(packet, piece);
         packet << piece.chrysalisUsed;
         writeAreaHealFields(packet, piece);
+        writeSilenceFields(packet, piece);
     }
 }
 
@@ -1523,6 +1550,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
     piece.shriekDamage = 0;
     piece.silenceRange = piece.silenceTurns = 1;
     piece.silenceTurnsRemaining = piece.silenceExpiryPlayer = 0;
+    piece.silencedTurnsRemaining = piece.silencedExpiryPlayer = 0;
     piece.abilitySilenced = piece.healingBlocked = false;
     if (!packet || !card_data::readStringVector(packet, piece.abilityLabels)) return false;
     if (!auraFields || packet.endOfPacket()) return true;
@@ -1537,7 +1565,9 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
     if (!readSlowFields(packet, piece)) return false;
     if (packet.endOfPacket()) return true;
     if (!(packet >> piece.chrysalisUsed)) return false;
-    return packet.endOfPacket() || readAreaHealFields(packet, piece);
+    if (packet.endOfPacket()) return true;
+    if (!readAreaHealFields(packet, piece)) return false;
+    return packet.endOfPacket() || (readSilenceFields(packet, piece) && packet.endOfPacket());
 }
 
 inline void writeEnchantment(sf::Packet& packet, const Enchantment& enchantment)
@@ -1577,7 +1607,7 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 // Writes a complete snapshot payload (without the leading message-type byte).
 inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool auraFields = true,
                           bool shriekFields = true, bool transformFields = true, bool commandFields = true,
-                          bool slowFields = true, bool chrysalisFields = true, bool areaHealFields = true)
+                          bool slowFields = true, bool chrysalisFields = true, bool areaHealFields = true, bool silenceFields = true)
 {
     packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner
            << snapshot.commandingPieceId << snapshot.relentlessPieceId
@@ -1693,6 +1723,10 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
                                 for (const auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
                                         &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
                                     for (const GameCard& card : *zone) writeAreaHealFields(packet, card);
+                                if (silenceFields) {
+                                    packet << SilenceSnapshotCapability;
+                                    for (const Piece& piece : snapshot.pieces) writeSilenceFields(packet, piece);
+                                }
                             }
                         }
                     }
@@ -1910,6 +1944,9 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot, bool auraFields
     for (auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
                        &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
         for (GameCard& card : *zone) if (!readAreaHealFields(packet, card)) return false;
+    if (packet.endOfPacket()) return true;
+    if (!(packet >> marker) || marker != SilenceSnapshotCapability) return false;
+    for (Piece& piece : snapshot.pieces) if (!readSilenceFields(packet, piece)) return false;
     return packet.endOfPacket();
 }
 }

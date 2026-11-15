@@ -8443,6 +8443,10 @@ int main(int argc, char** argv)
         {
             game_data::applyAreaHeal(next.pieces, *piece);
         }
+        else if (ability == "silence")
+        {
+            game_data::applySilence(next.pieces, *piece);
+        }
         else if (ability == "silence field")
         {
             game_data::activateSilenceField(*piece, pieceOwner);
@@ -8525,6 +8529,7 @@ int main(int argc, char** argv)
         }
         game_data::applyHealingAuras(next.pieces, endingPlayer);
         game_data::applyRevealKeywords(next.pieces, endingPlayer);
+        game_data::updateSilenceAtTurnEnd(next.pieces, endingPlayer);
 
         next.activePlayer = endingPlayer == 1 ? 2 : 1;
         const int startingPlayer = next.activePlayer;

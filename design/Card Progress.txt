@@ -9,9 +9,9 @@ more work to do:
 Father Grub: Chrysalis code committed/pushed and live card keyword verified 2026-11-15; production runtime deployment and live gameplay verification still pending.
 
 The Weaver: area heal code verified (992 offline checks; Debug client/server/test builds) and live Repair the Pattern fields verified 2026-11-15; production runtime deployment and live gameplay verification still pending.
-The Choir: planned Silence on enemy units for 4 enemy turns; implementation and live card update pending.
+The Choir: Silence negative status implemented and verified (1058 offline checks; Debug client/server/test builds); live Dissonant Chorus ability and silenceTurns=4 verified 2026-11-15 22:33 UTC. Current enemy units only; counts enemy turn ends; passives preserved. Production runtime deployment and live gameplay verification still pending.
 
-Next to work on: The Choir
+Next to work on: Hushkeeper
 
 PieceBaseBlue characters/bases/piece-base-blue.png
 PieceBaseRed characters/bases/piece-base-red.png

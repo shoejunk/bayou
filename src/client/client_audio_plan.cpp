@@ -24,7 +24,7 @@ std::vector<Layer> abilityRecipe(std::string_view value)
     if (name == "dematerialize" || name == "swap") return {{"teleport"}};
     if (name == "summon") return {{"teleport"}, {"power", .25f}};
     if (name == "shriek") return {{"shriek"}};
-    if (name == "silence field") return {{"steam"}, {"magic_dark", .25f}};
+    if (name == "silence field" || name == "silence") return {{"steam"}, {"magic_dark", .25f}};
     if (name == "raise undead") return {{"death", .5f}, {"heal", .4f}, {"teleport", .3f}};
     return {{"power"}};
 }
@@ -64,10 +64,10 @@ bool changed(const Piece& a, const Piece& b)
 {
     return std::tie(a.row,a.column,a.health,a.disabledTurns,a.actionState,a.hasActed,a.owner,
         a.slowTurnsRemaining,a.controlTurnsRemaining,a.power,a.abilityUses,a.hidden,a.infestationTitle,a.sacrificePending,
-        a.silenceTurnsRemaining,a.abilitySilenced,a.healingBlocked,a.repeatActionUses,a.growTurnsRemaining)
+        a.silenceTurnsRemaining,a.silencedTurnsRemaining,a.abilitySilenced,a.healingBlocked,a.repeatActionUses,a.growTurnsRemaining)
         != std::tie(b.row,b.column,b.health,b.disabledTurns,b.actionState,b.hasActed,b.owner,
         b.slowTurnsRemaining,b.controlTurnsRemaining,b.power,b.abilityUses,b.hidden,b.infestationTitle,b.sacrificePending,
-        b.silenceTurnsRemaining,b.abilitySilenced,b.healingBlocked,b.repeatActionUses,b.growTurnsRemaining);
+        b.silenceTurnsRemaining,b.silencedTurnsRemaining,b.abilitySilenced,b.healingBlocked,b.repeatActionUses,b.growTurnsRemaining);
 }
 bool moved(const Piece& a, const Piece& b) { return a.row != b.row || a.column != b.column; }
 bool outcomeChanged(const Piece& a, const Piece* b)

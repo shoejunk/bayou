@@ -599,6 +599,38 @@ inline bool pieceIsSilenced(const std::vector<Piece>& pieces, const Piece& targe
     });
 }
 
+// Silence is a removable negative status, not the source-bound Silence Field aura.
+inline void clearSilence(Piece& target)
+{
+    target.silencedTurnsRemaining = 0;
+    target.silencedExpiryPlayer = 0;
+}
+
+inline bool pieceActivatedAbilitiesSilenced(const std::vector<Piece>& pieces, const Piece& target)
+{
+    return target.silencedTurnsRemaining > 0 || pieceIsSilenced(pieces, target);
+}
+
+inline void applySilence(std::vector<Piece>& pieces, const Piece& source)
+{
+    const int duration = normalizedSilenceTurns(source.silenceTurns);
+    for (Piece& target : pieces)
+    {
+        if (target.health <= 0 || target.owner == source.owner) continue;
+        // Refresh, never add durations or shorten a stronger existing status.
+        target.silencedTurnsRemaining = std::max(target.silencedTurnsRemaining, duration);
+        target.silencedExpiryPlayer = target.owner;
+    }
+}
+
+// Tick after a full affected-enemy turn, independently of the caster and actions.
+inline void updateSilenceAtTurnEnd(std::vector<Piece>& pieces, int playerNumber)
+{
+    for (Piece& target : pieces)
+        if (target.silencedExpiryPlayer == playerNumber && target.silencedTurnsRemaining > 0)
+            if (--target.silencedTurnsRemaining == 0) clearSilence(target);
+}
+
 // The shared gate covers action, spell, aura and Lifedrain healing. Healing is
 // never resurrection; status handling is independent of whether Health rises.
 inline void applyActionHealing(const std::vector<Piece>& pieces, Piece& target, int heal, int statusTurns)
@@ -647,7 +679,7 @@ inline void refreshAuraIndicators(std::vector<Piece>& pieces)
     std::vector<std::pair<bool, bool>> indicators;
     indicators.reserve(pieces.size());
     for (const Piece& piece : pieces)
-        indicators.emplace_back(pieceIsSilenced(pieces, piece), pieceHealingBlocked(pieces, piece));
+        indicators.emplace_back(pieceActivatedAbilitiesSilenced(pieces, piece), pieceHealingBlocked(pieces, piece));
     for (std::size_t i = 0; i < pieces.size(); ++i)
     {
         pieces[i].abilitySilenced = indicators[i].first;
@@ -1240,6 +1272,7 @@ inline std::string pieceAbilityLabel(const Piece& piece, bool sacrifice = false)
     }
     if (ability == "area heal") return prefix + "Area Heal";
     if (ability == "shriek") return prefix + "Shriek";
+    if (ability == "silence") return prefix + "Silence";
     if (ability == "silence field") return prefix + "Silence Field";
     if (ability == "dig")
     {
@@ -1878,12 +1911,12 @@ inline bool pieceAbilityAvailable(const Piece& piece, bool sacrifice = false)
     }
     return ability == "transform" || ability == "dematerialize" || ability == "command" ||
         ability == "raise undead" || ability == "swap" || ability == "power boost" ||
-        ability == "silence field" || ability == "shriek" || ability == "area heal";
+        ability == "silence field" || ability == "silence" || ability == "shriek" || ability == "area heal";
 }
 
 inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece& piece, bool sacrifice = false)
 {
-    if (!pieceAbilityAvailable(piece, sacrifice) || pieceIsSilenced(pieces, piece))
+    if (!pieceAbilityAvailable(piece, sacrifice) || pieceActivatedAbilitiesSilenced(pieces, piece))
     {
         return false;
     }
@@ -1960,6 +1993,8 @@ inline void advanceTimedTransformations(std::vector<Piece>& pieces, int playerNu
         replacement.raisedFromGraveyard = piece.raisedFromGraveyard;
         replacement.silenceTurnsRemaining = piece.silenceTurnsRemaining;
         replacement.silenceExpiryPlayer = piece.silenceExpiryPlayer;
+        replacement.silencedTurnsRemaining = piece.silencedTurnsRemaining;
+        replacement.silencedExpiryPlayer = piece.silencedExpiryPlayer;
         replacement.actionState = 0;
         replacement.hidden = false;
         replacement.repeatActionIndex = -1;

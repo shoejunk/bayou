@@ -362,6 +362,7 @@
             label = labels[static_cast<std::size_t>(
                 std::max(0, state) % static_cast<int>(labels.size()))];
         }
+        else if (ability == "silence") label = "Silence";
         else if (ability == "shriek") label = "Shriek";
         else if (ability == "dig") label = "Dig";
         else if (ability == "summon") label = "Summon";
@@ -388,6 +389,11 @@
             }
             rule = "creates " + source.summonTitle +
                 " in the square directly in front (right for Player 1, left for Player 2); the new Unit cannot act until its owner's next turn. If an opposing hidden piece is there, Summon instead spends this action, creates no Unit, and materializes that piece Disabled for its next owner-turn activation";
+        }
+        else if (ability == "silence")
+        {
+            rule = "applies removable negative Silence to all living enemies currently on the board for " +
+                std::to_string(source.silenceTurns) + " affected-enemy turns; blocks activated abilities only, not attacks, movement or passives. Later entrants are unaffected";
         }
         else if (ability == "shriek")
         {
@@ -577,6 +583,11 @@
         {
             descriptions.push_back({"Disabled: " + std::to_string(piece.disabledTurns) + " turns",
                                     sf::Color(225, 130, 110)});
+        }
+        if (piece.silencedTurnsRemaining > 0)
+        {
+            descriptions.push_back({"Silence (negative): " + std::to_string(piece.silencedTurnsRemaining) +
+                " affected-enemy turn(s) remaining - activated abilities only", sf::Color(225, 130, 110)});
         }
         if (piece.slowTurnsRemaining > 0)
         {

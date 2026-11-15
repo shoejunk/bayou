@@ -1474,13 +1474,15 @@ ServerResult joinGameServer(
     bool supportsSlow = false;
     bool supportsChrysalis = false;
     bool supportsAreaHeal = false;
-    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow, &supportsChrysalis, &supportsAreaHeal))
+    bool supportsSilence = false;
+    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow, &supportsChrysalis, &supportsAreaHeal, &supportsSilence))
     {
         sf::Packet optIn;
         optIn << static_cast<std::uint8_t>(network::MessageType::EnableCommandRestrictionSnapshots);
         if (supportsSlow) optIn << game_data::SlowSnapshotCapability;
         if (supportsChrysalis) optIn << game_data::ChrysalisSnapshotCapability;
         if (supportsAreaHeal) optIn << game_data::AreaHealSnapshotCapability;
+        if (supportsSilence) optIn << game_data::SilenceSnapshotCapability;
         if (socket->send(optIn) != sf::Socket::Status::Done)
             return {false, "Could not negotiate game snapshots"};
     }

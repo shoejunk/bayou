@@ -516,6 +516,11 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
                 }
                 abilityText += ". Cannot exceed maximum Health; healing prevention applies";
             }
+            else if (ability == "silence")
+            {
+                abilityText = "Ability: Silence. All current enemy units lose activated abilities for " +
+                    std::to_string(gameCard.silenceTurns) + " enemy turn(s). A removable negative status; movement, attacks and passives are unaffected";
+            }
             else if (ability == "silence field")
             {
                 abilityText = "Ability: Silence Field. Other units within " + std::to_string(gameCard.silenceRange) +

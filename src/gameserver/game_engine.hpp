@@ -927,7 +927,7 @@ private:
                 blocker->owner != playerNumber;
         }
         if (piece == nullptr || piece->owner != playerNumber || piece->hasActed ||
-            pieceIsSilenced(pieces, *piece) ||
+            pieceActivatedAbilitiesSilenced(pieces, *piece) ||
             (!pieceAbilityAvailable(pieces, *piece, sacrifice) && !hiddenSummonCollision))
         {
             return false;
@@ -1030,6 +1030,10 @@ private:
         else if (ability == "area heal")
         {
             applyAreaHeal(pieces, *piece);
+        }
+        else if (ability == "silence")
+        {
+            applySilence(pieces, *piece);
         }
         else if (ability == "silence field")
         {
@@ -1374,7 +1378,7 @@ public:
                 // concealed from this viewer. The authoritative piece keeps its
                 // permanent Power so movement/death cannot accumulate Swarm.
                 snapshot.pieces.back().power = effectivePiecePower(pieces, piece);
-                snapshot.pieces.back().abilitySilenced = pieceIsSilenced(pieces, piece);
+                snapshot.pieces.back().abilitySilenced = pieceActivatedAbilitiesSilenced(pieces, piece);
                 snapshot.pieces.back().healingBlocked = pieceHealingBlocked(pieces, piece);
             }
         }
@@ -2627,6 +2631,7 @@ private:
         }
         applyHealingAuras(pieces, playerNumber);
         applyRevealKeywords(pieces, playerNumber);
+        updateSilenceAtTurnEnd(pieces, playerNumber);
     }
 
     bool resolveSpell(int playerNumber, const GameCard& card, int targetRow, int targetColumn)
