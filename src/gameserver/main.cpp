@@ -75,6 +75,7 @@ struct JoinedPlayer
     bool supportsTransformSnapshots = false;
     bool supportsCommandRestrictionSnapshots = false;
     bool supportsSlowSnapshots = false;
+    bool supportsChrysalisSnapshots = false;
 };
 
 struct MatchResult
@@ -884,7 +885,7 @@ private:
         response << static_cast<uint8_t>(MessageType::GameReady);
         response << matchId;
         response << playerNumber;
-        response << std::string("Game ready") << CommandRestrictionSnapshotCapability << SlowSnapshotCapability;
+        response << std::string("Game ready") << CommandRestrictionSnapshotCapability << SlowSnapshotCapability << ChrysalisSnapshotCapability;
         [[maybe_unused]] auto result = client.send(response);
     }
 
@@ -906,7 +907,7 @@ private:
         packet >> msgType;
         if (packet && static_cast<MessageType>(msgType) == MessageType::EnableCommandRestrictionSnapshots)
         {
-            if (!readSlowSnapshotOptIn(packet, player.supportsSlowSnapshots)) return false;
+            if (!readSlowSnapshotOptIn(packet, player.supportsSlowSnapshots, &player.supportsChrysalisSnapshots)) return false;
             player.supportsCommandRestrictionSnapshots = true;
             packet.clear();
             if (player.socket->receive(packet) != sf::Socket::Status::Done) return false;
@@ -1041,7 +1042,7 @@ private:
         sf::Packet packet;
         packet << static_cast<uint8_t>(MessageType::GameStateUpdate);
         writeSnapshot(packet, engine.snapshotFor(player.playerNumber), true, player.supportsShriekSnapshots,
-                      player.supportsTransformSnapshots, player.supportsCommandRestrictionSnapshots, player.supportsSlowSnapshots);
+                      player.supportsTransformSnapshots, player.supportsCommandRestrictionSnapshots, player.supportsSlowSnapshots, player.supportsChrysalisSnapshots);
         [[maybe_unused]] auto result = player.socket->send(packet);
     }
 

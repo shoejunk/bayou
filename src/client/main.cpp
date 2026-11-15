@@ -5156,6 +5156,7 @@ int main(int argc, char** argv)
     std::function<void(game_data::Snapshot&)> resolveSandboxSacrifices;
     auto commitSandboxSnapshot = [&](game_data::Snapshot nextSnapshot) {
         if (resolveSandboxSacrifices) resolveSandboxSacrifices(nextSnapshot);
+        game_data::crushOccupiedHusks(nextSnapshot.pieces, nextSnapshot.husks, nextSnapshot.graveyard, nextSnapshot.exiled);
         game_data::refreshAuraIndicators(nextSnapshot.pieces);
         recomputeSandboxControl(nextSnapshot);
         refreshSandboxPlayerSnapshots(nextSnapshot);
@@ -7936,6 +7937,9 @@ int main(int argc, char** argv)
 
         const int attackerId = piece->id;
         const int attackerOwner = piece->owner;
+        const auto onDisplacement = [&]() {
+            game_data::crushOccupiedHusks(next.pieces, next.husks, next.graveyard, next.exiled);
+        };
         const int originRow = piece->row;
         const int originColumn = piece->column;
         const std::string attackerName = piece->name;
@@ -8006,7 +8010,7 @@ int main(int argc, char** argv)
                             action.stagingRow,
                             action.stagingColumn,
                             sandboxDamageRandomEngine,
-                            action.lifedrain, action.kind, action.slow);
+                            action.lifedrain, action.kind, action.slow, onDisplacement);
                     const game_data::DamageResolution& damageResolution = attackResolution.attack;
                     retaliationDamage.insert(retaliationDamage.end(),
                         attackResolution.counterstrike.begin(), attackResolution.counterstrike.end());
@@ -8050,7 +8054,7 @@ int main(int argc, char** argv)
                         action.stagingRow,
                         action.stagingColumn,
                         action.push,
-                        attackerPower);
+                        attackerPower, onDisplacement);
                     if (action.lifedrain)
                     {
                         game_data::applyActionLifedrain(next.pieces, attackerId, pushResult.collisionDamage,
@@ -8074,7 +8078,7 @@ int main(int argc, char** argv)
                         const game_data::PullResult pullResult = game_data::applyActionPull(
                             next.pieces,
                             effectiveTargetId,
-                            attackerId);
+                            attackerId, onDisplacement);
                         pulledSquares += pullResult.movedSquares;
                         rememberRevealedPieces(pullResult.revealedPieceIds);
                     }
@@ -8520,6 +8524,7 @@ int main(int argc, char** argv)
 
         next.activePlayer = endingPlayer == 1 ? 2 : 1;
         const int startingPlayer = next.activePlayer;
+        game_data::resolveHusksAtTurnStart(next.pieces, next.husks, next.graveyard, next.exiled, nextSandboxPieceId, startingPlayer);
         game_data::updateSilenceFieldsAtTurnStart(next.pieces, startingPlayer);
         game_data::updatePieceControlAtTurnStart(next.pieces, startingPlayer);
         for (game_data::Piece& piece : next.pieces)
@@ -14449,6 +14454,20 @@ int main(int argc, char** argv)
                     gameHandCardX(3, VisibleGameHandCards) + 24.0f,
                     HandY + 46.0f};
             }
+        }
+        else if (screen == "game-chrysalis")
+        {
+            seedCaptureMatch("midgame");
+            game_data::GameCard grub;
+            grub.title = "Father Grub";
+            grub.type = "Unit";
+            grub.health = 4;
+            grub.imagePath = "cards/fatherGrub.png";
+            grub.tokenPath = "characters/fatherGrub.png";
+            grub.keywords = {"Chrysalis"};
+            grub.chrysalisUsed = true;
+            gameSnapshot.husks = {{1, 3, 3, grub}, {2, 4, 4, grub}};
+            gameSnapshot.status = "Chrysalis: enemy occupation crushes a Husk; otherwise return next turn at 1 Health.";
         }
         else if (screen == "game-power-boost" || screen == "game-power-boost-sacrifice" ||
                  screen == "game-power-boost-detail")

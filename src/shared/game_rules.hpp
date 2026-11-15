@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <random>
 #include <string>
 #include <utility>
@@ -1317,7 +1318,8 @@ struct PullResult
 inline PullResult applyActionPull(
     std::vector<Piece>& pieces,
     int targetId,
-    int attackerId)
+    int attackerId,
+    const std::function<void()>& onDisplacement = {})
 {
     PullResult result;
     const auto attackerIt = std::find_if(
@@ -1374,6 +1376,7 @@ inline PullResult applyActionPull(
         }
         target.row = nextRow;
         target.column = nextColumn;
+        if (onDisplacement) onDisplacement();
         ++result.movedSquares;
     }
     return result;
@@ -1447,7 +1450,8 @@ inline PushResult applyActionPush(
     int stagingRow,
     int stagingColumn,
     int distance,
-    int sourcePower = 0)
+    int sourcePower = 0,
+    const std::function<void()>& onDisplacement = {})
 {
     PushResult result;
     const int requestedSquares = std::max(0, distance);
@@ -1504,6 +1508,7 @@ inline PushResult applyActionPush(
         }
         target.row = nextRow;
         target.column = nextColumn;
+        if (onDisplacement) onDisplacement();
         ++result.movedSquares;
     }
 
@@ -1543,7 +1548,8 @@ inline DamageResolution resolveDamageWithBodyguardsAndIntercepts(
     int damage,
     int statusTurns,
     RandomEngine& randomEngine,
-    bool allowIntercept)
+    bool allowIntercept,
+    const std::function<void()>& onDisplacement = {})
 {
     DamageResolution result;
     result.effectiveTargetId = targetId;
@@ -1626,6 +1632,7 @@ inline DamageResolution resolveDamageWithBodyguardsAndIntercepts(
                     targetIt->column = interceptor->column;
                     interceptor->row = targetRow;
                     interceptor->column = targetColumn;
+                    if (onDisplacement) onDisplacement();
                     interceptor->interceptUsedThisTurn = true;
                     result.effectiveTargetId = interceptor->id;
                     result.intercepted = true;
@@ -1750,11 +1757,12 @@ inline PieceAttackDamageResolution resolvePieceAttackDamage(
     RandomEngine& randomEngine,
     bool lifedrain = false,
     ActionKind attackKind = ActionKind::Slide,
-    int slow = 0)
+    int slow = 0,
+    const std::function<void()>& onDisplacement = {})
 {
     PieceAttackDamageResolution result;
     result.attack = resolveDamageWithBodyguardsAndIntercepts(
-        pieces, targetId, damage, statusTurns, randomEngine, true);
+        pieces, targetId, damage, statusTurns, randomEngine, true, onDisplacement);
     // Heal from each actual damage assignment before Counterstrike, including
     // redirected damage. Retaliation itself never grants Lifedrain healing.
     if (lifedrain)
@@ -1931,6 +1939,7 @@ inline void advanceTimedTransformations(std::vector<Piece>& pieces, int playerNu
 
         // Keep identity, ownership, attachments and ongoing status effects.
         // The new form starts with its printed health, actions and timer.
+        replacement.chrysalisUsed = piece.chrysalisUsed;
         replacement.raisedFromGraveyard = piece.raisedFromGraveyard;
         replacement.silenceTurnsRemaining = piece.silenceTurnsRemaining;
         replacement.silenceExpiryPlayer = piece.silenceExpiryPlayer;
@@ -1940,6 +1949,64 @@ inline void advanceTimedTransformations(std::vector<Piece>& pieces, int playerNu
         replacement.repeatActionState = replacement.repeatActionUses = 0;
         replacement.hasActed = piece.hasActed || replacement.growTurnsRemaining > 0;
         piece = std::move(replacement);
+    }
+}
+
+// Chrysalis markers never occupy board squares. A hostile occupant crushes a
+// marker permanently, including attack landings and forced movement.
+inline bool huskOverlapsPiece(const PendingHusk& husk, const Piece& piece)
+{
+    return piece.health > 0 && piece.row < husk.row + husk.card.height &&
+        piece.row + piece.height > husk.row && piece.column < husk.column + husk.card.width &&
+        piece.column + piece.width > husk.column;
+}
+
+inline void discardHuskCard(const PendingHusk& husk,
+                            std::vector<GameCard>& graveyard, std::vector<GameCard>& exiled)
+{
+    (husk.card.raisedFromGraveyard ? exiled : graveyard).push_back(husk.card);
+}
+
+inline void crushOccupiedHusks(const std::vector<Piece>& pieces, std::vector<PendingHusk>& husks,
+                               std::vector<GameCard>& graveyard, std::vector<GameCard>& exiled)
+{
+    for (auto it = husks.begin(); it != husks.end();)
+    {
+        const bool crushed = std::any_of(pieces.begin(), pieces.end(), [&](const Piece& piece) {
+            return piece.owner != it->owner && huskOverlapsPiece(*it, piece);
+        });
+        if (crushed)
+        {
+            discardHuskCard(*it, graveyard, exiled);
+            it = husks.erase(it);
+        }
+        else ++it;
+    }
+}
+
+inline void resolveHusksAtTurnStart(std::vector<Piece>& pieces, std::vector<PendingHusk>& husks,
+                                   std::vector<GameCard>& graveyard, std::vector<GameCard>& exiled,
+                                   int& nextPieceId, int playerNumber)
+{
+    crushOccupiedHusks(pieces, husks, graveyard, exiled);
+    for (auto it = husks.begin(); it != husks.end();)
+    {
+        if (it->owner != playerNumber) { ++it; continue; }
+        if (cardFootprintFree(pieces, it->card, it->row, it->column))
+        {
+            Piece returned;
+            returned.id = nextPieceId++;
+            returned.owner = it->owner;
+            returned.row = it->row;
+            returned.column = it->column;
+            populatePieceFromCard(returned, it->card, false);
+            returned.health = 1;
+            returned.chrysalisUsed = true;
+            returned.hasActed = false;
+            pieces.push_back(std::move(returned));
+        }
+        else discardHuskCard(*it, graveyard, exiled); // one chance, not an indefinite retry
+        it = husks.erase(it);
     }
 }
 

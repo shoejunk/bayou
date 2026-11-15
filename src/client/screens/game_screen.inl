@@ -305,6 +305,12 @@
                 "Intercept: when a positive-damage enemy piece attack targets an adjacent friendly piece, this piece automatically swaps in and takes that attack if it has not intercepted since its last owner-turn start. If several legal Interceptors qualify, one is chosen uniformly at random. Both full footprints must exchange legally; otherwise the original target is hit. Acting, Disable, Sleep, and Growth do not prevent Intercept. It cannot protect a Bodyguard or another Intercept, and zero-damage attacks and spells do not trigger it.",
                 keywordColor});
         }
+        if (game_data::hasKeyword(keywords, "chrysalis"))
+        {
+            descriptions.push_back({
+                "Chrysalis: once per card per game, defeat leaves a nonblocking Husk. Enemy occupation crushes it. At your next turn, return with 1 Health only if its footprint is empty. Replacement, exile and Evacuate rules resolve first.",
+                sf::Color(190, 214, 154)});
+        }
         if (game_data::hasKeyword(keywords, "evacuate"))
         {
             descriptions.push_back({
@@ -603,6 +609,8 @@
             descriptions, piece.tax, piece.gatherResources, piece.healingAura, game_data::damageWithPower(piece.counterstrike, power),
             piece.canControl, piece.growTurnsRemaining, piece.rebirthTitle,
             piece.transformTurnsRemaining, piece.transformInto);
+        if (game_data::hasKeyword(piece.keywords, "chrysalis") && piece.chrysalisUsed)
+            descriptions.push_back({"Chrysalis: already used this game.", sf::Color(190, 198, 214)});
         for (const game_data::Enchantment& enchantment : gameSnapshot.enchantments)
         {
             if (enchantment.target == static_cast<std::uint8_t>(game_data::EnchantmentTarget::Piece) &&
@@ -2855,6 +2863,22 @@
             color.a = static_cast<std::uint8_t>(std::clamp(255.0f * (1.0f - progress), 0.0f, 255.0f));
             drawText(window, font, effect->text, 20, position, color, 120.0f);
             ++effect;
+        }
+
+        // Chrysalis is a passive: a visible marker, never a draggable unit or button.
+        for (const game_data::PendingHusk& husk : boardSnapshot.husks)
+        {
+            const sf::Vector2f anchor = boardFootprintAnchor(
+                husk.row, husk.column, husk.card.width, husk.card.height, boardSnapshot.yourPlayer);
+            sf::CircleShape shell(14.0f);
+            shell.setScale({0.75f, 1.0f});
+            shell.setPosition({anchor.x - 10.5f, anchor.y - 18.0f});
+            shell.setFillColor(sf::Color(99, 111, 56, 235));
+            shell.setOutlineThickness(2.0f);
+            shell.setOutlineColor(husk.owner == boardSnapshot.yourPlayer
+                ? sf::Color(133, 202, 235) : sf::Color(235, 133, 133));
+            window.draw(shell);
+            drawText(window, font, "Husk", 12, {anchor.x - 16.0f, anchor.y + 10.0f}, sf::Color(229, 231, 177));
         }
 
         // Persistent attachments remain visible on their board targets.

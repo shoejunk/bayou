@@ -486,6 +486,7 @@ struct GameCard
     // Raise Undead creates a one-health, zero-cost copy. Preserve that origin
     // through hand/deck movement so its next death goes to exile instead of
     // returning to the graveyard.
+    bool chrysalisUsed = false; // persists with this card copy for the match
     bool raisedFromGraveyard = false;
 };
 
@@ -819,6 +820,7 @@ struct Piece
     bool isHero = false;
     bool hasActed = false;
     bool interceptUsedThisTurn = false;
+    bool chrysalisUsed = false; // persists with this card copy for the match
     bool raisedFromGraveyard = false;
 };
 
@@ -898,6 +900,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.rebirthTitle = card.rebirthTitle;
     piece.abilityLabels = card.abilityLabels;
     piece.abilityUses = card.abilityUses;
+    piece.chrysalisUsed = card.chrysalisUsed;
     piece.raisedFromGraveyard = card.raisedFromGraveyard;
     piece.isHero = isHero;
 }
@@ -1064,6 +1067,15 @@ struct PlayerSnapshot
     std::int64_t clockRemainingMs = 0;
 };
 
+// A nonblocking, public marker. Its card is held here, not in a playable zone.
+struct PendingHusk
+{
+    int owner = 0;
+    int row = 0;
+    int column = 0;
+    GameCard card;
+};
+
 // The full view of the game tailored to one recipient (their hand is included,
 // the opponent's hand is conveyed only as a count).
 struct Snapshot
@@ -1080,6 +1092,7 @@ struct Snapshot
     std::array<std::uint8_t, BoardSquares> control{};  // 0 neutral, 1, 2
     std::array<std::uint8_t, BoardSquares> holes{};
     std::vector<Piece> pieces;
+    std::vector<PendingHusk> husks;
     std::vector<Enchantment> enchantments;
     std::vector<GameCard> hand;  // recipient's hand
     std::vector<GameCard> foresightChoices;  // recipient's pending Foresight options
@@ -1098,28 +1111,37 @@ constexpr std::uint32_t ShriekSnapshotCapability = 0x53485231;
 constexpr std::uint32_t TransformSnapshotCapability = 0x54524631;
 constexpr std::uint32_t CommandRestrictionSnapshotCapability = 0x434d4431; // CMD1
 constexpr std::uint32_t SlowSnapshotCapability = 0x534c5731; // SLW1
+constexpr std::uint32_t ChrysalisSnapshotCapability = 0x43485231; // CHR1
 
 // Ready responses can advertise extensions without changing the join requests
 // that older servers parse strictly. An absent advertisement uses the legacy format.
-inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr)
+inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr)
 {
     std::uint32_t marker = 0;
     if (slow) *slow = false;
+    if (chrysalis) *chrysalis = false;
     if (ready.endOfPacket() || !(ready >> marker) || marker != CommandRestrictionSnapshotCapability)
         return false;
     if (slow && !ready.endOfPacket())
         *slow = (ready >> marker) && marker == SlowSnapshotCapability;
+    if (chrysalis && slow && *slow && !ready.endOfPacket())
+        *chrysalis = (ready >> marker) && marker == ChrysalisSnapshotCapability;
     return true;
 }
 
 // Older clients opt in to CMD1 with an empty payload.
-inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow)
+inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr)
 {
     slow = false;
+    if (chrysalis) *chrysalis = false;
     if (packet.endOfPacket()) return true;
     std::uint32_t marker = 0;
-    slow = (packet >> marker) && marker == SlowSnapshotCapability && packet.endOfPacket();
-    return slow;
+    slow = (packet >> marker) && marker == SlowSnapshotCapability;
+    if (!slow) return false;
+    if (packet.endOfPacket()) return true;
+    if (!chrysalis) return false;
+    *chrysalis = (packet >> marker) && marker == ChrysalisSnapshotCapability && packet.endOfPacket();
+    return *chrysalis;
 }
 
 inline void writeCommandRestriction(sf::Packet& packet, const std::optional<std::string>& restriction)
@@ -1285,6 +1307,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFie
         writeTransformFields(packet, card);
         writeCommandRestriction(packet, card.commandRestriction);
         writeActionSlows(packet, card.actions);
+        packet << card.chrysalisUsed;
     }
 }
 
@@ -1335,6 +1358,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = t
         return false;
     }
     packet >> card.abilityUses >> card.raisedFromGraveyard;
+    card.chrysalisUsed = false;
     card.transformTurns = 0;
     card.transformInto.clear();
     card.commandRestriction.reset();
@@ -1348,8 +1372,10 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = t
     if (packet.endOfPacket()) return true;
     if (!readTransformFields(packet, card)) return false;
     if (packet.endOfPacket()) return true;
-    return readCommandRestriction(packet, card.commandRestriction) &&
-        (packet.endOfPacket() || readActionSlows(packet, card.actions));
+    if (!readCommandRestriction(packet, card.commandRestriction)) return false;
+    if (packet.endOfPacket()) return true;
+    if (!readActionSlows(packet, card.actions)) return false;
+    return packet.endOfPacket() || (packet >> card.chrysalisUsed);
 }
 
 inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields = true)
@@ -1390,11 +1416,13 @@ inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields =
         writeTransformFields(packet, piece);
         writeCommandRestriction(packet, piece.commandRestriction);
         writeSlowFields(packet, piece);
+        packet << piece.chrysalisUsed;
     }
 }
 
 inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
 {
+    piece.chrysalisUsed = false;
     packet >> piece.id >> piece.owner >> piece.originalOwner >> piece.row >> piece.column >> piece.name;
     if (!packet || !card_data::readStringVector(packet, piece.traits) ||
         !card_data::readStringVector(packet, piece.keywords))
@@ -1456,8 +1484,10 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
     if (packet.endOfPacket()) return true;
     if (!readTransformFields(packet, piece)) return false;
     if (packet.endOfPacket()) return true;
-    return readCommandRestriction(packet, piece.commandRestriction) &&
-        (packet.endOfPacket() || readSlowFields(packet, piece));
+    if (!readCommandRestriction(packet, piece.commandRestriction)) return false;
+    if (packet.endOfPacket()) return true;
+    if (!readSlowFields(packet, piece)) return false;
+    return packet.endOfPacket() || (packet >> piece.chrysalisUsed);
 }
 
 inline void writeEnchantment(sf::Packet& packet, const Enchantment& enchantment)
@@ -1497,7 +1527,7 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 // Writes a complete snapshot payload (without the leading message-type byte).
 inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool auraFields = true,
                           bool shriekFields = true, bool transformFields = true, bool commandFields = true,
-                          bool slowFields = true)
+                          bool slowFields = true, bool chrysalisFields = true)
 {
     packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner
            << snapshot.commandingPieceId << snapshot.relentlessPieceId
@@ -1591,6 +1621,23 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
                         for (const auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
                                                 &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
                             for (const GameCard& card : *zone) writeActionSlows(packet, card.actions);
+                        if (chrysalisFields)
+                        {
+                            packet << ChrysalisSnapshotCapability;
+                            for (const Piece& piece : snapshot.pieces) packet << piece.chrysalisUsed;
+                            for (const auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
+                                                    &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
+                                for (const GameCard& card : *zone) packet << card.chrysalisUsed;
+                            packet << static_cast<std::uint32_t>(snapshot.husks.size());
+                            for (const PendingHusk& husk : snapshot.husks)
+                            {
+                                packet << husk.owner << husk.row << husk.column;
+                                // A bounded nested packet keeps optional per-card fields unambiguous.
+                                sf::Packet nested;
+                                writeGameCard(nested, husk.card);
+                                packet << std::string(static_cast<const char*>(nested.getData()), nested.getDataSize());
+                            }
+                        }
                     }
                 }
             }
@@ -1600,6 +1647,7 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
 
 inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot, bool auraFields = true)
 {
+    snapshot.husks.clear();
     packet >> snapshot.phase >> snapshot.activePlayer >> snapshot.yourPlayer >> snapshot.winner
            >> snapshot.commandingPieceId >> snapshot.relentlessPieceId
            >> snapshot.timersEnabled >> snapshot.turnRemainingMs;
@@ -1774,6 +1822,31 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot, bool auraFields
                        &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
         for (GameCard& card : *zone)
             if (!readActionSlows(packet, card.actions)) return false;
+    if (packet.endOfPacket()) return true;
+    if (!(packet >> marker) || marker != ChrysalisSnapshotCapability) return false;
+    for (Piece& piece : snapshot.pieces)
+        if (!(packet >> piece.chrysalisUsed)) return false;
+    for (auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
+                       &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
+        for (GameCard& card : *zone)
+            if (!(packet >> card.chrysalisUsed)) return false;
+    std::uint32_t huskCount = 0;
+    if (!(packet >> huskCount) || huskCount > card_data::MaxSerializedItems) return false;
+    for (std::uint32_t i = 0; i < huskCount; ++i)
+    {
+        PendingHusk husk;
+        std::string bytes;
+        if (!(packet >> husk.owner >> husk.row >> husk.column >> bytes) ||
+            husk.owner < 1 || husk.owner > 2 || husk.row < 0 || husk.column < 0 ||
+            husk.row >= BoardSize || husk.column >= BoardSize || bytes.size() > 1024 * 1024) return false;
+        sf::Packet nested;
+        nested.append(bytes.data(), bytes.size());
+        if (!readGameCard(nested, husk.card) || !nested.endOfPacket() ||
+            husk.card.type != "Unit" || !husk.card.chrysalisUsed ||
+            husk.card.width < 1 || husk.card.height < 1 ||
+            husk.row + husk.card.height > BoardSize || husk.column + husk.card.width > BoardSize) return false;
+        snapshot.husks.push_back(std::move(husk));
+    }
     return packet.endOfPacket();
 }
 }

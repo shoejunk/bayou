@@ -463,6 +463,13 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
                 std::to_string(gameCard.transformTurns) + " controlling-player turn starts",
                 sf::Color(210, 180, 105)});
         }
+        if (game_data::hasKeyword(gameCard.keywords, "chrysalis"))
+        {
+            details.push_back({gameCard.chrysalisUsed
+                ? "Chrysalis: already used this game."
+                : "Chrysalis: once per game, leave a Husk on defeat. Enemy occupation destroys it; return next turn at 1 Health if empty.",
+                sf::Color(190, 214, 154)});
+        }
         if (!gameCard.rebirthTitle.empty())
         {
             details.push_back({"Rebirth: " + gameCard.rebirthTitle,

@@ -35,6 +35,7 @@
 #include "swarm_tests.hpp"
 #include "bristle_tests.hpp"
 #include "slow_tests.hpp"
+#include "chrysalis_tests.hpp"
 #include "aura_tests.hpp"
 #include "shriek_tests.hpp"
 #include "timed_transform_tests.hpp"
@@ -1392,6 +1393,7 @@ int main(int argc, char** argv)
     testSwarm(check);
     testBristle(check);
     testSlow(check);
+    testChrysalis(check);
     testAdjacentStep(ActionKind::RallyStep, "rally step");
     testAdjacentStep(ActionKind::AssaultStep, "assault step");
     testLifedrain();

@@ -1284,6 +1284,7 @@ const std::vector<std::string>& knownScreens()
         "game-bases",
         "game-bases-blue-large",
         "game-midgame",
+        "game-chrysalis",
         "game-swap",
         "game-hand-hover",
         "game-selected",

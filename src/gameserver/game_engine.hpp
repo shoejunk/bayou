@@ -220,6 +220,7 @@ public:
         control.fill(0);
         holes.fill(0);
         pieces.clear();
+        husks.clear();
         enchantments.clear();
         graveyard.clear();
         exiled.clear();
@@ -1353,6 +1354,7 @@ public:
         snapshot.turnRemainingMs = turnRemainingMs;
         snapshot.control = control;
         snapshot.holes = holes;
+        snapshot.husks = husks;
         snapshot.enchantments.clear();
         snapshot.pieces.clear();
         for (const Piece& piece : pieces)
@@ -1545,6 +1547,7 @@ private:
     std::array<std::uint8_t, BoardSquares> control{};
     std::array<std::uint8_t, BoardSquares> holes{};
     std::vector<Piece> pieces;
+    std::vector<PendingHusk> husks;
     std::vector<Enchantment> enchantments;
     std::vector<GameCard> graveyard;
     std::vector<GameCard> exiled;
@@ -1699,10 +1702,13 @@ private:
 
         const Piece original = *dying;
         const bool canEvacuate = pieceHasEvacuateSupport(pieces, original);
+        const bool chrysalisEligible = !original.isHero && !original.chrysalisUsed &&
+            hasKeyword(original.keywords, "chrysalis") && !pieceIsSilenced(pieces, original);
         const GameCard* originalDefinition = summonCardByTitle(original.name);
         const bool recordsDestroyedCard = !original.isHero && originalDefinition != nullptr &&
             originalDefinition->type == "Unit";
         GameCard destroyedCard = recordsDestroyedCard ? *originalDefinition : GameCard{};
+        destroyedCard.chrysalisUsed = original.chrysalisUsed;
         destroyedCard.raisedFromGraveyard = original.raisedFromGraveyard;
         if (destroyedCard.raisedFromGraveyard)
         {
@@ -1793,6 +1799,11 @@ private:
                      static_cast<int>(playerRef(pieceOriginalOwner(original)).hand.size()) < MaxHandSize)
             {
                 playerRef(pieceOriginalOwner(original)).hand.push_back(std::move(destroyedCard));
+            }
+            else if (chrysalisEligible)
+            {
+                destroyedCard.chrysalisUsed = true;
+                husks.push_back({pieceOriginalOwner(original), original.row, original.column, std::move(destroyedCard)});
             }
             else
             {
@@ -1988,6 +1999,7 @@ private:
 
         const int attackerId = piece->id;
         const int attackerOwner = piece->owner;
+        const auto onDisplacement = [&]() { crushOccupiedHusks(pieces, husks, graveyard, exiled); };
         const int originRow = piece->row;
         const int originColumn = piece->column;
         const std::string attackerName = piece->name;
@@ -2051,7 +2063,7 @@ private:
                 {
                     const PieceAttackDamageResolution attackResolution = resolvePieceAttackDamage(
                         pieces, attackerId, targetId, attackDamage, action.statusTurns,
-                        action.stagingRow, action.stagingColumn, rng, action.lifedrain, action.kind, action.slow);
+                        action.stagingRow, action.stagingColumn, rng, action.lifedrain, action.kind, action.slow, onDisplacement);
                     const DamageResolution& damageResolution = attackResolution.attack;
                     retaliationDamage.insert(retaliationDamage.end(),
                         attackResolution.counterstrike.begin(), attackResolution.counterstrike.end());
@@ -2093,7 +2105,7 @@ private:
                         action.stagingRow,
                         action.stagingColumn,
                         action.push,
-                        attackerPower);
+                        attackerPower, onDisplacement);
                     if (action.lifedrain)
                     {
                         applyActionLifedrain(pieces, attackerId, pushResult.collisionDamage,
@@ -2117,7 +2129,7 @@ private:
                         const PullResult pullResult = applyActionPull(
                             pieces,
                             effectiveTargetId,
-                            attackerId);
+                            attackerId, onDisplacement);
                         pulledSquares += pullResult.movedSquares;
                         rememberRevealedPieces(pullResult.revealedPieceIds);
                     }
@@ -2492,6 +2504,7 @@ private:
         player.foresightChoices.clear();
         player.discardsThisTurn = 0;
         player.pieceActionUsedThisTurn = false;
+        resolveHusksAtTurnStart(pieces, husks, graveyard, exiled, nextPieceId, playerNumber);
         updateSilenceFieldsAtTurnStart(pieces, playerNumber);
         updatePieceControlAtTurnStart(pieces, playerNumber);
         for (Piece& piece : pieces)
@@ -2926,6 +2939,7 @@ private:
 
     void recomputeControl()
     {
+        crushOccupiedHusks(pieces, husks, graveyard, exiled);
         control = recomputeBoardControl(control, pieces);
     }
 };

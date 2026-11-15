@@ -574,11 +574,13 @@ ConquestBattleJoinResult joinConquestBattle(
         return result;
     }
     bool supportsSlow = false;
-    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow))
+    bool supportsChrysalis = false;
+    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow, &supportsChrysalis))
     {
         sf::Packet optIn;
         optIn << static_cast<std::uint8_t>(MessageType::EnableCommandRestrictionSnapshots);
         if (supportsSlow) optIn << game_data::SlowSnapshotCapability;
+        if (supportsChrysalis) optIn << game_data::ChrysalisSnapshotCapability;
         if (socket->send(optIn) != sf::Socket::Status::Done)
             return {false, "Could not negotiate Conquest snapshots"};
         result.awaitingSnapshotUpgrade = true;

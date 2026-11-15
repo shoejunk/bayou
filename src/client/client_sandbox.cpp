@@ -58,6 +58,7 @@ game_data::GameCard cardFromDestroyedPiece(const game_data::Piece& piece)
     card.rebirthTitle = piece.rebirthTitle;
     card.abilityLabels = piece.abilityLabels;
     card.abilityUses = piece.abilityUses;
+    card.chrysalisUsed = piece.chrysalisUsed;
     card.raisedFromGraveyard = piece.raisedFromGraveyard;
     return card;
 }
@@ -128,6 +129,9 @@ PieceDestructionResult destroyPieceInSnapshot(
 
     const game_data::Piece original = *found;
     const bool canEvacuate = game_data::pieceHasEvacuateSupport(snapshot.pieces, original);
+    const bool chrysalisEligible = !original.isHero && !original.chrysalisUsed &&
+        game_data::hasKeyword(original.keywords, "chrysalis") &&
+        !game_data::pieceIsSilenced(snapshot.pieces, original);
     snapshot.pieces.erase(
         std::remove_if(
             snapshot.pieces.begin(),
@@ -209,6 +213,7 @@ PieceDestructionResult destroyPieceInSnapshot(
     {
         game_data::GameCard destroyedCard = originalCard != nullptr && originalCard->type == "Unit"
             ? *originalCard : cardFromDestroyedPiece(original);
+        destroyedCard.chrysalisUsed = original.chrysalisUsed;
         destroyedCard.raisedFromGraveyard = original.raisedFromGraveyard;
         if (original.raisedFromGraveyard)
         {
@@ -220,6 +225,11 @@ PieceDestructionResult destroyPieceInSnapshot(
                  static_cast<int>(snapshot.hand.size()) < game_data::MaxHandSize)
         {
             snapshot.hand.push_back(std::move(destroyedCard));
+        }
+        else if (chrysalisEligible)
+        {
+            destroyedCard.chrysalisUsed = true;
+            snapshot.husks.push_back({game_data::pieceOriginalOwner(original), original.row, original.column, std::move(destroyedCard)});
         }
         else
         {
