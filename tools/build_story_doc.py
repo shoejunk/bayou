@@ -9,7 +9,7 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "design" / "Gloomthorn Story Mode Tutorial Design.docx"
 CAPTURE_DIR = ROOT / "output" / "story-mode-design" / "captures"
 

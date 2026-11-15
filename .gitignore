@@ -10,8 +10,7 @@ __pycache__/
 .env.stripe
 /tls/
 shots/
-# Regenerable UI captures: rebuild any of them with --ui-capture (see agents.md).
-/output/ui-review/
-/output/cppcheck/
+# Generated reports, captures, caches, and local audit artifacts.
+/output/
 # LibreOffice/Word lock files.
 .~lock.*#
