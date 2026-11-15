@@ -467,7 +467,7 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
         {
             details.push_back({gameCard.chrysalisUsed
                 ? "Chrysalis: already used this game."
-                : "Chrysalis: once per game, leave a Husk on defeat. Enemy occupation destroys it; return next turn at 1 Health if empty.",
+                : "Chrysalis: once per game, leave a Husk on defeat. Any unit occupying it destroys it; return next turn at 1 Health if empty.",
                 sf::Color(190, 214, 154)});
         }
         if (!gameCard.rebirthTitle.empty())

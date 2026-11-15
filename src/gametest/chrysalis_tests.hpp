@@ -142,6 +142,7 @@ void testChrysalis(Check check)
     resolveHusksAtTurnStart(crushed.pieces, crushed.husks, crushed.graveyard, crushed.exiled, nextId, 1);
     check(crushed.pieces.size() == 1, "moving off a crushed Husk cannot restore it");
 
+    occupant.owner = 1; // Friendly forced movement must crush just as enemy movement does.
     auto pushed = makePending();
     occupant.owner = 2;
     occupant.row = 3;
@@ -152,7 +153,7 @@ void testChrysalis(Check check)
     });
     check(pushedResult.movedSquares == 2 && pushed.pieces.front().column == 4 &&
           pushed.husks.empty() && pushed.graveyard.size() == 1,
-          "each push step crushes a crossed Husk even when enemy finishes beyond it");
+          "each push step crushes a crossed Husk even when friendly unit finishes beyond it");
     auto pulled = makePending();
     occupant.column = 5;
     pulled.pieces.push_back(occupant);
@@ -166,17 +167,18 @@ void testChrysalis(Check check)
     });
     check(pulledResult.movedSquares == 3 && pulled.pieces.front().column == 2 &&
           pulled.husks.empty() && pulled.graveyard.size() == 1,
-          "each pull step crushes a crossed Husk even when enemy finishes beyond it");
+          "each pull step crushes a crossed Husk even when friendly unit finishes beyond it");
     occupant.row = occupant.column = 3;
 
     auto blocked = makePending();
     occupant.owner = 1;
     blocked.pieces.push_back(occupant);
     crushOccupiedHusks(blocked.pieces, blocked.husks, blocked.graveyard, blocked.exiled);
-    check(blocked.husks.size() == 1, "friendly occupation does not prematurely crush Husk");
+    check(blocked.husks.empty() && blocked.graveyard.size() == 1, "friendly occupation immediately crushes Husk");
+    blocked.pieces.front().column = 4;
     resolveHusksAtTurnStart(blocked.pieces, blocked.husks, blocked.graveyard, blocked.exiled, nextId, 1);
     check(blocked.husks.empty() && blocked.graveyard.size() == 1 && blocked.pieces.size() == 1,
-          "friendly blocked return expires at the next owner turn without overlapping pieces");
+          "friendly unit moving away cannot restore crushed Husk at next owner turn");
 
     auto controlled = deadSnapshot();
     controlled.pieces.front().owner = 2;

@@ -3,8 +3,8 @@
 `Chrysalis` is a passive Unit keyword, separate from the existing immediate Rebirth mechanic. It adds no activated-ability button and does not change drag/action selection.
 
 - Once per physical card copy per match, an eligible defeat leaves a nonblocking Husk on the original footprint. The use is spent immediately.
-- Any living enemy occupying any part of that footprint crushes the Husk. This includes a killing attack landing, interception, and each forced-movement step. Moving away later does not restore it.
-- At the original owner's next turn start, an intact Husk returns its Unit at 1 Health if the full footprint is empty. Friendly occupation also prevents that one return attempt; it does not postpone the attempt.
+- Any living unit, friendly or enemy, occupying any part of that footprint crushes the Husk. This includes a killing attack landing, interception, and each forced-movement step. Moving away later does not restore it.
+- At the original owner's next turn start, an intact Husk returns its Unit at 1 Health if the full footprint is empty. Occupation by either side destroys the Husk immediately; leaving later cannot restore the return attempt.
 - The card is held only by the Husk while pending, preventing duplicate Raise Undead or hand copies. Failed/crushed Husks enter the graveyard (or exile when applicable). Spent state persists through card zones and transformations.
 - Existing successful Infestation/immediate Rebirth, raised-Undead exile and successful Evacuate retain precedence. Heroes and silenced Units cannot start Chrysalis.
 - Husks do not count as living replacements: defeat and kill-trigger accounting are unchanged.

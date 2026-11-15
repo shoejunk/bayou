@@ -1952,7 +1952,7 @@ inline void advanceTimedTransformations(std::vector<Piece>& pieces, int playerNu
     }
 }
 
-// Chrysalis markers never occupy board squares. A hostile occupant crushes a
+// Chrysalis markers never occupy board squares. Any living occupant crushes a
 // marker permanently, including attack landings and forced movement.
 inline bool huskOverlapsPiece(const PendingHusk& husk, const Piece& piece)
 {
@@ -1973,7 +1973,7 @@ inline void crushOccupiedHusks(const std::vector<Piece>& pieces, std::vector<Pen
     for (auto it = husks.begin(); it != husks.end();)
     {
         const bool crushed = std::any_of(pieces.begin(), pieces.end(), [&](const Piece& piece) {
-            return piece.owner != it->owner && huskOverlapsPiece(*it, piece);
+            return huskOverlapsPiece(*it, piece);
         });
         if (crushed)
         {
