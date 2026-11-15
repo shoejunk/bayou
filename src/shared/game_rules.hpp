@@ -609,6 +609,22 @@ inline void applyActionHealing(const std::vector<Piece>& pieces, Piece& target, 
     applyDamageStatus(target, 0, statusTurns);
 }
 
+inline bool pieceCanReceiveAreaHeal(const Piece& source, const Piece& target)
+{
+    if (target.health <= 0 || source.owner != target.owner ||
+        pieceDistance(source, target) > source.healRange) return false;
+    if (!source.healFilter) return true;
+    return std::any_of(source.healFilter->begin(), source.healFilter->end(),
+        [&](const std::string& trait) { return hasKeyword(target.traits, trait) || hasKeyword(target.keywords, trait); });
+}
+
+inline void applyAreaHeal(std::vector<Piece>& pieces, const Piece& source)
+{
+    for (Piece& target : pieces)
+        if (pieceCanReceiveAreaHeal(source, target)) applyActionHealing(pieces, target, 1, 0);
+}
+
+
 inline void activateSilenceField(Piece& source, int playerNumber)
 {
     source.silenceTurnsRemaining = normalizedSilenceTurns(source.silenceTurns);
@@ -1222,6 +1238,7 @@ inline std::string pieceAbilityLabel(const Piece& piece, bool sacrifice = false)
     {
         return prefix + "Power Boost";
     }
+    if (ability == "area heal") return prefix + "Area Heal";
     if (ability == "shriek") return prefix + "Shriek";
     if (ability == "silence field") return prefix + "Silence Field";
     if (ability == "dig")
@@ -1861,7 +1878,7 @@ inline bool pieceAbilityAvailable(const Piece& piece, bool sacrifice = false)
     }
     return ability == "transform" || ability == "dematerialize" || ability == "command" ||
         ability == "raise undead" || ability == "swap" || ability == "power boost" ||
-        ability == "silence field" || ability == "shriek";
+        ability == "silence field" || ability == "shriek" || ability == "area heal";
 }
 
 inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece& piece, bool sacrifice = false)

@@ -6,9 +6,12 @@ Will o Wisp
 Thorn Serpent
 
 more work to do:
-Add Slow to action "Grave Honey" to Sister Honeygrave
+Father Grub: Chrysalis code committed/pushed and live card keyword verified 2026-11-15; production runtime deployment and live gameplay verification still pending.
 
-Next to work on: Sister Honeygrave
+The Weaver: area heal code verified (992 offline checks; Debug client/server/test builds) and live Repair the Pattern fields verified 2026-11-15; production runtime deployment and live gameplay verification still pending.
+The Choir: planned Silence on enemy units for 4 enemy turns; implementation and live card update pending.
+
+Next to work on: The Choir
 
 PieceBaseBlue characters/bases/piece-base-blue.png
 PieceBaseRed characters/bases/piece-base-red.png

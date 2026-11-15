@@ -502,6 +502,20 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
                     (gameCard.shriekDamage > 0 ? "Deal " + std::to_string(gameCard.shriekDamage) +
                         " damage to each revealed unit (Bodyguard protection applies)" : "Deals no damage");
             }
+            else if (ability == "area heal")
+            {
+                abilityText = "Ability: Area Heal. Restore 1 Health to each friendly unit within " +
+                    std::to_string(gameCard.healRange) + " squares, including this unit. Includes diagonals; each unit heals once";
+                if (gameCard.healFilter) {
+                    abilityText += ". Eligible traits or keywords (any): ";
+                    if (gameCard.healFilter->empty()) abilityText += "none";
+                    for (std::size_t i = 0; i < gameCard.healFilter->size(); ++i) {
+                        if (i) abilityText += " or ";
+                        abilityText += (*gameCard.healFilter)[i];
+                    }
+                }
+                abilityText += ". Cannot exceed maximum Health; healing prevention applies";
+            }
             else if (ability == "silence field")
             {
                 abilityText = "Ability: Silence Field. Other units within " + std::to_string(gameCard.silenceRange) +

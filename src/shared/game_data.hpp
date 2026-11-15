@@ -28,6 +28,8 @@ constexpr int DeckCardCount = 20;   // non-hero cards
 constexpr int MaxCardCopies = 2;
 constexpr int MaxHeroCopies = 1;
 constexpr const char* DeckLimitField = "Deck Limit";
+constexpr const char* HealRangeField = "heal range";
+constexpr const char* HealFilterField = "heal filter";
 constexpr const char* HealingAuraField = "healing aura";
 constexpr const char* CounterstrikeField = "Counterstrike";
 constexpr const char* ShriekRangeField = "shriek range";
@@ -467,6 +469,8 @@ struct GameCard
     int gatherResources = 0;      // passive resources gained at the start of each owner's turn
     int healingAura = 0;          // health restored to every adjacent piece at the owner's turn end
     int counterstrike = 0;        // damage returned to an adjacent enemy attacker
+    int healRange = 1;
+    std::optional<std::vector<std::string>> healFilter;
     int shriekRange = 1;
     int shriekDamage = 0;
     int silenceRange = 1;
@@ -526,6 +530,13 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.gatherResources = std::max(0, cardInt(card, "gatherResources", 0));
     g.healingAura = std::max(0, cardInt(card, HealingAuraField, 0));
     g.counterstrike = std::max(0, cardInt(card, CounterstrikeField, 0));
+    g.healRange = std::clamp(cardInt(card, HealRangeField, 1), 0, BoardSize - 1);
+    for (const auto& list : card.stringLists)
+        if (list.key == HealFilterField) {
+            g.healFilter = list.values;
+            for (auto& trait : *g.healFilter) trait = normalizedAbility(trait);
+            break;
+        }
     g.shriekRange = std::max(0, cardInt(card, ShriekRangeField, cardInt(card, "shriekRange", 1)));
     g.shriekDamage = std::max(0, cardInt(card, ShriekDamageField, cardInt(card, "shriekDamage", 0)));
     g.silenceRange = normalizedSilenceRange(cardInt(card, SilenceRangeField, 1));
@@ -775,6 +786,8 @@ struct Piece
     int gatherResources = 0;
     int healingAura = 0;
     int counterstrike = 0;
+    int healRange = 1;
+    std::optional<std::vector<std::string>> healFilter;
     int shriekRange = 1;
     int shriekDamage = 0;
     int silenceRange = 1;
@@ -871,6 +884,8 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.gatherResources = card.gatherResources;
     piece.healingAura = card.healingAura;
     piece.counterstrike = card.counterstrike;
+    piece.healRange = card.healRange;
+    piece.healFilter = card.healFilter;
     piece.shriekRange = std::max(0, card.shriekRange);
     piece.shriekDamage = std::max(0, card.shriekDamage);
     piece.silenceRange = normalizedSilenceRange(card.silenceRange);
@@ -1111,37 +1126,62 @@ constexpr std::uint32_t ShriekSnapshotCapability = 0x53485231;
 constexpr std::uint32_t TransformSnapshotCapability = 0x54524631;
 constexpr std::uint32_t CommandRestrictionSnapshotCapability = 0x434d4431; // CMD1
 constexpr std::uint32_t SlowSnapshotCapability = 0x534c5731; // SLW1
+constexpr std::uint32_t AreaHealSnapshotCapability = 0x48454131; // HEA1
 constexpr std::uint32_t ChrysalisSnapshotCapability = 0x43485231; // CHR1
 
 // Ready responses can advertise extensions without changing the join requests
 // that older servers parse strictly. An absent advertisement uses the legacy format.
-inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr)
+inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr, bool* areaHeal = nullptr)
 {
     std::uint32_t marker = 0;
     if (slow) *slow = false;
     if (chrysalis) *chrysalis = false;
+    if (areaHeal) *areaHeal = false;
     if (ready.endOfPacket() || !(ready >> marker) || marker != CommandRestrictionSnapshotCapability)
         return false;
     if (slow && !ready.endOfPacket())
         *slow = (ready >> marker) && marker == SlowSnapshotCapability;
     if (chrysalis && slow && *slow && !ready.endOfPacket())
         *chrysalis = (ready >> marker) && marker == ChrysalisSnapshotCapability;
+    if (areaHeal && chrysalis && *chrysalis && !ready.endOfPacket())
+        *areaHeal = (ready >> marker) && marker == AreaHealSnapshotCapability;
     return true;
 }
 
 // Older clients opt in to CMD1 with an empty payload.
-inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr)
+inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr, bool* areaHeal = nullptr)
 {
     slow = false;
     if (chrysalis) *chrysalis = false;
+    if (areaHeal) *areaHeal = false;
     if (packet.endOfPacket()) return true;
     std::uint32_t marker = 0;
     slow = (packet >> marker) && marker == SlowSnapshotCapability;
     if (!slow) return false;
     if (packet.endOfPacket()) return true;
     if (!chrysalis) return false;
-    *chrysalis = (packet >> marker) && marker == ChrysalisSnapshotCapability && packet.endOfPacket();
-    return *chrysalis;
+    *chrysalis = (packet >> marker) && marker == ChrysalisSnapshotCapability;
+    if (!*chrysalis) return false;
+    if (packet.endOfPacket()) return true;
+    if (!areaHeal) return false;
+    *areaHeal = (packet >> marker) && marker == AreaHealSnapshotCapability && packet.endOfPacket();
+    return *areaHeal;
+}
+
+template <typename T>
+inline void writeAreaHealFields(sf::Packet& packet, const T& value)
+{
+    packet << value.healRange << value.healFilter.has_value();
+    if (value.healFilter) card_data::writeStringVector(packet, *value.healFilter);
+}
+
+template <typename T>
+inline bool readAreaHealFields(sf::Packet& packet, T& value)
+{
+    bool present = false;
+    if (!(packet >> value.healRange >> present) || value.healRange < 0 || value.healRange >= BoardSize) return false;
+    value.healFilter.reset();
+    return !present || card_data::readStringVector(packet, value.healFilter.emplace());
 }
 
 inline void writeCommandRestriction(sf::Packet& packet, const std::optional<std::string>& restriction)
@@ -1271,7 +1311,7 @@ inline bool readSlowFields(sf::Packet& packet, Piece& piece)
         piece.slowTurnsRemaining >= 0 && readActionSlows(packet, piece.actions);
 }
 
-inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFields = true)
+inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFields = true, bool areaHealFields = true)
 {
     packet << card.title << card.type;
     card_data::writeStringVector(packet, card.traits);
@@ -1308,6 +1348,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFie
         writeCommandRestriction(packet, card.commandRestriction);
         writeActionSlows(packet, card.actions);
         packet << card.chrysalisUsed;
+        if (areaHealFields) writeAreaHealFields(packet, card);
     }
 }
 
@@ -1362,6 +1403,8 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = t
     card.transformTurns = 0;
     card.transformInto.clear();
     card.commandRestriction.reset();
+    card.healRange = 1;
+    card.healFilter.reset();
     card.shriekRange = 1;
     card.shriekDamage = 0;
     card.silenceRange = card.silenceTurns = 1;
@@ -1375,7 +1418,9 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = t
     if (!readCommandRestriction(packet, card.commandRestriction)) return false;
     if (packet.endOfPacket()) return true;
     if (!readActionSlows(packet, card.actions)) return false;
-    return packet.endOfPacket() || (packet >> card.chrysalisUsed);
+    if (packet.endOfPacket()) return true;
+    if (!(packet >> card.chrysalisUsed)) return false;
+    return packet.endOfPacket() || readAreaHealFields(packet, card);
 }
 
 inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields = true)
@@ -1417,6 +1462,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields =
         writeCommandRestriction(packet, piece.commandRestriction);
         writeSlowFields(packet, piece);
         packet << piece.chrysalisUsed;
+        writeAreaHealFields(packet, piece);
     }
 }
 
@@ -1471,6 +1517,8 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
     piece.commandRestriction.reset();
     piece.slowTurnsRemaining = 0;
     piece.movedThisTurn = false;
+    piece.healRange = 1;
+    piece.healFilter.reset();
     piece.shriekRange = 1;
     piece.shriekDamage = 0;
     piece.silenceRange = piece.silenceTurns = 1;
@@ -1487,7 +1535,9 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
     if (!readCommandRestriction(packet, piece.commandRestriction)) return false;
     if (packet.endOfPacket()) return true;
     if (!readSlowFields(packet, piece)) return false;
-    return packet.endOfPacket() || (packet >> piece.chrysalisUsed);
+    if (packet.endOfPacket()) return true;
+    if (!(packet >> piece.chrysalisUsed)) return false;
+    return packet.endOfPacket() || readAreaHealFields(packet, piece);
 }
 
 inline void writeEnchantment(sf::Packet& packet, const Enchantment& enchantment)
@@ -1527,7 +1577,7 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 // Writes a complete snapshot payload (without the leading message-type byte).
 inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool auraFields = true,
                           bool shriekFields = true, bool transformFields = true, bool commandFields = true,
-                          bool slowFields = true, bool chrysalisFields = true)
+                          bool slowFields = true, bool chrysalisFields = true, bool areaHealFields = true)
 {
     packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner
            << snapshot.commandingPieceId << snapshot.relentlessPieceId
@@ -1634,8 +1684,15 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
                                 packet << husk.owner << husk.row << husk.column;
                                 // A bounded nested packet keeps optional per-card fields unambiguous.
                                 sf::Packet nested;
-                                writeGameCard(nested, husk.card);
+                                writeGameCard(nested, husk.card, true, areaHealFields);
                                 packet << std::string(static_cast<const char*>(nested.getData()), nested.getDataSize());
+                            }
+                            if (areaHealFields) {
+                                packet << AreaHealSnapshotCapability;
+                                for (const Piece& piece : snapshot.pieces) writeAreaHealFields(packet, piece);
+                                for (const auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
+                                        &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
+                                    for (const GameCard& card : *zone) writeAreaHealFields(packet, card);
                             }
                         }
                     }
@@ -1847,6 +1904,12 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot, bool auraFields
             husk.row + husk.card.height > BoardSize || husk.column + husk.card.width > BoardSize) return false;
         snapshot.husks.push_back(std::move(husk));
     }
+    if (packet.endOfPacket()) return true;
+    if (!(packet >> marker) || marker != AreaHealSnapshotCapability) return false;
+    for (Piece& piece : snapshot.pieces) if (!readAreaHealFields(packet, piece)) return false;
+    for (auto* zone : {&snapshot.hand, &snapshot.foresightChoices,
+                       &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
+        for (GameCard& card : *zone) if (!readAreaHealFields(packet, card)) return false;
     return packet.endOfPacket();
 }
 }

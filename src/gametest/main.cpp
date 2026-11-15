@@ -38,6 +38,7 @@
 #include "chrysalis_tests.hpp"
 #include "aura_tests.hpp"
 #include "shriek_tests.hpp"
+#include "area_heal_tests.hpp"
 #include "timed_transform_tests.hpp"
 
 #include "../shared/network.hpp"
@@ -1389,6 +1390,7 @@ int main(int argc, char** argv)
 #endif
     testAuras(check);
     testShriek(check);
+    testAreaHeal(check);
     testTimedTransformation(check);
     testSwarm(check);
     testBristle(check);

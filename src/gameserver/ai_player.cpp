@@ -733,9 +733,16 @@ bool canDeployCard(const GameEngine& engine, int playerNumber, const GameCard& c
     return true;
 }
 
-int abilityOrderBonus(const Piece& piece)
+int abilityOrderBonus(const Piece& piece, const std::vector<Piece>& pieces)
 {
     const std::string ability = normalizedAbility(piece.ability);
+    if (ability == "area heal")
+    {
+        const int recovered = static_cast<int>(std::count_if(pieces.begin(), pieces.end(),
+            [&](const Piece& target) { return pieceCanReceiveAreaHeal(piece, target) &&
+                target.health < target.maxHealth && !target.healingBlocked && !pieceHealingBlocked(pieces, target); }));
+        return recovered > 0 ? 150 * recovered : -10000;
+    }
     if (ability == "summon")
     {
         // A summon is a free piece; nothing else on a normal turn matches it.
@@ -969,7 +976,8 @@ std::vector<AiCandidate> generateCandidates(
 
         if (piece.repeatActionIndex < 0 && pieceAbilityAvailable(playerView, piece))
         {
-            candidates.push_back({{AiActionKind::UseAbility, piece.id}, abilityOrderBonus(piece)});
+            const int bonus = abilityOrderBonus(piece, playerView.pieces);
+            if (bonus > -10000) candidates.push_back({{AiActionKind::UseAbility, piece.id}, bonus});
         }
 
         if (piece.repeatActionIndex < 0 && pieceAbilityAvailable(playerView, piece, true))
@@ -978,7 +986,8 @@ std::vector<AiCandidate> generateCandidates(
             action.sacrifice = true;
             Piece sacrificeActor = piece;
             sacrificeActor.ability = piece.sacrifice;
-            candidates.push_back({action, abilityOrderBonus(sacrificeActor)});
+            const int bonus = abilityOrderBonus(sacrificeActor, playerView.pieces);
+            if (bonus > -10000) candidates.push_back({action, bonus});
         }
 
         const int reach = pieceSquareReach(piece);

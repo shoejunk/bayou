@@ -1027,6 +1027,10 @@ private:
                 }
             }
         }
+        else if (ability == "area heal")
+        {
+            applyAreaHeal(pieces, *piece);
+        }
         else if (ability == "silence field")
         {
             activateSilenceField(*piece, playerNumber);
