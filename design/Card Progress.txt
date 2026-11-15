@@ -1,0 +1,17 @@
+missing:
+River Guide
+Auntie Mirelle
+The Bug Queen
+Will o Wisp
+Thorn Serpent
+
+more work to do:
+Add Slow to action "Grave Honey" to Sister Honeygrave
+
+Next to work on: Sister Honeygrave
+
+PieceBaseBlue characters/bases/piece-base-blue.png
+PieceBaseRed characters/bases/piece-base-red.png
+Token characters/resistanceCache.png
+
+feedback:
