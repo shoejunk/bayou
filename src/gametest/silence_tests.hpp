@@ -36,9 +36,9 @@ void testSilence(Check check)
           board[0].silencedTurnsRemaining == 0 && board[2].silencedTurnsRemaining == 0 &&
           board[3].silencedTurnsRemaining == 0,
           "Silence attaches a negative modifier to all living enemies regardless of distance, not allies or dead units");
-    check(pieceActivatedAbilitiesSilenced(board, board[1]) && !pieceIsSilenced(board, board[1]) &&
+    check(pieceActivatedAbilitiesSilenced(board, board[1]) &&
           !pieceAbilityAvailable(board, board[1]) && !pieceAbilityAvailable(board, board[1], true),
-          "negative Silence blocks activated and Sacrifice buttons independently of Silence Field");
+          "negative Silence blocks activated and Sacrifice buttons without affecting passive keywords");
     check(board[1].keywords == enemy.keywords && board[1].disabledTurns == 0,
           "Silence does not remove passive keywords or apply movement-blocking Disable");
     Piece newcomer = enemy; newcomer.id = 5;
@@ -66,11 +66,6 @@ void testSilence(Check check)
     clearSilence(board[1]);
     check(board[1].silencedTurnsRemaining == 0 && board[1].silencedExpiryPlayer == 0 &&
           pieceAbilityAvailable(board, board[1]), "negative Silence can be cleared independently for future cleanse effects");
-    board = {source, enemy}; board[0].ability = "silence field"; board[1].row = board[1].column = 1;
-    activateSilenceField(board[0], 1); applySilence(board, board[0]); clearSilence(board[1]);
-    check(pieceIsSilenced(board, board[1]) && !pieceAbilityAvailable(board, board[1]),
-          "clearing negative Silence does not clear an existing Silence Field aura");
-
     ActionProfile move; move.maxRange = 7; move.canMove = true; move.canAttack = true; move.damage = 1;
     card.actions = {move};
     GameCard button = card; button.title = "Silence test enemy"; button.ability = "transform";

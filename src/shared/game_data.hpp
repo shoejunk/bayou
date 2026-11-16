@@ -34,9 +34,7 @@ constexpr const char* HealingAuraField = "healing aura";
 constexpr const char* CounterstrikeField = "Counterstrike";
 constexpr const char* ShriekRangeField = "shriek range";
 constexpr const char* ShriekDamageField = "shriek damage";
-constexpr const char* SilenceRangeField = "silenceRange";
 constexpr const char* SilenceTurnsField = "silenceTurns";
-inline int normalizedSilenceRange(int range) { return std::clamp(range, 1, BoardSize - 1); }
 inline int normalizedSilenceTurns(int turns) { return std::max(1, turns); }
 constexpr int MinHeroes = 1;
 constexpr int MaxHeroes = 4;
@@ -473,7 +471,6 @@ struct GameCard
     std::optional<std::vector<std::string>> healFilter;
     int shriekRange = 1;
     int shriekDamage = 0;
-    int silenceRange = 1;
     int silenceTurns = 1;
     bool canControl = true;
     int growTurns = 0;
@@ -539,7 +536,6 @@ inline GameCard toGameCard(const card_data::Card& card)
         }
     g.shriekRange = std::max(0, cardInt(card, ShriekRangeField, cardInt(card, "shriekRange", 1)));
     g.shriekDamage = std::max(0, cardInt(card, ShriekDamageField, cardInt(card, "shriekDamage", 0)));
-    g.silenceRange = normalizedSilenceRange(cardInt(card, SilenceRangeField, 1));
     g.silenceTurns = normalizedSilenceTurns(cardInt(card, SilenceTurnsField, 1));
     g.canControl = cardInt(card, "canControl", 1) != 0;
     g.growTurns = cardInt(card, "growTurns", 0);
@@ -790,11 +786,8 @@ struct Piece
     std::optional<std::vector<std::string>> healFilter;
     int shriekRange = 1;
     int shriekDamage = 0;
-    int silenceRange = 1;
     int silenceTurns = 1;
-    int silenceTurnsRemaining = 0;
-    int silenceExpiryPlayer = 0; // activating player; ownership changes do not change the clock
-    // Negative Silence status, independent of a caster-bound Silence Field.
+    // Negative Silence status; suppresses activated buttons, never passive effects.
     int silencedTurnsRemaining = 0;
     int silencedExpiryPlayer = 0; // affected enemy-player turn-end clock
     // View-only facts include effects of concealed sources without revealing them.
@@ -891,10 +884,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.healFilter = card.healFilter;
     piece.shriekRange = std::max(0, card.shriekRange);
     piece.shriekDamage = std::max(0, card.shriekDamage);
-    piece.silenceRange = normalizedSilenceRange(card.silenceRange);
     piece.silenceTurns = normalizedSilenceTurns(card.silenceTurns);
-    piece.silenceTurnsRemaining = 0;
-    piece.silenceExpiryPlayer = 0;
     piece.silencedTurnsRemaining = piece.silencedExpiryPlayer = 0;
     piece.abilitySilenced = false;
     piece.healingBlocked = false;
@@ -1245,35 +1235,35 @@ inline bool readShriekFields(sf::Packet& packet, CardOrPiece& value)
     return static_cast<bool>(packet);
 }
 
+// Keep the existing wire layout for older clients. Removed field slots are inert;
+// only the surviving Silence duration and status/view facts have runtime meaning.
 inline void writeCardAuraFields(sf::Packet& packet, const GameCard& card)
 {
-    packet << normalizedSilenceRange(card.silenceRange) << normalizedSilenceTurns(card.silenceTurns);
+    packet << std::int32_t{1} << normalizedSilenceTurns(card.silenceTurns);
 }
 
 inline bool readCardAuraFields(sf::Packet& packet, GameCard& card)
 {
-    packet >> card.silenceRange >> card.silenceTurns;
+    std::int32_t reservedRange = 0;
+    packet >> reservedRange >> card.silenceTurns;
     if (!packet) return false;
-    card.silenceRange = normalizedSilenceRange(card.silenceRange);
     card.silenceTurns = normalizedSilenceTurns(card.silenceTurns);
     return true;
 }
 
 inline void writePieceAuraFields(sf::Packet& packet, const Piece& piece)
 {
-    packet << normalizedSilenceRange(piece.silenceRange) << normalizedSilenceTurns(piece.silenceTurns)
-           << piece.silenceTurnsRemaining << piece.silenceExpiryPlayer
+    packet << std::int32_t{1} << normalizedSilenceTurns(piece.silenceTurns)
+           << std::int32_t{0} << std::int32_t{0}
            << piece.abilitySilenced << piece.healingBlocked;
 }
 
 inline bool readPieceAuraFields(sf::Packet& packet, Piece& piece)
 {
-    packet >> piece.silenceRange >> piece.silenceTurns >> piece.silenceTurnsRemaining
-           >> piece.silenceExpiryPlayer >> piece.abilitySilenced >> piece.healingBlocked;
-    if (!packet || piece.silenceTurnsRemaining < 0 || piece.silenceExpiryPlayer < 0 ||
-        piece.silenceExpiryPlayer > 2 || (piece.silenceTurnsRemaining > 0 && piece.silenceExpiryPlayer == 0))
-        return false;
-    piece.silenceRange = normalizedSilenceRange(piece.silenceRange);
+    std::int32_t reservedRange = 0, reservedTurns = 0, reservedPlayer = 0;
+    packet >> reservedRange >> piece.silenceTurns >> reservedTurns >> reservedPlayer
+           >> piece.abilitySilenced >> piece.healingBlocked;
+    if (!packet) return false;
     piece.silenceTurns = normalizedSilenceTurns(piece.silenceTurns);
     return true;
 }
@@ -1433,7 +1423,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = t
     card.healFilter.reset();
     card.shriekRange = 1;
     card.shriekDamage = 0;
-    card.silenceRange = card.silenceTurns = 1;
+    card.silenceTurns = 1;
     if (!packet || !auraFields || packet.endOfPacket()) return static_cast<bool>(packet);
     if (!readCardAuraFields(packet, card)) return false;
     if (packet.endOfPacket()) return true;
@@ -1548,8 +1538,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
     piece.healFilter.reset();
     piece.shriekRange = 1;
     piece.shriekDamage = 0;
-    piece.silenceRange = piece.silenceTurns = 1;
-    piece.silenceTurnsRemaining = piece.silenceExpiryPlayer = 0;
+    piece.silenceTurns = 1;
     piece.silencedTurnsRemaining = piece.silencedExpiryPlayer = 0;
     piece.abilitySilenced = piece.healingBlocked = false;
     if (!packet || !card_data::readStringVector(packet, piece.abilityLabels)) return false;

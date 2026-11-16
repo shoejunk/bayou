@@ -1035,10 +1035,6 @@ private:
         {
             applySilence(pieces, *piece);
         }
-        else if (ability == "silence field")
-        {
-            activateSilenceField(*piece, playerNumber);
-        }
         else if (ability == "power boost")
         {
             applyPowerBoost(pieces, *piece);
@@ -1711,7 +1707,7 @@ private:
         const Piece original = *dying;
         const bool canEvacuate = pieceHasEvacuateSupport(pieces, original);
         const bool chrysalisEligible = !original.isHero && !original.chrysalisUsed &&
-            hasKeyword(original.keywords, "chrysalis") && !pieceIsSilenced(pieces, original);
+            hasKeyword(original.keywords, "chrysalis");
         const GameCard* originalDefinition = summonCardByTitle(original.name);
         const bool recordsDestroyedCard = !original.isHero && originalDefinition != nullptr &&
             originalDefinition->type == "Unit";
@@ -2513,7 +2509,6 @@ private:
         player.discardsThisTurn = 0;
         player.pieceActionUsedThisTurn = false;
         resolveHusksAtTurnStart(pieces, husks, graveyard, exiled, nextPieceId, playerNumber);
-        updateSilenceFieldsAtTurnStart(pieces, playerNumber);
         updatePieceControlAtTurnStart(pieces, playerNumber);
         for (Piece& piece : pieces)
         {

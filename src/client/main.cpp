@@ -8447,10 +8447,6 @@ int main(int argc, char** argv)
         {
             game_data::applySilence(next.pieces, *piece);
         }
-        else if (ability == "silence field")
-        {
-            game_data::activateSilenceField(*piece, pieceOwner);
-        }
         else if (ability == "power boost")
         {
             game_data::applyPowerBoost(next.pieces, *piece);
@@ -8534,7 +8530,6 @@ int main(int argc, char** argv)
         next.activePlayer = endingPlayer == 1 ? 2 : 1;
         const int startingPlayer = next.activePlayer;
         game_data::resolveHusksAtTurnStart(next.pieces, next.husks, next.graveyard, next.exiled, nextSandboxPieceId, startingPlayer);
-        game_data::updateSilenceFieldsAtTurnStart(next.pieces, startingPlayer);
         game_data::updatePieceControlAtTurnStart(next.pieces, startingPlayer);
         for (game_data::Piece& piece : next.pieces)
         {

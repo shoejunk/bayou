@@ -138,7 +138,7 @@ bool isHiddenCardDetailKey(const std::string& key)
         key == "transformTurns" || key == "canControl" || key == "growTurns" || key == "abilityUses" || key == "gatherResources" ||
         key == "ability" || key == "Sacrifice" || key == "sacrifice" || key == "summon" || key == "summonUnit" || key == "abilityLabels" ||
         key == game_data::HealingAuraField || key == game_data::CounterstrikeField ||
-        key == game_data::SilenceRangeField || key == game_data::SilenceTurnsField ||
+        key == game_data::SilenceTurnsField ||
         key == "WalkAnimFrames" || key == "IdleAnimFrames" ||
         key == "AttackAnimFrames" || key == "DamagedAnimFrames" || key == "KilledAnimFrames" ||
         key == "transformInto" || key == "rarity" || key == "effect" || key == "target" || key == "rebirth" ||
@@ -520,12 +520,6 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             {
                 abilityText = "Ability: Silence. All current enemy units lose activated abilities for " +
                     std::to_string(gameCard.silenceTurns) + " enemy turn(s). A removable negative status; movement, attacks and passives are unaffected";
-            }
-            else if (ability == "silence field")
-            {
-                abilityText = "Ability: Silence Field. Other units within " + std::to_string(gameCard.silenceRange) +
-                    " squares, friend or foe, cannot use ability buttons. Movement, drag attacks and passives remain usable. Follows this unit; expires at the start of the activating player's " +
-                    std::to_string(gameCard.silenceTurns) + " subsequent owner-turn(s)";
             }
             else if (ability == "command")
             {

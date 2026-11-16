@@ -5,13 +5,15 @@ The Bug Queen
 Will o Wisp
 Thorn Serpent
 
-more work to do:
+Cards in progress (outstanding work):
 Father Grub: Chrysalis code committed/pushed and live card keyword verified 2026-11-15; production runtime deployment and live gameplay verification still pending.
 
 The Weaver: area heal code verified (992 offline checks; Debug client/server/test builds) and live Repair the Pattern fields verified 2026-11-15; production runtime deployment and live gameplay verification still pending.
 The Choir: Silence negative status implemented and verified (1058 offline checks; Debug client/server/test builds); live Dissonant Chorus ability and silenceTurns=4 verified 2026-11-15 22:33 UTC. Current enemy units only; counts enemy turn ends; passives preserved. Production runtime deployment and live gameplay verification still pending.
 
-Next to work on: Hushkeeper
+Hushkeeper: live ability=silence and silenceTurns=3 verified 2026-11-16; current enemies lose activated buttons for three enemy turns. Legacy Silence Field code removed and verified (1029 offline gameplay checks; 1472 audio checks; Debug client/server/test builds). Production runtime deployment and live gameplay verification still pending.
+
+Next up (not yet started): Warden
 
 PieceBaseBlue characters/bases/piece-base-blue.png
 PieceBaseRed characters/bases/piece-base-red.png

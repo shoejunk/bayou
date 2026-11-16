@@ -45,7 +45,6 @@ game_data::GameCard cardFromDestroyedPiece(const game_data::Piece& piece)
     card.healFilter = piece.healFilter;
     card.shriekRange = piece.shriekRange;
     card.shriekDamage = piece.shriekDamage;
-    card.silenceRange = piece.silenceRange;
     card.silenceTurns = piece.silenceTurns;
     card.attackRange = piece.attackRange;
     card.movePattern = piece.movePattern;
@@ -132,8 +131,7 @@ PieceDestructionResult destroyPieceInSnapshot(
     const game_data::Piece original = *found;
     const bool canEvacuate = game_data::pieceHasEvacuateSupport(snapshot.pieces, original);
     const bool chrysalisEligible = !original.isHero && !original.chrysalisUsed &&
-        game_data::hasKeyword(original.keywords, "chrysalis") &&
-        !game_data::pieceIsSilenced(snapshot.pieces, original);
+        game_data::hasKeyword(original.keywords, "chrysalis");
     snapshot.pieces.erase(
         std::remove_if(
             snapshot.pieces.begin(),

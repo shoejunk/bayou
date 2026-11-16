@@ -93,9 +93,9 @@ void testShriek(Check check)
     check(!pieceAbilityAvailable(board, board[0]), "Disabled pieces cannot Shriek");
     board[0].disabledTurns = 0; board[0].growTurnsRemaining = 1;
     check(!pieceAbilityAvailable(board, board[0]), "growing pieces cannot Shriek");
-    board[0].growTurnsRemaining = 0; board[1].silenceRange = 1;
-    activateSilenceField(board[1], 2);
-    check(!pieceAbilityAvailable(board, board[0]), "Silence Field blocks Shriek");
+    board[0].growTurnsRemaining = 0;
+    applySilence(board, board[1]);
+    check(!pieceAbilityAvailable(board, board[0]), "Silence blocks Shriek");
 
     bool supportsShriek = true;
     sf::Packet legacyJoin;

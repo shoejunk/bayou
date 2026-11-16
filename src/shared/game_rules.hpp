@@ -591,24 +591,16 @@ inline bool pieceHealingBlocked(const std::vector<Piece>& pieces, const Piece& t
     });
 }
 
-inline bool pieceIsSilenced(const std::vector<Piece>& pieces, const Piece& target)
-{
-    return std::any_of(pieces.begin(), pieces.end(), [&](const Piece& source) {
-        return source.id != target.id && source.health > 0 && source.silenceTurnsRemaining > 0 &&
-            pieceDistance(source, target) <= normalizedSilenceRange(source.silenceRange);
-    });
-}
-
-// Silence is a removable negative status, not the source-bound Silence Field aura.
+// Silence is a removable negative status affecting activated buttons only.
 inline void clearSilence(Piece& target)
 {
     target.silencedTurnsRemaining = 0;
     target.silencedExpiryPlayer = 0;
 }
 
-inline bool pieceActivatedAbilitiesSilenced(const std::vector<Piece>& pieces, const Piece& target)
+inline bool pieceActivatedAbilitiesSilenced(const std::vector<Piece>&, const Piece& target)
 {
-    return target.silencedTurnsRemaining > 0 || pieceIsSilenced(pieces, target);
+    return target.silencedTurnsRemaining > 0;
 }
 
 inline void applySilence(std::vector<Piece>& pieces, const Piece& source)
@@ -656,21 +648,6 @@ inline void applyAreaHeal(std::vector<Piece>& pieces, const Piece& source)
         if (pieceCanReceiveAreaHeal(source, target)) applyActionHealing(pieces, target, 1, 0);
 }
 
-
-inline void activateSilenceField(Piece& source, int playerNumber)
-{
-    source.silenceTurnsRemaining = normalizedSilenceTurns(source.silenceTurns);
-    source.silenceExpiryPlayer = playerNumber;
-}
-
-// Duration N expires at the start of the activating player's Nth subsequent
-// turn. Cards and additional piece actions within one turn never advance it.
-inline void updateSilenceFieldsAtTurnStart(std::vector<Piece>& pieces, int playerNumber)
-{
-    for (Piece& piece : pieces)
-        if (piece.silenceExpiryPlayer == playerNumber && piece.silenceTurnsRemaining > 0)
-            if (--piece.silenceTurnsRemaining == 0) piece.silenceExpiryPlayer = 0;
-}
 
 // Recompute view-only facts only on a complete board (before hidden redaction).
 inline void refreshAuraIndicators(std::vector<Piece>& pieces)
@@ -1273,7 +1250,6 @@ inline std::string pieceAbilityLabel(const Piece& piece, bool sacrifice = false)
     if (ability == "area heal") return prefix + "Area Heal";
     if (ability == "shriek") return prefix + "Shriek";
     if (ability == "silence") return prefix + "Silence";
-    if (ability == "silence field") return prefix + "Silence Field";
     if (ability == "dig")
     {
         return prefix + "Dig";
@@ -1911,7 +1887,7 @@ inline bool pieceAbilityAvailable(const Piece& piece, bool sacrifice = false)
     }
     return ability == "transform" || ability == "dematerialize" || ability == "command" ||
         ability == "raise undead" || ability == "swap" || ability == "power boost" ||
-        ability == "silence field" || ability == "silence" || ability == "shriek" || ability == "area heal";
+        ability == "silence" || ability == "shriek" || ability == "area heal";
 }
 
 inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece& piece, bool sacrifice = false)
@@ -1991,8 +1967,6 @@ inline void advanceTimedTransformations(std::vector<Piece>& pieces, int playerNu
         // The new form starts with its printed health, actions and timer.
         replacement.chrysalisUsed = piece.chrysalisUsed;
         replacement.raisedFromGraveyard = piece.raisedFromGraveyard;
-        replacement.silenceTurnsRemaining = piece.silenceTurnsRemaining;
-        replacement.silenceExpiryPlayer = piece.silenceExpiryPlayer;
         replacement.silencedTurnsRemaining = piece.silencedTurnsRemaining;
         replacement.silencedExpiryPlayer = piece.silencedExpiryPlayer;
         replacement.actionState = 0;

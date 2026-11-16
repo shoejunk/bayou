@@ -110,7 +110,7 @@ int main()
     GameCard undefined;undefined.type="Spell";undefined.title="Hidden Path";undefined.effect="none";
     check(sound::effectRecipe(undefined).empty(),"undefined effect artwork cannot enable cast");
     undefined.effect="damage";check(!sound::effectRecipe(undefined).empty(),"defined effect can use themed recipe");
-    check(sound::abilityRecipe("Silence Field")[0].id=="steam","case-normalized silence ability");
+    check(sound::abilityRecipe("Silence")[0].id=="steam","case-normalized silence ability");
     before={};after=before;before.yourPlayer=after.yourPlayer=1;
     after.players[1].resources=20;
     check(!has(sound::planTransition(before,after),"resource_coins"),"opponent resource changes are not local rewards");

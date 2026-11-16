@@ -89,8 +89,8 @@ void testAreaHeal(Check check)
     board[0].disabledTurns = 0; board[0].growTurnsRemaining = 1;
     check(!pieceAbilityAvailable(board, board[0]), "growing units cannot activate Area Heal");
     board = {source, enemy}; board[1].row = 3; board[1].column = 4;
-    activateSilenceField(board[1], 2);
-    check(!pieceAbilityAvailable(board, board[0]), "Silence Field blocks Area Heal");
+    applySilence(board, board[1]);
+    check(!pieceAbilityAvailable(board, board[0]), "Silence blocks Area Heal");
 
     card.health = 4; card.traits = {"fey", "mechanical"};
     GameCard target = card; target.title = "Area Heal target"; target.ability.clear();
