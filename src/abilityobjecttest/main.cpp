@@ -441,6 +441,28 @@ int main(int argc, char **argv)
         migration(cards);
         fmt::println("Archived migration coverage: {} cards", cards.size());
     }
+    if (argc == 4 && std::string(argv[1]) == "--compare-db")
+    {
+        const auto before = card_database::loadCardsFromFile(argv[2]);
+        const auto after = card_database::loadCardsFromFile(argv[3]);
+        check(before.size() == after.size(), "database migration preserves catalog cardinality");
+        for (std::size_t i = 0; i < before.size() && i < after.size(); ++i)
+        {
+            const auto label = before[i].title + ": database migration preserves runtime fields and actions";
+            check(gameplay(before[i]) == gameplay(after[i]), label.c_str());
+            check(after[i].abilityReferencesExplicit, "every migrated card has an explicit assignment marker");
+            for (bool sacrifice : {false, true})
+            {
+                const auto expected = game_data::legacyAbilityDefinition(game_data::toGameCard(before[i]), sacrifice);
+                auto actual = sacrifice ? after[i].sacrificeAbility : after[i].activatedAbility;
+                if (actual)
+                    actual->name.clear();
+                const auto detail = before[i].title + (sacrifice ? ": sacrifice definition preserved" : ": normal definition preserved");
+                check(actual == expected, detail.c_str());
+            }
+        }
+        fmt::println("Database migration comparison: {} cards", before.size());
+    }
     fmt::println("Ability object checks: {}, failures: {}", checks, failures);
     return failures ? 1 : 0;
 }

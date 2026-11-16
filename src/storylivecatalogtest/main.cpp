@@ -134,6 +134,7 @@ std::optional<LiveCatalog> loadSchemaElevenCatalog(
 
     sf::Packet request;
     request << static_cast<std::uint8_t>(network::MessageType::CardListRequest);
+    request << static_cast<std::uint32_t>(14);
     if (socket.send(request) != sf::Socket::Status::Done)
     {
         error = "could not send authoritative card-list request";
