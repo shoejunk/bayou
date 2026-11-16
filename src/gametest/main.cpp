@@ -41,6 +41,7 @@
 #include "shriek_tests.hpp"
 #include "area_heal_tests.hpp"
 #include "silence_tests.hpp"
+#include "ability_parameters_tests.hpp"
 #include "timed_transform_tests.hpp"
 
 #include "../shared/network.hpp"
@@ -1394,6 +1395,7 @@ int main(int argc, char** argv)
     testShriek(check);
     testAreaHeal(check);
     testSilence(check);
+    testAbilityParameters(check);
     testTimedTransformation(check);
     testSwarm(check);
     testBristle(check);

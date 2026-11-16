@@ -8,8 +8,8 @@ Thorn Serpent
 Cards in progress (outstanding work):
 Completion standard: Joe waived live gameplay testing. Remove implemented cards after required code, catalog, and deployment checks pass; do not claim played-through verification occurred.
 Warden: Bind implemented and verified (1058 offline gameplay checks; Debug client/server/test builds), code commit 9a64d2c. Live Bind keyword verified 2026-11-16 01:02 UTC, other catalog fields unchanged. Remaining: deploy Bind runtime and verify deployment checks. Live gameplay testing waived by Joe. Adjacent enemies cannot voluntarily move, including between adjacent squares; stationary attacks/abilities remain usable. Defeating the binder permits normal advance when no other Bind remains. External Push/Pull can free a bound unit.
-Lord Pallid: in progress. Generic weaken activated ability, card button label Pallid Curse, selected by Joe. Implementation, live card configuration and verification pending.
-Shared activated ability range/strength/duration fields: migration and regression verification in progress; coordinate existing Area Heal/Silence fields and Lord Pallid's weaken without losing current card behavior.
+Lord Pallid: in progress. Generic weaken activated ability, card button label Pallid Curse, selected by Joe. Code implemented and regression-verified (1088 gameplay checks, 1472 audio checks; Debug client/server/test/audio builds). Remaining: deploy compatible runtime/client, configure live card and verify readback. No live gameplay test required per Joe.
+Shared activated ability range/strength/duration fields: Code and regression verification complete with legacy field compatibility retained. Remaining: deployment and targeted authoritative catalog migration; existing global Silence remains unchanged pending explicit range decision. See Activated Ability Parameters.md.
 
 Next up (not yet started): Sir Chitin the Undying
 

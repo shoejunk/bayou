@@ -8439,6 +8439,10 @@ int main(int argc, char** argv)
                 }
             }
         }
+        else if (ability == "weaken")
+        {
+            game_data::applyWeaken(next.pieces, *piece);
+        }
         else if (ability == "area heal")
         {
             game_data::applyAreaHeal(next.pieces, *piece);

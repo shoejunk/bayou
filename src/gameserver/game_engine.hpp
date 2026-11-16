@@ -1027,6 +1027,10 @@ private:
                 }
             }
         }
+        else if (ability == "weaken")
+        {
+            applyWeaken(pieces, *piece);
+        }
         else if (ability == "area heal")
         {
             applyAreaHeal(pieces, *piece);
@@ -1374,6 +1378,7 @@ public:
                 // concealed from this viewer. The authoritative piece keeps its
                 // permanent Power so movement/death cannot accumulate Swarm.
                 snapshot.pieces.back().power = effectivePiecePower(pieces, piece);
+                snapshot.pieces.back().powerIncludesModifiers = true;
                 snapshot.pieces.back().abilitySilenced = pieceActivatedAbilitiesSilenced(pieces, piece);
                 snapshot.pieces.back().healingBlocked = pieceHealingBlocked(pieces, piece);
             }

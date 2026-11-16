@@ -362,6 +362,8 @@
             label = labels[static_cast<std::size_t>(
                 std::max(0, state) % static_cast<int>(labels.size()))];
         }
+        else if (ability == "weaken") label = "Weaken";
+        else if (ability == "area heal") label = "Area Heal";
         else if (ability == "silence") label = "Silence";
         else if (ability == "shriek") label = "Shriek";
         else if (ability == "dig") label = "Dig";
@@ -392,26 +394,32 @@
         }
         else if (ability == "silence")
         {
-            rule = "applies removable negative Silence to all living enemies currently on the board for " +
-                std::to_string(source.silenceTurns) + " affected-enemy turns; blocks activated abilities only, not attacks, movement or passives. Later entrants are unaffected";
+            rule = "applies removable negative Silence to living enemies within " + std::to_string(game_data::activatedRange(source, ability.c_str())) + " squares for " +
+                std::to_string(game_data::activatedDuration(source, ability.c_str())) + " affected-enemy turns; blocks activated abilities only, not attacks, movement or passives. Later entrants are unaffected";
         }
         else if (ability == "shriek")
         {
-            rule = "reveals all hidden units within " + std::to_string(source.shriekRange) +
+            rule = "reveals all hidden units within " + std::to_string(game_data::activatedRange(source, ability.c_str())) +
                 " squares, friend or foe, including this unit if hidden; includes diagonals and full footprints. Revealing alone does not Disable. " +
-                (source.shriekDamage > 0 ? "Deals " + std::to_string(source.shriekDamage) +
+                (game_data::activatedStrength(source, ability.c_str()) > 0 ? "Deals " + std::to_string(game_data::activatedStrength(source, ability.c_str())) +
                     " damage to each revealed unit (Bodyguard protection applies)" : "Deals no damage");
+        }
+        else if (ability == "weaken") {
+            rule = "gives enemies within " + std::to_string(game_data::activatedRange(source, ability.c_str())) + " squares a permanent stacking -" + std::to_string(game_data::activatedStrength(source, ability.c_str())) + " Power negative status; final damage cannot be below zero";
+        }
+        else if (ability == "area heal") {
+            rule = "heals eligible friendlies, including this unit, within " + std::to_string(game_data::activatedRange(source, ability.c_str())) + " squares by " + std::to_string(game_data::activatedStrength(source, ability.c_str())) + " Health";
         }
         else if (ability == "power boost")
         {
-            rule = "gives every adjacent friendly unit +1 Power, including diagonals; excludes this unit. Power stacks and increases damage dealt while the unit remains in play";
+            rule = "gives friendlies within " + std::to_string(game_data::activatedRange(source, ability.c_str())) + " squares +" + std::to_string(game_data::activatedStrength(source, ability.c_str())) + " Power; excludes this unit. Power stacks";
         }
         else if (ability == "command")
         {
             if (source.commandRestriction && source.commandRestriction->empty())
                 rule = "has no eligible targets (CommandRestriction is blank)";
             else
-                rule = "spends this piece's action, then lets one ready adjacent friendly piece" +
+                rule = "spends this piece's action, then lets one ready friendly piece within " + std::to_string(game_data::activatedRange(source, ability.c_str())) + " squares" +
                     game_data::commandTargetQualifier(source.commandRestriction) +
                     " act immediately. Card plays, draws, and discards wait until it resolves. End Turn may decline it. The turn's normal piece action remains available afterward";
         }
@@ -584,6 +592,8 @@
             descriptions.push_back({"Disabled: " + std::to_string(piece.disabledTurns) + " turns",
                                     sf::Color(225, 130, 110)});
         }
+        if (piece.weakenedPower > 0)
+            descriptions.push_back({"Weakened (negative): -" + std::to_string(piece.weakenedPower) + " Power, permanent", sf::Color(225, 130, 110)});
         if (piece.silencedTurnsRemaining > 0)
         {
             descriptions.push_back({"Silence (negative): " + std::to_string(piece.silencedTurnsRemaining) +

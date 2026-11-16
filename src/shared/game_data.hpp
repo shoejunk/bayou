@@ -28,6 +28,9 @@ constexpr int DeckCardCount = 20;   // non-hero cards
 constexpr int MaxCardCopies = 2;
 constexpr int MaxHeroCopies = 1;
 constexpr const char* DeckLimitField = "Deck Limit";
+constexpr const char* AbilityRangeField = "ability range";
+constexpr const char* AbilityStrengthField = "ability strength";
+constexpr const char* AbilityDurationField = "ability duration";
 constexpr const char* HealRangeField = "heal range";
 constexpr const char* HealFilterField = "heal filter";
 constexpr const char* HealingAuraField = "healing aura";
@@ -467,6 +470,7 @@ struct GameCard
     int gatherResources = 0;      // passive resources gained at the start of each owner's turn
     int healingAura = 0;          // health restored to every adjacent piece at the owner's turn end
     int counterstrike = 0;        // damage returned to an adjacent enemy attacker
+    std::optional<int> abilityRange, abilityStrength, abilityDuration;
     int healRange = 1;
     std::optional<std::vector<std::string>> healFilter;
     int shriekRange = 1;
@@ -490,6 +494,27 @@ struct GameCard
     bool chrysalisUsed = false; // persists with this card copy for the match
     bool raisedFromGraveyard = false;
 };
+
+template <typename T> inline int activatedRange(const T& v, const char* abilityOverride = nullptr)
+{
+    const std::string ability = abilityOverride ? abilityOverride : v.ability;
+    if (v.abilityRange) return std::max(0, *v.abilityRange);
+    if (ability == "area heal") return v.healRange;
+    if (ability == "shriek") return v.shriekRange;
+    // Legacy Silence was global; preserve it until catalog migration is explicit.
+    if (ability == "silence") return BoardSize - 1;
+    return 1;
+}
+template <typename T> inline int activatedStrength(const T& v, const char* abilityOverride = nullptr)
+{
+    const std::string ability = abilityOverride ? abilityOverride : v.ability;
+    return std::max(0, v.abilityStrength.value_or(ability == "shriek" ? v.shriekDamage : 1));
+}
+template <typename T> inline int activatedDuration(const T& v, const char* abilityOverride = nullptr)
+{
+    const std::string ability = abilityOverride ? abilityOverride : v.ability;
+    return std::max(1, v.abilityDuration.value_or(ability == "silence" ? v.silenceTurns : 1));
+}
 
 inline GameCard toGameCard(const card_data::Card& card)
 {
@@ -537,6 +562,11 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.shriekRange = std::max(0, cardInt(card, ShriekRangeField, cardInt(card, "shriekRange", 1)));
     g.shriekDamage = std::max(0, cardInt(card, ShriekDamageField, cardInt(card, "shriekDamage", 0)));
     g.silenceTurns = normalizedSilenceTurns(cardInt(card, SilenceTurnsField, 1));
+    for (const auto& field : card.integerValues) {
+        if (field.key == AbilityRangeField) g.abilityRange = std::max(0, field.value);
+        if (field.key == AbilityStrengthField) g.abilityStrength = std::max(0, field.value);
+        if (field.key == AbilityDurationField) g.abilityDuration = std::max(1, field.value);
+    }
     g.canControl = cardInt(card, "canControl", 1) != 0;
     g.growTurns = cardInt(card, "growTurns", 0);
     g.transformTurns = std::max(0, cardInt(card, "transformTurns", 0));
@@ -782,11 +812,14 @@ struct Piece
     int gatherResources = 0;
     int healingAura = 0;
     int counterstrike = 0;
+    std::optional<int> abilityRange, abilityStrength, abilityDuration;
     int healRange = 1;
     std::optional<std::vector<std::string>> healFilter;
     int shriekRange = 1;
     int shriekDamage = 0;
     int silenceTurns = 1;
+    int weakenedPower = 0; // permanent, removable negative Power status; stacks
+    bool powerIncludesModifiers = false; // view snapshots already contain effective Power
     // Negative Silence status; suppresses activated buttons, never passive effects.
     int silencedTurnsRemaining = 0;
     int silencedExpiryPlayer = 0; // affected enemy-player turn-end clock
@@ -837,9 +870,8 @@ struct Piece
 inline int damageWithPower(int damage, int power)
 {
     if (damage <= 0) return 0;
-    return static_cast<int>(std::min<std::int64_t>(
-        std::numeric_limits<int>::max(),
-        static_cast<std::int64_t>(damage) + std::max(0, power)));
+    return static_cast<int>(std::clamp<std::int64_t>(
+        static_cast<std::int64_t>(damage) + power, 0, std::numeric_limits<int>::max()));
 }
 
 inline bool pieceUsesState1Token(const Piece& piece)
@@ -880,11 +912,16 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.gatherResources = card.gatherResources;
     piece.healingAura = card.healingAura;
     piece.counterstrike = card.counterstrike;
+    piece.abilityRange = card.abilityRange;
+    piece.abilityStrength = card.abilityStrength;
+    piece.abilityDuration = card.abilityDuration;
     piece.healRange = card.healRange;
     piece.healFilter = card.healFilter;
     piece.shriekRange = std::max(0, card.shriekRange);
     piece.shriekDamage = std::max(0, card.shriekDamage);
-    piece.silenceTurns = normalizedSilenceTurns(card.silenceTurns);
+    piece.silenceTurns = normalizedSilenceTurns(card.abilityDuration.value_or(card.silenceTurns));
+
+    piece.weakenedPower = 0; piece.powerIncludesModifiers = false;
     piece.silencedTurnsRemaining = piece.silencedExpiryPlayer = 0;
     piece.abilitySilenced = false;
     piece.healingBlocked = false;
@@ -1121,18 +1158,20 @@ constexpr std::uint32_t TransformSnapshotCapability = 0x54524631;
 constexpr std::uint32_t CommandRestrictionSnapshotCapability = 0x434d4431; // CMD1
 constexpr std::uint32_t SlowSnapshotCapability = 0x534c5731; // SLW1
 constexpr std::uint32_t AreaHealSnapshotCapability = 0x48454131; // HEA1
+constexpr std::uint32_t AbilityParametersCapability = 0x41425031; // ABP1
 constexpr std::uint32_t SilenceSnapshotCapability = 0x53494c31; // SIL1
 constexpr std::uint32_t ChrysalisSnapshotCapability = 0x43485231; // CHR1
 
 // Ready responses can advertise extensions without changing the join requests
 // that older servers parse strictly. An absent advertisement uses the legacy format.
-inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr)
+inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr)
 {
     std::uint32_t marker = 0;
     if (slow) *slow = false;
     if (chrysalis) *chrysalis = false;
     if (areaHeal) *areaHeal = false;
     if (silence) *silence = false;
+    if (parameters) *parameters = false;
     if (ready.endOfPacket() || !(ready >> marker) || marker != CommandRestrictionSnapshotCapability)
         return false;
     if (slow && !ready.endOfPacket())
@@ -1143,16 +1182,19 @@ inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nu
         *areaHeal = (ready >> marker) && marker == AreaHealSnapshotCapability;
     if (silence && areaHeal && *areaHeal && !ready.endOfPacket())
         *silence = (ready >> marker) && marker == SilenceSnapshotCapability;
+    if (parameters && silence && *silence && !ready.endOfPacket())
+        *parameters = (ready >> marker) && marker == AbilityParametersCapability;
     return true;
 }
 
 // Older clients opt in to CMD1 with an empty payload.
-inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr)
+inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr)
 {
     slow = false;
     if (chrysalis) *chrysalis = false;
     if (areaHeal) *areaHeal = false;
     if (silence) *silence = false;
+    if (parameters) *parameters = false;
     if (packet.endOfPacket()) return true;
     std::uint32_t marker = 0;
     slow = (packet >> marker) && marker == SlowSnapshotCapability;
@@ -1167,14 +1209,18 @@ inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysali
     if (!*areaHeal) return false;
     if (packet.endOfPacket()) return true;
     if (!silence) return false;
-    *silence = (packet >> marker) && marker == SilenceSnapshotCapability && packet.endOfPacket();
-    return *silence;
+    *silence = (packet >> marker) && marker == SilenceSnapshotCapability;
+    if (!*silence) return false;
+    if (packet.endOfPacket()) return true;
+    if (!parameters) return false;
+    *parameters = (packet >> marker) && marker == AbilityParametersCapability && packet.endOfPacket();
+    return *parameters;
 }
 
 template <typename T>
 inline void writeAreaHealFields(sf::Packet& packet, const T& value)
 {
-    packet << value.healRange << value.healFilter.has_value();
+    packet << std::clamp(value.abilityRange.value_or(value.healRange), 0, BoardSize-1) << value.healFilter.has_value();
     if (value.healFilter) card_data::writeStringVector(packet, *value.healFilter);
 }
 
@@ -1186,6 +1232,27 @@ inline bool readAreaHealFields(sf::Packet& packet, T& value)
     value.healFilter.reset();
     return !present || card_data::readStringVector(packet, value.healFilter.emplace());
 }
+
+template <typename T> inline void writeAbilityParameters(sf::Packet& packet, const T& value)
+{
+    for (const auto* field : {&value.abilityRange, &value.abilityStrength, &value.abilityDuration}) {
+        packet << field->has_value();
+        if (*field) packet << **field;
+    }
+}
+template <typename T> inline bool readAbilityParameters(sf::Packet& packet, T& value)
+{
+    for (auto* field : {&value.abilityRange, &value.abilityStrength, &value.abilityDuration}) {
+        bool present = false; field->reset();
+        if (!(packet >> present)) return false;
+        if (present) { int number = 0; if (!(packet >> number) || number < 0) return false; *field = number; }
+    }
+    return !value.abilityDuration || *value.abilityDuration > 0;
+}
+inline void writeWeakenStatus(sf::Packet& packet, const Piece& piece)
+{ packet << piece.weakenedPower << piece.powerIncludesModifiers; }
+inline bool readWeakenStatus(sf::Packet& packet, Piece& piece)
+{ return (packet >> piece.weakenedPower >> piece.powerIncludesModifiers) && piece.weakenedPower >= 0; }
 
 inline void writeCommandRestriction(sf::Packet& packet, const std::optional<std::string>& restriction)
 {
@@ -1223,7 +1290,7 @@ inline bool readShriekSnapshotCapability(sf::Packet& packet, bool& supported, bo
 template <typename CardOrPiece>
 inline void writeShriekFields(sf::Packet& packet, const CardOrPiece& value)
 {
-    packet << std::max(0, value.shriekRange) << std::max(0, value.shriekDamage);
+    packet << std::max(0, value.abilityRange.value_or(value.shriekRange)) << std::max(0, value.abilityStrength.value_or(value.shriekDamage));
 }
 
 template <typename CardOrPiece>
@@ -1239,7 +1306,7 @@ inline bool readShriekFields(sf::Packet& packet, CardOrPiece& value)
 // only the surviving Silence duration and status/view facts have runtime meaning.
 inline void writeCardAuraFields(sf::Packet& packet, const GameCard& card)
 {
-    packet << std::int32_t{1} << normalizedSilenceTurns(card.silenceTurns);
+    packet << std::int32_t{1} << normalizedSilenceTurns(card.abilityDuration.value_or(card.silenceTurns));
 }
 
 inline bool readCardAuraFields(sf::Packet& packet, GameCard& card)
@@ -1247,13 +1314,13 @@ inline bool readCardAuraFields(sf::Packet& packet, GameCard& card)
     std::int32_t reservedRange = 0;
     packet >> reservedRange >> card.silenceTurns;
     if (!packet) return false;
-    card.silenceTurns = normalizedSilenceTurns(card.silenceTurns);
+    card.silenceTurns = normalizedSilenceTurns(card.abilityDuration.value_or(card.silenceTurns));
     return true;
 }
 
 inline void writePieceAuraFields(sf::Packet& packet, const Piece& piece)
 {
-    packet << std::int32_t{1} << normalizedSilenceTurns(piece.silenceTurns)
+    packet << std::int32_t{1} << normalizedSilenceTurns(piece.abilityDuration.value_or(piece.silenceTurns))
            << std::int32_t{0} << std::int32_t{0}
            << piece.abilitySilenced << piece.healingBlocked;
 }
@@ -1327,7 +1394,7 @@ inline bool readSlowFields(sf::Packet& packet, Piece& piece)
         piece.slowTurnsRemaining >= 0 && readActionSlows(packet, piece.actions);
 }
 
-inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFields = true, bool areaHealFields = true)
+inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFields = true, bool areaHealFields = true, bool parameterFields = true)
 {
     packet << card.title << card.type;
     card_data::writeStringVector(packet, card.traits);
@@ -1364,7 +1431,10 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFie
         writeCommandRestriction(packet, card.commandRestriction);
         writeActionSlows(packet, card.actions);
         packet << card.chrysalisUsed;
-        if (areaHealFields) writeAreaHealFields(packet, card);
+        if (areaHealFields) {
+            writeAreaHealFields(packet, card);
+            if (parameterFields) { packet << AbilityParametersCapability; writeAbilityParameters(packet, card); }
+        }
     }
 }
 
@@ -1419,6 +1489,7 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = t
     card.transformTurns = 0;
     card.transformInto.clear();
     card.commandRestriction.reset();
+    card.abilityRange.reset(); card.abilityStrength.reset(); card.abilityDuration.reset();
     card.healRange = 1;
     card.healFilter.reset();
     card.shriekRange = 1;
@@ -1436,7 +1507,11 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = t
     if (!readActionSlows(packet, card.actions)) return false;
     if (packet.endOfPacket()) return true;
     if (!(packet >> card.chrysalisUsed)) return false;
-    return packet.endOfPacket() || readAreaHealFields(packet, card);
+    if (packet.endOfPacket()) return true;
+    if (!readAreaHealFields(packet, card)) return false;
+    if (packet.endOfPacket()) return true;
+    std::uint32_t parameterMarker = 0;
+    return (packet >> parameterMarker) && parameterMarker == AbilityParametersCapability && readAbilityParameters(packet, card) && packet.endOfPacket();
 }
 
 inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields = true)
@@ -1480,6 +1555,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields =
         packet << piece.chrysalisUsed;
         writeAreaHealFields(packet, piece);
         writeSilenceFields(packet, piece);
+        packet << AbilityParametersCapability; writeAbilityParameters(packet, piece); writeWeakenStatus(packet, piece);
     }
 }
 
@@ -1539,6 +1615,8 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
     piece.shriekRange = 1;
     piece.shriekDamage = 0;
     piece.silenceTurns = 1;
+    piece.abilityRange.reset(); piece.abilityStrength.reset(); piece.abilityDuration.reset();
+    piece.weakenedPower = 0; piece.powerIncludesModifiers = false;
     piece.silencedTurnsRemaining = piece.silencedExpiryPlayer = 0;
     piece.abilitySilenced = piece.healingBlocked = false;
     if (!packet || !card_data::readStringVector(packet, piece.abilityLabels)) return false;
@@ -1556,7 +1634,12 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
     if (!(packet >> piece.chrysalisUsed)) return false;
     if (packet.endOfPacket()) return true;
     if (!readAreaHealFields(packet, piece)) return false;
-    return packet.endOfPacket() || (readSilenceFields(packet, piece) && packet.endOfPacket());
+    if (packet.endOfPacket()) return true;
+    if (!readSilenceFields(packet, piece)) return false;
+    if (packet.endOfPacket()) return true;
+    std::uint32_t parameterMarker = 0;
+    return (packet >> parameterMarker) && parameterMarker == AbilityParametersCapability &&
+        readAbilityParameters(packet, piece) && readWeakenStatus(packet, piece) && packet.endOfPacket();
 }
 
 inline void writeEnchantment(sf::Packet& packet, const Enchantment& enchantment)
@@ -1596,7 +1679,7 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 // Writes a complete snapshot payload (without the leading message-type byte).
 inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool auraFields = true,
                           bool shriekFields = true, bool transformFields = true, bool commandFields = true,
-                          bool slowFields = true, bool chrysalisFields = true, bool areaHealFields = true, bool silenceFields = true)
+                          bool slowFields = true, bool chrysalisFields = true, bool areaHealFields = true, bool silenceFields = true, bool parameterFields = true)
 {
     packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner
            << snapshot.commandingPieceId << snapshot.relentlessPieceId
@@ -1703,7 +1786,7 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
                                 packet << husk.owner << husk.row << husk.column;
                                 // A bounded nested packet keeps optional per-card fields unambiguous.
                                 sf::Packet nested;
-                                writeGameCard(nested, husk.card, true, areaHealFields);
+                                writeGameCard(nested, husk.card, true, areaHealFields, silenceFields && parameterFields);
                                 packet << std::string(static_cast<const char*>(nested.getData()), nested.getDataSize());
                             }
                             if (areaHealFields) {
@@ -1715,6 +1798,12 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
                                 if (silenceFields) {
                                     packet << SilenceSnapshotCapability;
                                     for (const Piece& piece : snapshot.pieces) writeSilenceFields(packet, piece);
+                                    if (parameterFields) {
+                                        packet << AbilityParametersCapability;
+                                        for (const Piece& piece : snapshot.pieces) { writeAbilityParameters(packet, piece); writeWeakenStatus(packet, piece); }
+                                        for (const auto* zone : {&snapshot.hand, &snapshot.foresightChoices, &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
+                                            for (const GameCard& card : *zone) writeAbilityParameters(packet, card);
+                                    }
                                 }
                             }
                         }
@@ -1936,6 +2025,11 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot, bool auraFields
     if (packet.endOfPacket()) return true;
     if (!(packet >> marker) || marker != SilenceSnapshotCapability) return false;
     for (Piece& piece : snapshot.pieces) if (!readSilenceFields(packet, piece)) return false;
+    if (packet.endOfPacket()) return true;
+    if (!(packet >> marker) || marker != AbilityParametersCapability) return false;
+    for (Piece& piece : snapshot.pieces) if (!readAbilityParameters(packet, piece) || !readWeakenStatus(packet, piece)) return false;
+    for (auto* zone : {&snapshot.hand, &snapshot.foresightChoices, &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
+        for (GameCard& card : *zone) if (!readAbilityParameters(packet, card)) return false;
     return packet.endOfPacket();
 }
 }

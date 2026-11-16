@@ -41,6 +41,9 @@ game_data::GameCard cardFromDestroyedPiece(const game_data::Piece& piece)
     card.height = piece.height;
     card.attack = piece.attack;
     card.power = piece.power;
+    card.abilityRange = piece.abilityRange;
+    card.abilityStrength = piece.abilityStrength;
+    card.abilityDuration = piece.abilityDuration;
     card.healRange = piece.healRange;
     card.healFilter = piece.healFilter;
     card.shriekRange = piece.shriekRange;

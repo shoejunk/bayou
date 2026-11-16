@@ -498,19 +498,19 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             }
             else if (ability == "power boost")
             {
-                abilityText = "Ability: Power Boost. Give every adjacent friendly unit +1 Power (including diagonals). Does not affect this unit. Power stacks and increases damage dealt while the unit remains in play";
+                abilityText = "Ability: Power Boost. Give every friendly unit within " + std::to_string(game_data::activatedRange(gameCard, ability.c_str())) + " squares +" + std::to_string(game_data::activatedStrength(gameCard, ability.c_str())) + " Power. Includes diagonals; excludes this unit. Power stacks";
             }
             else if (ability == "shriek")
             {
-                abilityText = "Ability: Shriek. Reveal all hidden units within " + std::to_string(gameCard.shriekRange) +
+                abilityText = "Ability: Shriek. Reveal all hidden units within " + std::to_string(game_data::activatedRange(gameCard, ability.c_str())) +
                     " squares, friend or foe, including this unit if hidden. Includes diagonals and full footprints; revealing alone does not Disable. " +
-                    (gameCard.shriekDamage > 0 ? "Deal " + std::to_string(gameCard.shriekDamage) +
+                    (game_data::activatedStrength(gameCard, ability.c_str()) > 0 ? "Deal " + std::to_string(game_data::activatedStrength(gameCard, ability.c_str())) +
                         " damage to each revealed unit (Bodyguard protection applies)" : "Deals no damage");
             }
             else if (ability == "area heal")
             {
-                abilityText = "Ability: Area Heal. Restore 1 Health to each friendly unit within " +
-                    std::to_string(gameCard.healRange) + " squares, including this unit. Includes diagonals; each unit heals once";
+                abilityText = "Ability: Area Heal. Restore " + std::to_string(game_data::activatedStrength(gameCard, ability.c_str())) + " Health to each friendly unit within " +
+                    std::to_string(game_data::activatedRange(gameCard, ability.c_str())) + " squares, including this unit. Includes diagonals; each unit heals once";
                 if (gameCard.healFilter) {
                     abilityText += ". Eligible traits or keywords (any): ";
                     if (gameCard.healFilter->empty()) abilityText += "none";
@@ -521,14 +521,19 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
                 }
                 abilityText += ". Cannot exceed maximum Health; healing prevention applies";
             }
+            else if (ability == "weaken") {
+                abilityText = "Ability: Weaken. Give each enemy within " + std::to_string(game_data::activatedRange(gameCard, ability.c_str())) +
+                    " squares a permanent -" + std::to_string(game_data::activatedStrength(gameCard, ability.c_str())) +
+                    " Power negative status. Repeated uses stack; total damage cannot fall below zero";
+            }
             else if (ability == "silence")
             {
-                abilityText = "Ability: Silence. All current enemy units lose activated abilities for " +
-                    std::to_string(gameCard.silenceTurns) + " enemy turn(s). A removable negative status; movement, attacks and passives are unaffected";
+                abilityText = "Ability: Silence. Current enemies within " + std::to_string(game_data::activatedRange(gameCard, ability.c_str())) + " squares lose activated abilities for " +
+                    std::to_string(game_data::activatedDuration(gameCard, ability.c_str())) + " enemy turn(s). A removable negative status; movement, attacks and passives are unaffected";
             }
             else if (ability == "command")
             {
-                abilityText = "Ability: Command a ready adjacent friendly piece";
+                abilityText = "Ability: Command a ready friendly piece within " + std::to_string(game_data::activatedRange(gameCard, ability.c_str())) + " squares";
                 if (gameCard.commandRestriction && gameCard.commandRestriction->empty())
                     abilityText = "Ability: Command has no eligible targets (CommandRestriction is blank)";
                 else

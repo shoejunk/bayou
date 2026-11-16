@@ -577,7 +577,8 @@ ConquestBattleJoinResult joinConquestBattle(
     bool supportsChrysalis = false;
     bool supportsAreaHeal = false;
     bool supportsSilence = false;
-    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow, &supportsChrysalis, &supportsAreaHeal, &supportsSilence))
+            bool supportsParameters = false;
+    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow, &supportsChrysalis, &supportsAreaHeal, &supportsSilence, &supportsParameters))
     {
         sf::Packet optIn;
         optIn << static_cast<std::uint8_t>(MessageType::EnableCommandRestrictionSnapshots);
@@ -585,6 +586,7 @@ ConquestBattleJoinResult joinConquestBattle(
         if (supportsChrysalis) optIn << game_data::ChrysalisSnapshotCapability;
         if (supportsAreaHeal) optIn << game_data::AreaHealSnapshotCapability;
         if (supportsSilence) optIn << game_data::SilenceSnapshotCapability;
+                if (supportsParameters) optIn << game_data::AbilityParametersCapability;
         if (socket->send(optIn) != sf::Socket::Status::Done)
             return {false, "Could not negotiate Conquest snapshots"};
         result.awaitingSnapshotUpgrade = true;

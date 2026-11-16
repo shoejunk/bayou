@@ -741,8 +741,14 @@ int abilityOrderBonus(const Piece& piece, const std::vector<Piece>& pieces)
         const int targets = static_cast<int>(std::count_if(pieces.begin(), pieces.end(),
             [&](const Piece& target) { return target.owner != piece.owner && target.health > 0 &&
                 (!target.ability.empty() || !target.sacrifice.empty()) &&
-                target.silencedTurnsRemaining < normalizedSilenceTurns(piece.silenceTurns); }));
+                pieceDistance(piece, target) <= activatedRange(piece) && target.silencedTurnsRemaining < activatedDuration(piece); }));
         return targets > 0 ? 200 * targets : -10000;
+    }
+    if (ability == "weaken") {
+        const int targets = static_cast<int>(std::count_if(pieces.begin(), pieces.end(), [&](const Piece& target) {
+            return pieceCanReceiveWeaken(piece, target) && pieceActionPower(target, effectivePiecePower(pieces, target)) > 0;
+        }));
+        return targets > 0 && activatedStrength(piece) > 0 ? 180 * targets : -10000;
     }
     if (ability == "area heal")
     {

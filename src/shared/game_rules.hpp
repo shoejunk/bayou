@@ -618,10 +618,10 @@ inline bool pieceActivatedAbilitiesSilenced(const std::vector<Piece>&, const Pie
 
 inline void applySilence(std::vector<Piece>& pieces, const Piece& source)
 {
-    const int duration = normalizedSilenceTurns(source.silenceTurns);
+    const int duration = activatedDuration(source, "silence");
     for (Piece& target : pieces)
     {
-        if (target.health <= 0 || target.owner == source.owner) continue;
+        if (target.health <= 0 || target.owner == source.owner || pieceDistance(source, target) > activatedRange(source, "silence")) continue;
         // Refresh, never add durations or shorten a stronger existing status.
         target.silencedTurnsRemaining = std::max(target.silencedTurnsRemaining, duration);
         target.silencedExpiryPlayer = target.owner;
@@ -649,7 +649,7 @@ inline void applyActionHealing(const std::vector<Piece>& pieces, Piece& target, 
 inline bool pieceCanReceiveAreaHeal(const Piece& source, const Piece& target)
 {
     if (target.health <= 0 || source.owner != target.owner ||
-        pieceDistance(source, target) > source.healRange) return false;
+        pieceDistance(source, target) > activatedRange(source, "area heal")) return false;
     if (!source.healFilter) return true;
     return std::any_of(source.healFilter->begin(), source.healFilter->end(),
         [&](const std::string& trait) { return hasKeyword(target.traits, trait) || hasKeyword(target.keywords, trait); });
@@ -658,7 +658,7 @@ inline bool pieceCanReceiveAreaHeal(const Piece& source, const Piece& target)
 inline void applyAreaHeal(std::vector<Piece>& pieces, const Piece& source)
 {
     for (Piece& target : pieces)
-        if (pieceCanReceiveAreaHeal(source, target)) applyActionHealing(pieces, target, 1, 0);
+        if (pieceCanReceiveAreaHeal(source, target)) applyActionHealing(pieces, target, activatedStrength(source, "area heal"), 0);
 }
 
 
@@ -1275,6 +1275,7 @@ inline std::string pieceAbilityLabel(const Piece& piece, bool sacrifice = false)
     {
         return prefix + "Power Boost";
     }
+    if (ability == "weaken") return prefix + "Weaken";
     if (ability == "area heal") return prefix + "Area Heal";
     if (ability == "shriek") return prefix + "Shriek";
     if (ability == "silence") return prefix + "Silence";
@@ -1327,14 +1328,16 @@ inline int pieceSwarmPower(const std::vector<Piece>& pieces, const Piece& piece)
 
 inline int effectivePiecePower(const std::vector<Piece>& pieces, const Piece& piece)
 {
-    return static_cast<int>(std::min<std::int64_t>(std::numeric_limits<int>::max(),
-        static_cast<std::int64_t>(std::max(0, piece.power)) + pieceSwarmPower(pieces, piece)));
+    if (piece.powerIncludesModifiers) return piece.power;
+    return static_cast<int>(std::clamp<std::int64_t>(
+        static_cast<std::int64_t>(piece.power) + pieceSwarmPower(pieces, piece) - piece.weakenedPower,
+        std::numeric_limits<int>::min(), std::numeric_limits<int>::max()));
 }
 
 inline bool pieceCanReceivePowerBoost(const Piece& source, const Piece& target)
 {
     return source.id != target.id && source.owner == target.owner && target.health > 0 &&
-        piecesAreAdjacent(source, target);
+        pieceDistance(source, target) <= activatedRange(source);
 }
 
 inline void applyPowerBoost(std::vector<Piece>& pieces, const Piece& source)
@@ -1343,9 +1346,23 @@ inline void applyPowerBoost(std::vector<Piece>& pieces, const Piece& source)
     {
         if (pieceCanReceivePowerBoost(source, target))
         {
-            target.power = damageWithPower(1, target.power);
+            target.power = static_cast<int>(std::clamp<std::int64_t>(static_cast<std::int64_t>(target.power) + activatedStrength(source), std::numeric_limits<int>::min(), std::numeric_limits<int>::max()));
         }
     }
+}
+
+inline void clearWeaken(Piece& target) { target.weakenedPower = 0; }
+inline bool pieceCanReceiveWeaken(const Piece& source, const Piece& target)
+{
+    return target.health > 0 && target.owner != source.owner &&
+        pieceDistance(source, target) <= activatedRange(source);
+}
+inline void applyWeaken(std::vector<Piece>& pieces, const Piece& source)
+{
+    const int strength = activatedStrength(source);
+    for (Piece& target : pieces) if (pieceCanReceiveWeaken(source, target))
+        target.weakenedPower = static_cast<int>(std::min<std::int64_t>(
+            std::numeric_limits<int>::max(), static_cast<std::int64_t>(target.weakenedPower) + strength));
 }
 
 // Check before removing the casualty or spawning a death replacement. Only
@@ -1736,8 +1753,8 @@ template <typename RandomEngine>
 inline std::vector<DamageAssignment> applyShriek(
     std::vector<Piece>& pieces, const Piece& source, RandomEngine& randomEngine)
 {
-    const int range = std::max(0, source.shriekRange);
-    const int damage = std::max(0, source.shriekDamage);
+    const int range = activatedRange(source, "shriek");
+    const int damage = activatedStrength(source, "shriek");
     std::vector<int> targetIds;
     for (Piece& target : pieces)
     {
@@ -1877,7 +1894,7 @@ inline bool pieceCanReceiveCommand(const Piece& commander, const Piece& target)
 {
     return commander.id != target.id && commander.owner == target.owner &&
         !target.hasActed && target.growTurnsRemaining <= 0 && target.disabledTurns <= 0 &&
-        piecesAreAdjacent(commander, target) &&
+        pieceDistance(commander, target) <= activatedRange(commander) &&
         (!commander.commandRestriction ||
          (!commander.commandRestriction->empty() && pieceHasTraitOrKeyword(target, *commander.commandRestriction)));
 }
@@ -1915,7 +1932,7 @@ inline bool pieceAbilityAvailable(const Piece& piece, bool sacrifice = false)
     }
     return ability == "transform" || ability == "dematerialize" || ability == "command" ||
         ability == "raise undead" || ability == "swap" || ability == "power boost" ||
-        ability == "silence" || ability == "shriek" || ability == "area heal";
+        ability == "silence" || ability == "shriek" || ability == "area heal" || ability == "weaken";
 }
 
 inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece& piece, bool sacrifice = false)
