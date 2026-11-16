@@ -125,12 +125,17 @@ PieceDestructionResult destroyPieceInSnapshot(
     const game_data::GameCard* originalCard)
 {
     PieceDestructionResult result;
-    const game_data::Piece* found = pieceByIdInSnapshot(snapshot, id);
+    game_data::Piece* found = pieceByIdInSnapshotMutable(snapshot, id);
     if (found == nullptr)
     {
         return result;
     }
 
+    if (game_data::reviveUndyingPiece(*found))
+    {
+        result.revived = true;
+        return result;
+    }
     const game_data::Piece original = *found;
     const bool canEvacuate = game_data::pieceHasEvacuateSupport(snapshot.pieces, original);
     const bool chrysalisEligible = !original.isHero && !original.chrysalisUsed &&

@@ -305,6 +305,8 @@
                 "Intercept: when a positive-damage enemy piece attack targets an adjacent friendly piece, this piece automatically swaps in and takes that attack if it has not intercepted since its last owner-turn start. If several legal Interceptors qualify, one is chosen uniformly at random. Both full footprints must exchange legally; otherwise the original target is hit. Acting, Disable, Sleep, and Growth do not prevent Intercept. It cannot protect a Bodyguard or another Intercept, and zero-damage attacks and spells do not trigger it.",
                 keywordColor});
         }
+        if (game_data::hasKeyword(keywords, "undying"))
+            descriptions.push_back({"Undying: the first time this unit would be defeated, revive it on the board with 1 Health. Once per board lifetime; keeps its identity, attachments and conditions. This is not a kill.", keywordColor});
         if (game_data::hasKeyword(keywords, "chrysalis"))
         {
             descriptions.push_back({
@@ -630,6 +632,8 @@
             descriptions, piece.tax, piece.gatherResources, piece.healingAura, game_data::damageWithPower(piece.counterstrike, power),
             piece.canControl, piece.growTurnsRemaining, piece.rebirthTitle,
             piece.transformTurnsRemaining, piece.transformInto);
+        if (game_data::hasKeyword(piece.keywords, "undying") && piece.undyingUsed)
+            descriptions.push_back({"Undying: already used by this unit.", sf::Color(190, 198, 214)});
         if (game_data::hasKeyword(piece.keywords, "chrysalis") && piece.chrysalisUsed)
             descriptions.push_back({"Chrysalis: already used this game.", sf::Color(190, 198, 214)});
         for (const game_data::Enchantment& enchantment : gameSnapshot.enchantments)

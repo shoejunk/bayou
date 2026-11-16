@@ -37,6 +37,7 @@
 #include "slow_tests.hpp"
 #include "bind_tests.hpp"
 #include "chrysalis_tests.hpp"
+#include "undying_tests.hpp"
 #include "aura_tests.hpp"
 #include "shriek_tests.hpp"
 #include "area_heal_tests.hpp"
@@ -1402,6 +1403,7 @@ int main(int argc, char** argv)
     testSlow(check);
     testBind(check);
     testChrysalis(check);
+    testUndying(check);
     testAdjacentStep(ActionKind::RallyStep, "rally step");
     testAdjacentStep(ActionKind::AssaultStep, "assault step");
     testLifedrain();

@@ -864,6 +864,7 @@ struct Piece
     bool interceptUsedThisTurn = false;
     bool chrysalisUsed = false; // persists with this card copy for the match
     bool raisedFromGraveyard = false;
+    bool undyingUsed = false; // lifetime of this board piece, never carried by a card
 };
 
 // Power augments each damage event, never healing or a non-damaging effect.
@@ -946,6 +947,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.rebirthTitle = card.rebirthTitle;
     piece.abilityLabels = card.abilityLabels;
     piece.abilityUses = card.abilityUses;
+    piece.undyingUsed = false;
     piece.chrysalisUsed = card.chrysalisUsed;
     piece.raisedFromGraveyard = card.raisedFromGraveyard;
     piece.isHero = isHero;
@@ -1160,11 +1162,12 @@ constexpr std::uint32_t SlowSnapshotCapability = 0x534c5731; // SLW1
 constexpr std::uint32_t AreaHealSnapshotCapability = 0x48454131; // HEA1
 constexpr std::uint32_t AbilityParametersCapability = 0x41425031; // ABP1
 constexpr std::uint32_t SilenceSnapshotCapability = 0x53494c31; // SIL1
+constexpr std::uint32_t UndyingSnapshotCapability = 0x554e4431; // UND1
 constexpr std::uint32_t ChrysalisSnapshotCapability = 0x43485231; // CHR1
 
 // Ready responses can advertise extensions without changing the join requests
 // that older servers parse strictly. An absent advertisement uses the legacy format.
-inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr)
+inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr, bool* undying = nullptr)
 {
     std::uint32_t marker = 0;
     if (slow) *slow = false;
@@ -1172,6 +1175,7 @@ inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nu
     if (areaHeal) *areaHeal = false;
     if (silence) *silence = false;
     if (parameters) *parameters = false;
+    if (undying) *undying = false;
     if (ready.endOfPacket() || !(ready >> marker) || marker != CommandRestrictionSnapshotCapability)
         return false;
     if (slow && !ready.endOfPacket())
@@ -1184,17 +1188,20 @@ inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nu
         *silence = (ready >> marker) && marker == SilenceSnapshotCapability;
     if (parameters && silence && *silence && !ready.endOfPacket())
         *parameters = (ready >> marker) && marker == AbilityParametersCapability;
+    if (undying && parameters && *parameters && !ready.endOfPacket())
+        *undying = (ready >> marker) && marker == UndyingSnapshotCapability;
     return true;
 }
 
 // Older clients opt in to CMD1 with an empty payload.
-inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr)
+inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr, bool* undying = nullptr)
 {
     slow = false;
     if (chrysalis) *chrysalis = false;
     if (areaHeal) *areaHeal = false;
     if (silence) *silence = false;
     if (parameters) *parameters = false;
+    if (undying) *undying = false;
     if (packet.endOfPacket()) return true;
     std::uint32_t marker = 0;
     slow = (packet >> marker) && marker == SlowSnapshotCapability;
@@ -1213,8 +1220,12 @@ inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysali
     if (!*silence) return false;
     if (packet.endOfPacket()) return true;
     if (!parameters) return false;
-    *parameters = (packet >> marker) && marker == AbilityParametersCapability && packet.endOfPacket();
-    return *parameters;
+    *parameters = (packet >> marker) && marker == AbilityParametersCapability;
+    if (!*parameters) return false;
+    if (packet.endOfPacket()) return true;
+    if (!undying) return false;
+    *undying = (packet >> marker) && marker == UndyingSnapshotCapability && packet.endOfPacket();
+    return *undying;
 }
 
 template <typename T>
@@ -1556,12 +1567,14 @@ inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields =
         writeAreaHealFields(packet, piece);
         writeSilenceFields(packet, piece);
         packet << AbilityParametersCapability; writeAbilityParameters(packet, piece); writeWeakenStatus(packet, piece);
+        packet << UndyingSnapshotCapability << piece.undyingUsed;
     }
 }
 
 inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
 {
     piece.chrysalisUsed = false;
+    piece.undyingUsed = false;
     packet >> piece.id >> piece.owner >> piece.originalOwner >> piece.row >> piece.column >> piece.name;
     if (!packet || !card_data::readStringVector(packet, piece.traits) ||
         !card_data::readStringVector(packet, piece.keywords))
@@ -1638,8 +1651,11 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
     if (!readSilenceFields(packet, piece)) return false;
     if (packet.endOfPacket()) return true;
     std::uint32_t parameterMarker = 0;
-    return (packet >> parameterMarker) && parameterMarker == AbilityParametersCapability &&
-        readAbilityParameters(packet, piece) && readWeakenStatus(packet, piece) && packet.endOfPacket();
+    if (!(packet >> parameterMarker) || parameterMarker != AbilityParametersCapability ||
+        !readAbilityParameters(packet, piece) || !readWeakenStatus(packet, piece)) return false;
+    if (packet.endOfPacket()) return true;
+    return (packet >> parameterMarker) && parameterMarker == UndyingSnapshotCapability &&
+        (packet >> piece.undyingUsed) && packet.endOfPacket();
 }
 
 inline void writeEnchantment(sf::Packet& packet, const Enchantment& enchantment)
@@ -1679,7 +1695,7 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 // Writes a complete snapshot payload (without the leading message-type byte).
 inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool auraFields = true,
                           bool shriekFields = true, bool transformFields = true, bool commandFields = true,
-                          bool slowFields = true, bool chrysalisFields = true, bool areaHealFields = true, bool silenceFields = true, bool parameterFields = true)
+                          bool slowFields = true, bool chrysalisFields = true, bool areaHealFields = true, bool silenceFields = true, bool parameterFields = true, bool undyingFields = true)
 {
     packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner
            << snapshot.commandingPieceId << snapshot.relentlessPieceId
@@ -1803,6 +1819,10 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
                                         for (const Piece& piece : snapshot.pieces) { writeAbilityParameters(packet, piece); writeWeakenStatus(packet, piece); }
                                         for (const auto* zone : {&snapshot.hand, &snapshot.foresightChoices, &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
                                             for (const GameCard& card : *zone) writeAbilityParameters(packet, card);
+                                        if (undyingFields) {
+                                            packet << UndyingSnapshotCapability;
+                                            for (const Piece& piece : snapshot.pieces) packet << piece.undyingUsed;
+                                        }
                                     }
                                 }
                             }
@@ -2030,6 +2050,9 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot, bool auraFields
     for (Piece& piece : snapshot.pieces) if (!readAbilityParameters(packet, piece) || !readWeakenStatus(packet, piece)) return false;
     for (auto* zone : {&snapshot.hand, &snapshot.foresightChoices, &snapshot.graveyard, &snapshot.exiled, &snapshot.raiseUndeadChoices})
         for (GameCard& card : *zone) if (!readAbilityParameters(packet, card)) return false;
+    if (packet.endOfPacket()) return true;
+    if (!(packet >> marker) || marker != UndyingSnapshotCapability) return false;
+    for (Piece& piece : snapshot.pieces) if (!(packet >> piece.undyingUsed)) return false;
     return packet.endOfPacket();
 }
 }

@@ -1990,6 +1990,17 @@ inline bool pieceAbilityAvailable(const Snapshot& snapshot, const Piece& piece, 
             });
 }
 
+// Undying prevents defeat before any replacement or off-board death handling.
+// Keep identity, ownership, attachments, readiness and conditions on the same piece.
+inline bool reviveUndyingPiece(Piece& piece)
+{
+    if (piece.isHero || piece.undyingUsed || !hasKeyword(piece.keywords, "undying")) return false;
+    piece.undyingUsed = true;
+    piece.health = 1;
+    piece.sacrificePending = false;
+    return true;
+}
+
 // Each living piece advances once per controlling-player turn. A blocked
 // larger form waits at zero and retries on a later turn without losing the piece.
 template <typename CardLookup>
@@ -2010,6 +2021,7 @@ inline void advanceTimedTransformations(std::vector<Piece>& pieces, int playerNu
 
         // Keep identity, ownership, attachments and ongoing status effects.
         // The new form starts with its printed health, actions and timer.
+        replacement.undyingUsed = piece.undyingUsed;
         replacement.chrysalisUsed = piece.chrysalisUsed;
         replacement.raisedFromGraveyard = piece.raisedFromGraveyard;
         replacement.silencedTurnsRemaining = piece.silencedTurnsRemaining;

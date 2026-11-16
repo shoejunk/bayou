@@ -1690,13 +1690,14 @@ private:
 
     struct PieceDestructionResult
     {
+        bool revived = false;
         bool replacementSpawned = false;
         bool wasRebirth = false;
         bool wasInfestation = false;
     };
 
-    // A replacement prevents the death from counting as a kill. The result
-    // identifies whether that replacement came from Rebirth or infestation.
+    // Undying prevents defeat in place. Otherwise a replacement prevents the
+    // death from counting as a kill and identifies Rebirth or infestation.
     PieceDestructionResult destroyPiece(int id)
     {
         PieceDestructionResult result;
@@ -1709,6 +1710,11 @@ private:
             return result;
         }
 
+        if (reviveUndyingPiece(*dying))
+        {
+            result.revived = true;
+            return result;
+        }
         const Piece original = *dying;
         const bool canEvacuate = pieceHasEvacuateSupport(pieces, original);
         const bool chrysalisEligible = !original.isHero && !original.chrysalisUsed &&
@@ -1842,8 +1848,8 @@ private:
             const int owner = pieceOriginalOwner(*piece);
             const bool wasHero = piece->isHero;
             const std::string name = piece->name;
-            destroyPiece(id);
-            if (narrationEnabled) status += " " + name + " was sacrificed.";
+            const auto destruction = destroyPiece(id);
+            if (narrationEnabled) status += " " + name + (destruction.revived ? " survived sacrifice through Undying." : " was sacrificed.");
             if (wasHero) checkForWinner(owner);
         }
         if (!pending.empty()) recomputeControl();
@@ -2105,7 +2111,7 @@ private:
                             anyTargetReborn = anyTargetReborn || destruction.wasRebirth;
                             anyTargetInfestationSpawned =
                                 anyTargetInfestationSpawned || destruction.wasInfestation;
-                            anyTargetDestroyed = anyTargetDestroyed || !destruction.replacementSpawned;
+                            anyTargetDestroyed = anyTargetDestroyed || (!destruction.replacementSpawned && !destruction.revived);
                         }
                     }
                     const PushResult pushResult = applyActionPush(
@@ -2131,7 +2137,7 @@ private:
                         anyTargetReborn = anyTargetReborn || destruction.wasRebirth;
                         anyTargetInfestationSpawned =
                             anyTargetInfestationSpawned || destruction.wasInfestation;
-                        anyTargetDestroyed = anyTargetDestroyed || !destruction.replacementSpawned;
+                        anyTargetDestroyed = anyTargetDestroyed || (!destruction.replacementSpawned && !destruction.revived);
                     }
                     if (action.pull)
                     {

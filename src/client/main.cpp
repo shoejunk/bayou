@@ -8045,7 +8045,7 @@ int main(int argc, char** argv)
                             anyTargetReborn = anyTargetReborn || destruction.wasRebirth;
                             anyTargetInfestationSpawned =
                                 anyTargetInfestationSpawned || destruction.wasInfestation;
-                            anyTargetDestroyed = anyTargetDestroyed || !destruction.replacementSpawned;
+                            anyTargetDestroyed = anyTargetDestroyed || (!destruction.replacementSpawned && !destruction.revived);
                         }
                     }
                     const game_data::PushResult pushResult = game_data::applyActionPush(
@@ -8071,7 +8071,7 @@ int main(int argc, char** argv)
                         anyTargetReborn = anyTargetReborn || destruction.wasRebirth;
                         anyTargetInfestationSpawned =
                             anyTargetInfestationSpawned || destruction.wasInfestation;
-                        anyTargetDestroyed = anyTargetDestroyed || !destruction.replacementSpawned;
+                        anyTargetDestroyed = anyTargetDestroyed || (!destruction.replacementSpawned && !destruction.revived);
                     }
                     if (action.pull)
                     {

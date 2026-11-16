@@ -11,6 +11,7 @@ const game_data::Piece* pieceAtInSnapshot(const game_data::Snapshot& snapshot, i
 void removePieceFromSnapshot(game_data::Snapshot& snapshot, int id);
 struct PieceDestructionResult
 {
+    bool revived = false;
     bool replacementSpawned = false;
     bool wasRebirth = false;
     bool wasInfestation = false;

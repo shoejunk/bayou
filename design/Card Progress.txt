@@ -7,10 +7,12 @@ Thorn Serpent
 
 Cards in progress (outstanding work):
 Completion standard: Joe waived live gameplay testing. Remove implemented cards after required code, catalog, and deployment checks pass; do not claim played-through verification occurred.
-No cards currently awaiting implementation or server/catalog verification. Warden Bind, Lord Pallid, and shared activated parameters completed: tested runtime 1ff86f1 deployed and verified 2026-11-16 04:52 UTC; all 97 catalog records verified 04:54:20 UTC after eight targeted migrations. Live gameplay testing was waived, not performed.
+Sir Chitin the Undying (catalog: Sir Chitinous Vale) - IN PROGRESS: Undying passive approved. The first defeat revives the same unit on the board with 1 Health, once per board lifetime; ordinary defeat afterward. Code and central defeat-path coverage implemented. Debug and Release offline gametest (1121 checks each), Conquest and Story Mode regressions passed; Debug client and all Release targets built. Outstanding: source push, authoritative catalog update, and verified runtime/catalog deployment. See Undying.md. No live match required or performed.
+Echo Lantern - IN PROGRESS: Echo passive approved. Attacking a unit with an activated ability copies that ability into Echo Lantern's button. An attack on a unit without an activated ability retains the previous copy; no button before the first copy. ON HOLD by Joe pending the separate activated-ability object/editor redesign decision. Preserve all copied configuration (including integer fields and string arrays); do not implement Echo yet. Outstanding after decision: implementation, automated tests/builds, catalog and deployment verification.
+Previous completed work: Warden Bind, Lord Pallid, and shared activated parameters completed: tested runtime 1ff86f1 deployed and verified 2026-11-16 04:52 UTC; all 97 catalog records verified 04:54:20 UTC after eight targeted migrations. Live gameplay testing was waived, not performed.
 Client compatibility: use the updated client build for Weaken and shared-parameter UI; legacy packet parsing does not imply full gameplay/UI compatibility. See Activated Ability Parameters.md.
 
-Next up (not yet started; deferred to next session by Joe): Sir Chitin the Undying
+Next untouched (not yet started): Eyeblight
 
 PieceBaseBlue characters/bases/piece-base-blue.png
 PieceBaseRed characters/bases/piece-base-red.png

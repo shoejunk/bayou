@@ -468,6 +468,8 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
                 std::to_string(gameCard.transformTurns) + " controlling-player turn starts",
                 sf::Color(210, 180, 105)});
         }
+        if (game_data::hasKeyword(gameCard.keywords, "undying"))
+            details.push_back({"Undying: the first time this unit would be defeated, revive it on the board with 1 Health. Once per board lifetime.", sf::Color(190, 214, 154)});
         if (game_data::hasKeyword(gameCard.keywords, "chrysalis"))
         {
             details.push_back({gameCard.chrysalisUsed
