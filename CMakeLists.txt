@@ -312,6 +312,9 @@ if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_GAMESERVER)
 endif()
 
 if(BAYOU_BUILD_SERVERS AND BAYOU_BUILD_CARDSERVER)
+    add_executable(abilityobjecttest src/abilityobjecttest/main.cpp src/shared/card_database.cpp src/client/client_sandbox.cpp)
+    target_link_libraries(abilityobjecttest PRIVATE fmt::fmt SQLiteCpp SFML::System SFML::Network)
+
     # Card server executable
     add_executable(cardserver)
 

@@ -20,6 +20,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <stdexcept>
 #include <filesystem>
 #include <limits>
 #include <optional>
@@ -512,6 +513,8 @@ export struct CardEditorEndpoint
     unsigned short port = 55004;
 };
 
+#include "activated_ability_editor.inl"
+
 export class CardEditorScreen
 {
 public:
@@ -521,10 +524,11 @@ public:
         std::filesystem::path assetRoot = "assets")
         : font(screenFont)
         , endpoint(std::move(screenEndpoint))
+        , abilityEditor(screenFont,endpoint)
         // drawTitlePlaque widens itself to its label and adds authored thorn
         // finials past both ends, so the left-anchored editor plaque needs a
         // little extra clearance before the first tab.
-        , editorTabs({392.0f, 14.0f}, {128.0f, 44.0f}, {"Cards", "Actions"}, screenFont)
+        , editorTabs({392.0f, 14.0f}, {108.0f, 44.0f}, {"Cards", "Actions", "Abilities"}, screenFont)
     {
         setAssetRoot(std::move(assetRoot));
         buildControls();
@@ -533,6 +537,7 @@ public:
     void setEndpoint(CardEditorEndpoint screenEndpoint)
     {
         endpoint = std::move(screenEndpoint);
+        abilityEditor.setEndpoint(endpoint);
     }
 
     void open()
@@ -552,6 +557,7 @@ public:
     void applyCaptureState(const std::string& key, const std::vector<card_data::Card>& library)
     {
         closeActionDropdown();
+        serverSupportsAbilityObjects=false;
         selectedCard.reset();
         selectedAction.reset();
         cardSearchField.setValue("");
@@ -579,8 +585,13 @@ public:
             return;
         }
 
+        if (key=="card-editor-abilities")
+        {
+            abilityEditor.capture();editorMode=EditorMode::Abilities;editorTabs.setActive(2);return;
+        }
+
         const bool populatedCardState =
-            key == "card-editor-loaded" || key == "card-editor-instructions" ||
+            key == "card-editor-loaded" || key == "card-editor-ability-reference" || key == "card-editor-instructions" ||
             key == "card-editor-instructions-middle" ||
             key == "card-editor-unsaved" || key == "card-editor-rarity-dropdown" ||
             key == "card-editor-action-dropdown";
@@ -592,6 +603,14 @@ public:
             selectCard(static_cast<std::size_t>(
                 (unit == cards.end() ? cards.begin() : unit) - cards.begin()));
             setStatus("Loaded from card server", Muted);
+        }
+
+        if (key=="card-editor-ability-reference")
+        {
+            serverSupportsAbilityObjects=true;
+            cardAbilityReferenceField.setValue("Repair the Pattern");
+            sacrificeAbilityReferenceField.setValue("");
+            rebuildFocusOrder();rememberCardForm();
         }
 
         const bool needsActionLibrary =
@@ -781,6 +800,19 @@ public:
             }
             window.setView(previousView);
             return shouldClose;
+        }
+
+        if (editorMode==EditorMode::Abilities)
+        {
+            if (!abilityEditor.hasModal())
+                if (const auto* key=event.getIf<sf::Event::KeyPressed>();key && key->code==sf::Keyboard::Key::Escape)
+                {const bool close=requestTransition(PendingTransition::CloseScreen);window.setView(previousView);return close;}
+            if (!abilityEditor.hasModal())
+                if (const auto* click=event.getIf<sf::Event::MouseButtonPressed>(); click && click->button==sf::Mouse::Button::Left && window.mapPixelToCoords(click->position).y<80)
+                { const bool close=handleClick(window.mapPixelToCoords(click->position));window.setView(previousView);return close; }
+            abilityEditor.event(event,window);
+            window.setView(previousView);
+            return false;
         }
 
         std::string previousCardSearch;
@@ -1022,6 +1054,7 @@ public:
         saveButton.setEnabled(hasUnsavedCardChanges());
         saveButton.update(mouse);
         saveActionButton.update(mouse);
+        if (editorMode==EditorMode::Abilities) {abilityEditor.update(mouse,deltaTime);return;}
         deleteButton.update(mouse);
         editorTabs.update(mouse);
         if (editorMode == EditorMode::Actions)
@@ -1126,7 +1159,8 @@ public:
         }
         else
         {
-            drawListPanel(window);
+            if (editorMode==EditorMode::Abilities) abilityEditor.draw(window);
+            else drawListPanel(window);
             if (editorMode == EditorMode::Cards)
             {
                 drawEditorPanel(window);
@@ -1134,7 +1168,7 @@ public:
             }
             else
             {
-                drawActionEditorPanel(window);
+                if (editorMode==EditorMode::Actions) drawActionEditorPanel(window);
             }
             if (unsavedChangesPopupVisible)
             {
@@ -1150,7 +1184,8 @@ private:
     enum class EditorMode
     {
         Cards,
-        Actions
+        Actions,
+        Abilities
     };
 
     enum class PendingTransition
@@ -1159,6 +1194,7 @@ private:
         CloseScreen,
         ShowCards,
         ShowActions,
+        ShowAbilities,
         NewCard,
         NewAction,
         RefreshCards,
@@ -1172,6 +1208,7 @@ private:
         bool success = false;
         std::string message;
         std::vector<card_data::Card> cards;
+        bool includesAbilities = false;
     };
 
     struct CommandResult
@@ -1220,6 +1257,7 @@ private:
 
     sf::Font& font;
     CardEditorEndpoint endpoint;
+    ActivatedAbilityEditor abilityEditor;
     EditorMode editorMode = EditorMode::Cards;
     int lastAudioSurface = -1;
     std::vector<card_data::Card> cards;
@@ -1307,6 +1345,9 @@ private:
     InputBox actionPassThroughField;
     InputBox actionLineOfSightField;
     bool serverSupportsSlow = false;
+    bool serverSupportsAbilityObjects = false;
+    InputBox cardAbilityReferenceField;
+    InputBox sacrificeAbilityReferenceField;
     InputBox actionStatusTurnsField;
     InputBox actionSlowField;
     InputBox actionCooldownTurnsField;
@@ -1437,6 +1478,7 @@ private:
         bool actionIncludesPull = false;
         bool actionIncludesLifedrain = false;
         bool actionIncludesSlow = false;
+        bool includesAbilities = false;
         if (!card_data::readCardListHeader(
                 response,
                 count,
@@ -1447,7 +1489,7 @@ private:
                 &actionIncludesInfest,
                 &actionIncludesPull,
                 &actionIncludesLifedrain,
-                &actionIncludesSlow))
+                &actionIncludesSlow, &includesAbilities))
         {
             socket.disconnect();
             return {false, "Unsupported card list payload"};
@@ -1468,7 +1510,7 @@ private:
                     actionIncludesInfest,
                     actionIncludesPull,
                     actionIncludesLifedrain,
-                    actionIncludesSlow))
+                    actionIncludesSlow, includesAbilities))
             {
                 socket.disconnect();
                 return {false, "Invalid card list payload"};
@@ -1478,7 +1520,7 @@ private:
         }
 
         socket.disconnect();
-        return {success, message, std::move(loadedCards)};
+        return {success, message, std::move(loadedCards), includesAbilities};
     }
 
     ActionListResult fetchActionsFromServer()
@@ -1565,8 +1607,8 @@ private:
         }
 
         sf::Packet request;
-        request << static_cast<std::uint8_t>(network::MessageType::CardUpsertRequest);
-        card_data::writeCard(request, card, false);
+        request << static_cast<std::uint8_t>(serverSupportsAbilityObjects?network::MessageType::CardUpsertWithAbilitiesRequest:network::MessageType::CardUpsertRequest);
+        card_data::writeCard(request, card, false, serverSupportsAbilityObjects);
         if (socket.send(request) != sf::Socket::Status::Done)
         {
             socket.disconnect();
@@ -1590,9 +1632,9 @@ private:
         }
 
         sf::Packet request;
-        request << static_cast<std::uint8_t>(network::MessageType::CardUpdateRequest);
+        request << static_cast<std::uint8_t>(serverSupportsAbilityObjects?network::MessageType::CardUpdateWithAbilitiesRequest:network::MessageType::CardUpdateRequest);
         request << originalTitle;
-        card_data::writeCard(request, card, false);
+        card_data::writeCard(request, card, false, serverSupportsAbilityObjects);
         if (socket.send(request) != sf::Socket::Status::Done)
         {
             socket.disconnect();
@@ -1691,6 +1733,8 @@ private:
 
     void buildControls()
     {
+        cardAbilityReferenceField=makeCompactField("",{470,32});
+        sacrificeAbilityReferenceField=makeCompactField("",{470,32});
         backButton = EditorButton(font, "Back", {1124.0f, 22.0f}, {112.0f, 38.0f}, sf::Color(28, 39, 44));
         instructionsButton = EditorButton(font, "Instructions", {970.0f, 22.0f}, {142.0f, 38.0f}, AccentDark);
         instructionsBackButton = EditorButton(font, "Back to Editor", {1060.0f, 22.0f}, {176.0f, 38.0f}, AccentDark);
@@ -1896,6 +1940,7 @@ private:
         focusOrder.push_back(&titleField);
         focusOrder.push_back(&imageField);
         focusOrder.push_back(&typeField);
+        if (serverSupportsAbilityObjects) {focusOrder.push_back(&cardAbilityReferenceField);focusOrder.push_back(&sacrificeAbilityReferenceField);}
         for (InputBox& field : traitFields)
         {
             focusOrder.push_back(&field);
@@ -2495,6 +2540,8 @@ private:
         appendSnapshotValue(snapshot, titleField.getValue());
         appendSnapshotValue(snapshot, imageField.getValue());
         appendSnapshotValue(snapshot, typeField.getValue());
+        appendSnapshotValue(snapshot, cardAbilityReferenceField.getValue());
+        appendSnapshotValue(snapshot, sacrificeAbilityReferenceField.getValue());
         appendFields(traitFields);
         appendFields(keywordFields);
         appendFields(intKeyFields);
@@ -2568,6 +2615,7 @@ private:
 
     bool hasUnsavedChanges() const
     {
+        if (editorMode==EditorMode::Abilities) return abilityEditor.hasUnsavedChanges();
         return editorMode == EditorMode::Cards
             ? hasUnsavedCardChanges()
             : actionFormSnapshot() != savedActionForm;
@@ -2575,6 +2623,7 @@ private:
 
     void restoreCurrentForm()
     {
+        if (editorMode==EditorMode::Abilities) {abilityEditor.restore();return;}
         if (editorMode == EditorMode::Cards)
         {
             if (selectedCard && *selectedCard < cards.size())
@@ -2600,8 +2649,10 @@ private:
     {
         closeActionDropdown();
         editorMode = mode;
+        if(mode==EditorMode::Cards && abilityEditor.consumeLibraryChanges())loadCards();
         editorTabs.setActive(static_cast<std::size_t>(editorMode));
         rebuildFocusOrder();
+        if (editorMode==EditorMode::Abilities) {abilityEditor.ensureLoaded();return;}
         if (editorMode == EditorMode::Cards)
         {
             activateField(&titleField);
@@ -2627,6 +2678,9 @@ private:
             return true;
         case PendingTransition::ShowCards:
             setEditorMode(EditorMode::Cards);
+            break;
+        case PendingTransition::ShowAbilities:
+            setEditorMode(EditorMode::Abilities);
             break;
         case PendingTransition::ShowActions:
             setEditorMode(EditorMode::Actions);
@@ -2703,10 +2757,10 @@ private:
     {
         const bool saved = editorMode == EditorMode::Cards
             ? saveCurrentCard()
-            : saveCurrentAction();
+            : editorMode==EditorMode::Abilities ? abilityEditor.save() : saveCurrentAction();
         if (!saved)
         {
-            unsavedChangesError = status;
+            unsavedChangesError = editorMode==EditorMode::Abilities?abilityEditor.message():status;
             return false;
         }
         unsavedChangesPopupVisible = false;
@@ -2767,6 +2821,8 @@ private:
     void loadCards()
     {
         const CardListResult result = fetchCardsFromServer();
+        serverSupportsAbilityObjects=result.success && result.includesAbilities;
+        if(serverSupportsAbilityObjects)abilityEditor.refreshLibrary();
         if (!result.success)
         {
             cards.clear();
@@ -3087,6 +3143,7 @@ private:
         selectedCard.reset();
         titleField.setValue("");
         imageField.setValue("");
+        cardAbilityReferenceField.setValue("");sacrificeAbilityReferenceField.setValue("");
         typeField.setValue("Unit");
         traitFields.clear();
         keywordFields.clear();
@@ -3124,6 +3181,8 @@ private:
         titleField.setValue(card.title);
         imageField.setValue(assetRelativeImagePath(card.imagePath));
         typeField.setValue(card.type);
+        cardAbilityReferenceField.setValue(card.activatedAbilityName);
+        sacrificeAbilityReferenceField.setValue(card.sacrificeAbilityName);
         loadArrayFields(card);
         editorScroll = 0.0f;
         rebuildFocusOrder();
@@ -3137,6 +3196,20 @@ private:
         card.title = trim(titleField.getValue());
         card.type = trim(typeField.getValue());
         card.imagePath = assetRelativeImagePath(imageField.getValue());
+        card.activatedAbilityName=trim(cardAbilityReferenceField.getValue());
+        card.sacrificeAbilityName=trim(sacrificeAbilityReferenceField.getValue());
+        card.abilityReferencesExplicit=serverSupportsAbilityObjects;
+        const auto definitionNamed=[&](const std::string& name) -> std::optional<ability_data::Definition> {
+            if(name.empty())return std::nullopt;
+            if(auto definition=abilityEditor.definitionNamed(name))return definition;
+            for(const auto& existing:cards) {
+                if(existing.activatedAbilityName==name && existing.activatedAbility)return existing.activatedAbility;
+                if(existing.sacrificeAbilityName==name && existing.sacrificeAbility)return existing.sacrificeAbility;
+            }
+            return std::nullopt;
+        };
+        card.activatedAbility=definitionNamed(card.activatedAbilityName);
+        card.sacrificeAbility=definitionNamed(card.sacrificeAbilityName);
         for (const InputBox& field : traitFields)
         {
             const std::string value = trim(field.getValue());
@@ -3551,6 +3624,13 @@ private:
             y += 30.0f;
         };
 
+        if (serverSupportsAbilityObjects)
+        {
+            arraySectionLabels.push_back({"Ability reference",{340,y}});y+=30;
+            cardAbilityReferenceField.setPosition({340,y});y+=44;
+            arraySectionLabels.push_back({"Sacrifice reference",{340,y}});y+=30;
+            sacrificeAbilityReferenceField.setPosition({340,y});y+=48;
+        }
         addSection("Traits", addTraitButton);
         if (traitFields.empty())
         {
@@ -3927,6 +4007,10 @@ private:
 
     InputBox* dynamicFieldAt(sf::Vector2f mouse)
     {
+        if (serverSupportsAbilityObjects)
+            for (auto* field:{&cardAbilityReferenceField,&sacrificeAbilityReferenceField})
+                if (isVisibleInArrayViewport(field->bounds()) && field->contains(mouse)) return field;
+
         if (!isInArrayViewport(mouse))
         {
             return nullptr;
@@ -4067,7 +4151,7 @@ private:
         }
         if (const std::optional<std::size_t> tabIndex = editorTabs.clickedIndex(mouse))
         {
-            const EditorMode requestedMode = *tabIndex == 0 ? EditorMode::Cards : EditorMode::Actions;
+            const EditorMode requestedMode = static_cast<EditorMode>(*tabIndex);
             if (requestedMode == editorMode)
             {
                 return false;
@@ -4075,7 +4159,7 @@ private:
             closeActionDropdown();
             return requestTransition(requestedMode == EditorMode::Cards
                 ? PendingTransition::ShowCards
-                : PendingTransition::ShowActions);
+                : requestedMode==EditorMode::Abilities?PendingTransition::ShowAbilities:PendingTransition::ShowActions);
         }
         if (newButton.clicked(mouse))
         {
@@ -4440,8 +4524,8 @@ private:
             address.setPosition({952.0f - address.getLocalBounds().size.x, 39.0f});
             bayou::client::drawCrispText(window, address);
             editorTabs.draw(window);
-            sf::RectangleShape activeTabKey({96.0f, 3.0f});
-            activeTabKey.setPosition({408.0f + static_cast<float>(editorMode == EditorMode::Actions ? 128 : 0), 62.0f});
+            sf::RectangleShape activeTabKey({92.0f, 3.0f});
+            activeTabKey.setPosition({400.0f + static_cast<float>(static_cast<int>(editorMode)*108), 62.0f});
             activeTabKey.setFillColor(VioletBright);
             window.draw(activeTabKey);
             instructionsButton.draw(window);
@@ -4568,6 +4652,7 @@ private:
 
         y = addInstructionSection("4. Actions", y);
         y = addInstructionParagraph("On/off flags use switches. Click anywhere on a switch to change it, or use Tab to focus it and press Space or Enter. Numeric amounts remain editable fields.", y, Muted);
+        y = addInstructionParagraph("Reusable activated abilities live in the Abilities tab. Save a named definition there, then put its name in a card's Ability reference or optional Sacrifice reference. Editing a shared definition changes every assigned card; copying it creates an independent definition. Ranges, strength, duration, Heal filter, Command restriction, Summon card, initial Dig uses, button labels and state transitions belong to that definition. Blank numeric settings keep the ability's established defaults. * means unrestricted for Heal filter and Command restriction; an empty value matches nothing. Transform and Dematerialize states use the unit's existing action states and need a return transition, such as 0 to 1 and 1 to 0. Current state and remaining uses stay on each unit.", y, Muted);
         y = addInstructionParagraph("Create reusable actions in the Actions tab, then add them in the card's Actions section. Card name is flavor text shown for that card; Reusable action chooses the shared logic. Click or focus the reusable-action field to open the list; typing filters it. The chain-link button opens that action in the Actions tab.", y, Muted);
         y += 5.0f;
         y = addInstructionBullet("Pattern ortho, diag, omni, horizontal, or vertical moves along that board geometry up to the action's maximum range.", y);
@@ -5280,6 +5365,7 @@ private:
         drawVisibleButton(window, addStringButton);
         drawVisibleButton(window, addListButton);
         drawVisibleButton(window, addActionRefButton);
+        if (serverSupportsAbilityObjects) {drawVisibleField(window,cardAbilityReferenceField);drawVisibleField(window,sacrificeAbilityReferenceField);}
         for (InputBox& field : traitFields)
         {
             drawVisibleField(window, field);

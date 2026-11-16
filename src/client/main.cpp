@@ -7917,7 +7917,7 @@ int main(int argc, char** argv)
         if (commandedAction && !game_data::pieceCanReceiveCommand(*commander, *piece))
         {
             next.status = "Command must activate a ready adjacent friendly piece" +
-                game_data::commandTargetQualifier(commander->commandRestriction) + ".";
+                game_data::commandTargetQualifier(*commander) + ".";
             commitSandboxSnapshot(std::move(next));
             return;
         }
@@ -8337,8 +8337,7 @@ int main(int argc, char** argv)
         {
             return;
         }
-        const std::string ability = game_data::normalizedAbility(
-            sacrifice ? piece->sacrifice : piece->ability);
+        const std::string ability = game_data::abilityKind(*piece,sacrifice);
         if (ability == "swap")
         {
             next.status = "Swap requires a match draw pile. Use it in Story or a regular match.";
@@ -8369,11 +8368,12 @@ int main(int argc, char** argv)
         if (commandedAction && !game_data::pieceCanReceiveCommand(*commander, *piece))
         {
             next.status = "Command must activate a ready adjacent friendly piece" +
-                game_data::commandTargetQualifier(commander->commandRestriction) + ".";
+                game_data::commandTargetQualifier(*commander) + ".";
             commitSandboxSnapshot(std::move(next));
             return;
         }
 
+        const game_data::Piece abilitySource=game_data::activatedAbilitySource(*piece,sacrifice);
         const std::string abilityLabel = game_data::pieceAbilityLabel(*piece, sacrifice);
         const std::string pieceName = piece->name;
         const std::string commanderName = commandedAction ? commander->name : std::string();
@@ -8381,28 +8381,22 @@ int main(int argc, char** argv)
         const int actingPieceId = piece->id;
         if (ability == "dig")
         {
-            if (piece->abilityUses == 0)
+            int& uses=game_data::remainingAbilityUses(*piece,sacrifice);
+            if (uses == 0)
             {
                 next.status = "That piece has already dug its hole.";
                 commitSandboxSnapshot(std::move(next));
                 return;
             }
             next.holes[static_cast<std::size_t>(game_data::squareIndex(piece->row, piece->column))] = 1;
-            if (piece->abilityUses > 0)
+            if (uses > 0)
             {
-                --piece->abilityUses;
+                --uses;
             }
         }
         else if (ability == "transform" || ability == "dematerialize")
         {
-            int stateCount = 1;
-            for (const game_data::ActionProfile& action : piece->actions)
-            {
-                stateCount = std::max(stateCount, action.state + 1);
-                stateCount = std::max(stateCount, game_data::actionNextState(action) + 1);
-            }
-            game_data::setPieceActionState(
-                *piece, (piece->actionState + 1) % stateCount);
+            game_data::advanceActivatedAbilityState(*piece,sacrifice);
         }
         else if (ability == "summon")
         {
@@ -8410,7 +8404,7 @@ int main(int argc, char** argv)
                 next.hand.begin(),
                 next.hand.end(),
                 [&](const game_data::GameCard& card) {
-                    return card.title == piece->summonTitle && card.type == "Unit";
+                    return card.title == abilitySource.summonTitle && card.type == "Unit";
                 });
             if (found == next.hand.end())
             {
@@ -8429,7 +8423,7 @@ int main(int argc, char** argv)
         }
         else if (ability == "shriek")
         {
-            const auto assignments = game_data::applyShriek(next.pieces, *piece, sandboxDamageRandomEngine);
+            const auto assignments = game_data::applyShriek(next.pieces, abilitySource, sandboxDamageRandomEngine);
             for (const game_data::DamageAssignment& assignment : assignments)
             {
                 if (game_data::Piece* victim = pieceByIdInSnapshotMutable(next, assignment.pieceId);
@@ -8441,19 +8435,19 @@ int main(int argc, char** argv)
         }
         else if (ability == "weaken")
         {
-            game_data::applyWeaken(next.pieces, *piece);
+            game_data::applyWeaken(next.pieces, abilitySource);
         }
         else if (ability == "area heal")
         {
-            game_data::applyAreaHeal(next.pieces, *piece);
+            game_data::applyAreaHeal(next.pieces, abilitySource);
         }
         else if (ability == "silence")
         {
-            game_data::applySilence(next.pieces, *piece);
+            game_data::applySilence(next.pieces, abilitySource);
         }
         else if (ability == "power boost")
         {
-            game_data::applyPowerBoost(next.pieces, *piece);
+            game_data::applyPowerBoost(next.pieces, abilitySource);
         }
         else if (ability == "command")
         {
@@ -8462,7 +8456,7 @@ int main(int argc, char** argv)
             next.commandingPieceId = piece->id;
             piece->sacrificePending = sacrifice;
             next.status = pieceName + " used Command. Activate one adjacent friendly piece" +
-                game_data::commandTargetQualifier(piece->commandRestriction) + ".";
+                game_data::commandTargetQualifier(abilitySource.commandRestriction) + ".";
             commitSandboxSnapshot(std::move(next));
             return;
         }
@@ -12248,7 +12242,7 @@ int main(int argc, char** argv)
                 : std::optional<std::size_t>(
                     std::min<std::size_t>(1, starterDeckOffers.size() - 1));
         }
-        else if (screen == "card-editor-loaded" || screen == "card-editor-actions" ||
+        else if (screen == "card-editor-loaded" || screen == "card-editor-abilities" || screen == "card-editor-ability-reference" || screen == "card-editor-actions" ||
                  screen == "card-editor-actions-filtered" || screen == "card-editor-actions-empty" ||
                  screen == "card-editor-instructions-middle" ||
                  screen == "card-editor-rarity-dropdown" ||

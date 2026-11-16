@@ -650,8 +650,9 @@ inline bool pieceCanReceiveAreaHeal(const Piece& source, const Piece& target)
 {
     if (target.health <= 0 || source.owner != target.owner ||
         pieceDistance(source, target) > activatedRange(source, "area heal")) return false;
-    if (!source.healFilter) return true;
-    return std::any_of(source.healFilter->begin(), source.healFilter->end(),
+    const auto& filter=source.activatedAbility?source.activatedAbility->targetFilter:source.healFilter;
+    if (!filter) return true;
+    return std::any_of(filter->begin(), filter->end(),
         [&](const std::string& trait) { return hasKeyword(target.traits, trait) || hasKeyword(target.keywords, trait); });
 }
 
@@ -1234,8 +1235,8 @@ inline PieceActionOutcome resolvePieceActionThroughHidden(
 
 inline bool pieceHasDematerialize(const Piece& piece)
 {
-    return normalizedAbility(piece.ability) == "dematerialize" ||
-        normalizedAbility(piece.sacrifice) == "dematerialize" ||
+    return abilityKind(piece) == "dematerialize" ||
+        abilityKind(piece,true) == "dematerialize" ||
         hasKeyword(piece.keywords, "dematerialize");
 }
 
@@ -1249,6 +1250,38 @@ inline void setPieceActionState(Piece& piece, int state)
     piece.hidden = pieceHasDematerialize(piece) && state != 0;
 }
 
+template <typename T>
+inline T activatedAbilitySource(const T& piece, bool sacrifice = false)
+{
+    T source=piece;
+    if (const auto definition=abilityDefinition(piece,sacrifice)) {
+        applyAbilityDefinition(source,*definition);
+        if(sacrifice)source.sacrifice=definition->kind;
+        if(definition->kind=="summon")source.summonTitle=definition->summonTitle;
+        if constexpr(requires {piece.sacrificeAbilityUses;}) {
+            if(sacrifice && piece.sacrificeAbility)source.abilityUses=piece.sacrificeAbilityUses;
+        } else source.abilityUses=definition->initialUses;
+    }
+    return source;
+}
+
+inline void advanceActivatedAbilityState(Piece& piece, bool sacrifice = false)
+{
+    const auto definition=abilityDefinition(piece,sacrifice);
+    if (!definition || definition->states.empty()) return;
+    const auto state=std::find_if(definition->states.begin(),definition->states.end(),
+        [&](const auto& item) { return item.state==piece.actionState; });
+    const auto initial=std::find_if(definition->states.begin(),definition->states.end(),
+        [](const auto& item) { return item.state==0; });
+    if (state!=definition->states.end()) setPieceActionState(piece,state->nextState);
+    else if (initial!=definition->states.end()) setPieceActionState(piece,initial->nextState);
+}
+
+inline int& remainingAbilityUses(Piece& piece, bool sacrifice)
+{
+    return sacrifice && piece.sacrificeAbility ? piece.sacrificeAbilityUses : piece.abilityUses;
+}
+
 // Materializes a piece that was struck or bumped into while dematerialized and
 // stuns it. Damage-based status (if any) is applied separately by the attack.
 inline void materializeRevealedPiece(Piece& piece)
@@ -1259,17 +1292,21 @@ inline void materializeRevealedPiece(Piece& piece)
 
 inline std::string pieceAbilityLabel(const Piece& piece, bool sacrifice = false)
 {
-    const std::string ability = normalizedAbility(sacrifice ? piece.sacrifice : piece.ability);
+    const std::string ability = abilityKind(piece,sacrifice);
     const std::string prefix = sacrifice ? "Sacrifice: " : "";
     if (ability.empty())
     {
         return "";
     }
+    const auto& definition=sacrifice?piece.sacrificeAbility:piece.activatedAbility;
+    if (definition)
+        for (const auto& state:definition->states)
+            if (state.state==piece.actionState && !state.label.empty()) return prefix+state.label;
     if (!piece.abilityLabels.empty())
     {
         const std::size_t index = static_cast<std::size_t>(
             piece.actionState % static_cast<int>(piece.abilityLabels.size()));
-        return prefix + piece.abilityLabels[index];
+        if (!piece.abilityLabels[index].empty()) return prefix + piece.abilityLabels[index];
     }
     if (ability == "power boost")
     {
@@ -1892,16 +1929,23 @@ inline PieceAttackDamageResolution resolvePieceAttackDamage(
 
 inline bool pieceCanReceiveCommand(const Piece& commander, const Piece& target)
 {
+    const Piece source=activatedAbilitySource(commander,commander.sacrificePending && abilityKind(commander,true)=="command");
     return commander.id != target.id && commander.owner == target.owner &&
         !target.hasActed && target.growTurnsRemaining <= 0 && target.disabledTurns <= 0 &&
-        pieceDistance(commander, target) <= activatedRange(commander) &&
-        (!commander.commandRestriction ||
-         (!commander.commandRestriction->empty() && pieceHasTraitOrKeyword(target, *commander.commandRestriction)));
+        pieceDistance(commander, target) <= activatedRange(source) &&
+        (!source.commandRestriction ||
+         (!source.commandRestriction->empty() && pieceHasTraitOrKeyword(target, *source.commandRestriction)));
 }
 
 inline std::string commandTargetQualifier(const std::optional<std::string>& restriction)
 {
     return restriction ? " with the " + *restriction + " trait or keyword" : "";
+}
+
+inline std::string commandTargetQualifier(const Piece& commander)
+{
+    const auto source=activatedAbilitySource(commander,commander.sacrificePending && abilityKind(commander,true)=="command");
+    return commandTargetQualifier(source.commandRestriction);
 }
 
 inline std::pair<int, int> summonDestination(const Piece& piece)
@@ -1917,18 +1961,19 @@ inline bool pieceSummonDestinationFree(const std::vector<Piece>& pieces, const P
 
 inline bool pieceAbilityAvailable(const Piece& piece, bool sacrifice = false)
 {
-    const std::string ability = normalizedAbility(sacrifice ? piece.sacrifice : piece.ability);
+    const std::string ability = abilityKind(piece,sacrifice);
     if (piece.sacrificePending || ability.empty() || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
     {
         return false;
     }
     if (ability == "dig")
     {
-        return piece.abilityUses != 0;
+        return (sacrifice && piece.sacrificeAbility ? piece.sacrificeAbilityUses : piece.abilityUses) != 0;
     }
     if (ability == "summon")
     {
-        return !piece.summonTitle.empty();
+        const auto definition=abilityDefinition(piece,sacrifice);
+        return definition && !definition->summonTitle.empty();
     }
     return ability == "transform" || ability == "dematerialize" || ability == "command" ||
         ability == "raise undead" || ability == "swap" || ability == "power boost" ||
@@ -1941,22 +1986,23 @@ inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece&
     {
         return false;
     }
-    const std::string ability = normalizedAbility(sacrifice ? piece.sacrifice : piece.ability);
+    const std::string ability = abilityKind(piece,sacrifice);
+    const Piece source=activatedAbilitySource(piece,sacrifice);
     if (ability == "summon")
     {
-        return pieceSummonDestinationFree(pieces, piece);
+        return pieceSummonDestinationFree(pieces, source);
     }
     if (ability == "power boost")
     {
         return std::any_of(pieces.begin(), pieces.end(),
-            [&](const Piece& target) { return pieceCanReceivePowerBoost(piece, target); });
+            [&](const Piece& target) { return pieceCanReceivePowerBoost(source, target); });
     }
     if (ability == "command")
     {
         return std::any_of(
             pieces.begin(),
             pieces.end(),
-            [&](const Piece& target) { return pieceCanReceiveCommand(piece, target); });
+            [&](const Piece& target) { return pieceCanReceiveCommand(source, target); });
     }
     return true;
 }
@@ -1971,12 +2017,12 @@ inline bool pieceAbilityAvailable(const Snapshot& snapshot, const Piece& piece, 
     {
         return false;
     }
-    if (normalizedAbility(sacrifice ? piece.sacrifice : piece.ability) == "swap")
+    if (abilityKind(piece,sacrifice) == "swap")
     {
         return !snapshot.hand.empty() && snapshot.foresightChoices.empty() &&
             snapshot.raiseUndeadChoices.empty();
     }
-    if (normalizedAbility(sacrifice ? piece.sacrifice : piece.ability) != "raise undead")
+    if (abilityKind(piece,sacrifice) != "raise undead")
     {
         return true;
     }

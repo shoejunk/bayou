@@ -12,4 +12,4 @@ The server and sandbox call the same revival rule from their central defeat hand
 
 Verification is automated and offline. No live match is required or performed. Catalog activation must preserve Sir Chitinous Vale's existing Bodyguard keyword, printed actions, stats, traits and assets, adding only Undying after the runtime is deployed and verified.
 
-Echo Lantern remains in progress and on hold pending Joe's activated-ability architecture decision. This change does not implement Echo.
+Joe canceled the Echo copying passive. No Echo copying behavior was implemented. The independently approved activated-ability object/editor redesign continues.

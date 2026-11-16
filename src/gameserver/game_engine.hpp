@@ -913,7 +913,7 @@ private:
 
         Piece* piece = pieceById(pieceId);
         const std::string ability = piece != nullptr
-            ? normalizedAbility(sacrifice ? piece->sacrifice : piece->ability) : std::string();
+            ? abilityKind(*piece,sacrifice) : std::string();
         bool hiddenSummonCollision = false;
         if (piece != nullptr && piece->owner == playerNumber &&
             !piece->hasActed && pieceAbilityAvailable(*piece, sacrifice) &&
@@ -955,10 +955,11 @@ private:
         if (commandedAction && !pieceCanReceiveCommand(*commander, *piece))
         {
             setStatusFor(playerNumber, "Command must activate a ready adjacent friendly piece" +
-                         commandTargetQualifier(commander->commandRestriction) + ".");
+                         commandTargetQualifier(*commander) + ".");
             return false;
         }
 
+        const Piece abilitySource=activatedAbilitySource(*piece,sacrifice);
         const std::string abilityLabel = pieceAbilityLabel(*piece, sacrifice);
         const std::string actingPieceName = piece->name;
         const int actingPieceId = piece->id;
@@ -966,30 +967,25 @@ private:
         std::string hiddenAbilityCollisionName;
         if (ability == "dig")
         {
-            if (piece->abilityUses == 0)
+            int& uses=remainingAbilityUses(*piece,sacrifice);
+            if (uses == 0)
             {
                 setStatusFor(playerNumber, "That piece has already dug its hole.");
                 return false;
             }
             holes[static_cast<std::size_t>(squareIndex(piece->row, piece->column))] = 1;
-            if (piece->abilityUses > 0)
+            if (uses > 0)
             {
-                --piece->abilityUses;
+                --uses;
             }
         }
         else if (ability == "transform" || ability == "dematerialize")
         {
-            int stateCount = 1;
-            for (const ActionProfile& action : piece->actions)
-            {
-                stateCount = std::max(stateCount, action.state + 1);
-                stateCount = std::max(stateCount, actionNextState(action) + 1);
-            }
-            setPieceActionState(*piece, (piece->actionState + 1) % stateCount);
+            advanceActivatedAbilityState(*piece,sacrifice);
         }
         else if (ability == "summon")
         {
-            const GameCard* summonCard = summonCardByTitle(piece->summonTitle);
+            const GameCard* summonCard = summonCardByTitle(abilitySource.summonTitle);
             if (summonCard == nullptr || summonCard->type != "Unit")
             {
                 setStatusFor(playerNumber, "That summon does not name a valid unit.");
@@ -1016,7 +1012,7 @@ private:
         }
         else if (ability == "shriek")
         {
-            const auto assignments = applyShriek(pieces, *piece, rng);
+            const auto assignments = applyShriek(pieces, abilitySource, rng);
             for (const DamageAssignment& assignment : assignments)
             {
                 if (Piece* victim = pieceById(assignment.pieceId); victim && victim->health <= 0)
@@ -1029,19 +1025,19 @@ private:
         }
         else if (ability == "weaken")
         {
-            applyWeaken(pieces, *piece);
+            applyWeaken(pieces, abilitySource);
         }
         else if (ability == "area heal")
         {
-            applyAreaHeal(pieces, *piece);
+            applyAreaHeal(pieces, abilitySource);
         }
         else if (ability == "silence")
         {
-            applySilence(pieces, *piece);
+            applySilence(pieces, abilitySource);
         }
         else if (ability == "power boost")
         {
-            applyPowerBoost(pieces, *piece);
+            applyPowerBoost(pieces, abilitySource);
         }
         else if (ability == "command")
         {
@@ -1053,7 +1049,7 @@ private:
             {
                 status = fmt::format(
                     "{} used Command. Activate one adjacent friendly piece{}.",
-                    actingPieceName, commandTargetQualifier(piece->commandRestriction));
+                    actingPieceName, commandTargetQualifier(abilitySource.commandRestriction));
             }
             return true;
         }
@@ -1993,7 +1989,7 @@ private:
         if (commandedAction && !pieceCanReceiveCommand(*commander, *piece))
         {
             setStatusFor(playerNumber, "Command must activate a ready adjacent friendly piece" +
-                         commandTargetQualifier(commander->commandRestriction) + ".");
+                         commandTargetQualifier(*commander) + ".");
             return false;
         }
 

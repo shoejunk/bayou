@@ -55,6 +55,8 @@ game_data::GameCard cardFromDestroyedPiece(const game_data::Piece& piece)
     card.attackingMove = piece.attackingMove;
     card.canControl = piece.canControl;
     card.actions = piece.actions;
+    card.activatedAbility=piece.activatedAbility;
+    card.sacrificeAbility=piece.sacrificeAbility;
     card.ability = piece.ability;
     card.commandRestriction = piece.commandRestriction;
     card.sacrifice = piece.sacrifice;

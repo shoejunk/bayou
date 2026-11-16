@@ -484,14 +484,15 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
         }
         for (bool sacrifice : {false, true})
         {
-            const std::string& ability = sacrifice ? gameCard.sacrifice : gameCard.ability;
+            const auto abilityCard=game_data::activatedAbilitySource(gameCard,sacrifice);
+            const std::string ability = game_data::abilityKind(abilityCard,sacrifice);
             if (ability.empty()) continue;
             std::string abilityText;
             if (ability == "summon")
             {
-                abilityText = gameCard.summonTitle.empty()
+                abilityText = abilityCard.summonTitle.empty()
                     ? "Ability unavailable: Summon has no Unit defined on this live card"
-                    : "Ability: Summon " + gameCard.summonTitle +
+                    : "Ability: Summon " + abilityCard.summonTitle +
                         " into the square directly in front. If an opposing hidden piece occupies it, the ability is spent, creates no Unit, and materializes that piece Disabled for its next owner-turn activation";
             }
             else if (ability == "dig")
@@ -513,12 +514,12 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             {
                 abilityText = "Ability: Area Heal. Restore " + std::to_string(game_data::activatedStrength(gameCard, ability.c_str())) + " Health to each friendly unit within " +
                     std::to_string(game_data::activatedRange(gameCard, ability.c_str())) + " squares, including this unit. Includes diagonals; each unit heals once";
-                if (gameCard.healFilter) {
+                if (abilityCard.healFilter) {
                     abilityText += ". Eligible traits or keywords (any): ";
-                    if (gameCard.healFilter->empty()) abilityText += "none";
-                    for (std::size_t i = 0; i < gameCard.healFilter->size(); ++i) {
+                    if (abilityCard.healFilter->empty()) abilityText += "none";
+                    for (std::size_t i = 0; i < abilityCard.healFilter->size(); ++i) {
                         if (i) abilityText += " or ";
-                        abilityText += (*gameCard.healFilter)[i];
+                        abilityText += (*abilityCard.healFilter)[i];
                     }
                 }
                 abilityText += ". Cannot exceed maximum Health; healing prevention applies";
@@ -536,10 +537,10 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             else if (ability == "command")
             {
                 abilityText = "Ability: Command a ready friendly piece within " + std::to_string(game_data::activatedRange(gameCard, ability.c_str())) + " squares";
-                if (gameCard.commandRestriction && gameCard.commandRestriction->empty())
+                if (abilityCard.commandRestriction && abilityCard.commandRestriction->empty())
                     abilityText = "Ability: Command has no eligible targets (CommandRestriction is blank)";
                 else
-                    abilityText += game_data::commandTargetQualifier(gameCard.commandRestriction);
+                    abilityText += game_data::commandTargetQualifier(abilityCard.commandRestriction);
             }
             else if (ability == "raise undead")
             {
@@ -568,7 +569,7 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             }
             details.push_back({
                 std::move(abilityText),
-                ability == "summon" && gameCard.summonTitle.empty()
+                ability == "summon" && abilityCard.summonTitle.empty()
                     ? sf::Color(225, 170, 150)
                     : sf::Color(210, 216, 228)});
         }

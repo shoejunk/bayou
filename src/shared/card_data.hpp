@@ -5,6 +5,9 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <algorithm>
+#include <cctype>
+#include "activated_ability_data.hpp"
 
 namespace card_data
 {
@@ -12,7 +15,7 @@ namespace card_data
 // crafted packet cannot trigger a huge allocation.
 constexpr std::uint32_t MaxSerializedItems = 4096;
 constexpr std::uint32_t CardListSchemaMarker = 0xffffffffu;
-constexpr std::uint32_t CardListSchemaVersion = 13;
+constexpr std::uint32_t CardListSchemaVersion = 14;
 constexpr int DefaultNextState = (-2147483647 - 1);
 
 struct KeyIntPair
@@ -78,6 +81,11 @@ struct Card
     std::vector<std::string> actionNames;
     std::vector<std::string> actionDisplayNames;
     std::vector<Action> actions;
+    bool abilityReferencesExplicit = false; // native catalog controls both assignments, including none
+    std::string activatedAbilityName;
+    std::string sacrificeAbilityName;
+    std::optional<ability_data::Definition> activatedAbility;
+    std::optional<ability_data::Definition> sacrificeAbility;
 };
 
 inline void writeStringVector(sf::Packet& packet, const std::vector<std::string>& values)
@@ -228,9 +236,9 @@ inline bool readCatalogAction(sf::Packet& packet, Action& action, bool includesS
     return readAction(packet, action, true, true, true, true, true, true, true, true, true, includesSlow);
 }
 
-inline void writeCardListHeader(sf::Packet& packet, std::uint32_t count, bool includesSlow = true)
+inline void writeCardListHeader(sf::Packet& packet, std::uint32_t count, bool includesSlow = true, bool includesAbilities = false)
 {
-    packet << CardListSchemaMarker << (includesSlow ? CardListSchemaVersion : 12u) << count;
+    packet << CardListSchemaMarker << (includesAbilities ? CardListSchemaVersion : includesSlow ? 13u : 12u) << count;
 }
 
 inline bool readCardListHeader(
@@ -243,7 +251,7 @@ inline bool readCardListHeader(
     bool* actionIncludesInfest = nullptr,
     bool* actionIncludesPull = nullptr,
     bool* actionIncludesLifedrain = nullptr,
-    bool* actionIncludesSlow = nullptr)
+    bool* actionIncludesSlow = nullptr, bool* includesAbilities = nullptr)
 {
     std::uint32_t markerOrCount = 0;
     packet >> markerOrCount;
@@ -282,6 +290,7 @@ inline bool readCardListHeader(
             *actionIncludesLifedrain = version >= 12;
         }
         if (actionIncludesSlow) *actionIncludesSlow = version >= 13;
+        if (includesAbilities) *includesAbilities = version >= 14;
         return static_cast<bool>(packet) && version >= 6 && version <= CardListSchemaVersion &&
             count <= MaxSerializedItems;
     }
@@ -313,11 +322,70 @@ inline bool readCardListHeader(
         *actionIncludesLifedrain = false;
     }
     if (actionIncludesSlow) *actionIncludesSlow = false;
+    if (includesAbilities) *includesAbilities = false;
     return count <= MaxSerializedItems;
 }
 
-inline void writeCard(sf::Packet& packet, const Card& card, bool includesSlow = true)
+inline std::string abilityFieldKey(std::string key)
 {
+    key.erase(std::remove_if(key.begin(), key.end(), [](unsigned char c) { return !std::isalnum(c); }), key.end());
+    std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return key;
+}
+
+inline Card withoutLegacyAbilityFields(Card card)
+{
+    if (!card.activatedAbility && !card.sacrificeAbility) return card;
+    const bool trail=std::any_of(card.keywords.begin(),card.keywords.end(),[](const auto& keyword) {return abilityFieldKey(keyword)=="trail";});
+    const bool summon = !trail && ((card.activatedAbility && card.activatedAbility->kind == "summon") ||
+        (card.sacrificeAbility && card.sacrificeAbility->kind == "summon"));
+    std::erase_if(card.integerValues, [](const auto& field) {
+        const auto key=abilityFieldKey(field.key);
+        return key=="abilityrange" || key=="abilitystrength" || key=="abilityduration" || key=="abilityuses" ||
+            key=="healrange" || key=="shriekrange" || key=="shriekdamage" || key=="silenceturns";
+    });
+    std::erase_if(card.stringValues, [&](const auto& field) {
+        const auto key=abilityFieldKey(field.key);
+        return (key=="ability" && card.activatedAbility) || (key=="sacrifice" && card.sacrificeAbility) ||
+            key=="commandrestriction" || (summon && (key=="summon" || key=="summonunit"));
+    });
+    std::erase_if(card.stringLists, [](const auto& field) {
+        const auto key=abilityFieldKey(field.key); return key=="abilitylabels" || key=="healfilter";
+    });
+    return card;
+}
+
+// Schema <=13 and rollback databases keep a projection of the canonical
+// definition. New clients edit the definition, never these generated fields.
+inline Card legacyAbilityProjection(Card card)
+{
+    card=withoutLegacyAbilityFields(std::move(card));
+    const auto& definition=card.activatedAbility ? card.activatedAbility : card.sacrificeAbility;
+    if (!definition) return card;
+    if (card.activatedAbility) card.stringValues.push_back({"ability",card.activatedAbility->kind});
+    if (card.sacrificeAbility) card.stringValues.push_back({"Sacrifice",card.sacrificeAbility->kind});
+    if (definition->range) card.integerValues.push_back({"ability range",*definition->range});
+    if (definition->strength) card.integerValues.push_back({"ability strength",*definition->strength});
+    if (definition->duration) card.integerValues.push_back({"ability duration",*definition->duration});
+    card.integerValues.push_back({"abilityUses",definition->initialUses});
+    if (definition->targetFilter) card.stringLists.push_back({"heal filter",*definition->targetFilter});
+    if (definition->commandRestriction) card.stringValues.push_back({"CommandRestriction",*definition->commandRestriction});
+    if (definition->kind=="summon" && std::none_of(card.stringValues.begin(),card.stringValues.end(),[](const auto& field) {
+        const auto key=abilityFieldKey(field.key);return key=="summon" || key=="summonunit";
+    })) card.stringValues.push_back({"summon",definition->summonTitle});
+    int count=0; bool labels=false;
+    for (const auto& state:definition->states) { count=std::max(count,state.state+1); labels=labels || !state.label.empty(); }
+    if (labels) {
+        std::vector<std::string> values(count);
+        for (const auto& state:definition->states) values[state.state]=state.label;
+        card.stringLists.push_back({"abilityLabels",std::move(values)});
+    }
+    return card;
+}
+
+inline void writeCard(sf::Packet& packet, const Card& input, bool includesSlow = true, bool includesAbilities = false)
+{
+    const Card card=includesAbilities ? withoutLegacyAbilityFields(input) : legacyAbilityProjection(input);
     packet << card.title;
     packet << card.type;
     packet << card.imagePath;
@@ -351,6 +419,12 @@ inline void writeCard(sf::Packet& packet, const Card& card, bool includesSlow = 
     {
         writeAction(packet, action, includesSlow);
     }
+    if (includesAbilities)
+    {
+        packet << card.activatedAbilityName << card.sacrificeAbilityName;
+        ability_data::writeOptional(packet, card.activatedAbility);
+        ability_data::writeOptional(packet, card.sacrificeAbility);
+    }
 }
 
 inline bool readCardRemaining(
@@ -366,8 +440,11 @@ inline bool readCardRemaining(
     bool actionIncludesInfest = true,
     bool actionIncludesPull = true,
     bool actionIncludesLifedrain = true,
-    bool actionIncludesSlow = true)
+    bool actionIncludesSlow = true, bool includesAbilities = false)
 {
+    card.abilityReferencesExplicit=includesAbilities;
+    card.activatedAbilityName.clear(); card.sacrificeAbilityName.clear();
+    card.activatedAbility.reset(); card.sacrificeAbility.reset();
     std::uint32_t integerCount = 0;
     packet >> integerCount;
     if (!packet || integerCount > MaxSerializedItems)
@@ -471,6 +548,14 @@ inline bool readCardRemaining(
         card.actions.push_back(action);
     }
 
+    if (includesAbilities)
+    {
+        if (!(packet >> card.activatedAbilityName >> card.sacrificeAbilityName) ||
+            !ability_data::readOptional(packet, card.activatedAbility) ||
+            !ability_data::readOptional(packet, card.sacrificeAbility)) return false;
+        if ((card.activatedAbility && card.activatedAbilityName != card.activatedAbility->name) ||
+            (card.sacrificeAbility && card.sacrificeAbilityName != card.sacrificeAbility->name)) return false;
+    }
     return true;
 }
 
@@ -483,7 +568,7 @@ inline bool readCard(
     bool actionIncludesInfest = true,
     bool actionIncludesPull = true,
     bool actionIncludesLifedrain = true,
-    bool actionIncludesSlow = true)
+    bool actionIncludesSlow = true, bool includesAbilities = false)
 {
     packet >> card.title >> card.type >> card.imagePath;
     if (!packet || !readStringVector(packet, card.traits) || !readStringVector(packet, card.keywords))
@@ -503,14 +588,14 @@ inline bool readCard(
         actionIncludesInfest,
         actionIncludesPull,
         actionIncludesLifedrain,
-        actionIncludesSlow);
+        actionIncludesSlow, includesAbilities);
 }
 
 // Deck submissions and editor card saves use action references; their embedded
 // definitions are ignored by the server. Keep their existing schema-12 layout.
-inline bool readReferencedCard(sf::Packet& packet, Card& card)
+inline bool readReferencedCard(sf::Packet& packet, Card& card, bool includesAbilities = false)
 {
-    return readCard(packet, card, true, true, true, true, true, true, false);
+    return readCard(packet, card, true, true, true, true, true, true, false, includesAbilities);
 }
 
 inline bool readLegacyCard(sf::Packet& packet, Card& card)
@@ -534,7 +619,7 @@ inline bool readListedCard(
     bool actionIncludesInfest = true,
     bool actionIncludesPull = true,
     bool actionIncludesLifedrain = true,
-    bool actionIncludesSlow = true)
+    bool actionIncludesSlow = true, bool includesAbilities = false)
 {
     return legacyFormat
         ? readLegacyCard(packet, card)
@@ -547,6 +632,6 @@ inline bool readListedCard(
             actionIncludesInfest,
             actionIncludesPull,
             actionIncludesLifedrain,
-            actionIncludesSlow);
+            actionIncludesSlow, includesAbilities);
 }
 }

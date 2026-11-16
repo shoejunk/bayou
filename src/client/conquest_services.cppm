@@ -579,7 +579,8 @@ ConquestBattleJoinResult joinConquestBattle(
     bool supportsSilence = false;
             bool supportsParameters = false;
     bool supportsUndying = false;
-    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow, &supportsChrysalis, &supportsAreaHeal, &supportsSilence, &supportsParameters, &supportsUndying))
+    bool supportsObjects = false;
+    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow, &supportsChrysalis, &supportsAreaHeal, &supportsSilence, &supportsParameters, &supportsUndying, &supportsObjects))
     {
         sf::Packet optIn;
         optIn << static_cast<std::uint8_t>(MessageType::EnableCommandRestrictionSnapshots);
@@ -589,6 +590,7 @@ ConquestBattleJoinResult joinConquestBattle(
         if (supportsSilence) optIn << game_data::SilenceSnapshotCapability;
                 if (supportsParameters) optIn << game_data::AbilityParametersCapability;
         if (supportsUndying) optIn << game_data::UndyingSnapshotCapability;
+        if (supportsObjects) optIn << game_data::AbilityObjectsSnapshotCapability;
         if (socket->send(optIn) != sf::Socket::Status::Done)
             return {false, "Could not negotiate Conquest snapshots"};
         result.awaitingSnapshotUpgrade = true;

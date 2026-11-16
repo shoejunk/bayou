@@ -163,6 +163,8 @@ StoryCardDependencyReport validateStoryCardDependencies(
         // These are the only title-based definitions the engine can create
         // after scenario load: Summon (including Trail), timed transformation, Rebirth, and Infest.
         require(card->summonTitle);
+        if(card->activatedAbility)require(card->activatedAbility->summonTitle);
+        if(card->sacrificeAbility)require(card->sacrificeAbility->summonTitle);
         require(card->rebirthTitle);
         require(card->transformInto);
         for (const game_data::ActionProfile& action : card->actions)

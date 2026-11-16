@@ -481,7 +481,9 @@ struct GameCard
     int transformTurns = 0;
     std::string transformInto;
     std::vector<ActionProfile> actions;
-    std::string ability;
+    std::optional<ability_data::Definition> activatedAbility;
+    std::optional<ability_data::Definition> sacrificeAbility;
+    std::string ability; // legacy packet projection
     std::optional<std::string> commandRestriction;
     std::string sacrifice;
     std::string summonTitle;
@@ -498,6 +500,7 @@ struct GameCard
 template <typename T> inline int activatedRange(const T& v, const char* abilityOverride = nullptr)
 {
     const std::string ability = abilityOverride ? abilityOverride : v.ability;
+    if (v.activatedAbility && (!abilityOverride || v.activatedAbility->kind == abilityOverride)) return v.activatedAbility->range.value_or(v.activatedAbility->kind=="silence"?BoardSize-1:1);
     if (v.abilityRange) return std::max(0, *v.abilityRange);
     if (ability == "area heal") return v.healRange;
     if (ability == "shriek") return v.shriekRange;
@@ -508,12 +511,78 @@ template <typename T> inline int activatedRange(const T& v, const char* abilityO
 template <typename T> inline int activatedStrength(const T& v, const char* abilityOverride = nullptr)
 {
     const std::string ability = abilityOverride ? abilityOverride : v.ability;
+    if (v.activatedAbility && (!abilityOverride || v.activatedAbility->kind == abilityOverride)) return v.activatedAbility->strength.value_or(v.activatedAbility->kind=="shriek"?0:1);
     return std::max(0, v.abilityStrength.value_or(ability == "shriek" ? v.shriekDamage : 1));
 }
 template <typename T> inline int activatedDuration(const T& v, const char* abilityOverride = nullptr)
 {
     const std::string ability = abilityOverride ? abilityOverride : v.ability;
+    if (v.activatedAbility && (!abilityOverride || v.activatedAbility->kind == abilityOverride)) return v.activatedAbility->duration.value_or(1);
     return std::max(1, v.abilityDuration.value_or(ability == "silence" ? v.silenceTurns : 1));
+}
+
+// Compatibility input is converted once into a self-contained definition.
+// The legacy projections remain for older wire formats and authored fixtures.
+template <typename T>
+inline std::optional<ability_data::Definition> legacyAbilityDefinition(const T& value, bool sacrifice = false)
+{
+    ability_data::Definition definition;
+    definition.kind = normalizedAbility(sacrifice ? value.sacrifice : value.ability);
+    if (!ability_data::supportedKind(definition.kind)) return std::nullopt;
+    definition.range = value.abilityRange.value_or(definition.kind == "area heal" ? value.healRange :
+        definition.kind == "shriek" ? value.shriekRange : definition.kind == "silence" ? BoardSize-1 : 1);
+    definition.strength = value.abilityStrength.value_or(definition.kind == "shriek" ? value.shriekDamage : 1);
+    definition.duration = value.abilityDuration.value_or(definition.kind == "silence" ? value.silenceTurns : 1);
+    definition.targetFilter = value.healFilter;
+    definition.commandRestriction = value.commandRestriction;
+    definition.summonTitle = value.summonTitle;
+    definition.initialUses = std::max(-1, value.abilityUses);
+    int count = std::max(1, static_cast<int>(value.abilityLabels.size()));
+    if (definition.kind == "transform" || definition.kind == "dematerialize") {
+        count=1;
+        for (const auto& action : value.actions) count = std::max({count, action.state+1, actionNextState(action)+1});
+    }
+    for (int i=0; i<count; ++i)
+        definition.states.push_back({i, (i+1)%count,
+            value.abilityLabels.empty() ? std::string() : value.abilityLabels[i%value.abilityLabels.size()]});
+    return definition;
+}
+
+template <typename T>
+inline std::optional<ability_data::Definition> abilityDefinition(const T& value, bool sacrifice = false)
+{
+    const auto& definition = sacrifice ? value.sacrificeAbility : value.activatedAbility;
+    return definition ? definition : legacyAbilityDefinition(value, sacrifice);
+}
+
+template <typename T>
+inline std::string abilityKind(const T& value, bool sacrifice = false)
+{
+    const auto& definition = sacrifice ? value.sacrificeAbility : value.activatedAbility;
+    return definition ? definition->kind : normalizedAbility(sacrifice ? value.sacrifice : value.ability);
+}
+
+template <typename T>
+inline void applyAbilityDefinition(T& value, const ability_data::Definition& definition)
+{
+    value.activatedAbility = definition;
+    value.ability = definition.kind;
+    value.abilityRange = definition.range;
+    value.abilityStrength = definition.strength;
+    value.abilityDuration = definition.duration;
+    value.healRange = definition.range.value_or(1);
+    value.shriekRange = definition.range.value_or(1);
+    value.shriekDamage = definition.strength.value_or(0);
+    value.silenceTurns = definition.duration.value_or(1);
+    value.healFilter = definition.targetFilter;
+    value.commandRestriction = definition.commandRestriction;
+    if (definition.kind == "summon" && !hasKeyword(value.keywords,"trail")) value.summonTitle = definition.summonTitle;
+    value.abilityLabels.clear();
+    int count=0; for (const auto& state : definition.states) count=std::max(count,state.state+1);
+    if (std::any_of(definition.states.begin(),definition.states.end(),[](const auto& state) { return !state.label.empty(); })) {
+        value.abilityLabels.resize(count);
+        for (const auto& state : definition.states) value.abilityLabels[state.state]=state.label;
+    }
 }
 
 inline GameCard toGameCard(const card_data::Card& card)
@@ -575,7 +644,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     if (const std::string* restriction = findCardString(card, "CommandRestriction"))
         g.commandRestriction = normalizedAbility(*restriction);
     g.sacrifice = normalizedAbility(cardStr(card, "Sacrifice", cardStr(card, "sacrifice")));
-    if (g.title == "Maggie Mudroot" || g.title == "Old Mangletooth")
+    if (!card.abilityReferencesExplicit && (g.title == "Maggie Mudroot" || g.title == "Old Mangletooth"))
     {
         g.ability = "raise undead";
     }
@@ -672,6 +741,14 @@ inline GameCard toGameCard(const card_data::Card& card)
             foundAttackAction = true;
         }
     }
+    if (card.abilityReferencesExplicit) {
+        if (!card.activatedAbility && ability_data::supportedKind(g.ability)) g.ability.clear();
+        if (!card.sacrificeAbility && ability_data::supportedKind(g.sacrifice)) g.sacrifice.clear();
+    }
+    g.activatedAbility = card.activatedAbility;
+    g.sacrificeAbility = card.sacrificeAbility;
+    if (g.activatedAbility) { applyAbilityDefinition(g, *g.activatedAbility); g.abilityUses=g.activatedAbility->initialUses; }
+    if (g.sacrificeAbility) g.sacrifice=g.sacrificeAbility->kind;
     return g;
 }
 
@@ -850,7 +927,9 @@ struct Piece
     int repeatActionIndex = -1;
     int repeatActionState = 0;
     int repeatActionUses = 0;
-    std::string ability;
+    std::optional<ability_data::Definition> activatedAbility;
+    std::optional<ability_data::Definition> sacrificeAbility;
+    std::string ability; // legacy packet projection
     std::optional<std::string> commandRestriction;
     std::string sacrifice;
     bool sacrificePending = false;
@@ -864,6 +943,7 @@ struct Piece
     bool interceptUsedThisTurn = false;
     bool chrysalisUsed = false; // persists with this card copy for the match
     bool raisedFromGraveyard = false;
+    int sacrificeAbilityUses = 0;
     bool undyingUsed = false; // lifetime of this board piece, never carried by a card
 };
 
@@ -939,14 +1019,17 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.transformTurnsRemaining = card.transformTurns > 0 ? card.transformTurns : -1;
     piece.transformInto = card.transformInto;
     piece.actions = card.actions;
-    piece.ability = normalizedAbility(card.ability);
+    piece.activatedAbility = card.activatedAbility;
+    piece.sacrificeAbility = card.sacrificeAbility;
+    piece.sacrificeAbilityUses = card.sacrificeAbility ? card.sacrificeAbility->initialUses : card.abilityUses;
+    piece.ability = card.activatedAbility ? card.activatedAbility->kind : normalizedAbility(card.ability);
     piece.commandRestriction = card.commandRestriction;
-    piece.sacrifice = normalizedAbility(card.sacrifice);
+    piece.sacrifice = card.sacrificeAbility ? card.sacrificeAbility->kind : normalizedAbility(card.sacrifice);
     piece.sacrificePending = false;
     piece.summonTitle = card.summonTitle;
     piece.rebirthTitle = card.rebirthTitle;
     piece.abilityLabels = card.abilityLabels;
-    piece.abilityUses = card.abilityUses;
+    piece.abilityUses = card.activatedAbility ? card.activatedAbility->initialUses : card.abilityUses;
     piece.undyingUsed = false;
     piece.chrysalisUsed = card.chrysalisUsed;
     piece.raisedFromGraveyard = card.raisedFromGraveyard;
@@ -1162,12 +1245,13 @@ constexpr std::uint32_t SlowSnapshotCapability = 0x534c5731; // SLW1
 constexpr std::uint32_t AreaHealSnapshotCapability = 0x48454131; // HEA1
 constexpr std::uint32_t AbilityParametersCapability = 0x41425031; // ABP1
 constexpr std::uint32_t SilenceSnapshotCapability = 0x53494c31; // SIL1
+constexpr std::uint32_t AbilityObjectsSnapshotCapability = 0x41424f31; // ABO1
 constexpr std::uint32_t UndyingSnapshotCapability = 0x554e4431; // UND1
 constexpr std::uint32_t ChrysalisSnapshotCapability = 0x43485231; // CHR1
 
 // Ready responses can advertise extensions without changing the join requests
 // that older servers parse strictly. An absent advertisement uses the legacy format.
-inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr, bool* undying = nullptr)
+inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr, bool* undying = nullptr, bool* objects = nullptr)
 {
     std::uint32_t marker = 0;
     if (slow) *slow = false;
@@ -1176,6 +1260,7 @@ inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nu
     if (silence) *silence = false;
     if (parameters) *parameters = false;
     if (undying) *undying = false;
+    if (objects) *objects = false;
     if (ready.endOfPacket() || !(ready >> marker) || marker != CommandRestrictionSnapshotCapability)
         return false;
     if (slow && !ready.endOfPacket())
@@ -1190,11 +1275,13 @@ inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nu
         *parameters = (ready >> marker) && marker == AbilityParametersCapability;
     if (undying && parameters && *parameters && !ready.endOfPacket())
         *undying = (ready >> marker) && marker == UndyingSnapshotCapability;
+    if (objects && undying && *undying && !ready.endOfPacket())
+        *objects = (ready >> marker) && marker == AbilityObjectsSnapshotCapability;
     return true;
 }
 
 // Older clients opt in to CMD1 with an empty payload.
-inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr, bool* undying = nullptr)
+inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr, bool* undying = nullptr, bool* objects = nullptr)
 {
     slow = false;
     if (chrysalis) *chrysalis = false;
@@ -1202,6 +1289,7 @@ inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysali
     if (silence) *silence = false;
     if (parameters) *parameters = false;
     if (undying) *undying = false;
+    if (objects) *objects = false;
     if (packet.endOfPacket()) return true;
     std::uint32_t marker = 0;
     slow = (packet >> marker) && marker == SlowSnapshotCapability;
@@ -1224,8 +1312,12 @@ inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysali
     if (!*parameters) return false;
     if (packet.endOfPacket()) return true;
     if (!undying) return false;
-    *undying = (packet >> marker) && marker == UndyingSnapshotCapability && packet.endOfPacket();
-    return *undying;
+    *undying = (packet >> marker) && marker == UndyingSnapshotCapability;
+    if (!*undying) return false;
+    if (packet.endOfPacket()) return true;
+    if (!objects) return false;
+    *objects = (packet >> marker) && marker == AbilityObjectsSnapshotCapability && packet.endOfPacket();
+    return *objects;
 }
 
 template <typename T>
@@ -1405,7 +1497,21 @@ inline bool readSlowFields(sf::Packet& packet, Piece& piece)
         piece.slowTurnsRemaining >= 0 && readActionSlows(packet, piece.actions);
 }
 
-inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFields = true, bool areaHealFields = true, bool parameterFields = true)
+template <typename T>
+inline void writeAbilityObjects(sf::Packet& packet, const T& value)
+{
+    ability_data::writeOptional(packet,value.activatedAbility);
+    ability_data::writeOptional(packet,value.sacrificeAbility);
+}
+
+template <typename T>
+inline bool readAbilityObjects(sf::Packet& packet, T& value)
+{
+    return ability_data::readOptional(packet,value.activatedAbility) &&
+        ability_data::readOptional(packet,value.sacrificeAbility);
+}
+
+inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFields = true, bool areaHealFields = true, bool parameterFields = true, bool objectFields = true)
 {
     packet << card.title << card.type;
     card_data::writeStringVector(packet, card.traits);
@@ -1444,13 +1550,16 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFie
         packet << card.chrysalisUsed;
         if (areaHealFields) {
             writeAreaHealFields(packet, card);
-            if (parameterFields) { packet << AbilityParametersCapability; writeAbilityParameters(packet, card); }
+            if (parameterFields) { packet << AbilityParametersCapability; writeAbilityParameters(packet, card);
+                if (objectFields) { packet << AbilityObjectsSnapshotCapability; writeAbilityObjects(packet,card); }
+            }
         }
     }
 }
 
 inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = true)
 {
+    card.activatedAbility.reset(); card.sacrificeAbility.reset();
     packet >> card.title >> card.type;
     if (!packet || !card_data::readStringVector(packet, card.traits) ||
         !card_data::readStringVector(packet, card.keywords))
@@ -1522,7 +1631,10 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = t
     if (!readAreaHealFields(packet, card)) return false;
     if (packet.endOfPacket()) return true;
     std::uint32_t parameterMarker = 0;
-    return (packet >> parameterMarker) && parameterMarker == AbilityParametersCapability && readAbilityParameters(packet, card) && packet.endOfPacket();
+    if (!(packet >> parameterMarker) || parameterMarker != AbilityParametersCapability || !readAbilityParameters(packet,card)) return false;
+    if (packet.endOfPacket()) return true;
+    return (packet >> parameterMarker) && parameterMarker == AbilityObjectsSnapshotCapability &&
+        readAbilityObjects(packet,card) && packet.endOfPacket();
 }
 
 inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields = true)
@@ -1568,6 +1680,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields =
         writeSilenceFields(packet, piece);
         packet << AbilityParametersCapability; writeAbilityParameters(packet, piece); writeWeakenStatus(packet, piece);
         packet << UndyingSnapshotCapability << piece.undyingUsed;
+        packet << AbilityObjectsSnapshotCapability; writeAbilityObjects(packet,piece); packet << piece.sacrificeAbilityUses;
     }
 }
 
@@ -1575,6 +1688,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
 {
     piece.chrysalisUsed = false;
     piece.undyingUsed = false;
+    piece.activatedAbility.reset(); piece.sacrificeAbility.reset(); piece.sacrificeAbilityUses=0;
     packet >> piece.id >> piece.owner >> piece.originalOwner >> piece.row >> piece.column >> piece.name;
     if (!packet || !card_data::readStringVector(packet, piece.traits) ||
         !card_data::readStringVector(packet, piece.keywords))
@@ -1654,8 +1768,10 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
     if (!(packet >> parameterMarker) || parameterMarker != AbilityParametersCapability ||
         !readAbilityParameters(packet, piece) || !readWeakenStatus(packet, piece)) return false;
     if (packet.endOfPacket()) return true;
-    return (packet >> parameterMarker) && parameterMarker == UndyingSnapshotCapability &&
-        (packet >> piece.undyingUsed) && packet.endOfPacket();
+    if (!(packet >> parameterMarker) || parameterMarker != UndyingSnapshotCapability || !(packet >> piece.undyingUsed)) return false;
+    if (packet.endOfPacket()) return true;
+    return (packet >> parameterMarker) && parameterMarker == AbilityObjectsSnapshotCapability &&
+        readAbilityObjects(packet,piece) && (packet >> piece.sacrificeAbilityUses) && piece.sacrificeAbilityUses>=-1 && packet.endOfPacket();
 }
 
 inline void writeEnchantment(sf::Packet& packet, const Enchantment& enchantment)
@@ -1695,7 +1811,7 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 // Writes a complete snapshot payload (without the leading message-type byte).
 inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool auraFields = true,
                           bool shriekFields = true, bool transformFields = true, bool commandFields = true,
-                          bool slowFields = true, bool chrysalisFields = true, bool areaHealFields = true, bool silenceFields = true, bool parameterFields = true, bool undyingFields = true)
+                          bool slowFields = true, bool chrysalisFields = true, bool areaHealFields = true, bool silenceFields = true, bool parameterFields = true, bool undyingFields = true, bool objectFields = true)
 {
     packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner
            << snapshot.commandingPieceId << snapshot.relentlessPieceId
@@ -1802,7 +1918,7 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
                                 packet << husk.owner << husk.row << husk.column;
                                 // A bounded nested packet keeps optional per-card fields unambiguous.
                                 sf::Packet nested;
-                                writeGameCard(nested, husk.card, true, areaHealFields, silenceFields && parameterFields);
+                                writeGameCard(nested, husk.card, true, areaHealFields, silenceFields && parameterFields, objectFields && undyingFields);
                                 packet << std::string(static_cast<const char*>(nested.getData()), nested.getDataSize());
                             }
                             if (areaHealFields) {
@@ -1822,6 +1938,12 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
                                         if (undyingFields) {
                                             packet << UndyingSnapshotCapability;
                                             for (const Piece& piece : snapshot.pieces) packet << piece.undyingUsed;
+                                            if (objectFields) {
+                                                packet << AbilityObjectsSnapshotCapability;
+                                                for (const auto& piece : snapshot.pieces) { writeAbilityObjects(packet,piece); packet << piece.sacrificeAbilityUses; }
+                                                for (const auto* zone : {&snapshot.hand,&snapshot.foresightChoices,&snapshot.graveyard,&snapshot.exiled,&snapshot.raiseUndeadChoices})
+                                                    for (const auto& card : *zone) writeAbilityObjects(packet,card);
+                                            }
                                         }
                                     }
                                 }
@@ -2053,6 +2175,12 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot, bool auraFields
     if (packet.endOfPacket()) return true;
     if (!(packet >> marker) || marker != UndyingSnapshotCapability) return false;
     for (Piece& piece : snapshot.pieces) if (!(packet >> piece.undyingUsed)) return false;
+    if (packet.endOfPacket()) return true;
+    if (!(packet >> marker) || marker!=AbilityObjectsSnapshotCapability) return false;
+    for (auto& piece:snapshot.pieces)
+        if (!readAbilityObjects(packet,piece) || !(packet >> piece.sacrificeAbilityUses) || piece.sacrificeAbilityUses < -1) return false;
+    for (auto* zone:{&snapshot.hand,&snapshot.foresightChoices,&snapshot.graveyard,&snapshot.exiled,&snapshot.raiseUndeadChoices})
+        for (auto& card:*zone) if (!readAbilityObjects(packet,card)) return false;
     return packet.endOfPacket();
 }
 }

@@ -461,6 +461,7 @@ private:
     bool supportsSilenceSnapshots = false;
     bool supportsAbilityParameters = false;
         bool supportsUndyingSnapshots = false;
+    bool supportsAbilityObjects = false;
     };
 
     class Session
@@ -755,7 +756,7 @@ private:
             ready << static_cast<std::uint8_t>(network::MessageType::ConquestBattleReady)
                   << true << data.battleId << connection.playerNumber
                   << std::string("Conquest battle ready") << game_data::CommandRestrictionSnapshotCapability
-                  << game_data::SlowSnapshotCapability << game_data::ChrysalisSnapshotCapability << game_data::AreaHealSnapshotCapability << game_data::SilenceSnapshotCapability << game_data::AbilityParametersCapability << game_data::UndyingSnapshotCapability;
+                  << game_data::SlowSnapshotCapability << game_data::ChrysalisSnapshotCapability << game_data::AreaHealSnapshotCapability << game_data::SilenceSnapshotCapability << game_data::AbilityParametersCapability << game_data::UndyingSnapshotCapability << game_data::AbilityObjectsSnapshotCapability;
             if (connection.socket->send(ready, ClientSendTimeout) !=
                 sf::Socket::Status::Done)
             {
@@ -801,7 +802,7 @@ private:
                 }
                 const auto type = static_cast<network::MessageType>(rawType);
                 if (type == network::MessageType::EnableCommandRestrictionSnapshots &&
-                    game_data::readSlowSnapshotOptIn(packet, connection.supportsSlowSnapshots, &connection.supportsChrysalisSnapshots, &connection.supportsAreaHealSnapshots, &connection.supportsSilenceSnapshots, &connection.supportsAbilityParameters, &connection.supportsUndyingSnapshots))
+                    game_data::readSlowSnapshotOptIn(packet, connection.supportsSlowSnapshots, &connection.supportsChrysalisSnapshots, &connection.supportsAreaHealSnapshots, &connection.supportsSilenceSnapshots, &connection.supportsAbilityParameters, &connection.supportsUndyingSnapshots, &connection.supportsAbilityObjects))
                 {
                     connection.supportsCommandRestrictionSnapshots = true;
                     sf::Packet acknowledged;
@@ -1007,7 +1008,7 @@ private:
                 snapshot.status = statusOverride;
             }
             game_data::writeSnapshot(packet, snapshot, true, true, connection.supportsTransformSnapshots,
-                                     connection.supportsCommandRestrictionSnapshots, connection.supportsSlowSnapshots, connection.supportsChrysalisSnapshots, connection.supportsAreaHealSnapshots, connection.supportsSilenceSnapshots, connection.supportsAbilityParameters, connection.supportsUndyingSnapshots);
+                                     connection.supportsCommandRestrictionSnapshots, connection.supportsSlowSnapshots, connection.supportsChrysalisSnapshots, connection.supportsAreaHealSnapshots, connection.supportsSilenceSnapshots, connection.supportsAbilityParameters, connection.supportsUndyingSnapshots, connection.supportsAbilityObjects);
             if (connection.socket->send(packet, ClientSendTimeout) !=
                 sf::Socket::Status::Done)
             {

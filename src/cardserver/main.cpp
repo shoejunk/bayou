@@ -28,12 +28,12 @@ namespace
 constexpr unsigned short CardServerPort = 55004;
 constexpr auto InitialRequestTimeout = std::chrono::seconds(2);
 
-void writeCards(sf::Packet& packet, const std::vector<card_data::Card>& cards, bool includesSlow)
+void writeCards(sf::Packet& packet, const std::vector<card_data::Card>& cards, bool includesSlow, bool includesAbilities = false)
 {
-    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(cards.size()), includesSlow);
+    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(cards.size()), includesSlow, includesAbilities);
     for (const card_data::Card& card : cards)
     {
-        card_data::writeCard(packet, card, includesSlow);
+        card_data::writeCard(packet, card, includesSlow, includesAbilities);
     }
 }
 
@@ -343,6 +343,7 @@ private:
         database->exec(
             "UPDATE card_actions SET display_name = action_name WHERE display_name = ''");
         migrateLegacyActions();
+        card_database::initializeActivatedAbilities(*database);
     }
 
     bool tableExists(const std::string& tableName)
@@ -382,7 +383,23 @@ private:
         switch (static_cast<MessageType>(msgType))
         {
             case MessageType::CardListRequest:
-                handleListCards(client, requestsSlowFields(request));
+            {
+                std::uint32_t version=12;
+                if (!request.endOfPacket() && !(request >> version)) return;
+                handleListCards(client,version>=13,version>=14);
+                break;
+            }
+            case MessageType::ActivatedAbilityListRequest:
+            case MessageType::ActivatedAbilityUpsertRequest:
+            case MessageType::ActivatedAbilityUpdateRequest:
+            case MessageType::ActivatedAbilityDeleteRequest:
+                handleActivatedAbility(client,request,static_cast<MessageType>(msgType));
+                break;
+            case MessageType::CardUpsertWithAbilitiesRequest:
+                handleUpsertCard(client,request,true);
+                break;
+            case MessageType::CardUpdateWithAbilitiesRequest:
+                handleUpdateCard(client,request,true);
                 break;
             case MessageType::CardUpsertRequest:
                 handleUpsertCard(client, request);
@@ -413,7 +430,43 @@ private:
         }
     }
 
-    void handleListCards(bayou::tls::Socket& client, bool includesSlow)
+    void handleActivatedAbility(bayou::tls::Socket& client, sf::Packet& request, MessageType type)
+    {
+        const auto responseType=type==MessageType::ActivatedAbilityListRequest?MessageType::ActivatedAbilityListResponse:
+            type==MessageType::ActivatedAbilityUpdateRequest?MessageType::ActivatedAbilityUpdateResponse:
+            type==MessageType::ActivatedAbilityDeleteRequest?MessageType::ActivatedAbilityDeleteResponse:MessageType::ActivatedAbilityUpsertResponse;
+        try
+        {
+            if (type==MessageType::ActivatedAbilityListRequest)
+            {
+                const auto definitions=card_database::loadActivatedAbilities(*database);
+                sf::Packet response; response << static_cast<std::uint8_t>(responseType) << true << std::string("OK")
+                    << static_cast<std::uint32_t>(definitions.size());
+                for (const auto& definition:definitions) ability_data::write(response,definition);
+                [[maybe_unused]] auto sent=client.send(response);
+                return;
+            }
+            std::string originalName;
+            if (type==MessageType::ActivatedAbilityUpdateRequest || type==MessageType::ActivatedAbilityDeleteRequest)
+                if (!(request >> originalName)) throw std::runtime_error("Invalid activated ability name");
+            if (type==MessageType::ActivatedAbilityDeleteRequest)
+            {
+                if (!request.endOfPacket()) throw std::runtime_error("Unexpected activated ability payload");
+                card_database::deleteActivatedAbility(*database,originalName);
+            }
+            else
+            {
+                ability_data::Definition definition;
+                if (!ability_data::read(request,definition) || !request.endOfPacket() || !ability_data::valid(definition,true))
+                    throw std::runtime_error("Invalid activated ability definition");
+                card_database::saveActivatedAbility(*database,definition,originalName);
+            }
+            sendCommandResponse(client,responseType,true,"Activated ability saved");
+        }
+        catch (const std::exception& error) { sendCommandResponse(client,responseType,false,error.what()); }
+    }
+
+    void handleListCards(bayou::tls::Socket& client, bool includesSlow, bool includesAbilities = false)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::CardListResponse);
@@ -422,21 +475,21 @@ private:
         {
             const std::vector<card_data::Card> cards = loadCards();
             response << true << std::string("OK");
-            writeCards(response, cards, includesSlow);
+            writeCards(response, cards, includesSlow, includesAbilities);
         }
         catch (const std::exception& error)
         {
             response << false << std::string(error.what());
-            card_data::writeCardListHeader(response, 0, includesSlow);
+            card_data::writeCardListHeader(response, 0, includesSlow, includesAbilities);
         }
 
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    void handleUpsertCard(bayou::tls::Socket& client, sf::Packet& request)
+    void handleUpsertCard(bayou::tls::Socket& client, sf::Packet& request, bool includesAbilities = false)
     {
         card_data::Card card;
-        if (!card_data::readReferencedCard(request, card))
+        if (!card_data::readReferencedCard(request, card, includesAbilities))
         {
             sendUpsertResponse(client, false, "Invalid card payload");
             return;
@@ -450,7 +503,8 @@ private:
 
         try
         {
-            saveCard(card);
+            saveCard("", card, includesAbilities);
+            card_database::initializeActivatedAbilities(*database);
             sendUpsertResponse(client, true, "Card saved");
         }
         catch (const std::exception& error)
@@ -459,12 +513,12 @@ private:
         }
     }
 
-    void handleUpdateCard(bayou::tls::Socket& client, sf::Packet& request)
+    void handleUpdateCard(bayou::tls::Socket& client, sf::Packet& request, bool includesAbilities = false)
     {
         std::string originalTitle;
         card_data::Card card;
         request >> originalTitle;
-        if (!request || !card_data::readReferencedCard(request, card))
+        if (!request || !card_data::readReferencedCard(request, card, includesAbilities))
         {
             sendCommandResponse(client, MessageType::CardUpdateResponse, false, "Invalid card update payload");
             return;
@@ -484,7 +538,8 @@ private:
 
         try
         {
-            saveCard(originalTitle, card);
+            saveCard(originalTitle, card, includesAbilities);
+            card_database::initializeActivatedAbilities(*database);
             sendCommandResponse(client, MessageType::CardUpdateResponse, true, "Card saved");
         }
         catch (const std::exception& error)
@@ -632,9 +687,32 @@ private:
         saveCard("", card);
     }
 
-    void saveCard(const std::string& originalTitle, const card_data::Card& card)
+    void saveCard(const std::string& originalTitle, const card_data::Card& card, bool includesAbilities = false)
     {
         card_data::Card normalizedCard = card;
+        const auto existingCards=loadCards();
+        const auto old=std::find_if(existingCards.begin(),existingCards.end(),[&](const auto& item) {
+            return item.title==(originalTitle.empty()?card.title:originalTitle);
+        });
+        if (!includesAbilities && old!=existingCards.end())
+        {
+            const auto incoming=game_data::toGameCard(card);
+            auto projectedCard=card_data::legacyAbilityProjection(*old);
+            projectedCard.activatedAbility.reset();projectedCard.sacrificeAbility.reset();
+            projectedCard.abilityReferencesExplicit=false;
+            const auto projection=game_data::toGameCard(projectedCard);
+            for (bool sacrifice:{false,true})
+                if (game_data::legacyAbilityDefinition(incoming,sacrifice)!=game_data::legacyAbilityDefinition(projection,sacrifice))
+                    throw std::runtime_error("Use the updated Activated Abilities editor to change ability settings");
+            normalizedCard.activatedAbilityName=old->activatedAbilityName;
+            normalizedCard.sacrificeAbilityName=old->sacrificeAbilityName;
+        }
+        normalizedCard.activatedAbility=card_database::loadActivatedAbility(*database,normalizedCard.activatedAbilityName);
+        normalizedCard.sacrificeAbility=card_database::loadActivatedAbility(*database,normalizedCard.sacrificeAbilityName);
+        if ((!normalizedCard.activatedAbilityName.empty()&&!normalizedCard.activatedAbility) ||
+            (!normalizedCard.sacrificeAbilityName.empty()&&!normalizedCard.sacrificeAbility))
+            throw std::runtime_error("Unknown activated ability reference");
+        if (includesAbilities) normalizedCard=card_data::legacyAbilityProjection(std::move(normalizedCard));
         if (!hasDeckLimitField(normalizedCard))
         {
             normalizedCard.integerValues.push_back({
@@ -665,6 +743,8 @@ private:
         insertStringValues(normalizedCard);
         insertStringLists(normalizedCard);
         insertActionReferences(normalizedCard);
+        card_database::setCardActivatedAbilities(*database,normalizedCard.title,
+            normalizedCard.activatedAbilityName,normalizedCard.sacrificeAbilityName,includesAbilities || (old!=existingCards.end() && old->abilityReferencesExplicit));
 
         transaction.commit();
     }
@@ -690,6 +770,8 @@ private:
         for (const std::string& table : {
                  "card_traits",
                  "card_keywords",
+                 "card_activated_abilities",
+                 "card_ability_object_migrations",
                  "card_integer_values",
                  "card_string_values",
                  "card_string_lists",

@@ -1311,6 +1311,8 @@ const std::vector<std::string>& knownScreens()
         "admin-users-all-cards-popup",
         "card-editor-loaded",
         "card-editor-actions",
+        "card-editor-abilities",
+        "card-editor-ability-reference",
         "card-editor-rarity-dropdown",
         "card-editor-action-dropdown",
         "card-editor-action-kind-dropdown",

@@ -407,6 +407,7 @@ CardListResult fetchCards()
     bool actionIncludesPull = false;
     bool actionIncludesLifedrain = false;
     bool actionIncludesSlow = false;
+        bool includesAbilities = false;
     if (!card_data::readCardListHeader(
             response,
             count,
@@ -417,7 +418,7 @@ CardListResult fetchCards()
             &actionIncludesInfest,
             &actionIncludesPull,
             &actionIncludesLifedrain,
-            &actionIncludesSlow))
+            &actionIncludesSlow, &includesAbilities))
     {
         socket.disconnect();
         return {false, "Unsupported card list payload"};
@@ -438,7 +439,7 @@ CardListResult fetchCards()
                 actionIncludesInfest,
                 actionIncludesPull,
                 actionIncludesLifedrain,
-                actionIncludesSlow))
+                actionIncludesSlow, includesAbilities))
         {
             socket.disconnect();
             return {false, "Invalid card list payload"};
@@ -1477,7 +1478,8 @@ ServerResult joinGameServer(
     bool supportsSilence = false;
             bool supportsParameters = false;
     bool supportsUndying = false;
-    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow, &supportsChrysalis, &supportsAreaHeal, &supportsSilence, &supportsParameters, &supportsUndying))
+    bool supportsObjects = false;
+    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow, &supportsChrysalis, &supportsAreaHeal, &supportsSilence, &supportsParameters, &supportsUndying, &supportsObjects))
     {
         sf::Packet optIn;
         optIn << static_cast<std::uint8_t>(network::MessageType::EnableCommandRestrictionSnapshots);
@@ -1487,6 +1489,7 @@ ServerResult joinGameServer(
         if (supportsSilence) optIn << game_data::SilenceSnapshotCapability;
                 if (supportsParameters) optIn << game_data::AbilityParametersCapability;
         if (supportsUndying) optIn << game_data::UndyingSnapshotCapability;
+        if (supportsObjects) optIn << game_data::AbilityObjectsSnapshotCapability;
         if (socket->send(optIn) != sf::Socket::Status::Done)
             return {false, "Could not negotiate game snapshots"};
     }

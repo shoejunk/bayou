@@ -173,6 +173,25 @@
         if (!check(!instructionsVisible && editorMode == EditorMode::Actions &&
                    actionSearchField.getValue() == "needle", "Escape must restore the filtered editor.")) return false;
 
+        applyCaptureState("card-editor-actions",library);
+        abilityEditor.capture();
+        click(650.0f,36.0f);
+        if (!check(editorMode==EditorMode::Abilities,"Third tab must open reusable activated abilities.")) return false;
+        if (!abilityEditor.runCaptureChecks(window,failure)) return false;
+        click(550.0f,36.0f);
+        if (!check(editorMode==EditorMode::Actions,"Ability tab must return to the Actions editor without losing navigation.")) return false;
+
+        applyCaptureState("card-editor-ability-reference",library);
+        layoutArrayControls();
+        if (!check(cardFromForm().activatedAbility && cardFromForm().activatedAbility->kind=="area heal",
+                   "Known ability references must resolve their complete definition for the card preview.")) return false;
+        clickField(cardAbilityReferenceField);key(sf::Keyboard::Key::End);type("X");
+        if (!check(cardFromForm().activatedAbilityName=="Repair the PatternX" && hasUnsavedChanges(),
+                   "Ability references must edit a dedicated card assignment and mark the card dirty.")) return false;
+        restoreCurrentForm();
+        if (!check(cardFromForm().activatedAbilityName.empty(),"Discard must restore the card's original ability assignment.")) return false;
+        applyCaptureState("card-editor-actions",library);
+
         // Measure guide rendering with/without repeated layout at the same
         // scroll positions. Excludes display/vsync and is not an FPS claim.
         instructionsVisible = true;

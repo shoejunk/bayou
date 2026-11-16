@@ -1,4 +1,6 @@
 #include "card_database.hpp"
+#include "game_data.hpp"
+#include <stdexcept>
 
 #include <algorithm>
 #include <map>
@@ -287,6 +289,24 @@ std::vector<card_data::Card> loadCards(SQLite::Database& database)
         card.actionNames = loadActionNames(database, card.title);
         card.actionDisplayNames = loadActionDisplayNames(database, card.title);
         card.actions = loadCardActions(database, card.title);
+        if (tableExists(database,"card_ability_object_migrations")) {
+            SQLite::Statement known(database,"SELECT 1 FROM card_ability_object_migrations WHERE title=?");
+            known.bind(1,card.title);card.abilityReferencesExplicit=known.executeStep();
+        }
+        if (tableExists(database, "card_activated_abilities"))
+        {
+            SQLite::Statement links(database, "SELECT slot, ability_name FROM card_activated_abilities WHERE title = ?");
+            links.bind(1,card.title);
+            while (links.executeStep())
+            {
+                const bool sacrifice=links.getColumn(0).getInt()!=0;
+                const auto name=links.getColumn(1).getString();
+                const auto definition=loadActivatedAbility(database,name);
+                if (!definition) throw std::runtime_error("Missing activated ability: "+name);
+                if (sacrifice) { card.sacrificeAbilityName=name; card.sacrificeAbility=definition; }
+                else { card.activatedAbilityName=name; card.activatedAbility=definition; }
+            }
+        }
         cards.push_back(std::move(card));
     }
     return cards;
@@ -296,5 +316,152 @@ std::vector<card_data::Card> loadCardsFromFile(const std::filesystem::path& data
 {
     SQLite::Database database(databasePath.string(), SQLite::OPEN_READONLY);
     return loadCards(database);
+}
+
+std::optional<ability_data::Definition> loadActivatedAbility(SQLite::Database& database, const std::string& name)
+{
+    if (name.empty() || !tableExists(database,"activated_abilities")) return std::nullopt;
+    SQLite::Statement query(database,"SELECT definition FROM activated_abilities WHERE name = ?");
+    query.bind(1,name);
+    if (!query.executeStep()) return std::nullopt;
+    sf::Packet packet;
+    packet.append(query.getColumn(0).getBlob(),query.getColumn(0).getBytes());
+    ability_data::Definition definition;
+    if (!ability_data::read(packet,definition) || !packet.endOfPacket() || definition.name!=name)
+        throw std::runtime_error("Invalid stored activated ability: "+name);
+    return definition;
+}
+
+std::vector<ability_data::Definition> loadActivatedAbilities(SQLite::Database& database)
+{
+    std::vector<ability_data::Definition> result;
+    if (!tableExists(database,"activated_abilities")) return result;
+    SQLite::Statement names(database,"SELECT name FROM activated_abilities ORDER BY name");
+    while (names.executeStep()) result.push_back(*loadActivatedAbility(database,names.getColumn(0).getString()));
+    return result;
+}
+
+namespace
+{
+void storeAbility(SQLite::Database& database, const ability_data::Definition& definition)
+{
+    if (!ability_data::valid(definition,true)) throw std::runtime_error("Invalid activated ability definition");
+    sf::Packet packet; ability_data::write(packet,definition);
+    SQLite::Statement insert(database,"INSERT INTO activated_abilities(name,definition) VALUES(?,?) "
+        "ON CONFLICT(name) DO UPDATE SET definition=excluded.definition");
+    insert.bind(1,definition.name);
+    insert.bind(2,packet.getData(),static_cast<int>(packet.getDataSize()));
+    insert.exec();
+}
+
+void storeAbilityLinks(SQLite::Database& database, const std::string& title,
+    const std::string& abilityName, const std::string& sacrificeName)
+{
+    for (const auto* name:{&abilityName,&sacrificeName})
+        if (!name->empty() && !loadActivatedAbility(database,*name)) throw std::runtime_error("Unknown activated ability: "+*name);
+    SQLite::Statement remove(database,"DELETE FROM card_activated_abilities WHERE title=?");
+    remove.bind(1,title); remove.exec();
+    SQLite::Statement insert(database,"INSERT INTO card_activated_abilities(title,slot,ability_name) VALUES(?,?,?)");
+    for (int slot=0; slot<2; ++slot)
+    {
+        const auto& name=slot==0 ? abilityName : sacrificeName;
+        if (name.empty()) continue;
+        insert.reset(); insert.bind(1,title);insert.bind(2,slot);insert.bind(3,name);insert.exec();
+    }
+}
+
+// Only called after an explicit definition edit. Initial migration retains
+// every original field for rollback; edited definitions refresh that projection.
+void refreshAbilityProjections(SQLite::Database& database, const std::string& name)
+{
+    for (const auto& original:loadCards(database))
+    {
+        if (original.activatedAbilityName!=name && original.sacrificeAbilityName!=name) continue;
+        const auto card=card_data::legacyAbilityProjection(original);
+        for (const auto* table:{"card_integer_values","card_string_values","card_string_lists"})
+        {
+            SQLite::Statement remove(database,std::string("DELETE FROM ")+table+" WHERE title=?");
+            remove.bind(1,card.title);remove.exec();
+        }
+        SQLite::Statement ints(database,"INSERT INTO card_integer_values(title,key,value) VALUES(?,?,?)");
+        for (const auto& field:card.integerValues)
+        { ints.reset();ints.bind(1,card.title);ints.bind(2,field.key);ints.bind(3,field.value);ints.exec(); }
+        SQLite::Statement strings(database,"INSERT INTO card_string_values(title,key,value) VALUES(?,?,?)");
+        for (const auto& field:card.stringValues)
+        { strings.reset();strings.bind(1,card.title);strings.bind(2,field.key);strings.bind(3,field.value);strings.exec(); }
+        SQLite::Statement lists(database,"INSERT INTO card_string_lists(title,key,item_index,value) VALUES(?,?,?,?)");
+        for (const auto& field:card.stringLists)
+            for (std::size_t i=0;i<field.values.size();++i)
+            { lists.reset();lists.bind(1,card.title);lists.bind(2,field.key);lists.bind(3,static_cast<int>(i));lists.bind(4,field.values[i]);lists.exec(); }
+    }
+}
+}
+
+void initializeActivatedAbilities(SQLite::Database& database)
+{
+    SQLite::Transaction transaction(database);
+    database.exec("CREATE TABLE IF NOT EXISTS activated_abilities(name TEXT PRIMARY KEY NOT NULL,definition BLOB NOT NULL)");
+    database.exec("CREATE TABLE IF NOT EXISTS card_activated_abilities(title TEXT NOT NULL,slot INTEGER NOT NULL CHECK(slot IN (0,1)),"
+        "ability_name TEXT NOT NULL,PRIMARY KEY(title,slot),FOREIGN KEY(title) REFERENCES cards(title) ON DELETE CASCADE,"
+        "FOREIGN KEY(ability_name) REFERENCES activated_abilities(name))");
+    database.exec("CREATE TABLE IF NOT EXISTS card_ability_object_migrations(title TEXT PRIMARY KEY NOT NULL,FOREIGN KEY(title) REFERENCES cards(title) ON DELETE CASCADE)");
+    for (const auto& card:loadCards(database))
+    {
+        if (card.abilityReferencesExplicit) continue;
+        const auto gameCard=game_data::toGameCard(card);
+        auto normalName=card.activatedAbilityName, sacrificeName=card.sacrificeAbilityName;
+        bool changed=false;
+        for (bool sacrifice:{false,true})
+        {
+            auto& name=sacrifice?sacrificeName:normalName;
+            if (!name.empty()) continue;
+            auto definition=game_data::legacyAbilityDefinition(gameCard,sacrifice);
+            if (!definition) continue;
+            const auto baseName=card.title+(sacrifice?" Sacrifice":" Ability");
+            name=baseName;
+            for (int suffix=2;loadActivatedAbility(database,name);++suffix) name=baseName+" ("+std::to_string(suffix)+")";
+            definition->name=name;
+            storeAbility(database,*definition);changed=true;
+        }
+        if (changed) storeAbilityLinks(database,card.title,normalName,sacrificeName);
+        SQLite::Statement mark(database,"INSERT INTO card_ability_object_migrations(title) VALUES(?)");mark.bind(1,card.title);mark.exec();
+    }
+    transaction.commit();
+}
+
+void saveActivatedAbility(SQLite::Database& database, const ability_data::Definition& definition, const std::string& originalName)
+{
+    SQLite::Transaction transaction(database);
+    if (!originalName.empty() && !loadActivatedAbility(database,originalName)) throw std::runtime_error("Activated ability no longer exists");
+    if (!originalName.empty() && originalName!=definition.name && loadActivatedAbility(database,definition.name))
+        throw std::runtime_error("An activated ability with that name already exists");
+    storeAbility(database,definition);
+    if (!originalName.empty() && originalName!=definition.name)
+    {
+        SQLite::Statement links(database,"UPDATE card_activated_abilities SET ability_name=? WHERE ability_name=?");
+        links.bind(1,definition.name);links.bind(2,originalName);links.exec();
+        SQLite::Statement remove(database,"DELETE FROM activated_abilities WHERE name=?");remove.bind(1,originalName);remove.exec();
+    }
+    refreshAbilityProjections(database,definition.name);
+    transaction.commit();
+}
+
+void deleteActivatedAbility(SQLite::Database& database, const std::string& name)
+{
+    SQLite::Transaction transaction(database);
+    SQLite::Statement references(database,"SELECT 1 FROM card_activated_abilities WHERE ability_name=? LIMIT 1");
+    references.bind(1,name);
+    if (references.executeStep()) throw std::runtime_error("This activated ability is assigned to a card; remove its assignments first");
+    SQLite::Statement remove(database,"DELETE FROM activated_abilities WHERE name=?");remove.bind(1,name);remove.exec();
+    transaction.commit();
+}
+
+void setCardActivatedAbilities(SQLite::Database& database, const std::string& title, const std::string& abilityName, const std::string& sacrificeName, bool authoritative)
+{
+    // Participates in the card server's existing card-save transaction.
+    storeAbilityLinks(database,title,abilityName,sacrificeName);
+    if (authoritative) {
+        SQLite::Statement mark(database,"INSERT OR IGNORE INTO card_ability_object_migrations(title) VALUES(?)");mark.bind(1,title);mark.exec();
+    }
 }
 }

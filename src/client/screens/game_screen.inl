@@ -349,10 +349,11 @@
     };
 
     auto appendAbilityRuleDescription = [&](DetailRows& descriptions,
-                                            const auto& source,
+                                            const auto& original,
                                             int state,
                                             bool sacrifice = false) {
-        const std::string ability = game_data::normalizedAbility(sacrifice ? source.sacrifice : source.ability);
+        const auto source=game_data::activatedAbilitySource(original,sacrifice);
+        const std::string ability = game_data::abilityKind(source,sacrifice);
         if (ability.empty())
         {
             return;

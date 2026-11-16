@@ -89,6 +89,7 @@ std::vector<card_data::Card> loadFromCardServer(
     bool actionIncludesPull = false;
     bool actionIncludesLifedrain = false;
     bool actionIncludesSlow = false;
+        bool includesAbilities = false;
     if (!card_data::readCardListHeader(
             response,
             count,
@@ -99,7 +100,7 @@ std::vector<card_data::Card> loadFromCardServer(
             &actionIncludesInfest,
             &actionIncludesPull,
             &actionIncludesLifedrain,
-            &actionIncludesSlow))
+            &actionIncludesSlow, &includesAbilities))
     {
         error = "card server returned an unsupported card list payload";
         return {};
@@ -120,7 +121,7 @@ std::vector<card_data::Card> loadFromCardServer(
                 actionIncludesInfest,
                 actionIncludesPull,
                 actionIncludesLifedrain,
-                actionIncludesSlow))
+                actionIncludesSlow, includesAbilities))
         {
             error = "card server returned an invalid card payload";
             return {};
