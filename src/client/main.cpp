@@ -8130,7 +8130,7 @@ int main(int argc, char** argv)
             return;
         }
 
-        if (action.moves)
+        if (action.moves && !game_data::pieceMovementBound(next.pieces, *acting))
         {
             if (!anyTargetReborn &&
                 game_data::pieceFootprintFree(next.pieces, *acting, destinationRow, destinationColumn))

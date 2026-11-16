@@ -13,7 +13,9 @@ The Choir: Silence negative status implemented and verified (1058 offline checks
 
 Hushkeeper: live ability=silence and silenceTurns=3 verified 2026-11-16; current enemies lose activated buttons for three enemy turns. Legacy Silence Field code removed and verified (1029 offline gameplay checks; 1472 audio checks; Debug client/server/test builds). Production runtime deployment and live gameplay verification still pending.
 
-Next up (not yet started): Warden
+Warden: Bind passive implemented and verified (1058 offline gameplay checks; Debug client/server/test builds). Live Bind keyword verified 2026-11-16 01:02 UTC; all other catalog fields preserved. Adjacent enemies cannot voluntarily move, including between adjacent squares; stationary attacks/abilities remain usable. Defeating the binder permits normal advance when no other Bind remains. External Push/Pull can free a bound unit. Production runtime deployment and live gameplay verification still pending.
+
+Next up (not yet started): Lord Pallid
 
 PieceBaseBlue characters/bases/piece-base-blue.png
 PieceBaseRed characters/bases/piece-base-red.png

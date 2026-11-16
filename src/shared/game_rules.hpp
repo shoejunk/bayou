@@ -166,6 +166,19 @@ inline const Piece* findOtherPieceAt(
         (piece.id == 0 || occupant->id != piece.id) ? occupant : nullptr;
 }
 
+inline bool piecesAreAdjacent(const Piece& first, const Piece& second);
+
+// Bind is a continuous enemy aura, not a timed status. It does not silence
+// buttons or stationary attacks, and ends immediately when its source leaves.
+inline bool pieceMovementBound(const std::vector<Piece>& pieces, const Piece& target)
+{
+    return std::any_of(pieces.begin(), pieces.end(), [&](const Piece& source) {
+        return source.id != target.id && source.owner != target.owner &&
+            source.health > 0 && hasKeyword(source.keywords, "bind") &&
+            piecesAreAdjacent(source, target);
+    });
+}
+
 inline bool slowAllowsMove(const Piece& piece, int toRow, int toColumn)
 {
     return piece.slowTurnsRemaining <= 0 || (!piece.movedThisTurn &&
@@ -181,7 +194,7 @@ inline bool hasLegalMoveGeometry(
     int toColumn,
     bool allowOccupiedDestination)
 {
-    if (!slowAllowsMove(piece, toRow, toColumn) || !pieceFootprintInBounds(piece, toRow, toColumn) ||
+    if (pieceMovementBound(pieces, piece) || !slowAllowsMove(piece, toRow, toColumn) || !pieceFootprintInBounds(piece, toRow, toColumn) ||
         (!allowOccupiedDestination && !pieceFootprintFree(pieces, piece, toRow, toColumn)))
     {
         return false;
@@ -914,6 +927,21 @@ inline ActionResolution resolvePieceAction(
             !pieceFootprintFree(pieces, piece, toRow, toColumn))
         {
             candidate.legal = false;
+        }
+        if (candidate.legal && candidate.moves && pieceMovementBound(protectionPieces, piece))
+        {
+            // A bound unit may strike its adjacent binder without moving first.
+            // Advancing is conditional: the executor rechecks Bind after combat,
+            // including interception, surviving sources and multiple binders.
+            const bool strikesBinder = candidate.attacks &&
+                (kind == ActionKind::Slide || kind == ActionKind::Capture) &&
+                candidate.stagingRow == piece.row && candidate.stagingColumn == piece.column &&
+                std::any_of(protectionPieces.begin(), protectionPieces.end(), [&](const Piece& source) {
+                    return source.owner != piece.owner && source.health > 0 &&
+                        hasKeyword(source.keywords, "bind") && piecesAreAdjacent(source, piece) &&
+                        std::find(candidate.targetIds.begin(), candidate.targetIds.end(), source.id) != candidate.targetIds.end();
+                });
+            if (!strikesBinder) candidate.legal = false;
         }
         if (!candidate.legal || (candidate.moves &&
                 (piece.sleepTurnsRemaining > 0 || !slowAllowsMove(piece, toRow, toColumn))) ||

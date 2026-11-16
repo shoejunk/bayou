@@ -407,6 +407,11 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             details.push_back({"Keywords: " + joinStrings(card.keywords, ", "),
                                sf::Color(146, 206, 226)});
         }
+        if (game_data::hasKeyword(card.keywords, "bind"))
+        {
+            details.push_back({"Bind: adjacent enemies cannot move, including to another adjacent square. Diagonals count. Stationary attacks and abilities remain usable. Defeating the binder permits normal advance if no other Bind remains. External Push and Pull can free a bound unit.",
+                               sf::Color(146, 206, 226)});
+        }
         if (game_data::hasKeyword(card.keywords, "rot aura"))
         {
             details.push_back({"Rot Aura: adjacent enemies cannot regain Health from any source, including Lifedrain. Diagonals count. Ends when this unit leaves play or is no longer adjacent.",

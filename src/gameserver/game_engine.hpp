@@ -2196,7 +2196,7 @@ private:
             return true;
         }
 
-        if (action.moves)
+        if (action.moves && !pieceMovementBound(pieces, *survivingAttacker))
         {
             if (!anyTargetReborn &&
                 pieceFootprintFree(pieces, *survivingAttacker, destinationRow, destinationColumn))
