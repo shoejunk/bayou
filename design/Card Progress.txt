@@ -6,16 +6,15 @@ Will o Wisp
 Thorn Serpent
 
 Cards in progress (outstanding work):
-Father Grub: Chrysalis code committed/pushed and live card keyword verified 2026-11-15; production runtime deployment and live gameplay verification still pending.
+Father Grub: Chrysalis implemented, live keyword verified and production cf402bc deployment verified 2026-11-16 01:02:58 UTC. Remaining: authenticated live gameplay verification.
+The Weaver: Area Heal implemented, live Repair the Pattern fields verified and production cf402bc deployment verified 2026-11-16 01:02:58 UTC. Remaining: authenticated live gameplay verification; shared ability field migration is now in progress (see below).
+The Choir: activated Silence implemented, live Dissonant Chorus / silenceTurns=4 verified and production cf402bc deployment verified 2026-11-16 01:02:58 UTC. Remaining: authenticated live gameplay verification; shared ability field migration is now in progress (see below).
+Hushkeeper: activated Silence / silenceTurns=3 live fields verified; obsolete Silence Field removed and production cf402bc deployment verified 2026-11-16 01:02:58 UTC. Remaining: authenticated live gameplay verification; shared ability field migration is now in progress (see below).
+Warden: Bind implemented and verified (1058 offline gameplay checks; Debug client/server/test builds), code commit 9a64d2c. Live Bind keyword verified 2026-11-16 01:02 UTC, other catalog fields unchanged. Remaining: deploy Bind runtime and authenticated live gameplay verification. Adjacent enemies cannot voluntarily move, including between adjacent squares; stationary attacks/abilities remain usable. Defeating the binder permits normal advance when no other Bind remains. External Push/Pull can free a bound unit.
+Lord Pallid: in progress. Generic weaken activated ability, card button label Pallid Curse, selected by Joe. Implementation, live card configuration and verification pending.
+Shared activated ability range/strength/duration fields: migration and regression verification in progress; coordinate existing Area Heal/Silence fields and Lord Pallid's weaken without losing current card behavior.
 
-The Weaver: area heal code verified (992 offline checks; Debug client/server/test builds) and live Repair the Pattern fields verified 2026-11-15; production runtime deployment and live gameplay verification still pending.
-The Choir: Silence negative status implemented and verified (1058 offline checks; Debug client/server/test builds); live Dissonant Chorus ability and silenceTurns=4 verified 2026-11-15 22:33 UTC. Current enemy units only; counts enemy turn ends; passives preserved. Production runtime deployment and live gameplay verification still pending.
-
-Hushkeeper: live ability=silence and silenceTurns=3 verified 2026-11-16; current enemies lose activated buttons for three enemy turns. Legacy Silence Field code removed and verified (1029 offline gameplay checks; 1472 audio checks; Debug client/server/test builds). Production runtime deployment and live gameplay verification still pending.
-
-Warden: Bind passive implemented and verified (1058 offline gameplay checks; Debug client/server/test builds). Live Bind keyword verified 2026-11-16 01:02 UTC; all other catalog fields preserved. Adjacent enemies cannot voluntarily move, including between adjacent squares; stationary attacks/abilities remain usable. Defeating the binder permits normal advance when no other Bind remains. External Push/Pull can free a bound unit. Production runtime deployment and live gameplay verification still pending.
-
-Next up (not yet started): Lord Pallid
+Next up (not yet started): Sir Chitin the Undying
 
 PieceBaseBlue characters/bases/piece-base-blue.png
 PieceBaseRed characters/bases/piece-base-red.png
