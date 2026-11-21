@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <algorithm>
 #include <cctype>
@@ -15,7 +16,7 @@ namespace card_data
 // crafted packet cannot trigger a huge allocation.
 constexpr std::uint32_t MaxSerializedItems = 4096;
 constexpr std::uint32_t CardListSchemaMarker = 0xffffffffu;
-constexpr std::uint32_t CardListSchemaVersion = 14;
+constexpr std::uint32_t CardListSchemaVersion = 15;
 constexpr int DefaultNextState = (-2147483647 - 1);
 
 struct KeyIntPair
@@ -35,6 +36,21 @@ struct KeyStringList
     std::string key;
     std::vector<std::string> values;
 };
+
+// Reserved action metadata in the versioned targetFilter vector. Legacy readers
+// retain the field and treat it as an unmet trait/keyword requirement, rather
+// than executing the action as ordinary healing. Never expose it as a trait.
+inline constexpr char RootedActionFlag[] = "@rooted";
+inline bool actionAppliesRooted(const std::vector<std::string>& filter)
+{
+    return std::find(filter.begin(), filter.end(), RootedActionFlag) != filter.end();
+}
+
+inline constexpr char PurifyActionFlag[] = "@purify";
+inline bool actionHasPurify(const std::vector<std::string>& filter)
+{
+    return std::find(filter.begin(), filter.end(), PurifyActionFlag) != filter.end();
+}
 
 struct Action
 {
@@ -75,6 +91,7 @@ struct Card
     std::string imagePath;
     std::vector<std::string> traits;
     std::vector<std::string> keywords;
+    std::vector<std::string> passives;
     std::vector<KeyIntPair> integerValues;
     std::vector<KeyStringPair> stringValues;
     std::vector<KeyStringList> stringLists;
@@ -236,9 +253,74 @@ inline bool readCatalogAction(sf::Packet& packet, Action& action, bool includesS
     return readAction(packet, action, true, true, true, true, true, true, true, true, true, includesSlow);
 }
 
-inline void writeCardListHeader(sf::Packet& packet, std::uint32_t count, bool includesSlow = true, bool includesAbilities = false)
+inline std::string passiveKey(std::string_view name)
 {
-    packet << CardListSchemaMarker << (includesAbilities ? CardListSchemaVersion : includesSlow ? 13u : 12u) << count;
+    std::string result(name);
+    for (char& ch : result) if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
+    // Read-only compatibility with the unreleased initial Rescue spelling.
+    if (result == "dash's rescue") return "rescue";
+    return result;
+}
+
+inline void normalizeRescuePassives(std::vector<std::string>& passives)
+{
+    bool foundRescue = false;
+    std::erase_if(passives, [&](const std::string& passive) {
+        if (passiveKey(passive) != "rescue") return false;
+        if (foundRescue) return true;
+        foundRescue = true;
+        return false;
+    });
+    for (auto& passive : passives)
+        if (passiveKey(passive) == "rescue") passive = "Rescue";
+}
+
+inline bool isSupportedPassive(std::string_view name)
+{
+    const auto key = passiveKey(name);
+    for (const auto* supported : {"bind", "bodyguard", "bristle", "chrysalis", "evacuate",
+         "foresight", "intercept", "relentless", "reveal", "shelter", "swarm", "trail", "undying",
+         "rot aura", "dematerialize", "fly", "flying", "rescue"})
+        if (key == supported) return true;
+    return false;
+}
+
+inline void splitLegacyPassives(std::vector<std::string>& keywords, std::vector<std::string>& passives)
+{
+    std::erase_if(keywords, [&](const std::string& value) {
+        if (!isSupportedPassive(value)) return false;
+        passives.push_back(value);
+        return true;
+    });
+    normalizeRescuePassives(passives);
+}
+
+inline void splitLegacyPassives(Card& card)
+{
+    splitLegacyPassives(card.keywords, card.passives);
+}
+
+inline std::vector<std::string> legacyPassiveKeywords(
+    const std::vector<std::string>& keywords, const std::vector<std::string>& passives)
+{
+    auto result = keywords;
+    std::erase_if(result, [](const std::string& value) { return isSupportedPassive(value); });
+    result.insert(result.end(), passives.begin(), passives.end());
+    // Legacy SQLite catalog reads were ordered by exact text.
+    std::stable_sort(result.begin(), result.end());
+    return result;
+}
+
+inline Card legacyPassiveProjection(Card card)
+{
+    card.keywords = legacyPassiveKeywords(card.keywords, card.passives);
+    card.passives.clear();
+    return card;
+}
+
+inline void writeCardListHeader(sf::Packet& packet, std::uint32_t count, bool includesSlow = true, bool includesAbilities = false, bool includesPassives = false)
+{
+    packet << CardListSchemaMarker << (includesPassives ? CardListSchemaVersion : includesAbilities ? 14u : includesSlow ? 13u : 12u) << count;
 }
 
 inline bool readCardListHeader(
@@ -251,7 +333,7 @@ inline bool readCardListHeader(
     bool* actionIncludesInfest = nullptr,
     bool* actionIncludesPull = nullptr,
     bool* actionIncludesLifedrain = nullptr,
-    bool* actionIncludesSlow = nullptr, bool* includesAbilities = nullptr)
+    bool* actionIncludesSlow = nullptr, bool* includesAbilities = nullptr, bool* includesPassives = nullptr)
 {
     std::uint32_t markerOrCount = 0;
     packet >> markerOrCount;
@@ -291,6 +373,7 @@ inline bool readCardListHeader(
         }
         if (actionIncludesSlow) *actionIncludesSlow = version >= 13;
         if (includesAbilities) *includesAbilities = version >= 14;
+        if (includesPassives) *includesPassives = version >= 15;
         return static_cast<bool>(packet) && version >= 6 && version <= CardListSchemaVersion &&
             count <= MaxSerializedItems;
     }
@@ -323,6 +406,7 @@ inline bool readCardListHeader(
     }
     if (actionIncludesSlow) *actionIncludesSlow = false;
     if (includesAbilities) *includesAbilities = false;
+    if (includesPassives) *includesPassives = false;
     return count <= MaxSerializedItems;
 }
 
@@ -336,7 +420,7 @@ inline std::string abilityFieldKey(std::string key)
 inline Card withoutLegacyAbilityFields(Card card)
 {
     if (!card.activatedAbility && !card.sacrificeAbility) return card;
-    const bool trail=std::any_of(card.keywords.begin(),card.keywords.end(),[](const auto& keyword) {return abilityFieldKey(keyword)=="trail";});
+    const bool trail=std::any_of(card.passives.begin(),card.passives.end(),[](const auto& keyword) {return abilityFieldKey(keyword)=="trail";});
     const bool summon = !trail && ((card.activatedAbility && card.activatedAbility->kind == "summon") ||
         (card.sacrificeAbility && card.sacrificeAbility->kind == "summon"));
     std::erase_if(card.integerValues, [](const auto& field) {
@@ -383,15 +467,29 @@ inline Card legacyAbilityProjection(Card card)
     return card;
 }
 
-inline void writeCard(sf::Packet& packet, const Card& input, bool includesSlow = true, bool includesAbilities = false)
+inline void writeCard(sf::Packet& packet, const Card& input, bool includesSlow = true, bool includesAbilities = false, bool includesPassives = false)
 {
-    const Card card=includesAbilities ? withoutLegacyAbilityFields(input) : legacyAbilityProjection(input);
+    Card card=includesAbilities ? withoutLegacyAbilityFields(input) : legacyAbilityProjection(input);
+    if (includesAbilities && !includesPassives)
+    {
+        // Schema 14 predates this ability kind and rejects its Definition.
+        if (card.activatedAbility && card.activatedAbility->kind == "corrupt the ground")
+        {
+            card.activatedAbility.reset();
+            card.activatedAbilityName.clear();
+        }
+        if (card.sacrificeAbility && card.sacrificeAbility->kind == "corrupt the ground")
+        {
+            card.sacrificeAbility.reset();
+            card.sacrificeAbilityName.clear();
+        }
+    }
     packet << card.title;
     packet << card.type;
     packet << card.imagePath;
 
     writeStringVector(packet, card.traits);
-    writeStringVector(packet, card.keywords);
+    writeStringVector(packet, includesPassives ? card.keywords : legacyPassiveKeywords(card.keywords, card.passives));
 
     packet << static_cast<std::uint32_t>(card.integerValues.size());
     for (const KeyIntPair& item : card.integerValues)
@@ -425,6 +523,13 @@ inline void writeCard(sf::Packet& packet, const Card& input, bool includesSlow =
         ability_data::writeOptional(packet, card.activatedAbility);
         ability_data::writeOptional(packet, card.sacrificeAbility);
     }
+    if (includesPassives)
+    {
+        packet << (card.abilityReferencesExplicit || card.activatedAbility.has_value() ||
+            card.sacrificeAbility.has_value() || !card.activatedAbilityName.empty() ||
+            !card.sacrificeAbilityName.empty());
+        writeStringVector(packet, card.passives);
+    }
 }
 
 inline bool readCardRemaining(
@@ -440,9 +545,10 @@ inline bool readCardRemaining(
     bool actionIncludesInfest = true,
     bool actionIncludesPull = true,
     bool actionIncludesLifedrain = true,
-    bool actionIncludesSlow = true, bool includesAbilities = false)
+    bool actionIncludesSlow = true, bool includesAbilities = false, bool includesPassives = false)
 {
     card.abilityReferencesExplicit=includesAbilities;
+    card.passives.clear();
     card.activatedAbilityName.clear(); card.sacrificeAbilityName.clear();
     card.activatedAbility.reset(); card.sacrificeAbility.reset();
     std::uint32_t integerCount = 0;
@@ -556,6 +662,11 @@ inline bool readCardRemaining(
         if ((card.activatedAbility && card.activatedAbilityName != card.activatedAbility->name) ||
             (card.sacrificeAbility && card.sacrificeAbilityName != card.sacrificeAbility->name)) return false;
     }
+    if (includesPassives) {
+        if (!(packet >> card.abilityReferencesExplicit) || !readStringVector(packet, card.passives)) return false;
+        for (const auto& passive : card.passives) if (!isSupportedPassive(passive)) return false;
+        normalizeRescuePassives(card.passives);
+    } else splitLegacyPassives(card);
     return true;
 }
 
@@ -568,7 +679,7 @@ inline bool readCard(
     bool actionIncludesInfest = true,
     bool actionIncludesPull = true,
     bool actionIncludesLifedrain = true,
-    bool actionIncludesSlow = true, bool includesAbilities = false)
+    bool actionIncludesSlow = true, bool includesAbilities = false, bool includesPassives = false)
 {
     packet >> card.title >> card.type >> card.imagePath;
     if (!packet || !readStringVector(packet, card.traits) || !readStringVector(packet, card.keywords))
@@ -588,14 +699,14 @@ inline bool readCard(
         actionIncludesInfest,
         actionIncludesPull,
         actionIncludesLifedrain,
-        actionIncludesSlow, includesAbilities);
+        actionIncludesSlow, includesAbilities, includesPassives);
 }
 
 // Deck submissions and editor card saves use action references; their embedded
 // definitions are ignored by the server. Keep their existing schema-12 layout.
-inline bool readReferencedCard(sf::Packet& packet, Card& card, bool includesAbilities = false)
+inline bool readReferencedCard(sf::Packet& packet, Card& card, bool includesAbilities = false, bool includesPassives = false)
 {
-    return readCard(packet, card, true, true, true, true, true, true, false, includesAbilities);
+    return readCard(packet, card, true, true, true, true, true, true, false, includesAbilities, includesPassives);
 }
 
 inline bool readLegacyCard(sf::Packet& packet, Card& card)
@@ -619,7 +730,7 @@ inline bool readListedCard(
     bool actionIncludesInfest = true,
     bool actionIncludesPull = true,
     bool actionIncludesLifedrain = true,
-    bool actionIncludesSlow = true, bool includesAbilities = false)
+    bool actionIncludesSlow = true, bool includesAbilities = false, bool includesPassives = false)
 {
     return legacyFormat
         ? readLegacyCard(packet, card)
@@ -632,6 +743,6 @@ inline bool readListedCard(
             actionIncludesInfest,
             actionIncludesPull,
             actionIncludesLifedrain,
-            actionIncludesSlow, includesAbilities);
+            actionIncludesSlow, includesAbilities, includesPassives);
 }
 }

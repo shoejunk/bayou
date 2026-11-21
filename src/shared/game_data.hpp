@@ -436,6 +436,7 @@ struct GameCard
     std::string type;      // "Unit", "Spell", "Enchantment", or "Hero"
     std::vector<std::string> traits;
     std::vector<std::string> keywords;
+    std::vector<std::string> passives;
     std::string imagePath;
     std::string walkAnimPath;
     std::string idleAnimPath;
@@ -576,7 +577,7 @@ inline void applyAbilityDefinition(T& value, const ability_data::Definition& def
     value.silenceTurns = definition.duration.value_or(1);
     value.healFilter = definition.targetFilter;
     value.commandRestriction = definition.commandRestriction;
-    if (definition.kind == "summon" && !hasKeyword(value.keywords,"trail")) value.summonTitle = definition.summonTitle;
+    if (definition.kind == "summon" && !hasKeyword(value.passives,"trail")) value.summonTitle = definition.summonTitle;
     value.abilityLabels.clear();
     int count=0; for (const auto& state : definition.states) count=std::max(count,state.state+1);
     if (std::any_of(definition.states.begin(),definition.states.end(),[](const auto& state) { return !state.label.empty(); })) {
@@ -592,6 +593,7 @@ inline GameCard toGameCard(const card_data::Card& card)
     g.type = card.type;
     g.traits = card.traits;
     g.keywords = card.keywords;
+    g.passives = card.passives;
     g.imagePath = card.imagePath;
     g.walkAnimPath = cardStr(card, "WalkAnim");
     g.idleAnimPath = cardStr(card, "IdleAnim");
@@ -866,6 +868,7 @@ struct Piece
     std::string name;
     std::vector<std::string> traits;
     std::vector<std::string> keywords;
+    std::vector<std::string> passives;
     std::string imagePath;
     std::string walkAnimPath;
     std::string idleAnimPath;
@@ -917,6 +920,7 @@ struct Piece
     std::string transformInto;
     int disabledTurns = 0;
     int sleepTurnsRemaining = 0;
+    int rootedTurnsRemaining = 0; // ticks at the end of the affected owner's turn
     int slowTurnsRemaining = 0;
     bool movedThisTurn = false;
     int controlTurnsRemaining = 0;
@@ -941,6 +945,7 @@ struct Piece
     bool isHero = false;
     bool hasActed = false;
     bool interceptUsedThisTurn = false;
+    bool dashRescueUsedThisRound = false;
     bool chrysalisUsed = false; // persists with this card copy for the match
     bool raisedFromGraveyard = false;
     int sacrificeAbilityUses = 0;
@@ -970,6 +975,7 @@ inline void populatePieceFromCard(Piece& piece, const GameCard& card, bool isHer
     piece.name = card.title;
     piece.traits = card.traits;
     piece.keywords = card.keywords;
+    piece.passives = card.passives;
     piece.imagePath = card.imagePath;
     piece.walkAnimPath = card.walkAnimPath;
     piece.idleAnimPath = card.idleAnimPath;
@@ -1117,6 +1123,7 @@ inline void beginPieceTurn(Piece& piece)
 {
     piece.hasActed = false;
     piece.interceptUsedThisTurn = false;
+    piece.dashRescueUsedThisRound = false;
     piece.movedThisTurn = false;
     if (piece.growTurnsRemaining > 0)
     {
@@ -1134,6 +1141,7 @@ inline void beginPieceTurn(Piece& piece)
 inline void endPieceTurn(Piece& piece)
 {
     if (piece.sleepTurnsRemaining > 0) --piece.sleepTurnsRemaining;
+    if (piece.rootedTurnsRemaining > 0) --piece.rootedTurnsRemaining;
     if (piece.slowTurnsRemaining > 0) --piece.slowTurnsRemaining;
 }
 
@@ -1207,6 +1215,16 @@ struct PendingHusk
     GameCard card;
 };
 
+enum class TrapEffect { Damage };
+struct Trap
+{
+    int owner;
+    int row;
+    int column;
+    int strength;
+    TrapEffect effect = TrapEffect::Damage;
+};
+
 // The full view of the game tailored to one recipient (their hand is included,
 // the opponent's hand is conveyed only as a count).
 struct Snapshot
@@ -1224,6 +1242,7 @@ struct Snapshot
     std::array<std::uint8_t, BoardSquares> holes{};
     std::vector<Piece> pieces;
     std::vector<PendingHusk> husks;
+    std::vector<Trap> traps; // Only this recipient's traps.
     std::vector<Enchantment> enchantments;
     std::vector<GameCard> hand;  // recipient's hand
     std::vector<GameCard> foresightChoices;  // recipient's pending Foresight options
@@ -1245,13 +1264,17 @@ constexpr std::uint32_t SlowSnapshotCapability = 0x534c5731; // SLW1
 constexpr std::uint32_t AreaHealSnapshotCapability = 0x48454131; // HEA1
 constexpr std::uint32_t AbilityParametersCapability = 0x41425031; // ABP1
 constexpr std::uint32_t SilenceSnapshotCapability = 0x53494c31; // SIL1
+constexpr std::uint32_t DashRescueSnapshotCapability = 0x44525331; // DRS1
+constexpr std::uint32_t PassivesSnapshotCapability = 0x50415331; // PAS1
+constexpr std::uint32_t RootedSnapshotCapability = 0x52555431; // RUT1
+constexpr std::uint32_t TrapSnapshotCapability = 0x54525031; // TRP1
 constexpr std::uint32_t AbilityObjectsSnapshotCapability = 0x41424f31; // ABO1
 constexpr std::uint32_t UndyingSnapshotCapability = 0x554e4431; // UND1
 constexpr std::uint32_t ChrysalisSnapshotCapability = 0x43485231; // CHR1
 
 // Ready responses can advertise extensions without changing the join requests
 // that older servers parse strictly. An absent advertisement uses the legacy format.
-inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr, bool* undying = nullptr, bool* objects = nullptr)
+inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr, bool* undying = nullptr, bool* objects = nullptr, bool* traps = nullptr, bool* rooted = nullptr, bool* passives = nullptr, bool* dashRescue = nullptr)
 {
     std::uint32_t marker = 0;
     if (slow) *slow = false;
@@ -1261,6 +1284,10 @@ inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nu
     if (parameters) *parameters = false;
     if (undying) *undying = false;
     if (objects) *objects = false;
+    if (traps) *traps = false;
+    if (rooted) *rooted = false;
+    if (passives) *passives = false;
+    if (dashRescue) *dashRescue = false;
     if (ready.endOfPacket() || !(ready >> marker) || marker != CommandRestrictionSnapshotCapability)
         return false;
     if (slow && !ready.endOfPacket())
@@ -1277,11 +1304,19 @@ inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nu
         *undying = (ready >> marker) && marker == UndyingSnapshotCapability;
     if (objects && undying && *undying && !ready.endOfPacket())
         *objects = (ready >> marker) && marker == AbilityObjectsSnapshotCapability;
+    if (traps && objects && *objects && !ready.endOfPacket())
+        *traps = (ready >> marker) && marker == TrapSnapshotCapability;
+    if (rooted && traps && *traps && !ready.endOfPacket())
+        *rooted = (ready >> marker) && marker == RootedSnapshotCapability;
+    if (passives && rooted && *rooted && !ready.endOfPacket())
+        *passives = (ready >> marker) && marker == PassivesSnapshotCapability;
+    if (dashRescue && passives && *passives && !ready.endOfPacket())
+        *dashRescue = (ready >> marker) && marker == DashRescueSnapshotCapability;
     return true;
 }
 
 // Older clients opt in to CMD1 with an empty payload.
-inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr, bool* undying = nullptr, bool* objects = nullptr)
+inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr, bool* undying = nullptr, bool* objects = nullptr, bool* traps = nullptr, bool* rooted = nullptr, bool* passives = nullptr, bool* dashRescue = nullptr)
 {
     slow = false;
     if (chrysalis) *chrysalis = false;
@@ -1290,6 +1325,10 @@ inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysali
     if (parameters) *parameters = false;
     if (undying) *undying = false;
     if (objects) *objects = false;
+    if (traps) *traps = false;
+    if (rooted) *rooted = false;
+    if (passives) *passives = false;
+    if (dashRescue) *dashRescue = false;
     if (packet.endOfPacket()) return true;
     std::uint32_t marker = 0;
     slow = (packet >> marker) && marker == SlowSnapshotCapability;
@@ -1316,8 +1355,19 @@ inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysali
     if (!*undying) return false;
     if (packet.endOfPacket()) return true;
     if (!objects) return false;
-    *objects = (packet >> marker) && marker == AbilityObjectsSnapshotCapability && packet.endOfPacket();
-    return *objects;
+    *objects = (packet >> marker) && marker == AbilityObjectsSnapshotCapability;
+    if (!*objects) return false;
+    if (packet.endOfPacket()) return true;
+    if (!traps) return false;
+    *traps = (packet >> marker) && marker == TrapSnapshotCapability;
+    if (!*traps) return false;
+    if (packet.endOfPacket()) return true;
+    if (!rooted || !(*rooted = (packet >> marker) && marker == RootedSnapshotCapability)) return false;
+    if (packet.endOfPacket()) return true;
+    if (!passives || !(*passives = (packet >> marker) && marker == PassivesSnapshotCapability)) return false;
+    if (packet.endOfPacket()) return true;
+    return dashRescue && (*dashRescue = (packet >> marker) &&
+        marker == DashRescueSnapshotCapability && packet.endOfPacket());
 }
 
 template <typename T>
@@ -1498,10 +1548,16 @@ inline bool readSlowFields(sf::Packet& packet, Piece& piece)
 }
 
 template <typename T>
-inline void writeAbilityObjects(sf::Packet& packet, const T& value)
+inline void writeAbilityObjects(sf::Packet& packet, const T& value, bool trapObjects = true)
 {
-    ability_data::writeOptional(packet,value.activatedAbility);
-    ability_data::writeOptional(packet,value.sacrificeAbility);
+    const auto write = [&](const std::optional<ability_data::Definition>& object) {
+        if (!trapObjects && object && object->kind == "corrupt the ground")
+            packet << false; // ABO1 readers reject unknown object kinds.
+        else
+            ability_data::writeOptional(packet,object);
+    };
+    write(value.activatedAbility);
+    write(value.sacrificeAbility);
 }
 
 template <typename T>
@@ -1511,11 +1567,24 @@ inline bool readAbilityObjects(sf::Packet& packet, T& value)
         ability_data::readOptional(packet,value.sacrificeAbility);
 }
 
-inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFields = true, bool areaHealFields = true, bool parameterFields = true, bool objectFields = true)
+template <typename T> inline void writePassiveLists(sf::Packet& packet, const T& value)
+{
+    card_data::writeStringVector(packet,value.keywords);
+    card_data::writeStringVector(packet,value.passives);
+}
+template <typename T> inline bool readPassiveLists(sf::Packet& packet, T& value)
+{
+    if (!card_data::readStringVector(packet,value.keywords) || !card_data::readStringVector(packet,value.passives))
+        return false;
+    card_data::normalizeRescuePassives(value.passives);
+    return true;
+}
+
+inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFields = true, bool areaHealFields = true, bool parameterFields = true, bool objectFields = true, bool trapObjects = true, bool passiveFields = true)
 {
     packet << card.title << card.type;
     card_data::writeStringVector(packet, card.traits);
-    card_data::writeStringVector(packet, card.keywords);
+    card_data::writeStringVector(packet, card_data::legacyPassiveKeywords(card.keywords, card.passives));
     packet << card.imagePath << card.walkAnimPath << card.idleAnimPath
            << card.attackAnimPath << card.damagedAnimPath << card.killedAnimPath << card.fidgetAnimPath << card.tokenPath
            << card.state1TokenPath
@@ -1551,7 +1620,9 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFie
         if (areaHealFields) {
             writeAreaHealFields(packet, card);
             if (parameterFields) { packet << AbilityParametersCapability; writeAbilityParameters(packet, card);
-                if (objectFields) { packet << AbilityObjectsSnapshotCapability; writeAbilityObjects(packet,card); }
+                if (objectFields) { packet << AbilityObjectsSnapshotCapability; writeAbilityObjects(packet,card,trapObjects);
+                    if (passiveFields) { packet << PassivesSnapshotCapability; writePassiveLists(packet,card); }
+                }
             }
         }
     }
@@ -1566,6 +1637,8 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = t
     {
         return false;
     }
+    card.passives.clear();
+    card_data::splitLegacyPassives(card.keywords, card.passives);
     packet >> card.imagePath >> card.walkAnimPath >> card.idleAnimPath
            >> card.attackAnimPath >> card.damagedAnimPath >> card.killedAnimPath >> card.fidgetAnimPath >> card.tokenPath
            >> card.state1TokenPath
@@ -1633,15 +1706,16 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = t
     std::uint32_t parameterMarker = 0;
     if (!(packet >> parameterMarker) || parameterMarker != AbilityParametersCapability || !readAbilityParameters(packet,card)) return false;
     if (packet.endOfPacket()) return true;
-    return (packet >> parameterMarker) && parameterMarker == AbilityObjectsSnapshotCapability &&
-        readAbilityObjects(packet,card) && packet.endOfPacket();
+    if (!(packet >> parameterMarker) || parameterMarker != AbilityObjectsSnapshotCapability || !readAbilityObjects(packet,card)) return false;
+    if (packet.endOfPacket()) return true;
+    return (packet >> parameterMarker) && parameterMarker == PassivesSnapshotCapability && readPassiveLists(packet,card) && packet.endOfPacket();
 }
 
-inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields = true)
+inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields = true, bool dashRescueFields = true)
 {
     packet << piece.id << piece.owner << piece.originalOwner << piece.row << piece.column << piece.name;
     card_data::writeStringVector(packet, piece.traits);
-    card_data::writeStringVector(packet, piece.keywords);
+    card_data::writeStringVector(packet, card_data::legacyPassiveKeywords(piece.keywords, piece.passives));
     packet << piece.imagePath << piece.walkAnimPath << piece.idleAnimPath
            << piece.attackAnimPath << piece.damagedAnimPath << piece.killedAnimPath << piece.fidgetAnimPath << piece.tokenPath
            << piece.state1TokenPath
@@ -1681,6 +1755,9 @@ inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields =
         packet << AbilityParametersCapability; writeAbilityParameters(packet, piece); writeWeakenStatus(packet, piece);
         packet << UndyingSnapshotCapability << piece.undyingUsed;
         packet << AbilityObjectsSnapshotCapability; writeAbilityObjects(packet,piece); packet << piece.sacrificeAbilityUses;
+        packet << PassivesSnapshotCapability; writePassiveLists(packet,piece);
+        if (dashRescueFields)
+            packet << DashRescueSnapshotCapability << static_cast<std::uint8_t>(piece.dashRescueUsedThisRound);
     }
 }
 
@@ -1688,6 +1765,7 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
 {
     piece.chrysalisUsed = false;
     piece.undyingUsed = false;
+    piece.dashRescueUsedThisRound = false;
     piece.activatedAbility.reset(); piece.sacrificeAbility.reset(); piece.sacrificeAbilityUses=0;
     packet >> piece.id >> piece.owner >> piece.originalOwner >> piece.row >> piece.column >> piece.name;
     if (!packet || !card_data::readStringVector(packet, piece.traits) ||
@@ -1695,6 +1773,8 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
     {
         return false;
     }
+    piece.passives.clear();
+    card_data::splitLegacyPassives(piece.keywords, piece.passives);
     packet >> piece.imagePath >> piece.walkAnimPath >> piece.idleAnimPath
            >> piece.attackAnimPath >> piece.damagedAnimPath >> piece.killedAnimPath >> piece.fidgetAnimPath >> piece.tokenPath
            >> piece.state1TokenPath
@@ -1770,8 +1850,17 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
     if (packet.endOfPacket()) return true;
     if (!(packet >> parameterMarker) || parameterMarker != UndyingSnapshotCapability || !(packet >> piece.undyingUsed)) return false;
     if (packet.endOfPacket()) return true;
-    return (packet >> parameterMarker) && parameterMarker == AbilityObjectsSnapshotCapability &&
-        readAbilityObjects(packet,piece) && (packet >> piece.sacrificeAbilityUses) && piece.sacrificeAbilityUses>=-1 && packet.endOfPacket();
+    if (!(packet >> parameterMarker) || parameterMarker != AbilityObjectsSnapshotCapability ||
+        !readAbilityObjects(packet,piece) || !(packet >> piece.sacrificeAbilityUses) || piece.sacrificeAbilityUses < -1) return false;
+    if (packet.endOfPacket()) return true;
+    if (!(packet >> parameterMarker) || parameterMarker != PassivesSnapshotCapability || !readPassiveLists(packet,piece))
+        return false;
+    if (packet.endOfPacket()) return true;
+    std::uint8_t used = 0;
+    if (!(packet >> parameterMarker >> used) || parameterMarker != DashRescueSnapshotCapability ||
+        used > 1 || !packet.endOfPacket()) return false;
+    piece.dashRescueUsedThisRound = used != 0;
+    return true;
 }
 
 inline void writeEnchantment(sf::Packet& packet, const Enchantment& enchantment)
@@ -1809,10 +1898,28 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 }
 
 // Writes a complete snapshot payload (without the leading message-type byte).
-inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool auraFields = true,
+inline void writeSnapshot(sf::Packet& packet, const Snapshot& source, bool auraFields = true,
                           bool shriekFields = true, bool transformFields = true, bool commandFields = true,
-                          bool slowFields = true, bool chrysalisFields = true, bool areaHealFields = true, bool silenceFields = true, bool parameterFields = true, bool undyingFields = true, bool objectFields = true)
+                          bool slowFields = true, bool chrysalisFields = true, bool areaHealFields = true, bool silenceFields = true, bool parameterFields = true, bool undyingFields = true, bool objectFields = true, bool trapFields = false, bool rootedFields = false, bool passiveFields = false, bool dashRescueFields = false)
 {
+    Snapshot legacy;
+    const bool project = !rootedFields && std::any_of(source.pieces.begin(), source.pieces.end(), [](const Piece& p) {
+        return p.rootedTurnsRemaining > 0 || p.sleepTurnsRemaining > 0;
+    });
+    if (project) {
+        legacy = source;
+        for (auto& p : legacy.pieces) {
+            if (p.rootedTurnsRemaining <= 0 && p.sleepTurnsRemaining <= 0) continue;
+            for (auto& a : p.actions) a.canMove = a.canAttack = false;
+            p.moveRange = p.attackRange = p.attack = 0;
+            if (p.sleepTurnsRemaining > 0) {
+                p.abilitySilenced = true;
+                p.ability.clear(); p.sacrifice.clear();
+                p.activatedAbility.reset(); p.sacrificeAbility.reset();
+            }
+        }
+    }
+    const auto& snapshot = project ? legacy : source;
     packet << snapshot.phase << snapshot.activePlayer << snapshot.yourPlayer << snapshot.winner
            << snapshot.commandingPieceId << snapshot.relentlessPieceId
            << snapshot.timersEnabled << snapshot.turnRemainingMs;
@@ -1918,7 +2025,7 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
                                 packet << husk.owner << husk.row << husk.column;
                                 // A bounded nested packet keeps optional per-card fields unambiguous.
                                 sf::Packet nested;
-                                writeGameCard(nested, husk.card, true, areaHealFields, silenceFields && parameterFields, objectFields && undyingFields);
+                                writeGameCard(nested, husk.card, true, areaHealFields, silenceFields && parameterFields, objectFields && undyingFields, trapFields, false);
                                 packet << std::string(static_cast<const char*>(nested.getData()), nested.getDataSize());
                             }
                             if (areaHealFields) {
@@ -1940,9 +2047,37 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
                                             for (const Piece& piece : snapshot.pieces) packet << piece.undyingUsed;
                                             if (objectFields) {
                                                 packet << AbilityObjectsSnapshotCapability;
-                                                for (const auto& piece : snapshot.pieces) { writeAbilityObjects(packet,piece); packet << piece.sacrificeAbilityUses; }
+                                                for (const auto& piece : snapshot.pieces) { writeAbilityObjects(packet,piece,trapFields); packet << piece.sacrificeAbilityUses; }
                                                 for (const auto* zone : {&snapshot.hand,&snapshot.foresightChoices,&snapshot.graveyard,&snapshot.exiled,&snapshot.raiseUndeadChoices})
-                                                    for (const auto& card : *zone) writeAbilityObjects(packet,card);
+                                                    for (const auto& card : *zone) writeAbilityObjects(packet,card,trapFields);
+                                                if (trapFields) {
+                                                    // Defend in depth: never serialize any opponent's armed trap.
+                                                    const auto visible = [&](const Trap& trap) {
+                                                        return trap.owner == snapshot.yourPlayer &&
+                                                            trap.owner >= 1 && trap.owner <= 2;
+                                                    };
+                                                    packet << TrapSnapshotCapability << static_cast<std::uint32_t>(
+                                                        std::count_if(snapshot.traps.begin(), snapshot.traps.end(), visible));
+                                                    for (const Trap& trap : snapshot.traps) if (visible(trap))
+                                                        packet << trap.owner << trap.row << trap.column << trap.strength
+                                                               << static_cast<std::uint8_t>(trap.effect);
+                                                    if (rootedFields) {
+                                                        packet << RootedSnapshotCapability;
+                                                        for (const auto& piece : snapshot.pieces) packet << piece.rootedTurnsRemaining;
+                                                        if (passiveFields) {
+                                                            packet << PassivesSnapshotCapability;
+                                                            for (const auto& piece : snapshot.pieces) writePassiveLists(packet,piece);
+                                                            for (const auto* zone : {&snapshot.hand,&snapshot.foresightChoices,&snapshot.graveyard,&snapshot.exiled,&snapshot.raiseUndeadChoices})
+                                                                for (const auto& card : *zone) writePassiveLists(packet,card);
+                                                            for (const auto& husk : snapshot.husks) writePassiveLists(packet,husk.card);
+                                                            if (dashRescueFields) {
+                                                                packet << DashRescueSnapshotCapability;
+                                                                for (const auto& piece : snapshot.pieces)
+                                                                    packet << static_cast<std::uint8_t>(piece.dashRescueUsedThisRound);
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -1959,6 +2094,7 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& snapshot, bool aur
 inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot, bool auraFields = true)
 {
     snapshot.husks.clear();
+    snapshot.traps.clear();
     packet >> snapshot.phase >> snapshot.activePlayer >> snapshot.yourPlayer >> snapshot.winner
            >> snapshot.commandingPieceId >> snapshot.relentlessPieceId
            >> snapshot.timersEnabled >> snapshot.turnRemainingMs;
@@ -2181,7 +2317,49 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot, bool auraFields
         if (!readAbilityObjects(packet,piece) || !(packet >> piece.sacrificeAbilityUses) || piece.sacrificeAbilityUses < -1) return false;
     for (auto* zone:{&snapshot.hand,&snapshot.foresightChoices,&snapshot.graveyard,&snapshot.exiled,&snapshot.raiseUndeadChoices})
         for (auto& card:*zone) if (!readAbilityObjects(packet,card)) return false;
-    return packet.endOfPacket();
+    if (packet.endOfPacket()) return true;
+    std::uint32_t trapCount = 0;
+    if (!(packet >> marker >> trapCount) || marker != TrapSnapshotCapability || trapCount > BoardSquares)
+        return false;
+    std::array<bool, BoardSquares> occupied{};
+    std::vector<Trap> traps;
+    for (std::uint32_t i = 0; i < trapCount; ++i)
+    {
+        Trap trap{};
+        std::uint8_t effect = 0;
+        if (!(packet >> trap.owner >> trap.row >> trap.column >> trap.strength >> effect) ||
+            trap.owner != snapshot.yourPlayer || trap.owner < 1 || trap.owner > 2 ||
+            trap.row < 0 || trap.row >= BoardSize || trap.column < 0 || trap.column >= BoardSize ||
+            trap.strength < 0 || effect != static_cast<std::uint8_t>(TrapEffect::Damage))
+            return false;
+        const auto square = static_cast<std::size_t>(trap.row * BoardSize + trap.column);
+        if (occupied[square]) return false;
+        occupied[square] = true;
+        traps.push_back(trap);
+    }
+    if (!packet.endOfPacket()) {
+        if (!(packet >> marker) || marker != RootedSnapshotCapability) return false;
+        for (auto& piece : snapshot.pieces)
+            if (!(packet >> piece.rootedTurnsRemaining) || piece.rootedTurnsRemaining < 0 || piece.rootedTurnsRemaining > 1) return false;
+        if (!packet.endOfPacket()) {
+            if (!(packet >> marker) || marker != PassivesSnapshotCapability) return false;
+            for (auto& piece : snapshot.pieces) if (!readPassiveLists(packet,piece)) return false;
+            for (auto* zone : {&snapshot.hand,&snapshot.foresightChoices,&snapshot.graveyard,&snapshot.exiled,&snapshot.raiseUndeadChoices})
+                for (auto& card : *zone) if (!readPassiveLists(packet,card)) return false;
+            for (auto& husk : snapshot.husks) if (!readPassiveLists(packet,husk.card)) return false;
+            if (!packet.endOfPacket()) {
+                if (!(packet >> marker) || marker != DashRescueSnapshotCapability) return false;
+                for (auto& piece : snapshot.pieces) {
+                    std::uint8_t used = 0;
+                    if (!(packet >> used) || used > 1) return false;
+                    piece.dashRescueUsedThisRound = used != 0;
+                }
+            }
+        }
+        if (!packet.endOfPacket()) return false;
+    }
+    snapshot.traps = std::move(traps);
+    return true;
 }
 }
 

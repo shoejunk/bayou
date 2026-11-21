@@ -134,7 +134,7 @@ std::optional<LiveCatalog> loadSchemaElevenCatalog(
 
     sf::Packet request;
     request << static_cast<std::uint8_t>(network::MessageType::CardListRequest);
-    request << static_cast<std::uint32_t>(14);
+    request << card_data::CardListSchemaVersion;
     if (socket.send(request) != sf::Socket::Status::Done)
     {
         error = "could not send authoritative card-list request";
@@ -189,14 +189,14 @@ std::optional<LiveCatalog> loadSchemaElevenCatalog(
             std::to_string(version);
         return std::nullopt;
     }
-    if (version != 14)
+    if (version != 15)
     {
-        error = "storylivecatalogtest itself is stale: it must be reviewed for schema 14";
+        error = "storylivecatalogtest itself is stale: it must be reviewed for schema 15";
         return std::nullopt;
     }
     if (count == 0 || count > card_data::MaxSerializedItems)
     {
-        error = "authoritative schema-14 catalog declared invalid card count " +
+        error = "authoritative schema-15 catalog declared invalid card count " +
             std::to_string(count);
         return std::nullopt;
     }
@@ -220,9 +220,10 @@ std::optional<LiveCatalog> loadSchemaElevenCatalog(
                 true,
                 true,
                 true,
+                true,
                 true))
         {
-            error = "authoritative card server returned an invalid schema-14 card at index " +
+            error = "authoritative card server returned an invalid schema-15 card at index " +
                 std::to_string(index);
             return std::nullopt;
         }
@@ -241,7 +242,7 @@ std::optional<LiveCatalog> loadSchemaElevenCatalog(
     }
     if (!response.endOfPacket())
     {
-        error = "authoritative schema-14 catalog contains unexpected trailing data";
+        error = "authoritative schema-15 catalog contains unexpected trailing data";
         return std::nullopt;
     }
     return catalog;
@@ -429,7 +430,7 @@ bool validateAuthoritativeConstructHealing(
         {
             error = "authoritative " + std::string(expected.cardTitle) + " / " +
                 std::string(expected.actionName) +
-                " no longer maps to positive healing with the schema-14 construct filter";
+                " no longer maps to positive healing with the schema-15 construct filter";
             return false;
         }
         const int actionIndex = static_cast<int>(
@@ -2052,7 +2053,7 @@ int main(int argc, char** argv)
     }
 
     fmt::println(
-        "Loaded {} authoritative schema-14 cards from {}.",
+        "Loaded {} authoritative schema-15 cards from {}.",
         catalog->cards.size(),
         catalog->endpoint);
 

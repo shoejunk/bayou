@@ -335,11 +335,11 @@ bool sameCards(
     sf::Packet twoPacket;
     for (const card_data::Card& card : one)
     {
-        card_data::writeCard(onePacket, card);
+        card_data::writeCard(onePacket, card, true, true, true);
     }
     for (const card_data::Card& card : two)
     {
-        card_data::writeCard(twoPacket, card);
+        card_data::writeCard(twoPacket, card, true, true, true);
     }
     return onePacket.getDataSize() == twoPacket.getDataSize() &&
         (onePacket.getDataSize() == 0 ||
@@ -462,6 +462,10 @@ private:
     bool supportsAbilityParameters = false;
         bool supportsUndyingSnapshots = false;
     bool supportsAbilityObjects = false;
+    bool supportsTrapSnapshots = false;
+    bool supportsRootedSnapshots = false;
+    bool supportsPassivesSnapshots = false;
+    bool supportsDashRescueSnapshots = false;
     };
 
     class Session
@@ -756,7 +760,7 @@ private:
             ready << static_cast<std::uint8_t>(network::MessageType::ConquestBattleReady)
                   << true << data.battleId << connection.playerNumber
                   << std::string("Conquest battle ready") << game_data::CommandRestrictionSnapshotCapability
-                  << game_data::SlowSnapshotCapability << game_data::ChrysalisSnapshotCapability << game_data::AreaHealSnapshotCapability << game_data::SilenceSnapshotCapability << game_data::AbilityParametersCapability << game_data::UndyingSnapshotCapability << game_data::AbilityObjectsSnapshotCapability;
+                  << game_data::SlowSnapshotCapability << game_data::ChrysalisSnapshotCapability << game_data::AreaHealSnapshotCapability << game_data::SilenceSnapshotCapability << game_data::AbilityParametersCapability << game_data::UndyingSnapshotCapability << game_data::AbilityObjectsSnapshotCapability << game_data::TrapSnapshotCapability << game_data::RootedSnapshotCapability << game_data::PassivesSnapshotCapability << game_data::DashRescueSnapshotCapability;
             if (connection.socket->send(ready, ClientSendTimeout) !=
                 sf::Socket::Status::Done)
             {
@@ -802,7 +806,7 @@ private:
                 }
                 const auto type = static_cast<network::MessageType>(rawType);
                 if (type == network::MessageType::EnableCommandRestrictionSnapshots &&
-                    game_data::readSlowSnapshotOptIn(packet, connection.supportsSlowSnapshots, &connection.supportsChrysalisSnapshots, &connection.supportsAreaHealSnapshots, &connection.supportsSilenceSnapshots, &connection.supportsAbilityParameters, &connection.supportsUndyingSnapshots, &connection.supportsAbilityObjects))
+                    game_data::readSlowSnapshotOptIn(packet, connection.supportsSlowSnapshots, &connection.supportsChrysalisSnapshots, &connection.supportsAreaHealSnapshots, &connection.supportsSilenceSnapshots, &connection.supportsAbilityParameters, &connection.supportsUndyingSnapshots, &connection.supportsAbilityObjects, &connection.supportsTrapSnapshots, &connection.supportsRootedSnapshots, &connection.supportsPassivesSnapshots, &connection.supportsDashRescueSnapshots))
                 {
                     connection.supportsCommandRestrictionSnapshots = true;
                     sf::Packet acknowledged;
@@ -870,6 +874,22 @@ private:
                     error);
                 sendSnapshot(connection);
                 return;
+            }
+
+            if (!connection.supportsTrapSnapshots &&
+                (type == network::MessageType::UseAbility || type == network::MessageType::UseSacrifice))
+            {
+                const auto& pieces = engine->boardPieces();
+                const auto actor = std::find_if(pieces.begin(), pieces.end(),
+                    [&](const game_data::Piece& piece) {
+                        return piece.id == action.argumentOne && piece.owner == connection.playerNumber;
+                    });
+                if (actor != pieces.end() &&
+                    game_data::abilityKind(*actor, type == network::MessageType::UseSacrifice) == "corrupt the ground")
+                {
+                    sendSnapshot(connection, "Update the client to use Corrupt the Ground.");
+                    return;
+                }
             }
 
             // Validate against an isolated candidate. game_action::apply
@@ -1008,7 +1028,7 @@ private:
                 snapshot.status = statusOverride;
             }
             game_data::writeSnapshot(packet, snapshot, true, true, connection.supportsTransformSnapshots,
-                                     connection.supportsCommandRestrictionSnapshots, connection.supportsSlowSnapshots, connection.supportsChrysalisSnapshots, connection.supportsAreaHealSnapshots, connection.supportsSilenceSnapshots, connection.supportsAbilityParameters, connection.supportsUndyingSnapshots, connection.supportsAbilityObjects);
+                                     connection.supportsCommandRestrictionSnapshots, connection.supportsSlowSnapshots, connection.supportsChrysalisSnapshots, connection.supportsAreaHealSnapshots, connection.supportsSilenceSnapshots, connection.supportsAbilityParameters, connection.supportsUndyingSnapshots, connection.supportsAbilityObjects, connection.supportsTrapSnapshots, connection.supportsRootedSnapshots, connection.supportsPassivesSnapshots, connection.supportsDashRescueSnapshots);
             if (connection.socket->send(packet, ClientSendTimeout) !=
                 sf::Socket::Status::Done)
             {

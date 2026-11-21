@@ -13,6 +13,7 @@ std::vector<card_data::Action> loadActions(SQLite::Database& database);
 std::vector<card_data::Action> loadCardActions(SQLite::Database& database, const std::string& title);
 std::vector<card_data::Card> loadCards(SQLite::Database& database);
 std::vector<card_data::Card> loadCardsFromFile(const std::filesystem::path& databasePath);
+void initializeCardPassives(SQLite::Database& database);
 void initializeActivatedAbilities(SQLite::Database& database);
 std::vector<ability_data::Definition> loadActivatedAbilities(SQLite::Database& database);
 std::optional<ability_data::Definition> loadActivatedAbility(SQLite::Database& database, const std::string& name);

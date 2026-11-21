@@ -25,7 +25,7 @@ void testSilence(Check check)
     source.id = 1; source.owner = 1; source.row = source.column = 0;
     Piece enemy = source; enemy.id = 2; enemy.owner = 2; enemy.row = enemy.column = 7;
     enemy.ability = "transform"; enemy.sacrifice = "dig"; enemy.abilityUses = 1;
-    enemy.keywords = {"Chrysalis", "Rot Aura"};
+    enemy.passives = {"Chrysalis", "Rot Aura"};
     Piece ally = enemy; ally.id = 3; ally.owner = 1; ally.row = 1;
     Piece dead = enemy; dead.id = 4; dead.health = 0;
     std::vector<Piece> board{source, enemy, ally, dead};
@@ -39,7 +39,7 @@ void testSilence(Check check)
     check(pieceActivatedAbilitiesSilenced(board, board[1]) &&
           !pieceAbilityAvailable(board, board[1]) && !pieceAbilityAvailable(board, board[1], true),
           "negative Silence blocks activated and Sacrifice buttons without affecting passive keywords");
-    check(board[1].keywords == enemy.keywords && board[1].disabledTurns == 0,
+    check(board[1].passives == enemy.passives && board[1].disabledTurns == 0,
           "Silence does not remove passive keywords or apply movement-blocking Disable");
     Piece newcomer = enemy; newcomer.id = 5;
     board.push_back(newcomer);
@@ -102,7 +102,7 @@ void testSilence(Check check)
           attack.attackPiece(2, attack.boardPieces()[1].id, 3, 3),
           "Silenced units retain drag attacks");
 
-    GameCard grub = button; grub.title = "Silenced Chrysalis"; grub.keywords = {"Chrysalis"};
+    GameCard grub = button; grub.title = "Silenced Chrysalis"; grub.passives = {"Chrysalis"};
     Snapshot sandbox; int nextId = 1;
     bayou::client::spawnSandboxPiece(sandbox, nextId, 1, card, 0, 0, false);
     bayou::client::spawnSandboxPiece(sandbox, nextId, 2, grub, 7, 7, false);

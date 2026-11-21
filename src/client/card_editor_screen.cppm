@@ -558,6 +558,7 @@ public:
     {
         closeActionDropdown();
         serverSupportsAbilityObjects=false;
+        serverSupportsPassives=true;
         selectedCard.reset();
         selectedAction.reset();
         cardSearchField.setValue("");
@@ -591,7 +592,7 @@ public:
         }
 
         const bool populatedCardState =
-            key == "card-editor-loaded" || key == "card-editor-ability-reference" || key == "card-editor-instructions" ||
+            key == "card-editor-loaded" || key == "card-editor-passives" || key == "card-editor-ability-reference" || key == "card-editor-instructions" ||
             key == "card-editor-instructions-middle" ||
             key == "card-editor-unsaved" || key == "card-editor-rarity-dropdown" ||
             key == "card-editor-action-dropdown";
@@ -603,6 +604,15 @@ public:
             selectCard(static_cast<std::size_t>(
                 (unit == cards.end() ? cards.begin() : unit) - cards.begin()));
             setStatus("Loaded from card server", Muted);
+        }
+
+        if (key == "card-editor-passives" && selectedCard)
+        {
+            traitFields = {makeCompactField("Fey", {392.0f, 32.0f})};
+            keywordFields = {makeCompactField("Undying", {392.0f, 32.0f})};
+            passiveFields = {makeCompactField("Undying", {392.0f, 32.0f})};
+            rebuildFocusOrder();
+            rememberCardForm();
         }
 
         if (key=="card-editor-ability-reference")
@@ -1094,6 +1104,7 @@ public:
         }
         addTraitButton.update(mouse);
         addKeywordButton.update(mouse);
+        addPassiveButton.update(mouse);
         addIntegerButton.update(mouse);
         addStringButton.update(mouse);
         addListButton.update(mouse);
@@ -1103,6 +1114,10 @@ public:
             button.update(mouse);
         }
         for (EditorButton& button : removeKeywordButtons)
+        {
+            button.update(mouse);
+        }
+        for (EditorButton& button : removePassiveButtons)
         {
             button.update(mouse);
         }
@@ -1209,6 +1224,7 @@ private:
         std::string message;
         std::vector<card_data::Card> cards;
         bool includesAbilities = false;
+        bool includesPassives = false;
     };
 
     struct CommandResult
@@ -1308,6 +1324,7 @@ private:
     InputBox actionSearchField;
     std::vector<InputBox> traitFields;
     std::vector<InputBox> keywordFields;
+    std::vector<InputBox> passiveFields;
     std::vector<InputBox> intKeyFields;
     std::vector<InputBox> intValueFields;
     std::vector<InputBox> stringKeyFields;
@@ -1346,6 +1363,7 @@ private:
     InputBox actionLineOfSightField;
     bool serverSupportsSlow = false;
     bool serverSupportsAbilityObjects = false;
+    bool serverSupportsPassives = false;
     InputBox cardAbilityReferenceField;
     InputBox sacrificeAbilityReferenceField;
     InputBox actionStatusTurnsField;
@@ -1356,6 +1374,8 @@ private:
     InputBox actionRepeatField;
     InputBox actionPullField;
     InputBox actionLifedrainField;
+    InputBox actionPurifyField;
+    InputBox actionRootedField;
     InputBox actionInfestField;
     std::vector<InputBox> actionTargetFilterFields;
     EditorButton backButton;
@@ -1371,6 +1391,7 @@ private:
     TabStrip editorTabs;
     EditorButton addTraitButton;
     EditorButton addKeywordButton;
+    EditorButton addPassiveButton;
     EditorButton addIntegerButton;
     EditorButton addStringButton;
     EditorButton addListButton;
@@ -1381,6 +1402,7 @@ private:
     EditorButton keepEditingButton;
     std::vector<EditorButton> removeTraitButtons;
     std::vector<EditorButton> removeKeywordButtons;
+    std::vector<EditorButton> removePassiveButtons;
     std::vector<EditorButton> removeIntegerButtons;
     std::vector<EditorButton> removeStringButtons;
     std::vector<EditorButton> removeListButtons;
@@ -1479,6 +1501,7 @@ private:
         bool actionIncludesLifedrain = false;
         bool actionIncludesSlow = false;
         bool includesAbilities = false;
+        bool includesPassives = false;
         if (!card_data::readCardListHeader(
                 response,
                 count,
@@ -1489,7 +1512,7 @@ private:
                 &actionIncludesInfest,
                 &actionIncludesPull,
                 &actionIncludesLifedrain,
-                &actionIncludesSlow, &includesAbilities))
+                &actionIncludesSlow, &includesAbilities, &includesPassives))
         {
             socket.disconnect();
             return {false, "Unsupported card list payload"};
@@ -1510,7 +1533,7 @@ private:
                     actionIncludesInfest,
                     actionIncludesPull,
                     actionIncludesLifedrain,
-                    actionIncludesSlow, includesAbilities))
+                    actionIncludesSlow, includesAbilities, includesPassives))
             {
                 socket.disconnect();
                 return {false, "Invalid card list payload"};
@@ -1520,7 +1543,7 @@ private:
         }
 
         socket.disconnect();
-        return {success, message, std::move(loadedCards), includesAbilities};
+        return {success, message, std::move(loadedCards), includesAbilities, includesPassives};
     }
 
     ActionListResult fetchActionsFromServer()
@@ -1597,6 +1620,8 @@ private:
 
     CommandResult saveCardToServer(const card_data::Card& inputCard) const
     {
+        if (!serverSupportsPassives)
+            return {false, "Card editing requires a card server that supports separate Passives (schema 15)."};
         card_data::Card card = inputCard;
         normalizeCardImagePath(card);
 
@@ -1607,8 +1632,8 @@ private:
         }
 
         sf::Packet request;
-        request << static_cast<std::uint8_t>(serverSupportsAbilityObjects?network::MessageType::CardUpsertWithAbilitiesRequest:network::MessageType::CardUpsertRequest);
-        card_data::writeCard(request, card, false, serverSupportsAbilityObjects);
+        request << static_cast<std::uint8_t>(network::MessageType::CardUpsertWithPassivesRequest);
+        card_data::writeCard(request, card, false, true, true);
         if (socket.send(request) != sf::Socket::Status::Done)
         {
             socket.disconnect();
@@ -1622,6 +1647,8 @@ private:
 
     CommandResult updateCardOnServer(const std::string& originalTitle, const card_data::Card& inputCard) const
     {
+        if (!serverSupportsPassives)
+            return {false, "Card editing requires a card server that supports separate Passives (schema 15)."};
         card_data::Card card = inputCard;
         normalizeCardImagePath(card);
 
@@ -1632,9 +1659,9 @@ private:
         }
 
         sf::Packet request;
-        request << static_cast<std::uint8_t>(serverSupportsAbilityObjects?network::MessageType::CardUpdateWithAbilitiesRequest:network::MessageType::CardUpdateRequest);
+        request << static_cast<std::uint8_t>(network::MessageType::CardUpdateWithPassivesRequest);
         request << originalTitle;
-        card_data::writeCard(request, card, false, serverSupportsAbilityObjects);
+        card_data::writeCard(request, card, false, true, true);
         if (socket.send(request) != sf::Socket::Status::Done)
         {
             socket.disconnect();
@@ -1648,6 +1675,8 @@ private:
 
     CommandResult deleteCardFromServer(const std::string& title) const
     {
+        if (!serverSupportsPassives)
+            return {false, "Card editing requires a card server that supports separate Passives (schema 15)."};
         bayou::tls::Socket socket;
         if (!connectToServer(socket))
         {
@@ -1749,6 +1778,7 @@ private:
         deleteButton = EditorButton(font, "Delete", {528.0f, 690.0f}, {120.0f, 42.0f}, Warn);
         addTraitButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addKeywordButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
+        addPassiveButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addIntegerButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addStringButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addListButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
@@ -1775,7 +1805,9 @@ private:
         actionDamageField = makeCompactField("0", {210.0f, 32.0f});
         actionHealField = makeCompactField("0", {100.0f, 32.0f});
         actionLifedrainField = makeCompactField("0", {100.0f, 32.0f});
-        actionCanMoveField = makeCompactField("1", {210.0f, 32.0f});
+        actionPurifyField = makeCompactField("0", {100.0f, 32.0f});
+        actionRootedField = makeCompactField("0", {100.0f, 32.0f});
+        actionCanMoveField = makeCompactField("1", {140.0f, 32.0f});
         actionCanAttackField = makeCompactField("0", {210.0f, 32.0f});
         actionPassThroughField = makeCompactField("0", {210.0f, 32.0f});
         actionLineOfSightField = makeCompactField("0", {210.0f, 32.0f});
@@ -1789,7 +1821,7 @@ private:
         actionInfestField = makeCompactField("", {294.0f, 32.0f});
         for (InputBox* field : {&actionCanMoveField, &actionCanAttackField,
                  &actionPassThroughField, &actionLineOfSightField, &actionPullField,
-                 &actionLifedrainField})
+                 &actionLifedrainField, &actionPurifyField, &actionRootedField})
         {
             field->setToggleMode(true);
         }
@@ -1840,6 +1872,7 @@ private:
     {
         traitFields.clear();
         keywordFields.clear();
+        passiveFields.clear();
         intKeyFields.clear();
         intValueFields.clear();
         stringKeyFields.clear();
@@ -1855,6 +1888,10 @@ private:
         for (const std::string& keyword : card.keywords)
         {
             keywordFields.push_back(makeCompactField(keyword, {392.0f, 32.0f}));
+        }
+        for (const std::string& passive : card.passives)
+        {
+            passiveFields.push_back(makeCompactField(passive, {392.0f, 32.0f}));
         }
         for (const card_data::KeyIntPair& item : card.integerValues)
         {
@@ -1927,6 +1964,7 @@ private:
                 &actionRepeatField,
                 &actionPullField,
                 &actionLifedrainField,
+                &actionRootedField, &actionPurifyField,
                 &actionInfestField,
             };
             for (InputBox& field : actionTargetFilterFields)
@@ -1946,6 +1984,10 @@ private:
             focusOrder.push_back(&field);
         }
         for (InputBox& field : keywordFields)
+        {
+            focusOrder.push_back(&field);
+        }
+        for (InputBox& field : passiveFields)
         {
             focusOrder.push_back(&field);
         }
@@ -2544,6 +2586,7 @@ private:
         appendSnapshotValue(snapshot, sacrificeAbilityReferenceField.getValue());
         appendFields(traitFields);
         appendFields(keywordFields);
+        appendFields(passiveFields);
         appendFields(intKeyFields);
         appendFields(intValueFields);
         appendFields(stringKeyFields);
@@ -2584,6 +2627,7 @@ private:
             &actionRepeatField,
             &actionPullField,
             &actionLifedrainField,
+            &actionRootedField, &actionPurifyField,
             &actionInfestField,
         };
         for (const InputBox* field : fields)
@@ -2822,6 +2866,7 @@ private:
     {
         const CardListResult result = fetchCardsFromServer();
         serverSupportsAbilityObjects=result.success && result.includesAbilities;
+        serverSupportsPassives=result.success && result.includesPassives;
         if(serverSupportsAbilityObjects)abilityEditor.refreshLibrary();
         if (!result.success)
         {
@@ -2920,12 +2965,14 @@ private:
         action.infest = trim(actionInfestField.getValue());
         action.pull = formBool(actionPullField);
         action.lifedrain = formBool(actionLifedrainField);
+        if (formBool(actionRootedField)) action.targetFilter.push_back(card_data::RootedActionFlag);
+        if (formBool(actionPurifyField)) action.targetFilter.push_back(card_data::PurifyActionFlag);
         for (const InputBox& field : actionTargetFilterFields)
         {
             const std::string value = trim(field.getValue());
             if (!value.empty())
             {
-                action.targetFilter.push_back(value);
+                if (value != card_data::PurifyActionFlag && value != card_data::RootedActionFlag) action.targetFilter.push_back(value);
             }
         }
         return action;
@@ -2956,6 +3003,8 @@ private:
         actionRepeatField.setValue("0");
         actionPullField.setValue("0");
         actionLifedrainField.setValue("0");
+        actionPurifyField.setValue("0");
+        actionRootedField.setValue("0");
         actionInfestField.setValue("");
         actionTargetFilterFields.clear();
         actionTargetFilterOffset = 0;
@@ -2997,11 +3046,14 @@ private:
         actionRepeatField.setValue(std::to_string(action.repeat));
         actionPullField.setValue(action.pull ? "1" : "0");
         actionLifedrainField.setValue(action.lifedrain ? "1" : "0");
+        actionPurifyField.setValue(card_data::actionHasPurify(action.targetFilter) ? "1" : "0");
+        actionRootedField.setValue(card_data::actionAppliesRooted(action.targetFilter) ? "1" : "0");
         actionInfestField.setValue(action.infest);
         actionTargetFilterFields.clear();
         for (const std::string& value : action.targetFilter)
         {
-            actionTargetFilterFields.push_back(makeCompactField(value, {294.0f, 32.0f}));
+            if (value != card_data::PurifyActionFlag && value != card_data::RootedActionFlag)
+                actionTargetFilterFields.push_back(makeCompactField(value, {294.0f, 32.0f}));
         }
         actionTargetFilterOffset = 0;
         rebuildFocusOrder();
@@ -3147,6 +3199,7 @@ private:
         typeField.setValue("Unit");
         traitFields.clear();
         keywordFields.clear();
+        passiveFields.clear();
         intKeyFields.clear();
         intValueFields.clear();
         intKeyFields.push_back(makeCompactField(game_data::DeckLimitField, {182.0f, 32.0f}));
@@ -3224,6 +3277,14 @@ private:
             if (!value.empty())
             {
                 card.keywords.push_back(value);
+            }
+        }
+        for (const InputBox& field : passiveFields)
+        {
+            const std::string value = trim(field.getValue());
+            if (!value.empty())
+            {
+                card.passives.push_back(value);
             }
         }
         for (std::size_t i = 0; i < intKeyFields.size() && i < intValueFields.size(); ++i)
@@ -3610,6 +3671,7 @@ private:
         arraySectionLabels.clear();
         removeTraitButtons.clear();
         removeKeywordButtons.clear();
+        removePassiveButtons.clear();
         removeIntegerButtons.clear();
         removeStringButtons.clear();
         removeListButtons.clear();
@@ -3659,6 +3721,21 @@ private:
             EditorButton button = makeMiniButton("X", Warn);
             button.setPosition({778.0f, y + 2.0f});
             removeKeywordButtons.push_back(std::move(button));
+            y += 40.0f;
+        }
+        y += 12.0f;
+        addSection("Passives", addPassiveButton);
+        if (passiveFields.empty())
+        {
+            arraySectionLabels.push_back({"No passives", {354.0f, y + 6.0f}});
+            y += 34.0f;
+        }
+        for (InputBox& field : passiveFields)
+        {
+            field.setPosition({340.0f, y});
+            EditorButton button = makeMiniButton("X", Warn);
+            button.setPosition({778.0f, y + 2.0f});
+            removePassiveButtons.push_back(std::move(button));
             y += 40.0f;
         }
         y += 12.0f;
@@ -3818,6 +3895,13 @@ private:
         activateField(&keywordFields.back());
         ensureActiveFieldVisible();
     }
+    void addPassive()
+    {
+        passiveFields.push_back(makeCompactField("", {392.0f, 32.0f}));
+        rebuildFocusOrder();
+        activateField(&passiveFields.back());
+        ensureActiveFieldVisible();
+    }
 
     void addIntegerField()
     {
@@ -3893,6 +3977,15 @@ private:
         if (index < keywordFields.size())
         {
             keywordFields.erase(keywordFields.begin() + static_cast<std::ptrdiff_t>(index));
+            rebuildFocusOrder();
+            activateField(&titleField);
+        }
+    }
+    void removePassive(std::size_t index)
+    {
+        if (index < passiveFields.size())
+        {
+            passiveFields.erase(passiveFields.begin() + static_cast<std::ptrdiff_t>(index));
             rebuildFocusOrder();
             activateField(&titleField);
         }
@@ -4023,6 +4116,13 @@ private:
             }
         }
         for (InputBox& field : keywordFields)
+        {
+            if (isVisibleInArrayViewport(field.bounds()) && field.contains(mouse))
+            {
+                return &field;
+            }
+        }
+        for (InputBox& field : passiveFields)
         {
             if (isVisibleInArrayViewport(field.bounds()) && field.contains(mouse))
             {
@@ -4289,6 +4389,11 @@ private:
                 addKeyword();
                 return false;
             }
+            if (isVisibleInArrayViewport(addPassiveButton.bounds()) && addPassiveButton.clicked(mouse))
+            {
+                addPassive();
+                return false;
+            }
             if (isVisibleInArrayViewport(addIntegerButton.bounds()) && addIntegerButton.clicked(mouse))
             {
                 addIntegerField();
@@ -4322,6 +4427,14 @@ private:
                 if (isVisibleInArrayViewport(removeKeywordButtons[i].bounds()) && removeKeywordButtons[i].clicked(mouse))
                 {
                     removeKeyword(i);
+                    return false;
+                }
+            }
+            for (std::size_t i = 0; i < removePassiveButtons.size(); ++i)
+            {
+                if (isVisibleInArrayViewport(removePassiveButtons[i].bounds()) && removePassiveButtons[i].clicked(mouse))
+                {
+                    removePassive(i);
                     return false;
                 }
             }
@@ -4663,7 +4776,7 @@ private:
         y = addInstructionBullet("Rally Step: enable Can move and choose kind rally step to teleport to an empty destination within Minimum and Maximum range, next to another friendly unit. Diagonals and large footprints count for adjacency. Intervening pieces and Pattern do not restrict this movement; it cannot attack.", y);
         y = addInstructionBullet("Assault Step: works like Rally Step, but the empty destination must be next to an enemy unit instead of a friendly unit. Enable Can move and choose kind assault step; it cannot attack.", y);
         y = addInstructionBullet("Can move lets the action target an empty destination. With Can attack enabled, positive Damage targets and hurts enemies, while positive Heal targets and restores friendlies up to maximum health. Damage and Heal must not be negative.", y);
-        y = addInstructionBullet("Target filter entries restrict attacks, healing, and status effects. A target must match every listed string across its Traits and Keywords; an empty filter accepts any otherwise-valid target. The legacy schema-11 value construct means Mechanical and is shown to players as Mechanical.", y);
+        y = addInstructionBullet("Target filter entries restrict attacks, healing, and status effects. A target must match every listed string across its Traits, Keywords, and Passives; an empty filter accepts any otherwise-valid target. The legacy schema-11 value construct means Mechanical and is shown to players as Mechanical.", y);
         y = addInstructionBullet("Push moves each surviving enemy target up to that many squares directly away from the attack's staging square. Blocked push distance becomes 1 extra damage per prevented square.", y);
         y = addInstructionBullet("Slow: number of the attacked unit's turns in which it may move at most one square total. Only its existing adjacent moves are legal; Hop alone cannot move. Stationary attacks keep their range. Reapplying Slow keeps the longer remaining duration. Default: 0.", y);
         y = addInstructionBullet("Lifedrain: heals the acting unit for damage this action deals, capped at maximum health. Includes Power, Bodyguard/Intercept redirection, overkill, and push collisions. Attack healing resolves before Counterstrike; it cannot revive a defeated unit. Default: Off.", y);
@@ -4682,23 +4795,25 @@ private:
         y = addInstructionParagraph("Use the lowercase values exactly. Spells resolve targeting from effect; their target string documents intent. Enchantments require the matching target/effect pair listed above.", y + 5.0f, Muted);
         y += 17.0f;
 
-        y = addInstructionSection("6. Rarity, Traits, Keywords, and String Lists", y);
+        y = addInstructionSection("6. Rarity, Traits, Keywords, Passives, and String Lists", y);
         y = addInstructionBullet("Rarity: add a String Field named rarity and choose common, uncommon, rare, legendary, token, or starter from the dropdown. Missing or unknown values count as common. Token cards cannot appear in collections or decks. Starter cards never appear as random shop cards; players get them from the four starter decks. Random shop buckets have weights 70 common (including uncommon), 25 rare, and 5 legendary. Empty buckets are skipped and the remaining weights are renormalized; cards within each bucket are equally likely.", y);
         y = addInstructionBullet("Traits: unit cards require living friendly heroes with matching traits when played. Heroes and spells do not require matching traits. The deck editor can filter by the nine supported traits.", y);
-        y = addInstructionBullet("Keywords are stored separately from traits. Relentless lets a piece act again immediately whenever it destroys another piece. Bodyguard redirects positive damage from an adjacent friendly non-Bodyguard among all eligible Bodyguards; they split it evenly and randomly receive indivisible leftover points. Each Bodyguard assigned damage also takes that action's Disable, while zero-damage Disable, Push, Pull, Infest, and Control stay on the originally selected unit. Intercept can trigger once between that piece's owner-turn starts even after acting or while Disabled, Sleeping, or Growing: the adjacent protector and attacked ally swap only when both full footprints can exchange legally, then the protector takes the piece attack. Bodyguard takes priority. Trail passively creates the Unit named by the summon string field where this piece started whenever it moves. On every paid draw, Foresight reveals up to one plus the number of owned Foresight pieces, limited by the cards left in the deck, lets the player keep one, and puts the rest on the bottom.", y);
+        y = addInstructionBullet("Keywords are inert labels such as plant and mounted. Passives are implemented card behaviors. Relentless lets a piece act again immediately whenever it destroys another piece. Bodyguard redirects positive damage from an adjacent friendly non-Bodyguard among all eligible Bodyguards; they split it evenly and randomly receive indivisible leftover points. Each Bodyguard assigned damage also takes that action's Disable, while zero-damage Disable, Push, Pull, Infest, and Control stay on the originally selected unit. Intercept can trigger once between that piece's owner-turn starts even after acting or while Disabled, Sleeping, or Growing: the adjacent protector and attacked ally swap only when both full footprints can exchange legally, then the protector takes the piece attack. Bodyguard takes priority. Trail passively creates the Unit named by the summon string field where this piece started whenever it moves. On every paid draw, Foresight reveals up to one plus the number of owned Foresight pieces, limited by the cards left in the deck, lets the player keep one, and puts the rest on the bottom.", y);
         y = addInstructionBullet("ability: transform, dematerialize, dig, summon, command, raise undead, Swap, Power Boost, shriek, silence, or area heal. Transform-style abilities switch action states; dig creates a tunnel hole; summon creates the unit named by the summon string field in the space in front; command lets one ready adjacent friendly piece take any normal action without ending the turn; raise undead chooses an Undead Unit from the graveyard for a free 1-Health card that is exiled on its next death.", y);
-        y = addInstructionBullet("Dematerialize: set ability=dematerialize and define an action in State 1 (or a Next state of 1) so the ability can cycle between visible State 0 and hidden State 1. Nonzero states hide the piece from the opponent. Bumping into or striking a hidden piece materializes and disables it for 1 turn. The dematerialize keyword also enables hiding through action state changes.", y);
-        y = addInstructionBullet("Reveal: add reveal to Keywords. At the end of its owner's turn, adjacent enemy Dematerialize pieces in State 1 return to State 0 without the collision stun. Diagonals and large footprints count.", y);
-        y = addInstructionBullet("Undying: add Undying to Keywords. The first time a Unit would be defeated, it remains on the board with 1 Health. Once per board lifetime, preserving identity, attachments, readiness and conditions. Prevents the defeat before Infest, Rebirth, exile, Evacuate or Chrysalis. This is a passive, not an activated ability.", y);
-        y = addInstructionBullet("Chrysalis: add Chrysalis to Keywords. Once per card copy per game, defeat leaves a nonblocking Husk. Any unit, friendly or enemy, occupying its footprint destroys it. At the original owner's next turn, return at 1 Health if empty, otherwise discard. Existing Infest/Rebirth, raised-card exile and successful Evacuate take precedence. This is passive, not an action or activated ability.", y);
-        y = addInstructionBullet("Evacuate: add evacuate to Keywords. When another adjacent friendly Unit dies, return its base card to its original owner's hand if there is room. Heroes are excluded and the bearer cannot evacuate itself. Rebirth/Infest replacements take priority; raised Undead are exiled instead, and a full hand sends the card to the graveyard.", y);
+        y = addInstructionBullet("Dematerialize: set ability=dematerialize and define an action in State 1 (or a Next state of 1) so the ability can cycle between visible State 0 and hidden State 1. Nonzero states hide the piece from the opponent. Bumping into or striking a hidden piece materializes and disables it for 1 turn. The Dematerialize passive also enables hiding through action state changes.", y);
+        y = addInstructionBullet("Rescue: add to Passives. Currently assigned only to mounted Nettle Starbright. Once per round, when another adjacent ally is attacked, move it to the first empty legal square clockwise around this unit, starting after its current square. The attack still targets the original square. Without a legal landing square, the rescue stays ready.", y);
+        y = addInstructionBullet("Reveal: add reveal to Passives. At the end of its owner's turn, adjacent enemy Dematerialize pieces in State 1 return to State 0 without the collision stun. Diagonals and large footprints count.", y);
+        y = addInstructionBullet("Undying: add Undying to Passives. The first time a Unit would be defeated, it remains on the board with 1 Health. Once per board lifetime, preserving identity, attachments, readiness and conditions. Prevents the defeat before Infest, Rebirth, exile, Evacuate or Chrysalis. This is a passive, not an activated ability.", y);
+        y = addInstructionBullet("Chrysalis: add Chrysalis to Passives. Once per card copy per game, defeat leaves a nonblocking Husk. Any unit, friendly or enemy, occupying its footprint destroys it. At the original owner's next turn, return at 1 Health if empty, otherwise discard. Existing Infest/Rebirth, raised-card exile and successful Evacuate take precedence. This is passive, not an action or activated ability.", y);
+        y = addInstructionBullet("Evacuate: add evacuate to Passives. When another adjacent friendly Unit dies, return its base card to its original owner's hand if there is room. Heroes are excluded and the bearer cannot evacuate itself. Rebirth/Infest replacements take priority; raised Undead are exiled instead, and a full hand sends the card to the graveyard.", y);
         y = addInstructionBullet("Swap requires a card in hand. Choose a hand card to discard to the bottom of the deck, then draw up to 2 cards, limited by hand space. This does not spend Resources or the normal discard allowance.", y);
         y = addInstructionBullet("Power Boost: gives every other adjacent friendly unit +1 Power, including diagonals and large footprints. Power stacks and remains on the unit while in play. Power adds to damage from attacks, Counterstrike, and push collisions, but not healing. Set the power (or Power) Integer Field on a Unit or Hero for starting Power. Also supported by Sacrifice; the boost happens before the source dies.", y);
-        y = addInstructionBullet("Rot Aura: add rot aura to Keywords. Adjacent enemies cannot regain Health through actions, spells, healing auras or Lifedrain. Includes diagonals and large footprints. It is passive and works while the living bearer remains adjacent, even while Disabled or Silenced.", y);
+        y = addInstructionBullet("Rot Aura: add rot aura to Passives. Adjacent enemies cannot regain Health through actions, spells, healing auras or Lifedrain. Includes diagonals and large footprints. It is passive and works while the living bearer remains adjacent, even while Disabled or Silenced.", y);
         y = addInstructionBullet("CommandRestriction limits Command to ready adjacent allies with the specified trait or keyword. For example, mechanical matches the Mechanical trait or keyword. Omit the field to allow any ready adjacent ally.", y);
+        y = addInstructionBullet("Corrupt the Ground: create a reusable activated ability of kind corrupt the ground with explicit Strength. Places a single-use Blight directly in front. Enemy ground units trigger it when crossing or landing; enemy jumpers only on landing; flyers and friendly units ignore it. A hidden enemy in front is revealed instead, spending the action.", y);
         y = addInstructionBullet("Shriek: set ability=shriek. Reveals all hidden units within shriek range, including allies and a hidden caster, by returning them to State 0. Revealing alone does not Disable. If shriek damage is greater than zero, deals that damage to each revealed unit with normal damage Disable. Visible units are not selected. Uses the normal ability button and costs a piece action.", y);
         y = addInstructionBullet("Silence: set ability to silence. All living enemies currently on the board receive a removable negative status blocking activated ability and Sacrifice buttons, not movement, attacks or passives. Optional silenceTurns defaults to 1; it counts affected-enemy turn ends. Newly deployed enemies are unaffected. The status survives caster removal and refreshes without stacking.", y);
-        y = addInstructionBullet("Swarm: add swarm to Keywords for +1 Power per adjacent living unit with exactly the same name, regardless of owner. Diagonals and large footprints count; each neighbor counts once and need not have Swarm. This bonus updates as units move or die and stacks with permanent Power.", y);
+        y = addInstructionBullet("Swarm: add swarm to Passives for +1 Power per adjacent living unit with exactly the same name, regardless of owner. Diagonals and large footprints count; each neighbor counts once and need not have Swarm. This bonus updates as units move or die and stacks with permanent Power.", y);
         y = addInstructionBullet("Sacrifice: accepts every ability value and creates a separate button. Uses the same abilityUses, abilityLabels, summon and action-state fields. After the effect (including a card choice or commanded action) resolves, the unit is killed using normal death rules. An invalid use does not sacrifice it.", y);
         y = addInstructionBullet("summon: exact Unit card title created by the active summon ability or passive Trail keyword. Player 1's active summon goes to the right and Player 2's to the left; Trail summons into the moving piece's former position. Summoned units cannot act until their owner's next turn.", y);
         y = addInstructionBullet("Shelter: friendly pieces on the squares immediately behind this piece cannot be attacked by enemy pieces. Behind points toward the owner's home edge, covers only the adjacent column, and spans the full rear edge of a multi-square piece. Spells and friendly healing are unaffected.", y);
@@ -4729,7 +4844,7 @@ private:
         y += 22.0f;
 
         y = addInstructionSection("9. Using the editor safely", y);
-        y = addInstructionBullet("Use the + button beside each section to add a field and the - button beside a row to remove it. Empty keys, empty traits, empty keywords, and empty list values are not saved.", y);
+        y = addInstructionBullet("Use the + button beside each section to add a field and the - button beside a row to remove it. Empty keys, empty traits, empty keywords, empty passives, and empty list values are not saved.", y);
         y = addInstructionBullet("Enter whole numbers for Integer Fields. Blank, non-numeric, or out-of-range card values are omitted, so the game uses the field default. Action fields use their own defaults; Damage, Heal, Push, Control, and Repeat are clamped to non-negative values.", y);
         y = addInstructionBullet("Both library tabs have a case-insensitive title filter. Tab and Shift+Tab move between fields. Enter saves unless a library search field is active. The mouse wheel scrolls the field list when the pointer is over it.", y);
         y = addInstructionBullet("Save Card creates a draft or updates the selected card. Delete removes the selected saved card. If you navigate away with edits, choose Save or Discard in the unsaved-changes prompt.", y);
@@ -5361,6 +5476,7 @@ private:
 
         drawVisibleButton(window, addTraitButton);
         drawVisibleButton(window, addKeywordButton);
+        drawVisibleButton(window, addPassiveButton);
         drawVisibleButton(window, addIntegerButton);
         drawVisibleButton(window, addStringButton);
         drawVisibleButton(window, addListButton);
@@ -5371,6 +5487,10 @@ private:
             drawVisibleField(window, field);
         }
         for (InputBox& field : keywordFields)
+        {
+            drawVisibleField(window, field);
+        }
+        for (InputBox& field : passiveFields)
         {
             drawVisibleField(window, field);
         }
@@ -5405,6 +5525,10 @@ private:
             drawVisibleButton(window, button);
         }
         for (EditorButton& button : removeKeywordButtons)
+        {
+            drawVisibleButton(window, button);
+        }
+        for (EditorButton& button : removePassiveButtons)
         {
             drawVisibleButton(window, button);
         }
@@ -5452,6 +5576,8 @@ private:
         actionMinRangeField.setPosition({340.0f, 348.0f});
         actionMaxRangeField.setPosition({600.0f, 348.0f});
         actionDamageField.setPosition({340.0f, 406.0f});
+        actionPurifyField.setPosition({490.0f, 464.0f});
+        actionRootedField.setPosition({490.0f, 522.0f});
         actionHealField.setPosition({600.0f, 406.0f});
         actionLifedrainField.setPosition({710.0f, 406.0f});
         actionCanMoveField.setPosition({340.0f, 464.0f});
@@ -5493,6 +5619,8 @@ private:
             {"Heal", {600.0f, 382.0f}},
             {"Lifedrain", {710.0f, 382.0f}},
             {"Can move", {340.0f, 440.0f}},
+            {"Purify", {490.0f, 440.0f}},
+            {"Rooted", {490.0f, 498.0f}},
             {"Can attack", {600.0f, 440.0f}},
             {"Pass through", {340.0f, 498.0f}},
             {"Line of sight", {600.0f, 498.0f}},
@@ -5776,6 +5904,7 @@ private:
 
         float y = drawTagSection("TRAITS", card.traits, 582.0f);
         y = drawTagSection("KEYWORDS", card.keywords, y);
+        y = drawTagSection("PASSIVES", card.passives, y);
         if (creature)
         {
             drawText(window, font, fmt::format("{} action{}", card.actionNames.size(), card.actionNames.size() == 1 ? "" : "s"),

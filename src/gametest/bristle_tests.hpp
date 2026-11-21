@@ -12,13 +12,13 @@ void testBristle(Check check)
     attacker.row = 3;
     attacker.column = 2;
     attacker.health = attacker.maxHealth = 10;
-    attacker.keywords = {"bristle"};
+    attacker.passives = {"bristle"};
     Piece defender = attacker;
     defender.id = 2;
     defender.owner = 2;
     defender.column = 3;
     defender.power = 4;
-    defender.keywords = {"BrIsTlE", "bristle"};
+    defender.passives = {"BrIsTlE", "bristle"};
     std::mt19937 rng(97);
     for (const auto kind : {ActionKind::Slide, ActionKind::Capture, ActionKind::Ranged})
     {
@@ -34,7 +34,7 @@ void testBristle(Check check)
         }
     }
     std::vector<Piece> pieces{attacker, defender};
-    pieces[1].keywords.clear();
+    pieces[1].passives.clear();
     resolvePieceAttackDamage(pieces, 1, 2, 2, 0, 3, 2, rng);
     check(pieces[0].health == 10, "units without Bristle do not return damage");
     pieces = {attacker, defender};
@@ -56,17 +56,17 @@ void testBristle(Check check)
     Piece protector = defender;
     protector.id = 3;
     protector.row = 2;
-    protector.keywords = {"Intercept"};
+    protector.passives = {"Intercept"};
     pieces = {attacker, defender, protector};
     const auto intercepted = resolvePieceAttackDamage(pieces, 1, 2, 2, 0, 3, 2, rng);
     check(intercepted.attack.effectiveTargetId == 3 && pieces[0].health == 10,
         "Intercept replaces the original Bristle defender");
     pieces = {attacker, defender, protector};
-    pieces[1].keywords.clear();
-    pieces[2].keywords.push_back("bristle");
+    pieces[1].passives.clear();
+    pieces[2].passives.push_back("bristle");
     resolvePieceAttackDamage(pieces, 1, 2, 2, 0, 3, 2, rng);
     check(pieces[0].health == 9, "a Bristle interceptor returns damage");
-    protector.keywords = {"Bodyguard"};
+    protector.passives = {"Bodyguard"};
     pieces = {attacker, defender, protector};
     resolvePieceAttackDamage(pieces, 1, 2, 2, 0, 3, 2, rng);
     check(pieces[0].health == 9 && pieces[1].health == 10 && pieces[2].health == 8,
@@ -81,7 +81,7 @@ void testBristle(Check check)
     card_data::Card definition;
     definition.title = "Bristle defender";
     definition.type = "Unit";
-    definition.keywords = {"BRISTLE"};
+    definition.passives = {"BRISTLE"};
     definition.integerValues = {{"health", 2}};
     const GameCard targetCard = toGameCard(definition);
     for (const auto kind : {ActionKind::Slide, ActionKind::Capture, ActionKind::Ranged})
@@ -91,7 +91,7 @@ void testBristle(Check check)
             GameCard actorCard = targetCard;
             actorCard.title = "Bristle attacker";
             actorCard.health = health;
-            actorCard.keywords = {"Relentless"};
+            actorCard.passives = {"Relentless"};
             ActionProfile action;
             action.kind = static_cast<std::uint8_t>(kind);
             action.pattern = static_cast<std::uint8_t>(MovePattern::Omni);

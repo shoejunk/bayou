@@ -174,7 +174,7 @@ inline bool pieceMovementBound(const std::vector<Piece>& pieces, const Piece& ta
 {
     return std::any_of(pieces.begin(), pieces.end(), [&](const Piece& source) {
         return source.id != target.id && source.owner != target.owner &&
-            source.health > 0 && hasKeyword(source.keywords, "bind") &&
+            source.health > 0 && hasKeyword(source.passives, "bind") &&
             piecesAreAdjacent(source, target);
     });
 }
@@ -194,7 +194,7 @@ inline bool hasLegalMoveGeometry(
     int toColumn,
     bool allowOccupiedDestination)
 {
-    if (pieceMovementBound(pieces, piece) || !slowAllowsMove(piece, toRow, toColumn) || !pieceFootprintInBounds(piece, toRow, toColumn) ||
+    if (piece.sleepTurnsRemaining > 0 || piece.rootedTurnsRemaining > 0 || pieceMovementBound(pieces, piece) || !slowAllowsMove(piece, toRow, toColumn) || !pieceFootprintInBounds(piece, toRow, toColumn) ||
         (!allowOccupiedDestination && !pieceFootprintFree(pieces, piece, toRow, toColumn)))
     {
         return false;
@@ -321,6 +321,8 @@ struct ActionResolution
     int push = 0;
     bool pull = false;
     bool lifedrain = false;
+    bool purify = false;
+    bool roots = false;
     int repeat = 0;
     int stagingRow = 0;
     int stagingColumn = 0;
@@ -351,7 +353,7 @@ inline std::string canonicalActionTargetFilter(std::string value)
 
 inline bool pieceHasTraitOrKeyword(const Piece& piece, const std::string& value)
 {
-    return hasKeyword(piece.traits, value) || hasKeyword(piece.keywords, value);
+    return hasKeyword(piece.traits, value) || hasKeyword(piece.keywords, value) || hasKeyword(piece.passives, value);
 }
 
 inline bool pieceMatchesActionTargetFilter(const Piece& target, const std::string& required)
@@ -366,7 +368,7 @@ inline bool pieceIsSheltered(const std::vector<Piece>& pieces, const Piece& targ
 {
     return std::any_of(pieces.begin(), pieces.end(), [&](const Piece& provider) {
         if (provider.id == target.id || provider.owner != target.owner ||
-            provider.health <= 0 || !hasKeyword(provider.keywords, "shelter"))
+            provider.health <= 0 || !hasKeyword(provider.passives, "shelter"))
         {
             return false;
         }
@@ -391,15 +393,17 @@ inline bool actionCanTarget(
         targetFilter.begin(),
         targetFilter.end(),
         [&](const std::string& required) {
-            return pieceMatchesActionTargetFilter(target, required);
+            return required == card_data::PurifyActionFlag || required == card_data::RootedActionFlag || pieceMatchesActionTargetFilter(target, required);
         });
-    if (!matchesFilter)
+    if (!matchesFilter || target.health <= 0)
     {
         return false;
     }
     if (target.owner == piece.owner)
     {
-        return heal > 0 && target.health < target.maxHealth;
+        if (card_data::actionAppliesRooted(targetFilter)) return false;
+        return heal > 0 && target.health > 0 &&
+            (target.health < target.maxHealth || card_data::actionHasPurify(targetFilter));
     }
     if (pieceIsSheltered(pieces, target))
     {
@@ -586,6 +590,73 @@ inline bool piecesAreAdjacent(const Piece& first, const Piece& second)
     return std::max(rowGap, columnGap) == 1;
 }
 
+inline constexpr const char* RescuePassive = "Rescue";
+
+// Forced placement, not an action: no action/readiness changes to the rescued
+// piece, no movement-path check, and no inspection of square-bound effects.
+inline bool tryDashRescue(std::vector<Piece>& pieces, int targetId)
+{
+    const auto target = std::find_if(pieces.begin(), pieces.end(),
+        [targetId](const Piece& p) { return p.id == targetId && p.health > 0; });
+    if (target == pieces.end()) return false;
+    // When more than one rescuer qualifies, use the lowest board id that
+    // actually has a valid destination. Selection never consumes readiness.
+    std::vector<Piece*> rescuers;
+    for (auto& p : pieces)
+        if (p.id != targetId && p.owner == target->owner && p.health > 0 &&
+            !p.dashRescueUsedThisRound && hasKeyword(p.passives, RescuePassive) &&
+            piecesAreAdjacent(p, *target)) rescuers.push_back(&p);
+    std::sort(rescuers.begin(), rescuers.end(),
+        [](const Piece* a, const Piece* b) { return a->id < b->id; });
+    for (Piece* p : rescuers)
+    {
+        const int top=p->row-1, left=p->column-1;
+        const int bottom=p->row+p->height, right=p->column+p->width;
+        std::vector<std::pair<int,int>> ring;
+        for (int c=left;c<right;++c) ring.emplace_back(top,c);
+        for (int r=top;r<bottom;++r) ring.emplace_back(r,right);
+        for (int c=right;c>left;--c) ring.emplace_back(bottom,c);
+        for (int r=bottom;r>top;--r) ring.emplace_back(r,left);
+        const auto slot=std::find_if(ring.begin(),ring.end(),[&](const auto& spot) {
+            return spot.first>=target->row && spot.first<target->row+target->height &&
+                spot.second>=target->column && spot.second<target->column+target->width;
+        });
+        if (slot==ring.end()) continue;
+        const auto start=static_cast<std::size_t>(slot-ring.begin());
+        for (std::size_t i=1;i<ring.size();++i)
+        {
+            const auto [r,c]=ring[(start+i)%ring.size()];
+            // Preserve the offset from the touched ring square for a larger
+            // ally. Validate the complete translated footprint.
+            const int row=target->row+r-slot->first, column=target->column+c-slot->second;
+            if (!pieceFootprintFree(pieces,*target,row,column)) continue;
+            target->row=row;
+            target->column=column;
+            p->dashRescueUsedThisRound=true;
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool dashRescueAttackStillHits(const Piece& relocated, const Piece& attacker,
+    const ActionResolution& action, int toRow, int toColumn, int destinationRow, int destinationColumn)
+{
+    if (relocated.health <= 0) return false;
+    if (action.kind == ActionKind::Hop)
+    {
+        toRow = attacker.row + (destinationRow-attacker.row)/2;
+        toColumn = attacker.column + (destinationColumn-attacker.column)/2;
+    }
+    else if (action.moves && (action.kind == ActionKind::Slide || action.kind == ActionKind::Capture))
+    {
+        return pieceFootprintsOverlap(relocated, relocated.row, relocated.column,
+                                      attacker, destinationRow, destinationColumn);
+    }
+    return toRow >= relocated.row && toRow < relocated.row+relocated.height &&
+           toColumn >= relocated.column && toColumn < relocated.column+relocated.width;
+}
+
 // Chebyshev distance between the closest occupied squares of full footprints.
 inline int pieceDistance(const Piece& first, const Piece& second)
 {
@@ -600,7 +671,7 @@ inline bool pieceHealingBlocked(const std::vector<Piece>& pieces, const Piece& t
 {
     return std::any_of(pieces.begin(), pieces.end(), [&](const Piece& source) {
         return source.id != target.id && source.owner != target.owner && source.health > 0 &&
-            hasKeyword(source.keywords, "rot aura") && piecesAreAdjacent(source, target);
+            hasKeyword(source.passives, "rot aura") && piecesAreAdjacent(source, target);
     });
 }
 
@@ -646,6 +717,20 @@ inline void applyActionHealing(const std::vector<Piece>& pieces, Piece& target, 
     applyDamageStatus(target, 0, statusTurns);
 }
 
+// Purify removes only the explicit unit debuffs. In particular, it cannot
+// change readiness already spent this turn, ownership, or an enemy aura.
+inline void applyPurify(Piece& target)
+{
+    if (target.health <= 0) return;
+    target.disabledTurns = 0;
+    target.sleepTurnsRemaining = 0;
+    target.rootedTurnsRemaining = 0;
+    target.slowTurnsRemaining = 0;
+    clearSilence(target);
+    target.abilitySilenced = false;
+    target.weakenedPower = 0;
+}
+
 inline bool pieceCanReceiveAreaHeal(const Piece& source, const Piece& target)
 {
     if (target.health <= 0 || source.owner != target.owner ||
@@ -653,7 +738,7 @@ inline bool pieceCanReceiveAreaHeal(const Piece& source, const Piece& target)
     const auto& filter=source.activatedAbility?source.activatedAbility->targetFilter:source.healFilter;
     if (!filter) return true;
     return std::any_of(filter->begin(), filter->end(),
-        [&](const std::string& trait) { return hasKeyword(target.traits, trait) || hasKeyword(target.keywords, trait); });
+        [&](const std::string& trait) { return hasKeyword(target.traits, trait) || hasKeyword(target.keywords, trait) || hasKeyword(target.passives, trait); });
 }
 
 inline void applyAreaHeal(std::vector<Piece>& pieces, const Piece& source)
@@ -692,7 +777,8 @@ inline ActionResolution resolvePieceAction(
     const std::vector<Piece>& protectionPieces = shelterBoard != nullptr ? *shelterBoard : pieces;
     if (requiredActionIndex < -1 ||
         requiredActionIndex >= static_cast<int>(piece.actions.size()) ||
-        !inBounds(toRow, toColumn) || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
+        !inBounds(toRow, toColumn) || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0 ||
+        piece.sleepTurnsRemaining > 0 || piece.rootedTurnsRemaining > 0)
     {
         return best;
     }
@@ -727,6 +813,8 @@ inline ActionResolution resolvePieceAction(
         candidate.push = action.push;
         candidate.pull = action.pull && kind == ActionKind::Ranged;
         candidate.lifedrain = action.lifedrain;
+        candidate.roots = card_data::actionAppliesRooted(action.targetFilter);
+        candidate.purify = action.heal > 0 && card_data::actionHasPurify(action.targetFilter);
         candidate.repeat = action.repeat;
         candidate.stagingRow = piece.row;
         candidate.stagingColumn = piece.column;
@@ -939,13 +1027,12 @@ inline ActionResolution resolvePieceAction(
                 candidate.stagingRow == piece.row && candidate.stagingColumn == piece.column &&
                 std::any_of(protectionPieces.begin(), protectionPieces.end(), [&](const Piece& source) {
                     return source.owner != piece.owner && source.health > 0 &&
-                        hasKeyword(source.keywords, "bind") && piecesAreAdjacent(source, piece) &&
+                        hasKeyword(source.passives, "bind") && piecesAreAdjacent(source, piece) &&
                         std::find(candidate.targetIds.begin(), candidate.targetIds.end(), source.id) != candidate.targetIds.end();
                 });
             if (!strikesBinder) candidate.legal = false;
         }
-        if (!candidate.legal || (candidate.moves &&
-                (piece.sleepTurnsRemaining > 0 || !slowAllowsMove(piece, toRow, toColumn))) ||
+        if (!candidate.legal || (candidate.moves && !slowAllowsMove(piece, toRow, toColumn)) ||
             (attackingMovesOnly && !(candidate.moves && candidate.attacks)))
         {
             continue;
@@ -1237,7 +1324,7 @@ inline bool pieceHasDematerialize(const Piece& piece)
 {
     return abilityKind(piece) == "dematerialize" ||
         abilityKind(piece,true) == "dematerialize" ||
-        hasKeyword(piece.keywords, "dematerialize");
+        hasKeyword(piece.passives, "dematerialize");
 }
 
 // Applies every gameplay side effect associated with entering an action state.
@@ -1313,6 +1400,7 @@ inline std::string pieceAbilityLabel(const Piece& piece, bool sacrifice = false)
         return prefix + "Power Boost";
     }
     if (ability == "weaken") return prefix + "Weaken";
+    if (ability == "corrupt the ground") return prefix + "Corrupt the Ground";
     if (ability == "area heal") return prefix + "Area Heal";
     if (ability == "shriek") return prefix + "Shriek";
     if (ability == "silence") return prefix + "Silence";
@@ -1349,14 +1437,14 @@ inline std::string pieceAbilityLabel(const Piece& piece, bool sacrifice = false)
 
 inline bool pieceHasTrailAbility(const Piece& piece)
 {
-    return hasKeyword(piece.keywords, "trail") && !piece.summonTitle.empty();
+    return hasKeyword(piece.passives, "trail") && !piece.summonTitle.empty();
 }
 
 // Swarm is derived from the current board, never stored as a permanent boost.
 // Either owner's same-name neighbors count once each, including large pieces.
 inline int pieceSwarmPower(const std::vector<Piece>& pieces, const Piece& piece)
 {
-    if (!hasKeyword(piece.keywords, "swarm")) return 0;
+    if (!hasKeyword(piece.passives, "swarm")) return 0;
     return static_cast<int>(std::count_if(pieces.begin(), pieces.end(), [&](const Piece& neighbor) {
         return neighbor.id != piece.id && neighbor.health > 0 &&
             neighbor.name == piece.name && piecesAreAdjacent(piece, neighbor);
@@ -1409,7 +1497,7 @@ inline bool pieceHasEvacuateSupport(const std::vector<Piece>& pieces, const Piec
     return !casualty.isHero && std::any_of(
         pieces.begin(), pieces.end(), [&](const Piece& candidate) {
             return candidate.id != casualty.id && candidate.owner == casualty.owner &&
-                candidate.health > 0 && hasKeyword(candidate.keywords, "evacuate") &&
+                candidate.health > 0 && hasKeyword(candidate.passives, "evacuate") &&
                 piecesAreAdjacent(candidate, casualty);
         });
 }
@@ -1445,7 +1533,7 @@ inline PullResult applyActionPull(
 
     const Piece& attacker = *attackerIt;
     Piece& target = *targetIt;
-    while (!piecesAreAdjacent(attacker, target))
+    while (target.health > 0 && !piecesAreAdjacent(attacker, target))
     {
         const int nearestAttackerRow = std::clamp(
             target.row, attacker.row, attacker.row + attacker.height - 1);
@@ -1498,7 +1586,7 @@ inline void applyRevealKeywords(std::vector<Piece>& pieces, int owner)
 {
     for (const Piece& revealer : pieces)
     {
-        if (revealer.owner != owner || !hasKeyword(revealer.keywords, "reveal"))
+        if (revealer.owner != owner || !hasKeyword(revealer.passives, "reveal"))
         {
             continue;
         }
@@ -1594,7 +1682,7 @@ inline PushResult applyActionPush(
         return result;
     }
 
-    while (result.movedSquares < requestedSquares)
+    while (target.health > 0 && result.movedSquares < requestedSquares)
     {
         const int nextRow = target.row + stepRow;
         const int nextColumn = target.column + stepColumn;
@@ -1620,6 +1708,7 @@ inline PushResult applyActionPush(
         ++result.movedSquares;
     }
 
+    if (target.health <= 0) return result; // Trap interruption is not a push collision.
     result.preventedSquares = requestedSquares - result.movedSquares;
     if (result.preventedSquares > 0)
     {
@@ -1671,13 +1760,13 @@ inline DamageResolution resolveDamageWithBodyguardsAndIntercepts(
     }
 
     const Piece& target = *targetIt;
-    if (damage > 0 && !hasKeyword(targetIt->keywords, "bodyguard"))
+    if (damage > 0 && !hasKeyword(targetIt->passives, "bodyguard"))
     {
         std::vector<int> bodyguardIds;
         for (const Piece& candidate : pieces)
         {
             if (candidate.id != target.id && candidate.owner == target.owner && candidate.health > 0 &&
-                hasKeyword(candidate.keywords, "bodyguard") &&
+                hasKeyword(candidate.passives, "bodyguard") &&
                 piecesAreAdjacent(target, candidate))
             {
                 bodyguardIds.push_back(candidate.id);
@@ -1703,14 +1792,14 @@ inline DamageResolution resolveDamageWithBodyguardsAndIntercepts(
             }
         }
         else if (allowIntercept &&
-                 !hasKeyword(target.keywords, "intercept"))
+                 !hasKeyword(target.passives, "intercept"))
         {
             std::vector<int> interceptIds;
             for (const Piece& candidate : pieces)
             {
                 if (candidate.id != target.id && candidate.owner == target.owner &&
                     !candidate.interceptUsedThisTurn &&
-                    hasKeyword(candidate.keywords, "intercept") &&
+                    hasKeyword(candidate.passives, "intercept") &&
                     piecesAreAdjacent(target, candidate) &&
                     pieceFootprintsCanSwap(pieces, target, candidate))
                 {
@@ -1754,7 +1843,12 @@ inline DamageResolution resolveDamageWithBodyguardsAndIntercepts(
         result.assignments.push_back({result.effectiveTargetId, damage});
     }
 
-    for (const DamageAssignment& assignment : result.assignments)
+    // A physical swap may trigger a trap before the incoming attack lands.
+    // Do not strike or credit lifedrain for a piece already killed by that trap.
+    std::erase_if(result.assignments,[&](const DamageAssignment& assignment) {
+        const auto recipient=std::find_if(pieces.begin(),pieces.end(),[&](const Piece& p){return p.id==assignment.pieceId;});
+        return recipient==pieces.end() || recipient->health<=0;
+    });    for (const DamageAssignment& assignment : result.assignments)
     {
         const auto recipient = std::find_if(
             pieces.begin(),
@@ -1885,7 +1979,7 @@ inline PieceAttackDamageResolution resolvePieceAttackDamage(
     const auto defender = std::find_if(pieces.begin(), pieces.end(),
         [&](const Piece& piece) { return piece.id == result.attack.effectiveTargetId; });
     if (attacker == pieces.end() || defender == pieces.end() ||
-        attacker->owner == defender->owner)
+        attacker->owner == defender->owner || result.attack.assignments.empty())
     {
         return result;
     }
@@ -1902,7 +1996,7 @@ inline PieceAttackDamageResolution resolvePieceAttackDamage(
     const bool counterstrike = defender->counterstrike > 0 &&
         (piecesAreAdjacent(strikingPiece, *defender) || movingContact);
     const bool bristle = attackKind != ActionKind::Ranged &&
-        hasKeyword(defender->keywords, "bristle");
+        hasKeyword(defender->passives, "bristle");
     if (counterstrike || bristle)
     {
         // Protection is also measured at the strike position. This resolver
@@ -1962,7 +2056,8 @@ inline bool pieceSummonDestinationFree(const std::vector<Piece>& pieces, const P
 inline bool pieceAbilityAvailable(const Piece& piece, bool sacrifice = false)
 {
     const std::string ability = abilityKind(piece,sacrifice);
-    if (piece.sacrificePending || ability.empty() || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0)
+    if (piece.sacrificePending || ability.empty() || piece.growTurnsRemaining > 0 || piece.disabledTurns > 0 ||
+        piece.sleepTurnsRemaining > 0)
     {
         return false;
     }
@@ -1977,7 +2072,7 @@ inline bool pieceAbilityAvailable(const Piece& piece, bool sacrifice = false)
     }
     return ability == "transform" || ability == "dematerialize" || ability == "command" ||
         ability == "raise undead" || ability == "swap" || ability == "power boost" ||
-        ability == "silence" || ability == "shriek" || ability == "area heal" || ability == "weaken";
+        ability == "silence" || ability == "shriek" || ability == "area heal" || ability == "weaken" || ability == "corrupt the ground";
 }
 
 inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece& piece, bool sacrifice = false)
@@ -1991,6 +2086,12 @@ inline bool pieceAbilityAvailable(const std::vector<Piece>& pieces, const Piece&
     if (ability == "summon")
     {
         return pieceSummonDestinationFree(pieces, source);
+    }
+    if (ability == "corrupt the ground")
+    {
+        const auto definition=abilityDefinition(piece,sacrifice);
+        return definition && definition->strength && *definition->strength >= 0 &&
+            pieceSummonDestinationFree(pieces,source);
     }
     if (ability == "power boost")
     {
@@ -2040,7 +2141,7 @@ inline bool pieceAbilityAvailable(const Snapshot& snapshot, const Piece& piece, 
 // Keep identity, ownership, attachments, readiness and conditions on the same piece.
 inline bool reviveUndyingPiece(Piece& piece)
 {
-    if (piece.isHero || piece.undyingUsed || !hasKeyword(piece.keywords, "undying")) return false;
+    if (piece.isHero || piece.undyingUsed || !hasKeyword(piece.passives, "undying")) return false;
     piece.undyingUsed = true;
     piece.health = 1;
     piece.sacrificePending = false;
@@ -2070,6 +2171,7 @@ inline void advanceTimedTransformations(std::vector<Piece>& pieces, int playerNu
         replacement.undyingUsed = piece.undyingUsed;
         replacement.chrysalisUsed = piece.chrysalisUsed;
         replacement.raisedFromGraveyard = piece.raisedFromGraveyard;
+        replacement.rootedTurnsRemaining = piece.rootedTurnsRemaining;
         replacement.silencedTurnsRemaining = piece.silencedTurnsRemaining;
         replacement.silencedExpiryPlayer = piece.silencedExpiryPlayer;
         replacement.actionState = 0;

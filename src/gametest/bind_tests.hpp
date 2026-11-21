@@ -10,7 +10,7 @@ void testBind(Check check)
     ActionProfile step; step.maxRange = 3; step.canMove = true; step.canAttack = true; step.damage = 1;
     ActionProfile ranged = step; ranged.kind = static_cast<std::uint8_t>(ActionKind::Ranged); ranged.canMove = false;
     mover.actions = {step, ranged};
-    Piece binder = mover; binder.id = 2; binder.owner = 2; binder.column = 4; binder.keywords = {"BiNd"};
+    Piece binder = mover; binder.id = 2; binder.owner = 2; binder.column = 4; binder.passives = {"BiNd"};
     std::vector<Piece> board{mover, binder};
     std::array<std::uint8_t, BoardSquares> holes{};
     check(pieceMovementBound(board, board[0]), "Bind recognizes an adjacent enemy and case-insensitive keyword");
@@ -63,7 +63,7 @@ void testBind(Check check)
 
     GameCard fighter; fighter.title = "Bound fighter"; fighter.type = "Unit";
     fighter.health = 10; fighter.actions = {step, ranged}; fighter.ability = "silence";
-    GameCard warden = fighter; warden.title = "Warden"; warden.keywords = {"Bind"};
+    GameCard warden = fighter; warden.title = "Warden"; warden.passives = {"Bind"};
     for (bool lethal : {false, true})
     {
         warden.health = lethal ? 1 : 10;

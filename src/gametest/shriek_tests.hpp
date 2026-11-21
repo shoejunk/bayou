@@ -68,7 +68,7 @@ void testShriek(Check check)
     applyShriek(board, board[0], random);
     check(!board[1].hidden && board[1].health == 7,
           "Shriek measures nearest squares of both large footprints and damages each unit once");
-    source.keywords = {"dematerialize"}; source.shriekRange = 0;
+    source.passives = {"dematerialize"}; source.shriekRange = 0;
     setPieceActionState(source, 1);
     board = {source, hidden};
     applyShriek(board, board[0], random);
@@ -76,15 +76,15 @@ void testShriek(Check check)
           "a hidden caster is included in all hidden units, including at range zero");
 
     source.width = source.height = 1; source.row = source.column = 3;
-    source.keywords.clear(); setPieceActionState(source, 0); source.shriekRange = 1;
+    source.passives.clear(); setPieceActionState(source, 0); source.shriekRange = 1;
     hidden.width = hidden.height = 1; hidden.row = hidden.column = 2;
     Piece guard = visible; guard.id = 6; guard.row = 1; guard.column = 2;
-    guard.keywords = {"bodyguard"};
+    guard.passives = {"bodyguard"};
     board = {source, hidden, guard};
     applyShriek(board, board[0], random);
     check(!board[1].hidden && board[1].health == 10 && board[2].health == 7,
           "Shriek retains ordinary Bodyguard protection for its damage");
-    board = {source, hidden, guard}; board[2].keywords = {"intercept"}; board[1].counterstrike = 9;
+    board = {source, hidden, guard}; board[2].passives = {"intercept"}; board[1].counterstrike = 9;
     applyShriek(board, board[0], random);
     check(board[0].health == 10 && board[1].health == 7 && board[2].health == 10 &&
           !board[2].interceptUsedThisTurn,
@@ -210,7 +210,7 @@ void testShriek(Check check)
           "Shriek also resolves through the existing Sacrifice ability path");
 
     // A hidden Shriek caster can kill itself. The action must still be spent.
-    card.health = 1; card.shriekDamage = 1; card.keywords = {"dematerialize"};
+    card.health = 1; card.shriekDamage = 1; card.passives = {"dematerialize"};
     action.state = 0; action.nextState = 1; action.canMove = true;
     action.pattern = static_cast<std::uint8_t>(MovePattern::Omni); action.maxRange = 1;
     card.actions = {action};

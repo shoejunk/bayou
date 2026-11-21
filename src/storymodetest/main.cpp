@@ -2054,9 +2054,9 @@ void validateSeelieCardTruth()
     const auto knight = bayou::client::packagedStoryCard("Starbloom Knight");
     const auto sylvara = bayou::client::packagedStoryCard("Sylvara");
     check(
-        mosswake && std::find(mosswake->keywords.begin(), mosswake->keywords.end(), "foresight") !=
-            mosswake->keywords.end(),
-        "Archivist Mosswake supplies the exact live Foresight keyword");
+        mosswake && std::find(mosswake->passives.begin(), mosswake->passives.end(), "foresight") !=
+            mosswake->passives.end(),
+        "Archivist Mosswake supplies the exact live Foresight passive");
     check(
         caltheriel && heartwood && caltheriel->healingAura == 1 &&
             heartwood->healingAura == 1,
@@ -2091,9 +2091,9 @@ void validateSeelieCardTruth()
             actionNamed(*nyxara, "Nyxaran Infest")->infest == "Bristlejack",
         "Queen Nyxara keeps the exact live Royal Advance and ranged diagonal Bristlejack Infest profile");
     check(
-        knight && std::find(knight->keywords.begin(), knight->keywords.end(), "bodyguard") !=
-            knight->keywords.end(),
-        "Starbloom Knight keeps the live Bodyguard keyword");
+        knight && std::find(knight->passives.begin(), knight->passives.end(), "bodyguard") !=
+            knight->passives.end(),
+        "Starbloom Knight keeps the live Bodyguard passive");
     check(
         sylvara && sylvara->ability.empty() && sylvara->summonTitle == "Sapling" &&
             actionNamed(*sylvara, "Sovereign Thorns") &&
@@ -3801,14 +3801,14 @@ void validateDependentCards()
             return action.name == "Frogback Leap";
         });
     check(
-        std::find(tracker->keywords.begin(), tracker->keywords.end(), "Reveal") !=
-                tracker->keywords.end() &&
-            std::find(unmounted->keywords.begin(), unmounted->keywords.end(), "Reveal") !=
-                unmounted->keywords.end() &&
+        std::find(tracker->passives.begin(), tracker->passives.end(), "Reveal") !=
+                tracker->passives.end() &&
+            std::find(unmounted->passives.begin(), unmounted->passives.end(), "Reveal") !=
+                unmounted->passives.end() &&
             leap != tracker->actions.end() && leap->canMove && leap->canAttack &&
             leap->minRange == 2 && leap->maxRange == 2 && leap->damage == 1 &&
             leap->passThrough,
-        "Swamp Tracker fixtures keep the exact live Reveal keyword and Frogback Leap profile");
+        "Swamp Tracker fixtures keep the exact live Reveal passive and Frogback Leap profile");
 
     {
         GameEngine engine(0x53554d4du, {});
@@ -4069,8 +4069,8 @@ int main()
         check(
             juniper && sprint != juniper->actions.end() && sprint->canMove &&
                 !sprint->canAttack && sprint->minRange == 1 && sprint->maxRange == 2 &&
-                std::find(juniper->keywords.begin(), juniper->keywords.end(), "intercept") !=
-                    juniper->keywords.end(),
+                std::find(juniper->passives.begin(), juniper->passives.end(), "intercept") !=
+                    juniper->passives.end(),
             "Juniper fixture matches live Sprint and Intercept instead of omitting her protection rule");
     }
     {

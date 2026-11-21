@@ -81,6 +81,10 @@ struct JoinedPlayer
     bool supportsAbilityParameters = false;
     bool supportsUndyingSnapshots = false;
     bool supportsAbilityObjects = false;
+    bool supportsTrapSnapshots = false;
+    bool supportsRootedSnapshots = false;
+    bool supportsPassivesSnapshots = false;
+    bool supportsDashRescueSnapshots = false;
 };
 
 struct MatchResult
@@ -782,7 +786,7 @@ public:
             }
             if (status == sf::Socket::Status::Done)
             {
-                if (handleAction(engine, human.playerNumber, packet))
+                if (handleAction(engine, human.playerNumber, packet, human.supportsTrapSnapshots))
                 {
                     changed = true;
                 }
@@ -890,7 +894,7 @@ private:
         response << static_cast<uint8_t>(MessageType::GameReady);
         response << matchId;
         response << playerNumber;
-        response << std::string("Game ready") << CommandRestrictionSnapshotCapability << SlowSnapshotCapability << ChrysalisSnapshotCapability << AreaHealSnapshotCapability << SilenceSnapshotCapability << AbilityParametersCapability << UndyingSnapshotCapability << AbilityObjectsSnapshotCapability;
+        response << std::string("Game ready") << CommandRestrictionSnapshotCapability << SlowSnapshotCapability << ChrysalisSnapshotCapability << AreaHealSnapshotCapability << SilenceSnapshotCapability << AbilityParametersCapability << UndyingSnapshotCapability << AbilityObjectsSnapshotCapability << TrapSnapshotCapability << game_data::RootedSnapshotCapability << game_data::PassivesSnapshotCapability << game_data::DashRescueSnapshotCapability;
         [[maybe_unused]] auto result = client.send(response);
     }
 
@@ -912,7 +916,7 @@ private:
         packet >> msgType;
         if (packet && static_cast<MessageType>(msgType) == MessageType::EnableCommandRestrictionSnapshots)
         {
-            if (!readSlowSnapshotOptIn(packet, player.supportsSlowSnapshots, &player.supportsChrysalisSnapshots, &player.supportsAreaHealSnapshots, &player.supportsSilenceSnapshots, &player.supportsAbilityParameters, &player.supportsUndyingSnapshots, &player.supportsAbilityObjects)) return false;
+            if (!readSlowSnapshotOptIn(packet, player.supportsSlowSnapshots, &player.supportsChrysalisSnapshots, &player.supportsAreaHealSnapshots, &player.supportsSilenceSnapshots, &player.supportsAbilityParameters, &player.supportsUndyingSnapshots, &player.supportsAbilityObjects, &player.supportsTrapSnapshots, &player.supportsRootedSnapshots, &player.supportsPassivesSnapshots, &player.supportsDashRescueSnapshots)) return false;
             player.supportsCommandRestrictionSnapshots = true;
             packet.clear();
             if (player.socket->receive(packet) != sf::Socket::Status::Done) return false;
@@ -1047,7 +1051,7 @@ private:
         sf::Packet packet;
         packet << static_cast<uint8_t>(MessageType::GameStateUpdate);
         writeSnapshot(packet, engine.snapshotFor(player.playerNumber), true, player.supportsShriekSnapshots,
-                      player.supportsTransformSnapshots, player.supportsCommandRestrictionSnapshots, player.supportsSlowSnapshots, player.supportsChrysalisSnapshots, player.supportsAreaHealSnapshots, player.supportsSilenceSnapshots, player.supportsAbilityParameters, player.supportsUndyingSnapshots, player.supportsAbilityObjects);
+                      player.supportsTransformSnapshots, player.supportsCommandRestrictionSnapshots, player.supportsSlowSnapshots, player.supportsChrysalisSnapshots, player.supportsAreaHealSnapshots, player.supportsSilenceSnapshots, player.supportsAbilityParameters, player.supportsUndyingSnapshots, player.supportsAbilityObjects, player.supportsTrapSnapshots, player.supportsRootedSnapshots, player.supportsPassivesSnapshots, player.supportsDashRescueSnapshots);
         [[maybe_unused]] auto result = player.socket->send(packet);
     }
 
@@ -1091,7 +1095,7 @@ private:
                 }
                 if (status == sf::Socket::Status::Done)
                 {
-                    if (handleAction(engine, player->playerNumber, packet))
+                    if (handleAction(engine, player->playerNumber, packet, player->supportsTrapSnapshots))
                     {
                         changed = true;
                     }
@@ -1155,7 +1159,7 @@ private:
         sendMatchResult(two, result, engine.winner());
     }
 
-    bool handleAction(GameEngine& engine, int playerNumber, sf::Packet& packet)
+    bool handleAction(GameEngine& engine, int playerNumber, sf::Packet& packet, bool supportsTrapSnapshots)
     {
         uint8_t msgType = 0;
         packet >> msgType;
@@ -1237,7 +1241,15 @@ private:
             {
                 int pieceId = 0;
                 packet >> pieceId;
-                engine.useAbility(playerNumber, pieceId, static_cast<MessageType>(msgType) == MessageType::UseSacrifice);
+                const bool sacrifice = static_cast<MessageType>(msgType) == MessageType::UseSacrifice;
+                if (!supportsTrapSnapshots)
+                {
+                    const auto& pieces = engine.boardPieces();
+                    const auto actor = std::find_if(pieces.begin(), pieces.end(),
+                        [&](const Piece& piece) { return piece.id == pieceId && piece.owner == playerNumber; });
+                    if (actor != pieces.end() && abilityKind(*actor, sacrifice) == "corrupt the ground") return false;
+                }
+                engine.useAbility(playerNumber, pieceId, sacrifice);
                 return true;
             }
             case MessageType::DiscardCard:

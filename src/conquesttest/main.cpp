@@ -86,6 +86,10 @@ std::vector<card_data::Card> syntheticCatalog()
     braun.type = "Unit";
     braun.imagePath = "frozen/original-braun.png";
     braun.integerValues.push_back({"health", 7});
+    braun.keywords = {"Mounted", "Undying"};
+    braun.passives = {"Bodyguard"};
+    braun.stringValues.push_back({"ability", "dig"});
+    braun.integerValues.push_back({"abilityUses", 2});
     cards.push_back(std::move(braun));
 
     for (int index = 1; index <= 40; ++index)
@@ -1144,6 +1148,22 @@ void testFrozenBattleDataActionsAndResult()
     require(
         frozenBraun->imagePath == "frozen/original-braun.png",
         "BattleData used the changed live catalog instead of the event snapshot");
+    require(frozenBraun->keywords==std::vector<std::string>{"Mounted","Undying"} &&
+        frozenBraun->passives==std::vector<std::string>{"Bodyguard"} &&
+        !frozenBraun->abilityReferencesExplicit &&
+        game_data::abilityKind(game_data::toGameCard(*frozenBraun))=="dig",
+        "frozen v15 catalog lost passive/keyword distinction or legacy ability");
+    sf::Packet replay;
+    conquest_data::writeBattleData(replay,*data);
+    conquest_data::BattleData restored;
+    require(conquest_data::readBattleData(replay,restored) && replay.endOfPacket(),
+        "coordinator v15 BattleData did not round-trip");
+    const auto replayedBraun=std::find_if(restored.catalog.begin(),restored.catalog.end(),
+        [](const auto& card) { return card.title=="Braun Stonefist"; });
+    require(replayedBraun!=restored.catalog.end() &&
+        replayedBraun->keywords==frozenBraun->keywords && replayedBraun->passives==frozenBraun->passives &&
+        game_data::abilityKind(game_data::toGameCard(*replayedBraun))=="dig",
+        "coordinator wire lost frozen taxonomy or ability");
 
     conquest_data::BattleAction unsupported;
     unsupported.sequence = 1;

@@ -271,55 +271,57 @@
         }
     };
 
-    auto appendKeywordRuleDescriptions = [&](DetailRows& descriptions,
-                                             const std::vector<std::string>& keywords,
+    auto appendNamedPassiveRuleDescriptions = [&](DetailRows& descriptions,
+                                             const std::vector<std::string>& passives,
                                              const std::string& summonTitle) {
         const sf::Color keywordColor(146, 206, 226);
-        if (game_data::hasKeyword(keywords, "swarm"))
+        if (game_data::hasKeyword(passives, "swarm"))
         {
             descriptions.push_back({
                 "Swarm: +1 Power for each adjacent unit with the same name, on either side. Diagonals count; each large unit counts once. The bonus lasts only while adjacent.",
                 keywordColor});
         }
-        if (game_data::hasKeyword(keywords, "relentless"))
+        if (game_data::hasKeyword(passives, "relentless"))
         {
             descriptions.push_back({
                 "Relentless: after this piece destroys a piece, only it may take one immediate extra action. Card plays, draws, discards, other pieces, and other abilities wait; another destruction can chain, or End Turn may stop the chain.",
                 keywordColor});
         }
-        if (game_data::hasKeyword(keywords, "shelter"))
+        if (game_data::hasKeyword(passives, "shelter"))
         {
             descriptions.push_back({
                 "Shelter: friendly pieces occupying a square immediately behind this piece cannot be attacked by enemy pieces. Behind is toward its owner's home edge and spans its full rear edge for large pieces. Spells and friendly healing are unaffected.",
                 keywordColor});
         }
-        if (game_data::hasKeyword(keywords, "bodyguard"))
+        if (game_data::hasKeyword(passives, "bodyguard"))
         {
             descriptions.push_back({
                 "Bodyguard: positive damage aimed at an adjacent friendly non-Bodyguard is redirected among all adjacent friendly Bodyguards and split as evenly as possible. Each Bodyguard assigned damage also takes that action's Disable; zero-damage Disable, Push, Pull, Infest, and Control still affect the originally selected unit. Indivisible leftover damage is assigned randomly. Bodyguard resolves before Intercept.",
                 keywordColor});
         }
-        if (game_data::hasKeyword(keywords, "intercept"))
+        if (game_data::hasKeyword(passives, "intercept"))
         {
             descriptions.push_back({
                 "Intercept: when a positive-damage enemy piece attack targets an adjacent friendly piece, this piece automatically swaps in and takes that attack if it has not intercepted since its last owner-turn start. If several legal Interceptors qualify, one is chosen uniformly at random. Both full footprints must exchange legally; otherwise the original target is hit. Acting, Disable, Sleep, and Growth do not prevent Intercept. It cannot protect a Bodyguard or another Intercept, and zero-damage attacks and spells do not trigger it.",
                 keywordColor});
         }
-        if (game_data::hasKeyword(keywords, "undying"))
+        if (game_data::hasKeyword(passives, "rescue"))
+            descriptions.push_back({"Rescue: once per round, when another adjacent ally is attacked, move that ally to the first empty legal adjacent square clockwise around this unit, starting after its current square. The attack misses if the ally leaves the attacked square. No legal square means the rescue stays ready.", keywordColor});
+        if (game_data::hasKeyword(passives, "undying"))
             descriptions.push_back({"Undying: the first time this unit would be defeated, revive it on the board with 1 Health. Once per board lifetime; keeps its identity, attachments and conditions. This is not a kill.", keywordColor});
-        if (game_data::hasKeyword(keywords, "chrysalis"))
+        if (game_data::hasKeyword(passives, "chrysalis"))
         {
             descriptions.push_back({
                 "Chrysalis: once per card per game, defeat leaves a nonblocking Husk. Enemy occupation crushes it. At your next turn, return with 1 Health only if its footprint is empty. Replacement, exile and Evacuate rules resolve first.",
                 sf::Color(190, 214, 154)});
         }
-        if (game_data::hasKeyword(keywords, "evacuate"))
+        if (game_data::hasKeyword(passives, "evacuate"))
         {
             descriptions.push_back({
                 "Evacuate: when an adjacent friendly Unit is killed, return its base card to its owner's hand if there is room. Includes diagonals. Does not save this piece itself or Heroes. Rebirth, infestation, and raised-Undead exile resolve first.",
                 keywordColor});
         }
-        if (game_data::hasKeyword(keywords, "trail"))
+        if (game_data::hasKeyword(passives, "trail"))
         {
             descriptions.push_back({
                 summonTitle.empty()
@@ -328,19 +330,19 @@
                         " where it started. The new Unit cannot act until its owner's next turn.",
                 summonTitle.empty() ? sf::Color(225, 170, 150) : keywordColor});
         }
-        if (game_data::hasKeyword(keywords, "foresight"))
+        if (game_data::hasKeyword(passives, "foresight"))
         {
             descriptions.push_back({
                 "Foresight: every paid 50-Resource draw reveals up to one plus the number of your Foresight pieces, limited by the cards left in your deck. Keep one; put the rest on the bottom. Choosing completes that same paid draw; it is not a second command.",
                 keywordColor});
         }
-        if (game_data::hasKeyword(keywords, "reveal"))
+        if (game_data::hasKeyword(passives, "reveal"))
         {
             descriptions.push_back({
                 "Reveal: at the end of this piece's owner's turn, every adjacent enemy in Dematerialize state 1 returns directly to visible state 0. This passive reveal does not apply Disable.",
                 keywordColor});
         }
-        if (game_data::hasKeyword(keywords, "dematerialize"))
+        if (game_data::hasKeyword(passives, "dematerialize"))
         {
             descriptions.push_back({
                 "Dematerialize: while in a nonzero action state, opponents cannot see this piece and it exerts no square control. Movement, Push, Pull, Unit deployment, or Summon collisions materialize it and make it Disabled for its next owner-turn activation; Reveal returns state 1 directly to state 0 without applying Disable.",
@@ -399,6 +401,14 @@
         {
             rule = "applies removable negative Silence to living enemies within " + std::to_string(game_data::activatedRange(source, ability.c_str())) + " squares for " +
                 std::to_string(game_data::activatedDuration(source, ability.c_str())) + " affected-enemy turns; blocks activated abilities only, not attacks, movement or passives. Later entrants are unaffected";
+        }
+        else if (ability == "corrupt the ground")
+        {
+            label = "Corrupt the Ground";
+            rule = "places a Blight in the empty square directly in front, visible only to its owner. Deals " +
+                std::to_string(game_data::activatedStrength(source, ability.c_str())) +
+                " damage once when an enemy crosses or lands on it. Jumpers trigger it only on landing. "
+                "Flyers and friendly units ignore it. If a hidden enemy occupies the square, the ability reveals it instead and spends the action";
         }
         else if (ability == "shriek")
         {
@@ -610,9 +620,11 @@
         if (piece.sleepTurnsRemaining > 0)
         {
             descriptions.push_back({"Sleeping: " + std::to_string(piece.sleepTurnsRemaining) +
-                                        " owner turn(s) - movement is blocked, but a stationary attack remains legal if this piece can otherwise act",
+                                        " owner turn(s) - regular actions and activated abilities are blocked",
                                     sf::Color(120, 190, 230)});
         }
+        if (piece.rootedTurnsRemaining > 0)
+            descriptions.push_back({"Rooted: regular actions blocked; activated abilities still available", sf::Color(150, 205, 130)});
         if (piece.originalOwner != 0)
         {
             descriptions.push_back({piece.controlTurnsRemaining > 0
@@ -628,14 +640,16 @@
         }
         appendAbilityRuleDescription(descriptions, piece, piece.actionState);
         appendAbilityRuleDescription(descriptions, piece, piece.actionState, true);
-        appendKeywordRuleDescriptions(descriptions, piece.keywords, piece.summonTitle);
+        appendNamedPassiveRuleDescriptions(descriptions, piece.passives, piece.summonTitle);
         appendPassiveRuleDescriptions(
             descriptions, piece.tax, piece.gatherResources, piece.healingAura, game_data::damageWithPower(piece.counterstrike, power),
             piece.canControl, piece.growTurnsRemaining, piece.rebirthTitle,
             piece.transformTurnsRemaining, piece.transformInto);
-        if (game_data::hasKeyword(piece.keywords, "undying") && piece.undyingUsed)
+        if (game_data::hasKeyword(piece.passives, "rescue") && piece.dashRescueUsedThisRound)
+            descriptions.push_back({"Rescue: already used this round.", sf::Color(190, 198, 214)});
+        if (game_data::hasKeyword(piece.passives, "undying") && piece.undyingUsed)
             descriptions.push_back({"Undying: already used by this unit.", sf::Color(190, 198, 214)});
-        if (game_data::hasKeyword(piece.keywords, "chrysalis") && piece.chrysalisUsed)
+        if (game_data::hasKeyword(piece.passives, "chrysalis") && piece.chrysalisUsed)
             descriptions.push_back({"Chrysalis: already used this game.", sf::Color(190, 198, 214)});
         for (const game_data::Enchantment& enchantment : gameSnapshot.enchantments)
         {
@@ -806,7 +820,7 @@
             }
             appendAbilityRuleDescription(descriptions, card, 0);
             appendAbilityRuleDescription(descriptions, card, 0, true);
-            appendKeywordRuleDescriptions(descriptions, card.keywords, card.summonTitle);
+            appendNamedPassiveRuleDescriptions(descriptions, card.passives, card.summonTitle);
             appendPassiveRuleDescriptions(
                 descriptions, card.tax, card.gatherResources, card.healingAura, game_data::damageWithPower(card.counterstrike, card.power),
                 card.canControl, card.growTurns, card.rebirthTitle,
@@ -1237,6 +1251,7 @@
         // Traits and keywords as tag pills, not a comma-joined label line.
         const std::vector<std::string>& traits = piece ? piece->traits : card->traits;
         const std::vector<std::string>& keywords = piece ? piece->keywords : card->keywords;
+        const std::vector<std::string>& passives = piece ? piece->passives : card->passives;
         {
             float tagX = headerX;
             float tagY = PiecePopupY + 118.0f;
@@ -1267,6 +1282,10 @@
             for (const std::string& keyword : keywords)
             {
                 drawTag(keyword, sf::Color(146, 206, 226));
+            }
+            for (const std::string& passive : passives)
+            {
+                drawTag(passive, sf::Color(195, 167, 235));
             }
         }
 
@@ -1729,7 +1748,8 @@
                 ((previewingNextTurn && !highlightedPiece->hasActed) ||
                  (!previewingNextTurn &&
                   pieceCanTakeTurnAction(*highlightedPiece, boardSnapshot.activePlayer)));
-            if (pieceCanHighlight)
+            if (pieceCanHighlight && highlightedPiece->sleepTurnsRemaining == 0 &&
+                highlightedPiece->rootedTurnsRemaining == 0)
             {
                 // Highlight against the acting piece's view of the board:
                 // dematerialized enemies read as open squares (never as
@@ -2905,6 +2925,21 @@
                 ? sf::Color(133, 202, 235) : sf::Color(235, 133, 133));
             window.draw(shell);
             drawText(window, font, "Husk", 12, {anchor.x - 16.0f, anchor.y + 10.0f}, sf::Color(229, 231, 177));
+        }
+
+        // A Blight is a noninteractive, owner-visible board marker.
+        for (const game_data::Trap& trap : boardSnapshot.traps)
+        {
+            if (trap.owner != boardSnapshot.yourPlayer) continue;
+            const sf::Vector2f anchor = boardFootprintAnchor(trap.row, trap.column, 1, 1, boardSnapshot.yourPlayer);
+            sf::CircleShape mark(9.0f, 4);
+            mark.setPosition({anchor.x - 9.0f, anchor.y - 9.0f});
+            mark.setFillColor(sf::Color(108, 46, 112, 235));
+            mark.setOutlineThickness(2.0f);
+            mark.setOutlineColor(sf::Color(232, 160, 235));
+            window.draw(mark);
+            drawText(window, font, game_data::trapObjectName(trap.effect), 12,
+                     {anchor.x - 17.0f, anchor.y + 8.0f}, sf::Color(239, 188, 242));
         }
 
         // Persistent attachments remain visible on their board targets.

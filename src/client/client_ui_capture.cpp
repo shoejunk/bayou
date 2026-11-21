@@ -1008,7 +1008,10 @@ card_data::Card makeCard(const SampleCard& source)
         card.traits.emplace_back(source.trait2);
     }
     card.traits.emplace_back(source.court);
-    card.keywords.emplace_back(source.keyword);
+    if (card_data::isSupportedPassive(source.keyword))
+        card.passives.emplace_back(source.keyword);
+    else
+        card.keywords.emplace_back(source.keyword);
     card.integerValues.push_back({"cost", source.cost});
     if (source.heroCost > 0)
     {
@@ -1285,6 +1288,8 @@ const std::vector<std::string>& knownScreens()
         "game-bases-blue-large",
         "game-midgame",
         "game-chrysalis",
+        "game-blight",
+        "game-dash-rescue",
         "game-swap",
         "game-hand-hover",
         "game-selected",
@@ -1310,6 +1315,7 @@ const std::vector<std::string>& knownScreens()
         "admin-users-starter-popup",
         "admin-users-all-cards-popup",
         "card-editor-loaded",
+        "card-editor-passives",
         "card-editor-actions",
         "card-editor-abilities",
         "card-editor-ability-reference",

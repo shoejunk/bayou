@@ -262,9 +262,8 @@ struct FrozenCard
 std::vector<std::uint8_t> serializeCard(const card_data::Card& card)
 {
     sf::Packet packet;
-    const bool native=card.abilityReferencesExplicit || card.activatedAbility.has_value() || card.sacrificeAbility.has_value();
-    card_data::writeCardListHeader(packet, 1, true, native);
-    card_data::writeCard(packet, card, true, native);
+    card_data::writeCardListHeader(packet, 1, true, true, true);
+    card_data::writeCard(packet, card, true, true, true);
     const auto* first = static_cast<const std::uint8_t*>(packet.getData());
     return first == nullptr
         ? std::vector<std::uint8_t>{}
@@ -289,6 +288,7 @@ std::optional<card_data::Card> deserializeCard(const void* data, int size)
     bool actionIncludesLifedrain = false;
     bool actionIncludesSlow = false;
         bool includesAbilities = false;
+    bool includesPassives = false;
     if (!card_data::readCardListHeader(
             packet,
             count,
@@ -299,7 +299,7 @@ std::optional<card_data::Card> deserializeCard(const void* data, int size)
             &actionIncludesInfest,
             &actionIncludesPull,
             &actionIncludesLifedrain,
-            &actionIncludesSlow, &includesAbilities) || count != 1)
+            &actionIncludesSlow, &includesAbilities, &includesPassives) || count != 1)
     {
         return std::nullopt;
     }
@@ -314,7 +314,7 @@ std::optional<card_data::Card> deserializeCard(const void* data, int size)
             actionIncludesInfest,
             actionIncludesPull,
             actionIncludesLifedrain,
-            actionIncludesSlow, includesAbilities))
+            actionIncludesSlow, includesAbilities, includesPassives))
     {
         return std::nullopt;
     }

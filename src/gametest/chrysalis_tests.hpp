@@ -11,14 +11,14 @@ void testChrysalis(Check check)
     grub.title = "Chrysalis test Grub";
     grub.type = "Unit";
     grub.health = 4;
-    grub.keywords = {"Chrysalis"};
+    grub.passives = {"Chrysalis"};
     ActionProfile step;
     step.canMove = true;
     step.maxRange = 1;
     grub.actions = {step};
     GameCard shooter = grub;
     shooter.title = "Chrysalis test attacker";
-    shooter.keywords.clear();
+    shooter.passives.clear();
     ActionProfile shot;
     shot.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
     shot.canMove = false;
@@ -218,7 +218,7 @@ void testChrysalis(Check check)
     escort.owner = 1;
     escort.row = 2;
     escort.column = 3;
-    escort.keywords = {"Evacuate"};
+    escort.passives = {"Evacuate"};
     evacuated.pieces.push_back(escort);
     bayou::client::destroyPieceInSnapshot(evacuated, nextId, 10, nullptr, nullptr, &grub);
     check(evacuated.husks.empty() && evacuated.hand.size() == 1 && evacuated.graveyard.empty(),

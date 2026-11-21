@@ -104,6 +104,31 @@
         if (!check(intValueFields[0].isToggle(), "Typing a known flag key must immediately show a toggle.")) return false;
         restoreCurrentForm();
 
+        card_data::Card tagCard;
+        tagCard.title = "Separate list check";
+        tagCard.type = "Unit";
+        tagCard.traits = {"Fey"};
+        tagCard.keywords = {"Undying", "plant"};
+        tagCard.passives = {"Undying"};
+        applyCaptureState("card-editor-loaded", {tagCard});
+        const auto clickButton = [&](EditorButton& button) {
+            const auto bounds = button.bounds();
+            click(bounds.position.x + bounds.size.x * 0.5f, bounds.position.y + bounds.size.y * 0.5f);
+        };
+        const auto tagForm = cardFromForm();
+        if (!check(tagForm.traits == tagCard.traits && tagForm.keywords == tagCard.keywords &&
+                   tagForm.passives == tagCard.passives && !hasUnsavedChanges(),
+                   "Traits, Keywords and Passives must load and save independently.")) return false;
+        activateField(&passiveFields.front());
+        ensureActiveFieldVisible();
+        clickButton(removePassiveButtons.front());
+        if (!check(cardFromForm().passives.empty() && cardFromForm().keywords == tagCard.keywords &&
+                   hasUnsavedChanges(), "Removing an identically named Passive must leave the Keyword.")) return false;
+        clickButton(addPassiveButton);
+        type("Undying");
+        if (!check(cardFromForm().passives == tagCard.passives && cardFromForm().keywords == tagCard.keywords &&
+                   !hasUnsavedChanges(), "Re-adding the Passive must restore the clean form.")) return false;
+
         applyCaptureState("card-editor-actions", library);
         for (int i = 0; i < 20; ++i)
         {

@@ -77,7 +77,7 @@ void testAreaHeal(Check check)
     board = {source, fey}; applyAreaHeal(board, board[0]);
     check(board[1].health == 3, "Area Heal measures nearest footprint squares and heals a large unit once");
     source.width = source.height = 1; source.healRange = 2;
-    Piece rot = enemy; rot.row = 3; rot.column = 4; rot.keywords = {"Rot Aura"};
+    Piece rot = enemy; rot.row = 3; rot.column = 4; rot.passives = {"Rot Aura"};
     board = {source, rot}; applyAreaHeal(board, board[0]);
     check(board[0].health == 2, "Area Heal respects enemy Rot Aura");
     check(pieceAbilityAvailable(board, board[0]),

@@ -92,6 +92,13 @@
                                 {CardPopupStatsX, y + 14.0f}, palette::Muted, CardPopupStatsWidth, 3.0f) + 8.0f;
         }
 
+        if (!card->passives.empty())
+        {
+            drawCaption(collectionUi, {CardPopupStatsX, y}, "PASSIVES");
+            y = drawWrappedText(window, font, joinStrings(card->passives, ", "), 12,
+                                {CardPopupStatsX, y + 14.0f}, sf::Color(195, 167, 235), CardPopupStatsWidth, 3.0f) + 8.0f;
+        }
+
         // Rules text lives here rather than on the face: at 168px wide the face
         // could only show a clipped fragment of it.
         const std::string rules = game_data::cardStr(*card, "description", "");

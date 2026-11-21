@@ -40,7 +40,7 @@ inline bool supportedKind(const std::string &kind)
 {
     return kind == "dig" || kind == "transform" || kind == "dematerialize" || kind == "summon" || kind == "command" ||
            kind == "raise undead" || kind == "swap" || kind == "power boost" || kind == "area heal" ||
-           kind == "silence" || kind == "shriek" || kind == "weaken";
+           kind == "silence" || kind == "shriek" || kind == "weaken" || kind == "corrupt the ground";
 }
 
 inline bool valid(const Definition &value, bool requireName = false)

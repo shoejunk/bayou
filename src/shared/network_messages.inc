@@ -154,7 +154,9 @@ enum class MessageType : std::uint8_t
     ActivatedAbilityDeleteRequest,
     ActivatedAbilityDeleteResponse,
     CardUpsertWithAbilitiesRequest,
-    CardUpdateWithAbilitiesRequest
+    CardUpdateWithAbilitiesRequest,
+    CardUpsertWithPassivesRequest,
+    CardUpdateWithPassivesRequest
 };
 
 // MovePiece and AttackPiece keep their original three-int payload

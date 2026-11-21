@@ -212,7 +212,7 @@ GameCard mirewatchCard(std::string_view title)
     if (title == "Birdie the Wise")
     {
         GameCard card = baseCard(title, "Hero", 0, 35, 1, {"Honorable", "Wild"});
-        card.keywords = {"foresight"};
+        card.passives = {"foresight"};
         card.actions = {action("Scout", MovePattern::Diag, 1, 7, true, false)};
         ActionProfile shot = action(
             "Longbow Shot", MovePattern::Ortho, 1, 3, false, true, 1, ActionKind::Ranged);
@@ -236,7 +236,7 @@ GameCard mirewatchCard(std::string_view title)
     if (title == "Juniper Flash")
     {
         GameCard card = baseCard(title, "Unit", 20, 0, 1, {"Arcane", "Honorable"});
-        card.keywords = {"intercept"};
+        card.passives = {"intercept"};
         card.actions = {action(
             "Spark", MovePattern::Ortho, 1, 2, false, true, 1, ActionKind::Ranged)};
         card.actions.push_back(action("Sprint", MovePattern::Ortho, 1, 2, true, false));
@@ -316,7 +316,7 @@ GameCard mirewatchCard(std::string_view title)
         const bool mounted = title == "Swamp Tracker";
         GameCard card = baseCard(
             title, "Unit", mounted ? 45 : 20, 0, mounted ? 3 : 1, {"Honorable", "Wild"});
-        card.keywords = {"Reveal"};
+        card.passives = {"Reveal"};
         if (mounted)
         {
             card.actions = {action(
@@ -389,7 +389,7 @@ GameCard blackthornCard(std::string_view title)
     if (title == "Grove Sister")
     {
         GameCard card = baseCard(title, "Unit", 55, 0, 3, {"Corrupt", "Wild"});
-        card.keywords = {"trail"};
+        card.passives = {"trail"};
         card.summonTitle = "Sapling";
         card.actions = {action("Glide", MovePattern::Diag, 1, 7, true, true, 1)};
         return card;
@@ -501,7 +501,7 @@ GameCard seelieStoryCard(std::string_view title)
     if (title == "Archivist Mosswake")
     {
         GameCard card = baseCard(title, "Unit", 35, 0, 1, {"Ancient", "Wild"});
-        card.keywords = {"foresight"};
+        card.passives = {"foresight"};
         card.actions = {action("Rootwalk", MovePattern::Ortho, 1, 2, true, true, 1)};
         noIdle(card);
         return card;
@@ -651,7 +651,7 @@ GameCard seelieStoryCard(std::string_view title)
     if (title == "Starbloom Knight")
     {
         GameCard card = baseCard(title, "Unit", 40, 0, 4, {"Fey", "Honorable"});
-        card.keywords = {"bodyguard"};
+        card.passives = {"bodyguard"};
         card.actions = {action(
             "Starbloom Charge", MovePattern::Ortho, 1, 3, true, true, 1)};
         noIdle(card);
@@ -835,14 +835,14 @@ GameCard supportingCard(std::string_view title)
     if (title == "Victor Greyshard")
     {
         GameCard card = baseCard(title, "Hero", 0, 40, 3, {"Civilized", "Corrupt"});
-        card.keywords = {"relentless"};
+        card.passives = {"relentless"};
         card.actions = {action("Axe Dance", MovePattern::Diag, 1, 1, true, true, 1, ActionKind::Capture)};
         return card;
     }
     if (title == "Rowan Leafbound")
     {
         GameCard card = baseCard(title, "Unit", 40, 0, 3, {"Civilized", "Honorable"});
-        card.keywords = {"bodyguard"};
+        card.passives = {"bodyguard"};
         card.actions = {action("Shield Bash", MovePattern::Omni, 1, 1, true, true, 1)};
         card.walkAnimPath = "animations/rowan-walk.png";
         card.attackAnimPath = "animations/rowan-attack.png";

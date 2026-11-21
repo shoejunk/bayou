@@ -19,6 +19,7 @@ game_data::GameCard cardFromDestroyedPiece(const game_data::Piece& piece)
     card.type = piece.isHero ? "Hero" : "Unit";
     card.traits = piece.traits;
     card.keywords = piece.keywords;
+    card.passives = piece.passives;
     card.imagePath = piece.imagePath;
     card.walkAnimPath = piece.walkAnimPath;
     card.idleAnimPath = piece.idleAnimPath;
@@ -141,7 +142,7 @@ PieceDestructionResult destroyPieceInSnapshot(
     const game_data::Piece original = *found;
     const bool canEvacuate = game_data::pieceHasEvacuateSupport(snapshot.pieces, original);
     const bool chrysalisEligible = !original.isHero && !original.chrysalisUsed &&
-        game_data::hasKeyword(original.keywords, "chrysalis");
+        game_data::hasKeyword(original.passives, "chrysalis");
     snapshot.pieces.erase(
         std::remove_if(
             snapshot.pieces.begin(),

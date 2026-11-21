@@ -127,16 +127,19 @@ def main():
             card["actions"] = r.strings(); card["labels"] = r.strings()
             assert r.u32() == 0, "This isolated fixture has no printed actions"
             card["legacyBytes"] = r.data[start:r.pos]
-            if version == 14:
+            if version >= 14:
                 card["abilityName"], card["sacrificeName"] = r.string(), r.string()
                 card["ability"] = read_definition(r) if r.byte() else None
                 card["sacrifice"] = read_definition(r) if r.byte() else None
+            if version >= 15:
+                card["explicit"] = bool(r.byte())
+                card["passives"] = r.strings()
             cards.append(card)
         r.done(); return cards
     def card_body(title, ability):
-        return (STRING(title) + STRING("Unit") + STRING("") + STRINGS(["Fey"]) + STRINGS([]) +
+        return (STRING(title) + STRING("Unit") + STRING("") + STRINGS(["Fey"]) + STRINGS(["Plant", "Undying"]) +
                 U32(1) + STRING("health") + I32(4) + U32(0) + U32(0) + STRINGS([]) + STRINGS([]) + U32(0) +
-                STRING(ability) + STRING("") + b"\0\0")
+                STRING(ability) + STRING("") + b"\0\0\1" + STRINGS(["Bodyguard"]))
     env = os.environ.copy()
     env.update(BAYOU_TLS_CERT_FILE=str(work / "server.pem"), BAYOU_TLS_KEY_FILE=str(work / "server-key.pem"))
     with (work / "cardserver.log").open("wb") as log:
@@ -151,19 +154,22 @@ def main():
             else: raise RuntimeError("Isolated server did not become ready: "+last_error)
             command("ActivatedAbilityUpsertRequest", definition_bytes("Test Heal"))
             assert library()[0]["filter"] == ["Fey", "Mechanical"] and library()[0]["restriction"] == ""
-            command("CardUpsertWithAbilitiesRequest", card_body("Test Unit", "Test Heal"), "CardUpsertResponse")
-            native = catalog(14)[0]
+            command("CardUpsertWithPassivesRequest", card_body("Test Unit", "Test Heal"), "CardUpsertResponse")
+            native = catalog(15)[0]
             assert native["abilityName"] == "Test Heal" and native["ability"]["strength"] == 3
             assert not native["strings"] and not native["lists"]
+            assert native["explicit"] and native["keywords"] == ["Plant", "Undying"] and native["passives"] == ["Bodyguard"]
+            assert catalog(14)[0]["keywords"] == ["Bodyguard", "Plant"]
             old = catalog(13)[0]
             assert old["strings"]["ability"] == "area heal" and old["lists"]["heal filter"] == ["Fey", "Mechanical"]
-            command("CardUpsertRequest", old["legacyBytes"])
-            assert catalog(14)[0]["ability"] == native["ability"]
+            command("CardUpsertRequest", old["legacyBytes"], success=False)
+            command("CardUpdateWithAbilitiesRequest", STRING("Test Unit"), "CardUpdateResponse", False)
+            assert catalog(15)[0]["ability"] == native["ability"] and catalog(15)[0]["keywords"] == native["keywords"]
             command("ActivatedAbilityDeleteRequest", STRING("Test Heal"), success=False)
             command("ActivatedAbilityUpdateRequest", STRING("Test Heal") + definition_bytes("Renamed Heal"))
             assert catalog(14)[0]["abilityName"] == "Renamed Heal" and library()[0]["name"] == "Renamed Heal"
-            command("CardUpdateWithAbilitiesRequest", STRING("Test Unit") + card_body("Renamed Unit", "Renamed Heal"), "CardUpdateResponse")
-            command("CardUpsertWithAbilitiesRequest", card_body("Renamed Unit", "Missing"), "CardUpsertResponse", False)
+            command("CardUpdateWithPassivesRequest", STRING("Test Unit") + card_body("Renamed Unit", "Renamed Heal"), "CardUpdateResponse")
+            command("CardUpsertWithPassivesRequest", card_body("Renamed Unit", "Missing"), "CardUpsertResponse", False)
             assert catalog(14)[0]["abilityName"] == "Renamed Heal"
             command("ActivatedAbilityUpsertRequest", definition_bytes("Invalid")[:-1], success=False)
             command("CardDeleteRequest", STRING("Renamed Unit"))

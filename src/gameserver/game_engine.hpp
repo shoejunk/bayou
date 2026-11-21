@@ -2,6 +2,7 @@
 
 #include "../shared/card_data.hpp"
 #include "../shared/game_data.hpp"
+#include "../shared/corrupt_ground_rules.hpp"
 
 #include <fmt/core.h>
 
@@ -221,6 +222,7 @@ public:
         holes.fill(0);
         pieces.clear();
         husks.clear();
+        traps.clear();
         enchantments.clear();
         graveyard.clear();
         exiled.clear();
@@ -917,7 +919,7 @@ private:
         bool hiddenSummonCollision = false;
         if (piece != nullptr && piece->owner == playerNumber &&
             !piece->hasActed && pieceAbilityAvailable(*piece, sacrifice) &&
-            ability == "summon")
+            (ability == "summon" || ability == "corrupt the ground"))
         {
             const auto [summonRow, summonColumn] = summonDestination(*piece);
             const Piece* blocker = inBounds(summonRow, summonColumn)
@@ -1009,6 +1011,22 @@ private:
                 spawnPiece(playerNumber, *summonCard, row, column, false);
                 pieces.back().hasActed = true;
             }
+        }
+        else if (ability == "corrupt the ground")
+        {
+            const auto definition=abilityDefinition(*piece,sacrifice);
+            const auto [row,column]=summonDestination(*piece);
+            // Replace an existing friendly marker; hidden opposing markers must
+            // not disable the button or reveal themselves through failed use.
+            const auto result=activateCorruptGround(pieces,*piece,definition ? definition->strength : std::nullopt);
+            if (!result.placement.spendsAction()) return false;
+            if (result.trap)
+            {
+                std::erase_if(traps,[&](const Trap& trap) { return trap.row==row && trap.column==column && trap.owner==playerNumber; });
+                traps.push_back(*result.trap);
+            }
+            else if (const Piece* occupant=pieceById(result.placement.hiddenOccupantId))
+                hiddenAbilityCollisionName=occupant->name;
         }
         else if (ability == "shriek")
         {
@@ -1359,6 +1377,7 @@ public:
         snapshot.control = control;
         snapshot.holes = holes;
         snapshot.husks = husks;
+        for (const Trap& trap : traps) if (trap.owner == playerNumber) snapshot.traps.push_back(trap);
         snapshot.enchantments.clear();
         snapshot.pieces.clear();
         for (const Piece& piece : pieces)
@@ -1553,6 +1572,7 @@ private:
     std::array<std::uint8_t, BoardSquares> holes{};
     std::vector<Piece> pieces;
     std::vector<PendingHusk> husks;
+    std::vector<Trap> traps;
     std::vector<Enchantment> enchantments;
     std::vector<GameCard> graveyard;
     std::vector<GameCard> exiled;
@@ -1714,7 +1734,7 @@ private:
         const Piece original = *dying;
         const bool canEvacuate = pieceHasEvacuateSupport(pieces, original);
         const bool chrysalisEligible = !original.isHero && !original.chrysalisUsed &&
-            hasKeyword(original.keywords, "chrysalis");
+            hasKeyword(original.passives, "chrysalis");
         const GameCard* originalDefinition = summonCardByTitle(original.name);
         const bool recordsDestroyedCard = !original.isHero && originalDefinition != nullptr &&
             originalDefinition->type == "Unit";
@@ -2010,7 +2030,19 @@ private:
 
         const int attackerId = piece->id;
         const int attackerOwner = piece->owner;
-        const auto onDisplacement = [&]() { crushOccupiedHusks(pieces, husks, graveyard, exiled); };
+        std::vector<int> trapKilledIds;
+        std::vector<std::pair<int,std::pair<int,int>>> priorPositions;
+        for (const Piece& p : pieces) priorPositions.push_back({p.id,{p.row,p.column}});
+        const auto onDisplacement = [&]() {
+            crushOccupiedHusks(pieces, husks, graveyard, exiled);
+            for (Piece& p : pieces) {
+                auto old=std::find_if(priorPositions.begin(),priorPositions.end(),[&](const auto& item){return item.first==p.id;});
+                if (old!=priorPositions.end() && old->second!=std::pair{p.row,p.column}) {
+                    if (applyBlightContact(traps,p) && p.health<=0) trapKilledIds.push_back(p.id);
+                    old->second={p.row,p.column};
+                }
+            }
+        };
         const int originRow = piece->row;
         const int originColumn = piece->column;
         const std::string attackerName = piece->name;
@@ -2026,6 +2058,7 @@ private:
         bool anyTargetReborn = false;
         bool anyTargetInfestationSpawned = false;
         bool anyTargetWasHidden = false;
+        bool dashRescueOccurred = false;
         int pushedSquares = 0;
         int pushCollisionDamage = 0;
         int pulledSquares = 0;
@@ -2051,6 +2084,34 @@ private:
         const bool actionHasInfest = !infestationTitle.empty() &&
             infestationDefinition != nullptr && infestationDefinition->type == "Unit";
 
+        // Resolve ground path contacts before the attack at the destination.
+        // Keep the original action geometry if the mover survives traversal.
+        if (action.moves && !pieceMovementBound(pieces,*piece) && action.actionIndex>=0)
+        {
+            const auto travel=blightTravel(*piece,piece->actions[static_cast<std::size_t>(action.actionIndex)]);
+            const auto anchors=trapContactAnchors(originRow,originColumn,destinationRow,destinationColumn,travel);
+            if (anchors) for (const auto& [r,c] : *anchors)
+            {
+                if (r==destinationRow && c==destinationColumn) continue; // landing only after success
+                piece->row=r; piece->column=c;
+                applyBlightContact(traps,*piece);
+                if (piece->health<=0)
+                {
+                    destroyPiece(attackerId);
+                    piece=pieceById(attackerId);
+                    if (!piece)
+                    {
+                        if (!commandedAction) playerRef(playerNumber).pieceActionUsedThisTurn=true;
+                        commandingPieceId=0; relentlessPieceId=0; relentlessActionKeepsTurn=false;
+                        if (narrationEnabled) status=attackerName+" was defeated by Blight.";
+                        recomputeControl(); checkForWinner(attackerOwner);
+                        return true;
+                    }
+                    // Undying preserves this piece; finish its surviving action.
+                }
+            }
+            piece->row=originRow; piece->column=originColumn;
+        }
         if (action.attacks)
         {
             const std::vector<int> targetIds = action.targetIds.empty()
@@ -2069,9 +2130,24 @@ private:
                 {
                     healedTargetNames.push_back(targetName);
                     applyActionHealing(pieces, *target, action.heal, action.statusTurns);
+                    if (action.purify) applyPurify(*target);
                 }
                 else
                 {
+                    if (tryDashRescue(pieces, targetId))
+                    {
+                        dashRescueOccurred = true;
+                        onDisplacement();
+                        if (target->health <= 0 || !dashRescueAttackStillHits(
+                                *target, *piece, action, toRow, toColumn, destinationRow, destinationColumn))
+                            continue;
+                    }
+                    if (action.roots && attackDamage == 0 && action.statusTurns == 0)
+                    {
+                        target->rootedTurnsRemaining = std::max(target->rootedTurnsRemaining, 1);
+                        damagedTargetNames.push_back(targetName);
+                        continue;
+                    }
                     const PieceAttackDamageResolution attackResolution = resolvePieceAttackDamage(
                         pieces, attackerId, targetId, attackDamage, action.statusTurns,
                         action.stagingRow, action.stagingColumn, rng, action.lifedrain, action.kind, action.slow, onDisplacement);
@@ -2107,7 +2183,8 @@ private:
                             anyTargetReborn = anyTargetReborn || destruction.wasRebirth;
                             anyTargetInfestationSpawned =
                                 anyTargetInfestationSpawned || destruction.wasInfestation;
-                            anyTargetDestroyed = anyTargetDestroyed || (!destruction.replacementSpawned && !destruction.revived);
+                            anyTargetDestroyed = anyTargetDestroyed || (!destruction.replacementSpawned && !destruction.revived &&
+                                std::find(trapKilledIds.begin(),trapKilledIds.end(),assignment.pieceId)==trapKilledIds.end());
                         }
                     }
                     const PushResult pushResult = applyActionPush(
@@ -2133,7 +2210,8 @@ private:
                         anyTargetReborn = anyTargetReborn || destruction.wasRebirth;
                         anyTargetInfestationSpawned =
                             anyTargetInfestationSpawned || destruction.wasInfestation;
-                        anyTargetDestroyed = anyTargetDestroyed || (!destruction.replacementSpawned && !destruction.revived);
+                        anyTargetDestroyed = anyTargetDestroyed || (!destruction.replacementSpawned && !destruction.revived &&
+                            std::find(trapKilledIds.begin(),trapKilledIds.end(),effectiveTargetId)==trapKilledIds.end());
                     }
                     if (action.pull)
                     {
@@ -2158,7 +2236,7 @@ private:
                     }
                 }
             }
-            if (damagedTargetNames.empty() && healedTargetNames.empty()) return false;
+            if (!dashRescueOccurred && damagedTargetNames.empty() && healedTargetNames.empty()) return false;
         }
 
         // Hidden pieces struck or bumped into by the mover's footprint
@@ -2181,6 +2259,13 @@ private:
                 defeatedOwners.push_back(pieceOriginalOwner(*victim));
                 destroyPiece(victim->id);
             }
+        }
+        // Displacement callbacks cannot erase pieces while damage helpers hold
+        // references. Perform ordinary death handling once those helpers return.
+        std::vector<int> trapCasualties;
+        for (const Piece& p : pieces) if (p.health<=0) trapCasualties.push_back(p.id);
+        for (int id : trapCasualties) if (Piece* casualty=pieceById(id)) {
+            defeatedOwners.push_back(pieceOriginalOwner(*casualty)); destroyPiece(id);
         }
         Piece* survivingAttacker = pieceById(attackerId);
         if (survivingAttacker == nullptr)
@@ -2226,10 +2311,28 @@ private:
             if (survivingAttacker->row != originRow || survivingAttacker->column != originColumn)
                 survivingAttacker->movedThisTurn = true;
         }
+        if (survivingAttacker->row!=originRow || survivingAttacker->column!=originColumn)
+        {
+            applyBlightContact(traps,*survivingAttacker);
+            if (survivingAttacker->health<=0)
+            {
+                destroyPiece(attackerId);
+                survivingAttacker=pieceById(attackerId);
+                if (!survivingAttacker)
+                {
+                    if (!commandedAction) playerRef(playerNumber).pieceActionUsedThisTurn=true;
+                    commandingPieceId=0; relentlessPieceId=0; relentlessActionKeepsTurn=false;
+                    recomputeControl();
+                    for (int owner : defeatedOwners) checkForWinner(owner);
+                    checkForWinner(attackerOwner);
+                    return true;
+                }
+            }
+        }
         survivingAttacker->disabledTurns =
             std::max(survivingAttacker->disabledTurns, action.cooldownTurns);
         const bool gainsRelentlessAction = anyTargetDestroyed &&
-            hasKeyword(survivingAttacker->keywords, "relentless");
+            hasKeyword(survivingAttacker->passives, "relentless");
         bool repeatRemaining = false;
         if (continuingRepeat)
         {
@@ -2299,7 +2402,11 @@ private:
                 }
                 return joined;
             };
-            if (!damagedTargetNames.empty())
+            if (action.roots && !damagedTargetNames.empty())
+            {
+                result = attackerName + " rooted " + joinTargets(damagedTargetNames) + " through its next turn.";
+            }
+            else if (!damagedTargetNames.empty())
             {
                 result = fmt::format(
                     "{} hit {} for {} each",
@@ -2331,7 +2438,7 @@ private:
             {
                 result += fmt::format(" and pulled targets {} square(s)", pulledSquares);
             }
-            if (effectiveDisabledTurns > 0)
+            if (effectiveDisabledTurns > 0 && !damagedTargetNames.empty())
             {
                 result += fmt::format(" and disabled surviving targets for {} turn(s)", effectiveDisabledTurns);
             }
@@ -2343,6 +2450,11 @@ private:
                     " and controlled {} for {} turn(s)",
                     joinTargets(controlledTargetNames),
                     action.control);
+            }
+            if (dashRescueOccurred)
+            {
+                if (result.empty()) result = attackerName + " missed after Rescue";
+                else result += "; Rescue moved a target";
             }
             result += anyTargetDestroyed ? "; at least one was destroyed!" : ".";
             if (anyTargetReborn)
@@ -2466,7 +2578,7 @@ private:
         int count = 0;
         for (const Piece& piece : pieces)
         {
-            if (piece.owner == playerNumber && hasKeyword(piece.keywords, "foresight"))
+            if (piece.owner == playerNumber && hasKeyword(piece.passives, "foresight"))
             {
                 ++count;
             }

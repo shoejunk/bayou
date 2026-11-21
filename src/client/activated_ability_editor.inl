@@ -292,7 +292,7 @@ class ActivatedAbilityEditor
             rows[i].remove.draw(window);
         }
         drawText(window, font,
-                 "Kinds: area heal, command, dematerialize, dig, power boost, raise undead, shriek, silence, summon, "
+                 "Kinds: area heal, command, corrupt the ground, dematerialize, dig, power boost, raise undead, shriek, silence, summon, "
                  "swap, transform, weaken",
                  12, {350, 662}, Muted);
         for (auto *button : {&create, &refresh, &saveButton, &copyButton, &removeButton, &addState})

@@ -248,11 +248,42 @@ std::vector<card_data::Action> loadCardActions(SQLite::Database& database, const
     return actions;
 }
 
+void initializeCardPassives(SQLite::Database& database)
+{
+    SQLite::Transaction transaction(database);
+    if (tableExists(database, "card_passives")) return;
+    database.exec("CREATE TABLE card_passives (title TEXT NOT NULL, passive TEXT NOT NULL,"
+                  "FOREIGN KEY(title) REFERENCES cards(title) ON DELETE CASCADE)");
+    // Before the Traits table, card_keywords held eligibility traits and must
+    // never be classified as behavior by the fallback migration.
+    if (tableExists(database, "card_traits") && tableExists(database, "card_keywords"))
+    {
+        struct Row { long long id; std::string title, value; };
+        std::vector<Row> rows;
+        {
+            SQLite::Statement query(database, "SELECT rowid,title,keyword FROM card_keywords");
+            while (query.executeStep()) {
+                std::string value=query.getColumn(2).getString();
+                if (card_data::isSupportedPassive(value))
+                    rows.push_back({query.getColumn(0).getInt64(),query.getColumn(1).getString(),std::move(value)});
+            }
+        }
+        SQLite::Statement insert(database, "INSERT INTO card_passives (title,passive) VALUES (?,?)");
+        SQLite::Statement remove(database, "DELETE FROM card_keywords WHERE rowid=?");
+        for (const auto& row : rows) {
+            insert.reset(); insert.bind(1,row.title); insert.bind(2,row.value); insert.exec();
+            remove.reset(); remove.bind(1,static_cast<std::int64_t>(row.id)); remove.exec();
+        }
+    }
+    transaction.commit();
+}
+
 std::vector<card_data::Card> loadCards(SQLite::Database& database)
 {
     std::vector<card_data::Card> cards;
     const bool hasTraitsTable = tableExists(database, "card_traits");
     const bool hasKeywordsTable = tableExists(database, "card_keywords");
+    const bool hasPassivesTable = tableExists(database, "card_passives");
     SQLite::Statement query(database, "SELECT title, type, image_path FROM cards ORDER BY title");
     while (query.executeStep())
     {
@@ -283,6 +314,12 @@ std::vector<card_data::Card> loadCards(SQLite::Database& database)
                 "SELECT keyword FROM card_keywords WHERE title = ? ORDER BY keyword",
                 card.title);
         }
+        if (hasPassivesTable)
+            card.passives = loadStringColumn(database,
+                "SELECT passive FROM card_passives WHERE title = ? ORDER BY passive", card.title);
+        else if (hasTraitsTable && hasKeywordsTable)
+            card_data::splitLegacyPassives(card);
+        card_data::normalizeRescuePassives(card.passives);
         card.integerValues = loadIntegerValues(database, card.title);
         card.stringValues = loadStringValues(database, card.title);
         card.stringLists = loadStringLists(database, card.title);

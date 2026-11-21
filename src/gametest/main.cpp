@@ -299,10 +299,10 @@ void testEvacuate()
     provider.title = "Evacuator";
     provider.type = "Unit";
     provider.health = 10;
-    provider.keywords = {"eVaCuAtE"};
+    provider.passives = {"eVaCuAtE"};
     GameCard ally = provider;
     ally.title = "Evacuated Ally";
-    ally.keywords.clear();
+    ally.passives.clear();
     ally.health = 3;
     ally.cost = 75;
     GameCard attacker = ally;
@@ -368,7 +368,7 @@ void testEvacuate()
     rescuer.id = 2;
     rescuer.row = rescuer.column = 2;
     rescuer.health = 10;
-    rescuer.keywords = provider.keywords;
+    rescuer.passives = provider.passives;
     check(pieceHasEvacuateSupport({casualty, rescuer}, casualty),
           "Evacuate accepts diagonal adjacency and mixed-case keywords");
     rescuer.owner = 2;
@@ -386,7 +386,7 @@ void testEvacuate()
     casualty.isHero = true;
     check(!pieceHasEvacuateSupport({casualty, rescuer}, casualty), "Evacuate does not return Heroes");
     casualty.isHero = false;
-    casualty.keywords = provider.keywords;
+    casualty.passives = provider.passives;
     check(!pieceHasEvacuateSupport({casualty}, casualty), "Evacuate does not return itself");
 
     // Preserve the existing priority of on-death replacements and exile.
@@ -463,11 +463,11 @@ void testShelter()
             provider.width = size;
             provider.height = size;
             provider.health = provider.maxHealth = 10;
-            provider.keywords = {"sHeLtEr"};
+            provider.passives = {"sHeLtEr"};
             Piece ally = provider;
             ally.id = 2;
             ally.width = ally.height = 1;
-            ally.keywords.clear();
+            ally.passives.clear();
             const int rearColumn = owner == 1 ? 2 : 3 + size;
             bool geometryMatches = true;
             for (int row = 0; row < BoardSize; ++row)
@@ -501,11 +501,11 @@ void testShelter()
     provider.row = 3;
     provider.column = 3;
     provider.health = provider.maxHealth = 10;
-    provider.keywords = {"Shelter"};
+    provider.passives = {"Shelter"};
     Piece ally = provider;
     ally.id = 2;
     ally.column = 4;
-    ally.keywords.clear();
+    ally.passives.clear();
     Piece attacker = ally;
     attacker.id = 3;
     attacker.owner = 1;
@@ -586,7 +586,7 @@ void testShelter()
         defenderCard.health = 10;
         GameCard shelterCard = defenderCard;
         shelterCard.title = "Shelter provider";
-        shelterCard.keywords = {"Shelter"};
+        shelterCard.passives = {"Shelter"};
         GameCard attackerCard = defenderCard;
         attackerCard.title = "Shelter test attacker";
         attack.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
@@ -705,7 +705,7 @@ void testPowerBoost()
     attacker.actions[0].push = 0;
     GameCard guard = defender;
     guard.title = "Power test bodyguard";
-    guard.keywords = {"Bodyguard"};
+    guard.passives = {"Bodyguard"};
     GameEngine protectedTarget(204, {});
     check(protectedTarget.loadScenario({{1, attacker, 3, 1, false}, {2, defender, 3, 4, false},
               {2, guard, 2, 4, false}, {2, guard, 4, 4, false}},
@@ -1011,7 +1011,7 @@ void testSwap()
     source.stringValues.push_back({"ability", "Swap"});
     GameCard swapper = toGameCard(source);
     swapper.health = 10;
-    swapper.keywords = {"Foresight"};
+    swapper.passives = {"Foresight"};
     const auto card = [](const std::string& title) {
         GameCard result;
         result.title = title;
@@ -1196,7 +1196,7 @@ void testLifedrain()
     Piece guard = target;
     guard.id = 3;
     guard.row = 2;
-    guard.keywords = {"Bodyguard"};
+    guard.passives = {"Bodyguard"};
     Piece secondGuard = guard;
     secondGuard.id = 4;
     secondGuard.row = 4;
@@ -1205,7 +1205,7 @@ void testLifedrain()
     check(board[0].health == 7 && board[1].health == 10 &&
               board[2].health + board[3].health == 15,
           "Lifedrain sums split Bodyguard damage exactly once");
-    guard.keywords = {"Intercept"};
+    guard.passives = {"Intercept"};
     board = {source, target, guard};
     const auto intercepted = strike(board, 3);
     check(intercepted.attack.intercepted && board[0].health == 5 &&
@@ -1541,7 +1541,7 @@ int main(int argc, char** argv)
     revealer.owner = 1;
     revealer.row = 3;
     revealer.column = 3;
-    revealer.keywords = {"rEvEaL"};
+    revealer.passives = {"rEvEaL"};
     Piece revealTarget;
     revealTarget.id = 121;
     revealTarget.owner = 2;
@@ -1572,7 +1572,7 @@ int main(int argc, char** argv)
     Piece keywordRevealTarget = revealTarget;
     keywordRevealTarget.id = 125;
     keywordRevealTarget.ability.clear();
-    keywordRevealTarget.keywords = {"DEMaterialize"};
+    keywordRevealTarget.passives = {"DEMaterialize"};
     revealPieces = {revealer, keywordRevealTarget};
     applyRevealKeywords(revealPieces, 1);
     check(revealPieces[1].actionState == 0 && !revealPieces[1].hidden,
@@ -1581,7 +1581,7 @@ int main(int argc, char** argv)
     GameCard revealUnitCard;
     revealUnitCard.title = "Reveal Unit";
     revealUnitCard.type = "Unit";
-    revealUnitCard.keywords = {"Reveal"};
+    revealUnitCard.passives = {"Reveal"};
     GameCard dematerializeUnitCard;
     dematerializeUnitCard.title = "Dematerialize Unit";
     dematerializeUnitCard.type = "Unit";
@@ -1671,7 +1671,7 @@ int main(int argc, char** argv)
     GameCard foresightBoardUnit;
     foresightBoardUnit.title = "Foresight Unit";
     foresightBoardUnit.type = "Unit";
-    foresightBoardUnit.keywords = {"fOrEsIgHt"};
+    foresightBoardUnit.passives = {"fOrEsIgHt"};
     GameCard foresightHero = foresightBoardUnit;
     foresightHero.title = "Foresight Hero";
     foresightHero.type = "Hero";
@@ -2135,7 +2135,7 @@ int main(int argc, char** argv)
     check(!pieceAbilityAvailable({profilePiece, summonBlocker}, profilePiece),
           "summon ability checks the left square for player 2");
     profilePiece.ability.clear();
-    profilePiece.keywords = {"tRaIl"};
+    profilePiece.passives = {"tRaIl"};
     check(pieceHasTrailAbility(profilePiece) &&
               !pieceAbilityAvailable(profilePiece) &&
               !pieceAbilityAvailable({profilePiece}, profilePiece),
@@ -2147,7 +2147,7 @@ int main(int argc, char** argv)
           "Trail can coexist with a clearly labeled active ability");
     profilePiece.owner = 1;
     profilePiece.ability = "command";
-    profilePiece.keywords.clear();
+    profilePiece.passives.clear();
     Piece commandedPiece = profilePiece;
     commandedPiece.id = 43;
     commandedPiece.ability.clear();
@@ -2792,8 +2792,8 @@ int main(int argc, char** argv)
         resolvePieceAction(sleepingGunPieces, holes, sleepingGunPieces[0], 3, 4);
     check(!sleepingMove.legal,
           "sleeping pieces cannot move");
-    check(sleepingAttack.legal && !sleepingAttack.moves && sleepingAttack.attacks,
-          "sleeping pieces can still make stationary attacks");
+    check(!sleepingAttack.legal,
+          "sleeping pieces cannot make stationary attacks");
 
     Piece damagedTarget;
     applyDamageStatus(damagedTarget, 2, 0);
@@ -2818,7 +2818,7 @@ int main(int argc, char** argv)
         bodyguard.column = column;
         bodyguard.health = 10;
         bodyguard.maxHealth = 10;
-        bodyguard.keywords = {"BoDyGuArD"};
+        bodyguard.passives = {"BoDyGuArD"};
         return bodyguard;
     };
     Piece bodyguardA = makeBodyguard(31, 2, 2, 2);
@@ -2937,7 +2937,7 @@ int main(int argc, char** argv)
     compositeBodyguardCard.title = "Bodyguard Composite Defender";
     compositeBodyguardCard.type = "Unit";
     compositeBodyguardCard.integerValues = {{"health", 4}};
-    compositeBodyguardCard.keywords = {"bodyguard"};
+    compositeBodyguardCard.passives = {"bodyguard"};
     card_data::Card compositeInfestationCard;
     compositeInfestationCard.title = "Bodyguard Composite Infestation";
     compositeInfestationCard.type = "Unit";
@@ -2999,7 +2999,7 @@ int main(int argc, char** argv)
         interceptor.column = column;
         interceptor.health = 10;
         interceptor.maxHealth = 10;
-        interceptor.keywords = {"InTeRcEpT"};
+        interceptor.passives = {"InTeRcEpT"};
         return interceptor;
     };
     Piece interceptTarget = protectedPiece;
@@ -3034,7 +3034,7 @@ int main(int argc, char** argv)
         interceptPieces.begin(),
         interceptPieces.end(),
         [](const Piece& piece) {
-            return hasKeyword(piece.keywords, "intercept") && !piece.interceptUsedThisTurn;
+            return hasKeyword(piece.passives, "intercept") && !piece.interceptUsedThisTurn;
         }));
     check(unusedIntercepts == 1,
           "only the chosen Intercept unit is spent for the turn");
@@ -3178,7 +3178,7 @@ int main(int argc, char** argv)
     {
         Piece blockedTarget = protectedPiece;
         blockedTarget.id = blockedKeyword == "bodyguard" ? 48 : 50;
-        blockedTarget.keywords = {blockedKeyword};
+        blockedTarget.passives = {blockedKeyword};
         Piece blockedIntercept = makeIntercept(blockedTarget.id + 1, 2, 3, 2);
         std::vector<Piece> blockedPieces = {blockedTarget, blockedIntercept};
         std::mt19937 blockedRandom(34);
@@ -3224,7 +3224,7 @@ int main(int argc, char** argv)
     card_data::Card interceptDefenderCard;
     interceptDefenderCard.title = "Intercept Test Defender";
     interceptDefenderCard.type = "Unit";
-    interceptDefenderCard.keywords = {"INTERCEPT"};
+    interceptDefenderCard.passives = {"INTERCEPT"};
     interceptDefenderCard.integerValues = {{"health", 10}};
     GameEngine interceptEngine(35, {});
     interceptEngine.loadScenario(
@@ -3336,7 +3336,7 @@ int main(int argc, char** argv)
         Piece interceptor = counterDefender;
         interceptor.id = 902;
         interceptor.row = 2;
-        interceptor.keywords = {"Intercept"};
+        interceptor.passives = {"Intercept"};
         interceptor.counterstrike = 4;
         std::vector<Piece> combat = {counterAttacker, counterDefender, interceptor};
         const auto intercepted = resolvePieceAttackDamage(combat, 901, 900, 2, 0, 3, 2, counterRandom);
@@ -3344,7 +3344,7 @@ int main(int argc, char** argv)
                   combat[1].health == 10 && combat[2].health == 8,
               "the swapped-in interceptor supplies Counterstrike instead of the original target");
         Piece guard = interceptor;
-        guard.keywords = {"Bodyguard"};
+        guard.passives = {"Bodyguard"};
         combat = {counterAttacker, counterDefender, guard};
         resolvePieceAttackDamage(combat, 901, 900, 2, 0, 3, 2, counterRandom);
         check(combat[0].health == 7 && combat[1].health == 10 && combat[2].health == 8,
@@ -3365,7 +3365,7 @@ int main(int argc, char** argv)
         resolvePieceAttackDamage(combat, 901, 900, 2, 0, 3, 2, counterRandom);
         check(combat[0].health == 7 && combat[2].health == 0,
               "a defeated Bodyguard cannot absorb more Counterstrike damage before casualty cleanup");
-        guard.keywords = {"Intercept"};
+        guard.passives = {"Intercept"};
         combat = {counterAttacker, counterDefender, guard};
         resolvePieceAttackDamage(combat, 901, 900, 2, 0, 3, 2, counterRandom);
         check(combat[0].health == 7 && combat[2].health == 10 && !combat[2].interceptUsedThisTurn,
@@ -3379,7 +3379,7 @@ int main(int argc, char** argv)
         attackerCard.actions[0].maxRange = 7;
         attackerCard.actions[0].repeat = 2;
         attackerCard.actions[0].damage = 10;
-        attackerCard.keywords = {"Relentless"};
+        attackerCard.passives = {"Relentless"};
         GameEngine counterEngine(43, {});
         check(counterEngine.loadScenario(
                   {{1, attackerCard, 3, 0, false}, {2, counterstrikeCard, 3, 3, false}},
@@ -3908,7 +3908,7 @@ int main(int argc, char** argv)
         99});
     GameCard serializedForesight;
     serializedForesight.title = "Serialized Foresight";
-    serializedForesight.keywords = {"Foresight"};
+    serializedForesight.passives = {"Foresight"};
     serializedSnapshot.foresightChoices.push_back(serializedForesight);
     GameCard serializedGraveyard;
     serializedGraveyard.title = "Serialized Graveyard";
@@ -4125,7 +4125,7 @@ int main(int argc, char** argv)
     card_data::Card rebirthSlayer;
     rebirthSlayer.title = "Rebirth Slayer";
     rebirthSlayer.type = "Hero";
-    rebirthSlayer.keywords = {"Relentless"};
+    rebirthSlayer.passives = {"Relentless"};
     rebirthSlayer.integerValues = {{"health", 8}};
     card_data::Action rebirthAttack;
     rebirthAttack.name = "Rebirth Test Beam";
@@ -4854,7 +4854,7 @@ int main(int argc, char** argv)
     trailHeroCard.title = "Trail Hero";
     trailHeroCard.type = "Hero";
     trailHeroCard.integerValues = {{"health", 5}};
-    trailHeroCard.keywords = {"Trail"};
+    trailHeroCard.passives = {"Trail"};
     trailHeroCard.stringValues = {{"ability", "dematerialize"}, {"summon", "Seedling"}};
     card_data::Action trailStep;
     trailStep.name = "Trail Step";
@@ -5370,7 +5370,7 @@ int main(int argc, char** argv)
         card.integerValues = {{"health", 3}};
         if (relentless)
         {
-            card.keywords = {"ReLeNtLeSs"};
+            card.passives = {"ReLeNtLeSs"};
         }
         if (canDig)
         {

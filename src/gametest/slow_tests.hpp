@@ -93,7 +93,7 @@ void testSlow(Check check)
     protector.id = 99;
     protector.row = 3;
     protector.slowTurnsRemaining = 0;
-    protector.keywords = {"Bodyguard"};
+    protector.passives = {"Bodyguard"};
     board.push_back(protector);
     std::mt19937 rng(17);
     auto hit = [&](int damage, int slow) {
@@ -106,7 +106,7 @@ void testSlow(Check check)
           "Slow stays on the attacked unit through Bodyguard and a weaker hit cannot shorten it");
     board[1].slowTurnsRemaining = 0;
     board[2].health = 2;
-    board[2].keywords = {"Intercept"};
+    board[2].passives = {"Intercept"};
     hit(1, 2);
     check(board[1].slowTurnsRemaining == 0 && board[2].slowTurnsRemaining == 2,
           "an interceptor takes Slow in place of the original target");

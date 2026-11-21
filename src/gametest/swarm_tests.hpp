@@ -12,12 +12,12 @@ void testSwarm(Check check)
     source.row = 3;
     source.column = 3;
     source.name = "Swarm Rat";
-    source.keywords = {"SwArM", "swarm"};
+    source.passives = {"SwArM", "swarm"};
     source.power = 2;
     Piece neighbor = source;
     neighbor.id = 2;
     neighbor.column = 4;
-    neighbor.keywords.clear();
+    neighbor.passives.clear();
     std::vector<Piece> board{source, neighbor};
     check(effectivePiecePower(board, board[0]) == 3 && board[0].power == 2,
           "Swarm adds once per same-name neighbor without changing permanent Power");
@@ -70,7 +70,7 @@ void testSwarm(Check check)
     neighbor = source;
     neighbor.id = 2;
     neighbor.column = 4;
-    neighbor.keywords.clear();
+    neighbor.passives.clear();
     Piece attacker;
     attacker.id = 3;
     attacker.owner = 2;
@@ -88,7 +88,7 @@ void testSwarm(Check check)
     rat.type = "Unit";
     rat.health = 20;
     rat.power = 2;
-    rat.keywords = {"swarm"};
+    rat.passives = {"swarm"};
     ActionProfile action;
     action.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
     action.canAttack = true;
@@ -97,7 +97,7 @@ void testSwarm(Check check)
     action.maxRange = 7;
     rat.actions = {action};
     GameCard companion = rat;
-    companion.keywords.clear();
+    companion.passives.clear();
     GameCard victim = companion;
     victim.title = "Swarm Target";
     for (bool push : {false, true})
@@ -113,7 +113,7 @@ void testSwarm(Check check)
         writePiece(packet, snapshot.pieces.front());
         Piece received;
         check(readPiece(packet, received) && received.power == 3 &&
-                  hasKeyword(received.keywords, "swarm") && engine.boardPieces().front().power == 2,
+                  hasKeyword(received.passives, "swarm") && engine.boardPieces().front().power == 2,
               "Swarm sends total Power to clients without mutating authoritative permanent Power");
         check(engine.attackPiece(1, engine.boardPieces().front().id, 3, 7),
               "Swarm authoritative attack succeeds");

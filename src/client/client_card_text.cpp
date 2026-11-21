@@ -353,9 +353,12 @@ ActionDescription actionDescription(const game_data::ActionProfile& action, std:
         static_cast<game_data::ActionKind>(action.kind) == game_data::ActionKind::Ranged;
     description.pull = action.pull;
     description.lifedrain = action.lifedrain;
+    description.roots = card_data::actionAppliesRooted(action.targetFilter);
+    description.purify = action.heal > 0 && card_data::actionHasPurify(action.targetFilter);
     description.targetFilter.reserve(action.targetFilter.size());
     for (const std::string& filter : action.targetFilter)
     {
+        if (filter == card_data::PurifyActionFlag || filter == card_data::RootedActionFlag) continue;
         description.targetFilter.push_back(
             game_data::normalizedTrait(filter) == "construct"
                 ? "Mechanical"
@@ -407,22 +410,26 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             details.push_back({"Keywords: " + joinStrings(card.keywords, ", "),
                                sf::Color(146, 206, 226)});
         }
-        if (game_data::hasKeyword(card.keywords, "bind"))
+        if (!card.passives.empty())
+        {
+            details.push_back({"Passives: " + joinStrings(card.passives, ", "), sf::Color(195, 167, 235)});
+        }
+        if (game_data::hasKeyword(card.passives, "bind"))
         {
             details.push_back({"Bind: adjacent enemies cannot move, including to another adjacent square. Diagonals count. Stationary attacks and abilities remain usable. Defeating the binder permits normal advance if no other Bind remains. External Push and Pull can free a bound unit.",
                                sf::Color(146, 206, 226)});
         }
-        if (game_data::hasKeyword(card.keywords, "rot aura"))
+        if (game_data::hasKeyword(card.passives, "rot aura"))
         {
             details.push_back({"Rot Aura: adjacent enemies cannot regain Health from any source, including Lifedrain. Diagonals count. Ends when this unit leaves play or is no longer adjacent.",
                                sf::Color(146, 206, 226)});
         }
-        if (game_data::hasKeyword(card.keywords, "bristle"))
+        if (game_data::hasKeyword(card.passives, "bristle"))
         {
             details.push_back({"Bristle: deal 1 damage back when attacked by a non-ranged enemy attack, even if this unit is defeated. Power does not increase this damage.",
                                sf::Color(146, 206, 226)});
         }
-        if (game_data::hasKeyword(card.keywords, "swarm"))
+        if (game_data::hasKeyword(card.passives, "swarm"))
         {
             details.push_back({"Swarm: +1 Power for each adjacent unit with the same name, on either side. Diagonals count; each large unit counts once. The bonus lasts only while adjacent.",
                                sf::Color(146, 206, 226)});
@@ -468,9 +475,11 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
                 std::to_string(gameCard.transformTurns) + " controlling-player turn starts",
                 sf::Color(210, 180, 105)});
         }
-        if (game_data::hasKeyword(gameCard.keywords, "undying"))
+        if (game_data::hasKeyword(gameCard.passives, "rescue"))
+            details.push_back({"Rescue: once per round, moves another adjacent ally out of an incoming attack to the first legal empty square clockwise. Stays ready if no square is available.", sf::Color(195, 167, 235)});
+        if (game_data::hasKeyword(gameCard.passives, "undying"))
             details.push_back({"Undying: the first time this unit would be defeated, revive it on the board with 1 Health. Once per board lifetime.", sf::Color(190, 214, 154)});
-        if (game_data::hasKeyword(gameCard.keywords, "chrysalis"))
+        if (game_data::hasKeyword(gameCard.passives, "chrysalis"))
         {
             details.push_back({gameCard.chrysalisUsed
                 ? "Chrysalis: already used this game."
@@ -502,6 +511,14 @@ DetailRows deckEditorCardDetails(const card_data::Card& card)
             else if (ability == "power boost")
             {
                 abilityText = "Ability: Power Boost. Give every friendly unit within " + std::to_string(game_data::activatedRange(gameCard, ability.c_str())) + " squares +" + std::to_string(game_data::activatedStrength(gameCard, ability.c_str())) + " Power. Includes diagonals; excludes this unit. Power stacks";
+            }
+            else if (ability == "corrupt the ground")
+            {
+                abilityText = "Ability: Corrupt the Ground. Place a Blight in the empty square directly in front. "
+                    "It is visible only to its owner and deals " +
+                    std::to_string(game_data::activatedStrength(abilityCard, ability.c_str())) +
+                    " damage once when an enemy crosses or lands on it. Enemy jumpers trigger it only on landing; "
+                    "flyers and friendly units ignore it. A hidden enemy in front is revealed instead, spending the action";
             }
             else if (ability == "shriek")
             {

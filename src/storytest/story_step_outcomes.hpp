@@ -642,7 +642,7 @@ inline ClaimResult evaluateClaim(
         if (subjectBefore == nullptr || action->heal != 0 || action->control != 0 ||
             action->push != 0 || action->pull || !action->infest.empty() ||
             action->repeat != 0 ||
-            game_data::hasKeyword(actorBefore->keywords, "relentless") ||
+            game_data::hasKeyword(actorBefore->passives, "relentless") ||
             !subjectBefore->rebirthTitle.empty() ||
             !subjectBefore->infestationTitle.empty())
         {
@@ -1128,7 +1128,7 @@ inline ClaimResult evaluateClaim(
         for (const game_data::Piece& piece : before.pieces)
         {
             if (piece.owner == step.owner &&
-                game_data::hasKeyword(piece.keywords, "foresight"))
+                game_data::hasKeyword(piece.passives, "foresight"))
             {
                 ++foresightPieces;
             }
@@ -1274,7 +1274,7 @@ inline ClaimResult evaluateClaim(
     {
         const ClaimResult ready = requireActorAndAction();
         if (!ready.ok) return ready;
-        if (!game_data::hasKeyword(actorBefore->keywords, "relentless") ||
+        if (!game_data::hasKeyword(actorBefore->passives, "relentless") ||
             after.relentlessPiece != actorBefore->id || actorAfter->hasActed ||
             subjectAfter != nullptr)
         {

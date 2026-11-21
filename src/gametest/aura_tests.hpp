@@ -9,10 +9,10 @@ void testAuras(Check check)
     using namespace game_data;
     Piece source;
     source.id = 1; source.owner = 2; source.row = 3; source.column = 3;
-    source.health = source.maxHealth = 10; source.keywords = {"Rot Aura"};
+    source.health = source.maxHealth = 10; source.passives = {"Rot Aura"};
     Piece target = source;
     target.id = 2; target.owner = 1; target.row = 2; target.column = 2;
-    target.keywords.clear(); target.ability = "transform"; target.sacrifice = "dig";
+    target.passives.clear(); target.ability = "transform"; target.sacrifice = "dig";
     target.abilityUses = 1; target.health = 2;
     std::vector<Piece> board{source, target};
     applyActionHealing(board, board[1], 5, 0);
@@ -50,7 +50,7 @@ void testAuras(Check check)
     ActionProfile move; move.maxRange = 7; move.canMove = true; move.canAttack = true; move.damage = 1;
     caster.actions = {move};
     GameCard button = caster; button.title = "Button fixture"; button.ability = "transform";
-    GameCard rot = caster; rot.title = "Rot fixture"; rot.ability.clear(); rot.keywords = {"rot aura"};
+    GameCard rot = caster; rot.title = "Rot fixture"; rot.ability.clear(); rot.passives = {"rot aura"};
     GameCard healer = button; healer.title = "Healer fixture";
     ActionProfile mend; mend.kind = static_cast<std::uint8_t>(ActionKind::Ranged);
     mend.maxRange = 7; mend.canMove = false; mend.canAttack = true; mend.heal = 5;

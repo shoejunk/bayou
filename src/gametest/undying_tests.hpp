@@ -11,7 +11,7 @@ void testUndying(Check check)
     knight.title = "Undying test knight";
     knight.type = "Unit";
     knight.health = 3;
-    knight.keywords = {"UnDyInG"};
+    knight.passives = {"UnDyInG"};
     ActionProfile strike;
     strike.canMove = strike.canAttack = true;
     strike.maxRange = 1;
@@ -19,7 +19,7 @@ void testUndying(Check check)
     knight.actions = {strike};
     GameCard slayer = knight;
     slayer.title = "Undying test slayer";
-    slayer.keywords = {"Relentless"};
+    slayer.passives = {"Relentless"};
     slayer.health = 10;
     const auto find = [](const auto& pieces, int id) -> const Piece* {
         const auto it = std::find_if(pieces.begin(), pieces.end(), [id](const Piece& p) { return p.id == id; });
@@ -122,7 +122,7 @@ void testUndying(Check check)
         retaliation.boardPieces()[0].health == 1 && retaliation.boardPieces()[0].undyingUsed,
         "Counterstrike revives the attacking Undying piece in place");
     GameCard fragile = knight; fragile.health = 1;
-    guard.counterstrike = 0; guard.keywords = {"Bristle"};
+    guard.counterstrike = 0; guard.passives = {"Bristle"};
     GameEngine bristle(1813, {});
     check(bristle.loadScenario({{1, fragile, 3, 2, false}, {2, guard, 3, 3, false}},
         {}, {}, 0, 0, 1, "Undying Bristle", false) &&
@@ -138,7 +138,7 @@ void testUndying(Check check)
         !offering.boardPieces()[0].sacrificePending && offering.endTurn(1) && offering.boardPieces().size() == 1,
         "Undying survives sacrifice once and clears its pending resolution instead of dying again on pass");
 
-    GameCard shrieker = knight; shrieker.keywords.clear(); shrieker.ability = "shriek";
+    GameCard shrieker = knight; shrieker.passives.clear(); shrieker.ability = "shriek";
     shrieker.shriekRange = 2; shrieker.shriekDamage = 5;
     GameCard hidden = knight; hidden.ability = "dematerialize";
     hidden.actions[0].state = 1;
@@ -160,8 +160,8 @@ void testUndying(Check check)
         collision.boardPieces()[1].undyingUsed && collision.relentlessPiece() == 0,
         "lethal push collision at a board edge revives once without a Relentless reward");
 
-    GameCard protector = knight; protector.keywords.push_back("Bodyguard");
-    GameCard protectedUnit = knight; protectedUnit.keywords.clear();
+    GameCard protector = knight; protector.passives.push_back("Bodyguard");
+    GameCard protectedUnit = knight; protectedUnit.passives.clear();
     GameCard ranged = slayer; ranged.actions[0].kind = static_cast<std::uint8_t>(ActionKind::Ranged);
     ranged.actions[0].canMove = false; ranged.actions[0].maxRange = 4;
     GameEngine bodyguard(1817, {});
@@ -191,7 +191,7 @@ void testUndying(Check check)
     {
         Snapshot s; s.yourPlayer = 1; int next = 1;
         GameCard combined = knight;
-        if (mode == 0) combined.keywords.push_back("Chrysalis");
+        if (mode == 0) combined.passives.push_back("Chrysalis");
         bayou::client::spawnSandboxPiece(s, next, 1, combined, 3, 3, false);
         if (mode == 1) s.pieces[0].raisedFromGraveyard = true;
         if (mode == 2) { s.pieces[0].infestationOwner = 2; s.pieces[0].infestationTitle = slayer.title; }

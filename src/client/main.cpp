@@ -23,6 +23,7 @@
 #include "../shared/card_data.hpp"
 #include "../shared/deck_data.hpp"
 #include "../shared/game_data.hpp"
+#include "../shared/corrupt_ground_rules.hpp"
 #include "../shared/starter_decks.hpp"
 #include "../gameserver/ai_player.hpp"
 
@@ -30,6 +31,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <map>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -6995,6 +6997,12 @@ int main(int argc, char** argv)
                 "Capture",
                 "Capture cannot move onto an empty square. It must target an enemy: the attacker stops before a survivor and occupies the destination only if every target there is defeated."});
         }
+        if (action.roots)
+            badges.push_back({"Rooted", "Rooted", "Blocks the enemy's regular actions through its next turn, including stationary attacks. Activated abilities remain available."});
+        if (action.purify)
+        {
+            badges.push_back({"Purify", "Purify", "Removes Disabled, Sleep, Rooted, Slow, timed Silence, and all Weaken from a friendly target, even at full Health."});
+        }
         if (!action.targetFilter.empty())
         {
             badges.push_back({
@@ -7937,8 +7945,25 @@ int main(int argc, char** argv)
 
         const int attackerId = piece->id;
         const int attackerOwner = piece->owner;
+        bool blightTriggered = false;
+        bool dashRescueTriggered = false;
+        bool dashRescueMissed = false;
+        std::vector<int> trapKilledIds;
+        std::map<int, std::pair<int,int>> previousPositions;
+        for (const auto& unit : next.pieces) previousPositions.emplace(unit.id, std::pair{unit.row, unit.column});
         const auto onDisplacement = [&]() {
             game_data::crushOccupiedHusks(next.pieces, next.husks, next.graveyard, next.exiled);
+            for (auto& unit : next.pieces)
+            {
+                const auto [it, added] = previousPositions.try_emplace(unit.id, unit.row, unit.column);
+                if (!added && it->second != std::pair{unit.row, unit.column})
+                {
+                    const bool hit=game_data::applyBlightContact(next.traps, unit);
+                    blightTriggered |= hit;
+                    if (hit && unit.health<=0) trapKilledIds.push_back(unit.id);
+                    it->second = {unit.row, unit.column};
+                }
+            }
         };
         const int originRow = piece->row;
         const int originColumn = piece->column;
@@ -7979,6 +8004,37 @@ int main(int argc, char** argv)
         const bool actionHasInfest = !infestationTitle.empty() && infestationCard.type == "Unit";
 
         const std::string commanderName = commandedAction ? commander->name : std::string();
+        const auto finishBlightDeath = [&]() {
+            destroySandboxPiece(next, attackerId);
+            next.commandingPieceId = 0;
+            next.relentlessPieceId = 0;
+            next.status = attackerName + " triggered Blight and took damage.";
+            updateStoryAfterAction(next);
+            commitSandboxSnapshot(std::move(next));
+        };
+        if (!next.traps.empty() && action.moves && !game_data::pieceMovementBound(next.pieces, *piece) &&
+            action.actionIndex >= 0 && action.actionIndex < static_cast<int>(piece->actions.size()))
+        {
+            const auto travel = game_data::blightTravel(*piece, piece->actions[action.actionIndex]);
+            const auto anchors = game_data::trapContactAnchors(originRow, originColumn, destinationRow, destinationColumn, travel);
+            if (anchors)
+            {
+                for (const auto& [r, c] : *anchors)
+                {
+                    if (r == destinationRow && c == destinationColumn) continue;
+                    piece->row = r;
+                    piece->column = c;
+                    blightTriggered |= game_data::applyBlightContact(next.traps, *piece);
+                    if (piece->health <= 0)
+                    {
+                        finishBlightDeath();
+                        return;
+                    }
+                }
+            }
+            piece->row = originRow;
+            piece->column = originColumn;
+        }
         if (action.attacks)
         {
             const std::vector<int> targetIds = action.targetIds.empty()
@@ -7997,9 +8053,27 @@ int main(int argc, char** argv)
                 {
                     healedTargetNames.push_back(targetName);
                     game_data::applyActionHealing(next.pieces, *target, action.heal, action.statusTurns);
+                    if (action.purify) game_data::applyPurify(*target);
                 }
                 else
                 {
+                    if (game_data::tryDashRescue(next.pieces, targetId))
+                    {
+                        dashRescueTriggered = true;
+                        onDisplacement();
+                        if (target->health <= 0 || !game_data::dashRescueAttackStillHits(
+                                *target, *piece, action, row, column, destinationRow, destinationColumn))
+                        {
+                            dashRescueMissed = true;
+                            continue;
+                        }
+                    }
+                    if (action.roots && attackDamage == 0 && action.statusTurns == 0)
+                    {
+                        target->rootedTurnsRemaining = std::max(target->rootedTurnsRemaining, 1);
+                        damagedTargetNames.push_back(targetName);
+                        continue;
+                    }
                     const game_data::PieceAttackDamageResolution attackResolution =
                         game_data::resolvePieceAttackDamage(
                             next.pieces,
@@ -8045,7 +8119,8 @@ int main(int argc, char** argv)
                             anyTargetReborn = anyTargetReborn || destruction.wasRebirth;
                             anyTargetInfestationSpawned =
                                 anyTargetInfestationSpawned || destruction.wasInfestation;
-                            anyTargetDestroyed = anyTargetDestroyed || (!destruction.replacementSpawned && !destruction.revived);
+                            anyTargetDestroyed = anyTargetDestroyed || (!destruction.replacementSpawned && !destruction.revived &&
+                                std::find(trapKilledIds.begin(),trapKilledIds.end(),assignment.pieceId)==trapKilledIds.end());
                         }
                     }
                     const game_data::PushResult pushResult = game_data::applyActionPush(
@@ -8071,7 +8146,8 @@ int main(int argc, char** argv)
                         anyTargetReborn = anyTargetReborn || destruction.wasRebirth;
                         anyTargetInfestationSpawned =
                             anyTargetInfestationSpawned || destruction.wasInfestation;
-                        anyTargetDestroyed = anyTargetDestroyed || (!destruction.replacementSpawned && !destruction.revived);
+                        anyTargetDestroyed = anyTargetDestroyed || (!destruction.replacementSpawned && !destruction.revived &&
+                            std::find(trapKilledIds.begin(),trapKilledIds.end(),effectiveTargetId)==trapKilledIds.end());
                     }
                     if (action.pull)
                     {
@@ -8097,7 +8173,7 @@ int main(int argc, char** argv)
                     }
                 }
             }
-            if (damagedTargetNames.empty() && healedTargetNames.empty()) return;
+            if (damagedTargetNames.empty() && healedTargetNames.empty() && !dashRescueTriggered) return;
         }
 
         std::vector<std::string> revealedNames;
@@ -8117,6 +8193,13 @@ int main(int argc, char** argv)
             {
                 destroySandboxPiece(next, victim->id);
             }
+        }
+        if (blightTriggered)
+        {
+            std::vector<int> casualties;
+            for (const auto& unit : next.pieces)
+                if (unit.health <= 0) casualties.push_back(unit.id);
+            for (int id : casualties) destroySandboxPiece(next, id);
         }
         game_data::Piece* acting = pieceByIdInSnapshotMutable(next, attackerId);
         if (!acting)
@@ -8151,7 +8234,15 @@ int main(int argc, char** argv)
                 }
             }
             if (acting->row != originRow || acting->column != originColumn)
+            {
                 acting->movedThisTurn = true;
+                blightTriggered |= game_data::applyBlightContact(next.traps, *acting);
+                if (acting->health <= 0)
+                {
+                    finishBlightDeath();
+                    return;
+                }
+            }
         }
         acting->disabledTurns = std::max(acting->disabledTurns, action.cooldownTurns);
         bool repeatRemaining = false;
@@ -8200,7 +8291,11 @@ int main(int argc, char** argv)
                 }
                 return joined;
             };
-            if (!damagedTargetNames.empty())
+            if (action.roots && !damagedTargetNames.empty())
+            {
+                next.status = attackerName + " rooted " + joinTargets(damagedTargetNames) + " through its next turn.";
+            }
+            else if (!damagedTargetNames.empty())
             {
                 next.status = attackerName + " hit " + joinTargets(damagedTargetNames) +
                     " for " + std::to_string(attackDamage) + " each";
@@ -8222,7 +8317,7 @@ int main(int argc, char** argv)
             if (pulledSquares > 0)
                 next.status += " and pulled targets " + std::to_string(pulledSquares) +
                     " square(s)";
-            if (effectiveDisabledTurns > 0)
+            if (effectiveDisabledTurns > 0 && !damagedTargetNames.empty())
             {
                 next.status += " and disabled surviving targets for " +
                     std::to_string(effectiveDisabledTurns) + " turn(s)";
@@ -8234,7 +8329,7 @@ int main(int argc, char** argv)
                 next.status += " and controlled " + joinTargets(controlledTargetNames) +
                     " for " + std::to_string(action.control) + " turn(s)";
             }
-            next.status += anyTargetDestroyed ? "; at least one was destroyed." : ".";
+            if (!next.status.empty()) next.status += anyTargetDestroyed ? "; at least one was destroyed." : ".";
             if (anyTargetReborn)
             {
                 next.status += " Rebirth returned a piece to the board!";
@@ -8274,6 +8369,14 @@ int main(int argc, char** argv)
         {
             next.status = attackerName + " moved.";
         }
+        if (dashRescueTriggered)
+        {
+            if (!next.status.empty()) next.status += " ";
+            next.status += dashRescueMissed ? "Rescue: an attack missed its target."
+                                            : "Rescue moved an ally.";
+        }
+        if (blightTriggered)
+            next.status += " Blight was triggered.";
         if (counterstrikeTriggered)
         {
             next.status += " Counterstrike dealt return damage.";
@@ -8287,7 +8390,7 @@ int main(int argc, char** argv)
             next.status += " " + std::to_string(action.repeat - acting->repeatActionUses) +
                 " repeat(s) remaining for this action.";
         }
-        if (anyTargetDestroyed && game_data::hasKeyword(acting->keywords, "relentless"))
+        if (anyTargetDestroyed && game_data::hasKeyword(acting->passives, "relentless"))
         {
             next.relentlessPieceId = attackerId;
             acting->hasActed = false;
@@ -8420,6 +8523,21 @@ int main(int argc, char** argv)
                 return;
             }
             spawnSandboxPiece(next, nextSandboxPieceId, pieceOwner, *found, row, column, false);
+        }
+        else if (ability == "corrupt the ground")
+        {
+            const auto definition = game_data::abilityDefinition(*piece, sacrifice);
+            const auto strength = definition ? definition->strength : std::nullopt;
+            const auto preview = game_data::inspectCorruptGroundPlacement(next.pieces, *piece, strength);
+            if (!preview.spendsAction()) return;
+            auto activation = game_data::activateCorruptGround(next.pieces, *piece, strength);
+            if (activation.trap)
+            {
+                std::erase_if(next.traps, [&](const game_data::Trap& trap) {
+                    return trap.owner == pieceOwner && trap.row == preview.row && trap.column == preview.column;
+                });
+                next.traps.push_back(*activation.trap);
+            }
         }
         else if (ability == "shriek")
         {
@@ -12242,7 +12360,7 @@ int main(int argc, char** argv)
                 : std::optional<std::size_t>(
                     std::min<std::size_t>(1, starterDeckOffers.size() - 1));
         }
-        else if (screen == "card-editor-loaded" || screen == "card-editor-abilities" || screen == "card-editor-ability-reference" || screen == "card-editor-actions" ||
+        else if (screen == "card-editor-loaded" || screen == "card-editor-passives" || screen == "card-editor-abilities" || screen == "card-editor-ability-reference" || screen == "card-editor-actions" ||
                  screen == "card-editor-actions-filtered" || screen == "card-editor-actions-empty" ||
                  screen == "card-editor-instructions-middle" ||
                  screen == "card-editor-rarity-dropdown" ||
@@ -14238,7 +14356,7 @@ int main(int argc, char** argv)
                 mosswake->owner != 1 || mosswake->name != "Archivist Mosswake" ||
                 mosswake->row != 3 || mosswake->column != 1 ||
                 !mosswake->hasActed ||
-                !game_data::hasKeyword(mosswake->keywords, "foresight") ||
+                !game_data::hasKeyword(mosswake->passives, "foresight") ||
                 deployedPlayer.resources != 65 || !deployedPlayer.hand.empty() ||
                 deployedPlayer.drawPile.size() != 2 ||
                 !deployedPlayer.foresightChoices.empty() ||
@@ -14457,6 +14575,73 @@ int main(int argc, char** argv)
                     HandY + 46.0f};
             }
         }
+        else if (screen == "game-dash-rescue")
+        {
+            seedCaptureMatch("midgame");
+            sandboxMode = true;
+            storyMode = false;
+            gameSnapshot.pieces.clear();
+            gameSnapshot.holes.fill(0);
+            gameSnapshot.enchantments.clear();
+            gameSnapshot.husks.clear();
+            gameSnapshot.traps = {{2, 2, 4, 1}};
+
+            game_data::GameCard nettle;
+            nettle.title = "Nettle Starbright";
+            nettle.type = "Unit";
+            nettle.health = 2;
+            nettle.imagePath = "cards/nettleStarbright_mounted.png";
+            nettle.tokenPath = "characters/nettleStarbright_mounted.png";
+            nettle.keywords = {"mounted"};
+            nettle.passives = {"Rescue"};
+            spawnSandboxPiece(gameSnapshot, nextSandboxPieceId, 1, nettle, 3, 3, false);
+            const int nettleId = gameSnapshot.pieces.back().id;
+
+            game_data::GameCard ally;
+            ally.title = "Starbloom Knight";
+            ally.type = "Unit";
+            ally.health = 3;
+            ally.imagePath = "cards/starbloomKnight.png";
+            ally.tokenPath = "characters/starbloomKnight.png";
+            spawnSandboxPiece(gameSnapshot, nextSandboxPieceId, 1, ally, 2, 3, false);
+            const int allyId = gameSnapshot.pieces.back().id;
+
+            game_data::GameCard enemy;
+            enemy.title = "Goblin Sharpshooter";
+            enemy.type = "Unit";
+            enemy.health = 2;
+            enemy.imagePath = "cards/goblinSharpshooter.png";
+            enemy.tokenPath = "characters/goblinSharpshooter.png";
+            game_data::ActionProfile shot;
+            shot.name = "Shot";
+            shot.kind = static_cast<std::uint8_t>(game_data::ActionKind::Ranged);
+            shot.pattern = static_cast<std::uint8_t>(game_data::MovePattern::Ortho);
+            shot.minRange = 1;
+            shot.maxRange = 3;
+            shot.canAttack = true;
+            shot.canMove = false;
+            shot.damage = 3;
+            enemy.actions = {shot};
+            spawnSandboxPiece(gameSnapshot, nextSandboxPieceId, 2, enemy, 0, 3, false);
+            const int enemyId = gameSnapshot.pieces.back().id;
+
+            sandboxActWithPiece(enemyId, 2, 3, 0);
+            const game_data::Piece* rescued = pieceByIdInSnapshot(gameSnapshot, allyId);
+            const game_data::Piece* rescuer = pieceByIdInSnapshot(gameSnapshot, nettleId);
+            if (!rescued || !rescuer || !rescuer->dashRescueUsedThisRound || rescued->row != 2 ||
+                rescued->column != 4 || rescued->health != 2 || !gameSnapshot.traps.empty() ||
+                gameSnapshot.status.find("an attack missed") == std::string::npos)
+            {
+                failCaptureValidation("Rescue sandbox check: expected clockwise rescue, attack miss and Blight damage.");
+            }
+            inspectedPieceId = nettleId;
+        }
+        else if (screen == "game-blight")
+        {
+            seedCaptureMatch("midgame");
+            gameSnapshot.traps = {{1, 3, 3, 1}, {2, 4, 4, 1}};
+            gameSnapshot.status = "Blight: only the owning player can see the marker.";
+        }
         else if (screen == "game-chrysalis")
         {
             seedCaptureMatch("midgame");
@@ -14466,7 +14651,7 @@ int main(int argc, char** argv)
             grub.health = 4;
             grub.imagePath = "cards/fatherGrub.png";
             grub.tokenPath = "characters/fatherGrub.png";
-            grub.keywords = {"Chrysalis"};
+            grub.passives = {"Chrysalis"};
             grub.chrysalisUsed = true;
             gameSnapshot.husks = {{1, 3, 3, grub}, {2, 4, 4, grub}};
             gameSnapshot.status = "Chrysalis: enemy occupation crushes a Husk; otherwise return next turn at 1 Health.";

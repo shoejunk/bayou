@@ -33,6 +33,8 @@ struct ActionDescription
     bool clearPath = false;
     bool pull = false;
     bool lifedrain = false;
+    bool purify = false;
+    bool roots = false;
     std::vector<std::string> targetFilter;
     std::string infest;
 };

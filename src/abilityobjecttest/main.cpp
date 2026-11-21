@@ -1,3 +1,12 @@
+#include "purify_tests.hpp"
+#include "rooted_tests.hpp"
+#include "dash_rescue_engine_tests.hpp"
+#include "dash_rescue_wire_tests.hpp"
+#include "runtime_passive_tests.hpp"
+#include "passives_catalog_tests.hpp"
+#include "blight_engine_tests.hpp"
+#include "trap_snapshot_tests.hpp"
+#include "corrupt_ground_tests.hpp"
 #include "../client/client_sandbox.hpp"
 #include "../gameserver/game_engine.hpp"
 #include "../shared/card_database.hpp"
@@ -226,6 +235,15 @@ void migration(const std::vector<card_data::Card> &cards)
 
 int main(int argc, char **argv)
 {
+    testTrapSnapshotWire(check);
+    testCorruptGroundPrimitives(check);
+    testBlightEngine(check);
+    testPurifyingRadiance(check);
+    testRooted(check);
+    testDashRescueEngine(check);
+    testDashRescueWire(check);
+    testRuntimePassives(check);
+    testPassivesCatalog(check);
     using namespace game_data;
     card_data::Card legacy;
     legacy.title = "Ability migration fixture";
@@ -320,7 +338,7 @@ int main(int argc, char **argv)
     sacrificeDefinition.strength = 5;
     sacrificeActor.sacrificeAbility = sacrificeDefinition;
     sacrificeActor.sacrifice = sacrificeDefinition.kind;
-    sacrificeActor.keywords = {"Undying"};
+    sacrificeActor.passives = {"Undying"};
     GameEngine sacrificeEngine(2012, {});
     check(sacrificeEngine.loadScenario({{1, sacrificeActor, 3, 3, false}, {1, friendCard, 3, 5, false, 2}}, {}, {}, 0,
                                        0, 1, "Native sacrifice", false) &&
@@ -336,7 +354,7 @@ int main(int argc, char **argv)
     dig.initialUses = 2;
     digCard.sacrificeAbility = dig;
     digCard.sacrifice = "dig";
-    digCard.keywords = {"Undying"};
+    digCard.passives = {"Undying"};
     GameEngine digging(2013, {});
     check(digging.loadScenario({{1, digCard, 3, 3, false}}, {}, {}, 0, 0, 1, "Independent charges", false) &&
               digging.useAbility(1, digging.boardPieces()[0].id, true) &&
@@ -371,7 +389,7 @@ int main(int argc, char **argv)
         card_data::Card trail;
         trail.title = "Independent Trail";
         trail.type = "Unit";
-        trail.keywords = {"Trail"};
+        trail.passives = {"Trail"};
         trail.stringValues = {{"summon", "Trail Sapling"}};
         auto summon = definition;
         summon.name = "Active Summon";

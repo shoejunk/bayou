@@ -28,12 +28,12 @@ namespace
 constexpr unsigned short CardServerPort = 55004;
 constexpr auto InitialRequestTimeout = std::chrono::seconds(2);
 
-void writeCards(sf::Packet& packet, const std::vector<card_data::Card>& cards, bool includesSlow, bool includesAbilities = false)
+void writeCards(sf::Packet& packet, const std::vector<card_data::Card>& cards, bool includesSlow, bool includesAbilities = false, bool includesPassives = false)
 {
-    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(cards.size()), includesSlow, includesAbilities);
+    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(cards.size()), includesSlow, includesAbilities, includesPassives);
     for (const card_data::Card& card : cards)
     {
-        card_data::writeCard(packet, card, includesSlow, includesAbilities);
+        card_data::writeCard(packet, card, includesSlow, includesAbilities, includesPassives);
     }
 }
 
@@ -343,6 +343,7 @@ private:
         database->exec(
             "UPDATE card_actions SET display_name = action_name WHERE display_name = ''");
         migrateLegacyActions();
+        card_database::initializeCardPassives(*database);
         card_database::initializeActivatedAbilities(*database);
     }
 
@@ -386,7 +387,7 @@ private:
             {
                 std::uint32_t version=12;
                 if (!request.endOfPacket() && !(request >> version)) return;
-                handleListCards(client,version>=13,version>=14);
+                handleListCards(client,version>=13,version>=14,version>=15);
                 break;
             }
             case MessageType::ActivatedAbilityListRequest:
@@ -394,6 +395,12 @@ private:
             case MessageType::ActivatedAbilityUpdateRequest:
             case MessageType::ActivatedAbilityDeleteRequest:
                 handleActivatedAbility(client,request,static_cast<MessageType>(msgType));
+                break;
+            case MessageType::CardUpsertWithPassivesRequest:
+                handleUpsertCard(client,request,true,true);
+                break;
+            case MessageType::CardUpdateWithPassivesRequest:
+                handleUpdateCard(client,request,true,true);
                 break;
             case MessageType::CardUpsertWithAbilitiesRequest:
                 handleUpsertCard(client,request,true);
@@ -466,7 +473,7 @@ private:
         catch (const std::exception& error) { sendCommandResponse(client,responseType,false,error.what()); }
     }
 
-    void handleListCards(bayou::tls::Socket& client, bool includesSlow, bool includesAbilities = false)
+    void handleListCards(bayou::tls::Socket& client, bool includesSlow, bool includesAbilities = false, bool includesPassives = false)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::CardListResponse);
@@ -475,21 +482,26 @@ private:
         {
             const std::vector<card_data::Card> cards = loadCards();
             response << true << std::string("OK");
-            writeCards(response, cards, includesSlow, includesAbilities);
+            writeCards(response, cards, includesSlow, includesAbilities, includesPassives);
         }
         catch (const std::exception& error)
         {
             response << false << std::string(error.what());
-            card_data::writeCardListHeader(response, 0, includesSlow, includesAbilities);
+            card_data::writeCardListHeader(response, 0, includesSlow, includesAbilities, includesPassives);
         }
 
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    void handleUpsertCard(bayou::tls::Socket& client, sf::Packet& request, bool includesAbilities = false)
+    void handleUpsertCard(bayou::tls::Socket& client, sf::Packet& request, bool includesAbilities = false, bool includesPassives = false)
     {
+        if (!includesPassives)
+        {
+            sendUpsertResponse(client, false, "Update the Card Editor to edit cards with separate Traits, Keywords and Passives.");
+            return;
+        }
         card_data::Card card;
-        if (!card_data::readReferencedCard(request, card, includesAbilities))
+        if (!card_data::readReferencedCard(request, card, includesAbilities, includesPassives) || !request.endOfPacket())
         {
             sendUpsertResponse(client, false, "Invalid card payload");
             return;
@@ -513,12 +525,17 @@ private:
         }
     }
 
-    void handleUpdateCard(bayou::tls::Socket& client, sf::Packet& request, bool includesAbilities = false)
+    void handleUpdateCard(bayou::tls::Socket& client, sf::Packet& request, bool includesAbilities = false, bool includesPassives = false)
     {
+        if (!includesPassives)
+        {
+            sendCommandResponse(client, MessageType::CardUpdateResponse, false, "Update the Card Editor to edit cards with separate Traits, Keywords and Passives.");
+            return;
+        }
         std::string originalTitle;
         card_data::Card card;
         request >> originalTitle;
-        if (!request || !card_data::readReferencedCard(request, card, includesAbilities))
+        if (!request || !card_data::readReferencedCard(request, card, includesAbilities, includesPassives) || !request.endOfPacket())
         {
             sendCommandResponse(client, MessageType::CardUpdateResponse, false, "Invalid card update payload");
             return;
@@ -739,6 +756,7 @@ private:
         deleteChildRows(normalizedCard.title);
         insertTraits(normalizedCard);
         insertKeywords(normalizedCard);
+        insertPassives(normalizedCard);
         insertIntegerValues(normalizedCard);
         insertStringValues(normalizedCard);
         insertStringLists(normalizedCard);
@@ -770,6 +788,7 @@ private:
         for (const std::string& table : {
                  "card_traits",
                  "card_keywords",
+                 "card_passives",
                  "card_activated_abilities",
                  "card_ability_object_migrations",
                  "card_integer_values",
@@ -804,6 +823,18 @@ private:
             statement.reset();
             statement.bind(1, card.title);
             statement.bind(2, keyword);
+            statement.exec();
+        }
+    }
+
+    void insertPassives(const card_data::Card& card)
+    {
+        SQLite::Statement statement(*database, "INSERT INTO card_passives (title, passive) VALUES (?, ?)");
+        for (const auto& passive : card.passives)
+        {
+            statement.reset();
+            statement.bind(1, card.title);
+            statement.bind(2, passive);
             statement.exec();
         }
     }
