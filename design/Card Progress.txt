@@ -21,7 +21,8 @@ Locally completed 2026-11-20 (Joe waived waiting for live verification): Sylvara
 Reviewed 2026-11-19: Pavo Quickstep - Joe chose the existing card as-is. No card changes requested or made.
 Locally completed 2026-11-21: Nettle Starbright - Rescue implemented locally and assigned to mounted Nettle only in the isolated rehearsal catalog. Once per round, the first legal clockwise relocation can evade the original attack; normal landing effects apply. No standalone Dash card; the unmounted form is unchanged. No push, deployment, or live catalog assignment.
 Reviewed 2026-11-21: Archivist Mosswake - Joe chose to keep Foresight and the existing card as-is. No card changes requested or made.
-Next card: Duchess Dewbell.
+Locally completed 2026-11-21: Duchess Dewbell - Traces leaves the reusable Bloom Board Marker (Friendly; Heal 1) on the origin of a qualifying move. Isolated card assignment, Release regressions, isolated TLS CRUD, and board/editor captures passed. No deployment or live catalog assignment. See docs/BOARD_MARKERS.md.
+Next card: Fey Messenger.
 
 PieceBaseBlue characters/bases/piece-base-blue.png
 PieceBaseRed characters/bases/piece-base-red.png

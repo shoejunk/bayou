@@ -17,6 +17,9 @@
             handleEvent(sf::Event{sf::Event::MouseButtonPressed{sf::Mouse::Button::Left, pixel}}, window);
             handleEvent(sf::Event{sf::Event::MouseButtonReleased{sf::Mouse::Button::Left, pixel}}, window);
         };
+        const auto clickTab = [&](EditorMode mode) {
+            click(EditorTabX+(static_cast<float>(mode)+0.5f)*EditorTabWidth,35.0f);
+        };
         const auto key = [&](sf::Keyboard::Key code) {
             sf::Event::KeyPressed event{};
             event.code = code;
@@ -76,8 +79,8 @@
         clickField(actionCanMoveField);
         key(sf::Keyboard::Key::Tab);
         if (!check(actionCanAttackField.isActive(), "Tab must move focus between switches.")) return false;
-        click(575.0f, 35.0f); // Current tab must not discard edits.
-        click(445.0f, 35.0f);
+        clickTab(EditorMode::Actions); // Current tab must not discard edits.
+        clickTab(EditorMode::Cards);
         if (!check(unsavedChangesPopupVisible, "Toggled flags must participate in the unsaved-changes prompt.")) return false;
 
         card_data::Card flagCard;
@@ -129,6 +132,24 @@
         if (!check(cardFromForm().passives == tagCard.passives && cardFromForm().keywords == tagCard.keywords &&
                    !hasUnsavedChanges(), "Re-adding the Passive must restore the clean form.")) return false;
 
+        applyCaptureState("card-editor-board-markers", library);
+        if (!check(markerEditor.library().size()==2 && !markerEditor.hasUnsavedChanges(),
+                   "Board Markers must load reusable definitions as a clean form.")) return false;
+        click(420.0f,265.0f);
+        if (!check(markerEditor.hasUnsavedChanges(), "Changing marker eligibility must dirty the form.")) return false;
+        markerEditor.restore();
+        if (!check(!markerEditor.hasUnsavedChanges(), "Restoring a marker must discard local changes.")) return false;
+        applyCaptureState("card-editor-traces", library);
+        if (!check(cardFromForm().tracesMarkerName=="Clover" && !hasUnsavedChanges(),
+                   "A Traces card must retain its selected marker.")) return false;
+        layoutArrayControls();
+        clickButton(tracesMarkerButton);
+        if (!check(cardFromForm().tracesMarkerName=="Briar" && hasUnsavedChanges(),
+                   "Choosing another reusable marker must change only the Traces assignment.")) return false;
+        clickButton(tracesMarkerButton);
+        if (!check(cardFromForm().tracesMarkerName=="Clover" && !hasUnsavedChanges(),
+                   "Choosing the original marker must restore the clean form.")) return false;
+
         applyCaptureState("card-editor-actions", library);
         for (int i = 0; i < 20; ++i)
         {
@@ -164,10 +185,10 @@
         for (int i = 0; i < 30; ++i) key(sf::Keyboard::Key::Backspace);
         if (!check(visibleActionIndices.size() == actions.size(), "Clearing search must restore every action.")) return false;
         type("needle");
-        click(445.0f, 35.0f);
+        clickTab(EditorMode::Cards);
         if (!check(editorMode == EditorMode::Cards && cardSearchField.getValue().empty(),
                    "Card and action filters must be independent.")) return false;
-        click(575.0f, 35.0f);
+        clickTab(EditorMode::Actions);
         if (!check(editorMode == EditorMode::Actions && visibleActionIndices.size() == 10,
                    "Action filter must survive tab changes.")) return false;
 

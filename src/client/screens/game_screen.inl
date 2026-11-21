@@ -273,8 +273,21 @@
 
     auto appendNamedPassiveRuleDescriptions = [&](DetailRows& descriptions,
                                              const std::vector<std::string>& passives,
-                                             const std::string& summonTitle) {
+                                             const std::string& summonTitle,
+                                             const std::optional<marker_data::Definition>& traces) {
         const sf::Color keywordColor(146, 206, 226);
+        if (game_data::hasKeyword(passives, "traces") && traces)
+        {
+            const std::string eligible = traces->eligibility == marker_data::Eligibility::Friendly ? "friendly piece"
+                : traces->eligibility == marker_data::Eligibility::Enemy ? "enemy piece" : "piece";
+            const std::string strength = std::to_string(traces->strength);
+            const std::string effect = traces->effect == marker_data::Effect::Heal
+                ? "heals for " + strength + " Health (even if no Health is restored)"
+                : "deals " + strength + " damage";
+            descriptions.push_back({"Traces: after surviving a regular move, leave " + traces->name +
+                " on this unit's starting square. The first " + eligible + " to enter consumes the public marker, which " +
+                effect + ".", keywordColor});
+        }
         if (game_data::hasKeyword(passives, "swarm"))
         {
             descriptions.push_back({
@@ -640,7 +653,7 @@
         }
         appendAbilityRuleDescription(descriptions, piece, piece.actionState);
         appendAbilityRuleDescription(descriptions, piece, piece.actionState, true);
-        appendNamedPassiveRuleDescriptions(descriptions, piece.passives, piece.summonTitle);
+        appendNamedPassiveRuleDescriptions(descriptions, piece.passives, piece.summonTitle, piece.tracesMarker);
         appendPassiveRuleDescriptions(
             descriptions, piece.tax, piece.gatherResources, piece.healingAura, game_data::damageWithPower(piece.counterstrike, power),
             piece.canControl, piece.growTurnsRemaining, piece.rebirthTitle,
@@ -820,7 +833,7 @@
             }
             appendAbilityRuleDescription(descriptions, card, 0);
             appendAbilityRuleDescription(descriptions, card, 0, true);
-            appendNamedPassiveRuleDescriptions(descriptions, card.passives, card.summonTitle);
+            appendNamedPassiveRuleDescriptions(descriptions, card.passives, card.summonTitle, card.tracesMarker);
             appendPassiveRuleDescriptions(
                 descriptions, card.tax, card.gatherResources, card.healingAura, game_data::damageWithPower(card.counterstrike, card.power),
                 card.canControl, card.growTurns, card.rebirthTitle,
@@ -2940,6 +2953,33 @@
             window.draw(mark);
             drawText(window, font, game_data::trapObjectName(trap.effect), 12,
                      {anchor.x - 17.0f, anchor.y + 8.0f}, sf::Color(239, 188, 242));
+        }
+
+        // Traces markers are public and noninteractive; leave the existing
+        // owner-only Blight at its original position even when they overlap.
+        std::array<unsigned, game_data::BoardSquares> traceCounts{};
+        for (const game_data::BoardMarker& marker : boardSnapshot.boardMarkers)
+        {
+            if (!game_data::inBounds(marker.row, marker.column)) continue;
+            const sf::Vector2f anchor = boardFootprintAnchor(marker.row, marker.column, 1, 1, boardSnapshot.yourPlayer);
+            const unsigned earlierHere = traceCounts[game_data::squareIndex(marker.row, marker.column)]++;
+            // Always offset Traces, independent of hidden information.
+            const sf::Vector2f center = anchor + sf::Vector2f{21.0f, -12.0f - 14.0f * earlierHere};
+            sf::CircleShape petals(9.0f, 8);
+            petals.setOrigin({9.0f, 9.0f});
+            petals.setPosition(center);
+            petals.setFillColor(sf::Color(39, 105, 80, 245));
+            petals.setOutlineThickness(2.0f);
+            petals.setOutlineColor(marker.owner == boardSnapshot.yourPlayer
+                ? sf::Color(157, 222, 250) : sf::Color(255, 183, 164));
+            window.draw(petals);
+            sf::CircleShape seed(3.0f);
+            seed.setOrigin({3.0f, 3.0f});
+            seed.setPosition(center);
+            seed.setFillColor(sf::Color(255, 224, 119));
+            window.draw(seed);
+            drawText(window, font, marker.definition.name, 12,
+                {center.x - 15.0f, center.y - 22.0f}, sf::Color(212, 255, 197), 86.0f);
         }
 
         // Persistent attachments remain visible on their board targets.

@@ -24,6 +24,7 @@
 #include "../shared/deck_data.hpp"
 #include "../shared/game_data.hpp"
 #include "../shared/corrupt_ground_rules.hpp"
+#include "../shared/board_marker_rules.hpp"
 #include "../shared/starter_decks.hpp"
 #include "../gameserver/ai_player.hpp"
 
@@ -5156,8 +5157,10 @@ int main(int argc, char** argv)
     };
 
     std::function<void(game_data::Snapshot&)> resolveSandboxSacrifices;
+    std::function<void(game_data::Snapshot&)> resolveSandboxMarkerDeaths;
     auto commitSandboxSnapshot = [&](game_data::Snapshot nextSnapshot) {
         if (resolveSandboxSacrifices) resolveSandboxSacrifices(nextSnapshot);
+        if (resolveSandboxMarkerDeaths) resolveSandboxMarkerDeaths(nextSnapshot);
         game_data::crushOccupiedHusks(nextSnapshot.pieces, nextSnapshot.husks, nextSnapshot.graveyard, nextSnapshot.exiled);
         game_data::refreshAuraIndicators(nextSnapshot.pieces);
         recomputeSandboxControl(nextSnapshot);
@@ -7691,6 +7694,18 @@ int main(int argc, char** argv)
         for (int id : pending) destroySandboxPiece(snapshot, id);
     };
 
+    resolveSandboxMarkerDeaths = [&](game_data::Snapshot& snapshot) {
+        // Spawn-time marker damage is applied while callers still hold the
+        // insertion reference; route defeats through the normal cleanup later.
+        while (true)
+        {
+            const auto dead = std::find_if(snapshot.pieces.begin(), snapshot.pieces.end(),
+                [](const auto& unit) { return unit.health <= 0; });
+            if (dead == snapshot.pieces.end()) break;
+            destroySandboxPiece(snapshot, dead->id);
+        }
+    };
+
     auto sandboxPlayCard = [&](int handIndex, int row, int column) {
         if (!sandboxMode || !haveSnapshot ||
             static_cast<game_data::Phase>(gameSnapshot.phase) != game_data::Phase::Playing ||
@@ -7946,6 +7961,7 @@ int main(int argc, char** argv)
         const int attackerId = piece->id;
         const int attackerOwner = piece->owner;
         bool blightTriggered = false;
+        bool traceTriggered = false;
         bool dashRescueTriggered = false;
         bool dashRescueMissed = false;
         std::vector<int> trapKilledIds;
@@ -7960,7 +7976,10 @@ int main(int argc, char** argv)
                 {
                     const bool hit=game_data::applyBlightContact(next.traps, unit);
                     blightTriggered |= hit;
-                    if (hit && unit.health<=0) trapKilledIds.push_back(unit.id);
+                    const bool trace = game_data::applyMarkerEntry(next.boardMarkers, next.pieces, unit,
+                        it->second.first, it->second.second);
+                    traceTriggered |= trace;
+                    if ((hit || trace) && unit.health<=0) trapKilledIds.push_back(unit.id);
                     it->second = {unit.row, unit.column};
                 }
             }
@@ -8008,7 +8027,8 @@ int main(int argc, char** argv)
             destroySandboxPiece(next, attackerId);
             next.commandingPieceId = 0;
             next.relentlessPieceId = 0;
-            next.status = attackerName + " triggered Blight and took damage.";
+            next.status = attackerName + (traceTriggered ? " triggered a board marker and took damage."
+                                                        : " triggered Blight and took damage.");
             updateStoryAfterAction(next);
             commitSandboxSnapshot(std::move(next));
         };
@@ -8194,7 +8214,7 @@ int main(int argc, char** argv)
                 destroySandboxPiece(next, victim->id);
             }
         }
-        if (blightTriggered)
+        if (blightTriggered || traceTriggered)
         {
             std::vector<int> casualties;
             for (const auto& unit : next.pieces)
@@ -8237,6 +8257,8 @@ int main(int argc, char** argv)
             {
                 acting->movedThisTurn = true;
                 blightTriggered |= game_data::applyBlightContact(next.traps, *acting);
+                traceTriggered |= game_data::applyMarkerEntry(next.boardMarkers, next.pieces, *acting,
+                    originRow, originColumn);
                 if (acting->health <= 0)
                 {
                     finishBlightDeath();
@@ -8377,6 +8399,8 @@ int main(int argc, char** argv)
         }
         if (blightTriggered)
             next.status += " Blight was triggered.";
+        if (traceTriggered)
+            next.status += " A Traces marker was triggered.";
         if (counterstrikeTriggered)
         {
             next.status += " Counterstrike dealt return damage.";
@@ -8401,6 +8425,8 @@ int main(int argc, char** argv)
             next.relentlessPieceId = 0;
         }
         updateStoryAfterAction(next);
+        if (acting && action.moves && (acting->row != originRow || acting->column != originColumn))
+            game_data::placeTraceMarker(next.boardMarkers, *acting, originRow, originColumn);
         const bool leavesTrail = acting &&
             (acting->row != originRow || acting->column != originColumn) &&
             game_data::pieceHasTrailAbility(*acting);
@@ -8645,7 +8671,11 @@ int main(int argc, char** argv)
 
         next.activePlayer = endingPlayer == 1 ? 2 : 1;
         const int startingPlayer = next.activePlayer;
+        const int firstHuskPieceId = nextSandboxPieceId;
         game_data::resolveHusksAtTurnStart(next.pieces, next.husks, next.graveyard, next.exiled, nextSandboxPieceId, startingPlayer);
+        for (auto& unit : next.pieces)
+            if (unit.id >= firstHuskPieceId)
+                game_data::applyMarkerEntry(next.boardMarkers, next.pieces, unit, -1, -1);
         game_data::updatePieceControlAtTurnStart(next.pieces, startingPlayer);
         for (game_data::Piece& piece : next.pieces)
         {
@@ -12360,7 +12390,8 @@ int main(int argc, char** argv)
                 : std::optional<std::size_t>(
                     std::min<std::size_t>(1, starterDeckOffers.size() - 1));
         }
-        else if (screen == "card-editor-loaded" || screen == "card-editor-passives" || screen == "card-editor-abilities" || screen == "card-editor-ability-reference" || screen == "card-editor-actions" ||
+        else if (screen == "card-editor-loaded" || screen == "card-editor-passives" || screen == "card-editor-board-markers" ||
+                 screen == "card-editor-traces" || screen == "card-editor-abilities" || screen == "card-editor-ability-reference" || screen == "card-editor-actions" ||
                  screen == "card-editor-actions-filtered" || screen == "card-editor-actions-empty" ||
                  screen == "card-editor-instructions-middle" ||
                  screen == "card-editor-rarity-dropdown" ||
@@ -14635,6 +14666,79 @@ int main(int argc, char** argv)
                 failCaptureValidation("Rescue sandbox check: expected clockwise rescue, attack miss and Blight damage.");
             }
             inspectedPieceId = nettleId;
+        }
+        else if (screen == "game-bloom")
+        {
+            seedCaptureMatch("midgame");
+            const marker_data::Definition bloom{"Bloom", marker_data::Eligibility::Friendly,
+                marker_data::Effect::Heal, 1};
+            sandboxMode = true;
+            storyMode = false;
+            gameSnapshot.pieces.clear();
+            gameSnapshot.boardMarkers.clear();
+            gameSnapshot.traps.clear();
+            gameSnapshot.enchantments.clear();
+            gameSnapshot.husks.clear();
+
+            game_data::ActionProfile step;
+            step.name = "Step";
+            step.pattern = static_cast<std::uint8_t>(game_data::MovePattern::Ortho);
+            step.canMove = true;
+            step.maxRange = 1;
+            game_data::GameCard sylvara;
+            sylvara.title = "Sylvara";
+            sylvara.type = "Unit";
+            sylvara.health = 3;
+            sylvara.actions = {step};
+            sylvara.passives = {"Traces"};
+            sylvara.tracesMarkerName = bloom.name;
+            sylvara.tracesMarker = bloom;
+            spawnSandboxPiece(gameSnapshot, nextSandboxPieceId, 1, sylvara, 3, 3, false);
+            const int sylvaraId = gameSnapshot.pieces.back().id;
+
+            game_data::GameCard traveler = sylvara;
+            traveler.title = "Starbloom Knight";
+            traveler.imagePath = "cards/starbloomKnight.png";
+            traveler.tokenPath = "characters/starbloomKnight.png";
+            traveler.passives.clear();
+            traveler.tracesMarkerName.clear();
+            traveler.tracesMarker.reset();
+            spawnSandboxPiece(gameSnapshot, nextSandboxPieceId, 1, traveler, 2, 3, false);
+            const int friendlyId = gameSnapshot.pieces.back().id;
+            gameSnapshot.pieces.back().health = 1;
+            traveler.title = "Goblin Sharpshooter";
+            traveler.imagePath = "cards/goblinSharpshooter.png";
+            traveler.tokenPath = "characters/goblinSharpshooter.png";
+            spawnSandboxPiece(gameSnapshot, nextSandboxPieceId, 2, traveler, 4, 3, false);
+            const int enemyId = gameSnapshot.pieces.back().id;
+            gameSnapshot.pieces.back().health = 1;
+
+            sandboxActWithPiece(sylvaraId, 3, 4, 0);
+            if (gameSnapshot.boardMarkers.size() != 1 || gameSnapshot.boardMarkers.front().owner != 1 ||
+                gameSnapshot.boardMarkers.front().row != 3 || gameSnapshot.boardMarkers.front().column != 3)
+                failCaptureValidation("Bloom sandbox check: voluntary departure should leave one public Bloom.");
+            sandboxActWithPiece(enemyId, 3, 3, 0);
+            const auto* enemy = pieceByIdInSnapshot(gameSnapshot, enemyId);
+            if (!enemy || enemy->row != 3 || enemy->column != 3 || enemy->health != 1 ||
+                gameSnapshot.boardMarkers.size() != 1)
+                failCaptureValidation("Bloom sandbox check: enemy landing should leave Bloom intact.");
+            sandboxActWithPiece(enemyId, 4, 3, 0);
+            sandboxActWithPiece(friendlyId, 3, 3, 0);
+            const auto* friendly = pieceByIdInSnapshot(gameSnapshot, friendlyId);
+            if (!friendly || friendly->row != 3 || friendly->column != 3 || friendly->health != 2 ||
+                !gameSnapshot.boardMarkers.empty())
+                failCaptureValidation("Bloom sandbox check: friendly landing should heal once and consume Bloom.");
+            const marker_data::Definition thorns{"Thorns", marker_data::Eligibility::Enemy,
+                marker_data::Effect::Damage, 2};
+            gameSnapshot.boardMarkers.push_back({2, 3, 2, thorns});
+            sandboxActWithPiece(friendlyId, 3, 2, 0);
+            if (pieceByIdInSnapshot(gameSnapshot, friendlyId) || !gameSnapshot.boardMarkers.empty())
+                failCaptureValidation("Traces sandbox check: lethal damage should consume the public marker and destroy the entrant.");
+
+            seedCaptureMatch("midgame");
+            gameSnapshot.boardMarkers = {{1, 3, 3, bloom}, {2, 4, 4, bloom}};
+            gameSnapshot.traps = {{1, 3, 3, 1}, {2, 4, 4, 1}};
+            gameSnapshot.status = "Bloom markers are public. An overlapping Blight stays private.";
         }
         else if (screen == "game-blight")
         {

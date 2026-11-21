@@ -264,7 +264,7 @@ void initializeCardPassives(SQLite::Database& database)
             SQLite::Statement query(database, "SELECT rowid,title,keyword FROM card_keywords");
             while (query.executeStep()) {
                 std::string value=query.getColumn(2).getString();
-                if (card_data::isSupportedPassive(value))
+                if (card_data::passiveKey(value)!="traces" && card_data::isSupportedPassive(value))
                     rows.push_back({query.getColumn(0).getInt64(),query.getColumn(1).getString(),std::move(value)});
             }
         }
@@ -284,6 +284,7 @@ std::vector<card_data::Card> loadCards(SQLite::Database& database)
     const bool hasTraitsTable = tableExists(database, "card_traits");
     const bool hasKeywordsTable = tableExists(database, "card_keywords");
     const bool hasPassivesTable = tableExists(database, "card_passives");
+    const bool hasMarkerTable = tableExists(database, "card_board_markers");
     SQLite::Statement query(database, "SELECT title, type, image_path FROM cards ORDER BY title");
     while (query.executeStep())
     {
@@ -320,6 +321,15 @@ std::vector<card_data::Card> loadCards(SQLite::Database& database)
         else if (hasTraitsTable && hasKeywordsTable)
             card_data::splitLegacyPassives(card);
         card_data::normalizeRescuePassives(card.passives);
+        if (hasMarkerTable) {
+            SQLite::Statement marker(database,"SELECT marker_name FROM card_board_markers WHERE title=?");
+            marker.bind(1,card.title);
+            if (marker.executeStep()) {
+                card.tracesMarkerName=marker.getColumn(0).getString();
+                card.tracesMarker=loadBoardMarker(database,card.tracesMarkerName);
+                if (!card.tracesMarker) throw std::runtime_error("Invalid Board Marker reference for " + card.title);
+            }
+        }
         card.integerValues = loadIntegerValues(database, card.title);
         card.stringValues = loadStringValues(database, card.title);
         card.stringLists = loadStringLists(database, card.title);
@@ -500,5 +510,93 @@ void setCardActivatedAbilities(SQLite::Database& database, const std::string& ti
     if (authoritative) {
         SQLite::Statement mark(database,"INSERT OR IGNORE INTO card_ability_object_migrations(title) VALUES(?)");mark.bind(1,title);mark.exec();
     }
+}
+void initializeBoardMarkers(SQLite::Database& database)
+{
+    SQLite::Transaction txn(database);
+    database.exec("CREATE TABLE IF NOT EXISTS board_markers (name TEXT NOT NULL PRIMARY KEY COLLATE NOCASE,"
+        "eligibility INTEGER NOT NULL CHECK(eligibility BETWEEN 0 AND 2),"
+        "effect INTEGER NOT NULL CHECK(effect BETWEEN 0 AND 1),"
+        "strength INTEGER NOT NULL CHECK(strength > 0));"
+        "CREATE TABLE IF NOT EXISTS card_board_markers (title TEXT NOT NULL PRIMARY KEY,"
+        "marker_name TEXT NOT NULL COLLATE NOCASE,"
+        "FOREIGN KEY(title) REFERENCES cards(title) ON DELETE CASCADE,"
+        "FOREIGN KEY(marker_name) REFERENCES board_markers(name) ON UPDATE CASCADE ON DELETE RESTRICT)");
+    txn.commit();
+}
+
+static marker_data::Definition boardMarkerFromRow(SQLite::Statement& rows)
+{
+    const int eligibility=rows.getColumn(1).getInt(), effect=rows.getColumn(2).getInt();
+    marker_data::Definition result{rows.getColumn(0).getString(),
+        static_cast<marker_data::Eligibility>(eligibility),static_cast<marker_data::Effect>(effect),
+        rows.getColumn(3).getInt()};
+    if (eligibility<0 || eligibility>2 || effect<0 || effect>1 || !marker_data::valid(result))
+        throw std::runtime_error("Invalid stored Board Marker: "+result.name);
+    return result;
+}
+
+std::vector<marker_data::Definition> loadBoardMarkers(SQLite::Database& database)
+{
+    SQLite::Statement rows(database,"SELECT name,eligibility,effect,strength FROM board_markers ORDER BY name");
+    std::vector<marker_data::Definition> result;
+    while (rows.executeStep()) result.push_back(boardMarkerFromRow(rows));
+    return result;
+}
+
+std::optional<marker_data::Definition> loadBoardMarker(SQLite::Database& database,const std::string& name)
+{
+    if (name.empty()) return std::nullopt;
+    SQLite::Statement rows(database,"SELECT name,eligibility,effect,strength FROM board_markers WHERE name=?");
+    rows.bind(1,name);
+    if (!rows.executeStep()) return std::nullopt;
+    return boardMarkerFromRow(rows);
+}
+
+void saveBoardMarker(SQLite::Database& database,const marker_data::Definition& marker,const std::string& originalName)
+{
+    if (!marker_data::valid(marker)) throw std::runtime_error("Invalid Board Marker definition");
+    SQLite::Transaction txn(database);
+    if (originalName.empty()) {
+        if (auto defined=loadBoardMarker(database,marker.name); defined && defined->name!=marker.name)
+            throw std::runtime_error("A Board Marker already uses this name");
+        SQLite::Statement query(database,"INSERT INTO board_markers(name,eligibility,effect,strength) VALUES(?,?,?,?) "
+            "ON CONFLICT(name) DO UPDATE SET eligibility=excluded.eligibility,effect=excluded.effect,strength=excluded.strength");
+        query.bind(1,marker.name); query.bind(2,static_cast<int>(marker.eligibility));
+        query.bind(3,static_cast<int>(marker.effect)); query.bind(4,marker.strength); query.exec();
+    } else {
+        SQLite::Statement query(database,"UPDATE board_markers SET name=?,eligibility=?,effect=?,strength=? WHERE name=?");
+        query.bind(1,marker.name); query.bind(2,static_cast<int>(marker.eligibility));
+        query.bind(3,static_cast<int>(marker.effect)); query.bind(4,marker.strength); query.bind(5,originalName);
+        if (query.exec()!=1) throw std::runtime_error("Board Marker not found");
+        // Case-only spelling changes are equal to SQLite NOCASE so its cascade
+        // is not fired. Canonicalize every persisted reference explicitly.
+        SQLite::Statement references(database,"UPDATE card_board_markers SET marker_name=? WHERE marker_name=? COLLATE NOCASE");
+        references.bind(1,marker.name); references.bind(2,originalName); references.exec();
+    }
+    txn.commit();
+}
+
+void deleteBoardMarker(SQLite::Database& database,const std::string& name)
+{
+    SQLite::Transaction txn(database);
+    SQLite::Statement refs(database,"SELECT 1 FROM card_board_markers WHERE marker_name=? LIMIT 1");
+    refs.bind(1,name);
+    if (refs.executeStep()) throw std::runtime_error("Board Marker is assigned to a card");
+    SQLite::Statement remove(database,"DELETE FROM board_markers WHERE name=?");
+    remove.bind(1,name);
+    if (remove.exec()!=1) throw std::runtime_error("Board Marker not found");
+    txn.commit();
+}
+
+void setCardBoardMarker(SQLite::Database& database,const std::string& title,const std::string& name)
+{
+    const auto definition=loadBoardMarker(database,name);
+    if (!name.empty() && !definition) throw std::runtime_error("Unknown Board Marker reference");
+    SQLite::Statement remove(database,"DELETE FROM card_board_markers WHERE title=?");
+    remove.bind(1,title); remove.exec();
+    if (!definition) return;
+    SQLite::Statement link(database,"INSERT INTO card_board_markers (title,marker_name) VALUES (?,?)");
+    link.bind(1,title); link.bind(2,definition->name); link.exec();
 }
 }

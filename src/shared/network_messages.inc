@@ -156,7 +156,17 @@ enum class MessageType : std::uint8_t
     CardUpsertWithAbilitiesRequest,
     CardUpdateWithAbilitiesRequest,
     CardUpsertWithPassivesRequest,
-    CardUpdateWithPassivesRequest
+    CardUpdateWithPassivesRequest,
+    BoardMarkerListRequest,
+    BoardMarkerListResponse,
+    BoardMarkerUpsertRequest,
+    BoardMarkerUpsertResponse,
+    BoardMarkerUpdateRequest,
+    BoardMarkerUpdateResponse,
+    BoardMarkerDeleteRequest,
+    BoardMarkerDeleteResponse,
+    CardUpsertWithMarkersRequest,
+    CardUpdateWithMarkersRequest
 };
 
 // MovePiece and AttackPiece keep their original three-int payload

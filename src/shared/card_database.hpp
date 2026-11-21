@@ -20,4 +20,10 @@ std::optional<ability_data::Definition> loadActivatedAbility(SQLite::Database& d
 void saveActivatedAbility(SQLite::Database& database, const ability_data::Definition& definition, const std::string& originalName = "");
 void deleteActivatedAbility(SQLite::Database& database, const std::string& name);
 void setCardActivatedAbilities(SQLite::Database& database, const std::string& title, const std::string& abilityName, const std::string& sacrificeName, bool authoritative = true);
+void initializeBoardMarkers(SQLite::Database& database);
+std::vector<marker_data::Definition> loadBoardMarkers(SQLite::Database& database);
+std::optional<marker_data::Definition> loadBoardMarker(SQLite::Database& database, const std::string& name);
+void saveBoardMarker(SQLite::Database& database, const marker_data::Definition& marker, const std::string& originalName = "");
+void deleteBoardMarker(SQLite::Database& database, const std::string& name);
+void setCardBoardMarker(SQLite::Database& database, const std::string& title, const std::string& name);
 }

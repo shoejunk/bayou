@@ -189,14 +189,14 @@ std::optional<LiveCatalog> loadSchemaElevenCatalog(
             std::to_string(version);
         return std::nullopt;
     }
-    if (version != 15)
+    if (version != 16)
     {
-        error = "storylivecatalogtest itself is stale: it must be reviewed for schema 15";
+        error = "storylivecatalogtest itself is stale: it must be reviewed for schema 16";
         return std::nullopt;
     }
     if (count == 0 || count > card_data::MaxSerializedItems)
     {
-        error = "authoritative schema-15 catalog declared invalid card count " +
+        error = "authoritative schema-16 catalog declared invalid card count " +
             std::to_string(count);
         return std::nullopt;
     }
@@ -221,9 +221,10 @@ std::optional<LiveCatalog> loadSchemaElevenCatalog(
                 true,
                 true,
                 true,
+                true,
                 true))
         {
-            error = "authoritative card server returned an invalid schema-15 card at index " +
+            error = "authoritative card server returned an invalid schema-16 card at index " +
                 std::to_string(index);
             return std::nullopt;
         }
@@ -242,7 +243,7 @@ std::optional<LiveCatalog> loadSchemaElevenCatalog(
     }
     if (!response.endOfPacket())
     {
-        error = "authoritative schema-15 catalog contains unexpected trailing data";
+        error = "authoritative schema-16 catalog contains unexpected trailing data";
         return std::nullopt;
     }
     return catalog;
@@ -430,7 +431,7 @@ bool validateAuthoritativeConstructHealing(
         {
             error = "authoritative " + std::string(expected.cardTitle) + " / " +
                 std::string(expected.actionName) +
-                " no longer maps to positive healing with the schema-15 construct filter";
+                " no longer maps to positive healing with the schema-16 construct filter";
             return false;
         }
         const int actionIndex = static_cast<int>(
@@ -2053,7 +2054,7 @@ int main(int argc, char** argv)
     }
 
     fmt::println(
-        "Loaded {} authoritative schema-15 cards from {}.",
+        "Loaded {} authoritative schema-16 cards from {}.",
         catalog->cards.size(),
         catalog->endpoint);
 

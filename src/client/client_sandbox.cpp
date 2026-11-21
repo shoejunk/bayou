@@ -1,5 +1,6 @@
 #include "client_sandbox.hpp"
 #include "../shared/game_rules.hpp"
+#include "../shared/board_marker_rules.hpp"
 
 #include <algorithm>
 #include <array>
@@ -62,6 +63,8 @@ game_data::GameCard cardFromDestroyedPiece(const game_data::Piece& piece)
     card.commandRestriction = piece.commandRestriction;
     card.sacrifice = piece.sacrifice;
     card.summonTitle = piece.summonTitle;
+    card.tracesMarkerName = piece.tracesMarkerName;
+    card.tracesMarker = piece.tracesMarker;
     card.rebirthTitle = piece.rebirthTitle;
     card.abilityLabels = piece.abilityLabels;
     card.abilityUses = piece.abilityUses;
@@ -307,6 +310,7 @@ void spawnSandboxPiece(
     game_data::populatePieceFromCard(piece, card, isHero);
     piece.hasActed = false;
     snapshot.pieces.push_back(std::move(piece));
+    game_data::applyMarkerEntry(snapshot.boardMarkers, snapshot.pieces, snapshot.pieces.back(), -1, -1);
 }
 
 game_data::GameCard makeStoryTomCard()

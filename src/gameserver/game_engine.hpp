@@ -3,6 +3,7 @@
 #include "../shared/card_data.hpp"
 #include "../shared/game_data.hpp"
 #include "../shared/corrupt_ground_rules.hpp"
+#include "../shared/board_marker_rules.hpp"
 
 #include <fmt/core.h>
 
@@ -223,6 +224,8 @@ public:
         pieces.clear();
         husks.clear();
         traps.clear();
+        boardMarkers.clear();
+        markerSpawnCasualties.clear();
         enchantments.clear();
         graveyard.clear();
         exiled.clear();
@@ -1378,6 +1381,7 @@ public:
         snapshot.holes = holes;
         snapshot.husks = husks;
         for (const Trap& trap : traps) if (trap.owner == playerNumber) snapshot.traps.push_back(trap);
+        snapshot.boardMarkers = boardMarkers;
         snapshot.enchantments.clear();
         snapshot.pieces.clear();
         for (const Piece& piece : pieces)
@@ -1573,6 +1577,8 @@ private:
     std::vector<Piece> pieces;
     std::vector<PendingHusk> husks;
     std::vector<Trap> traps;
+    std::vector<BoardMarker> boardMarkers;
+    std::vector<int> markerSpawnCasualties;
     std::vector<Enchantment> enchantments;
     std::vector<GameCard> graveyard;
     std::vector<GameCard> exiled;
@@ -2039,6 +2045,8 @@ private:
                 auto old=std::find_if(priorPositions.begin(),priorPositions.end(),[&](const auto& item){return item.first==p.id;});
                 if (old!=priorPositions.end() && old->second!=std::pair{p.row,p.column}) {
                     if (applyBlightContact(traps,p) && p.health<=0) trapKilledIds.push_back(p.id);
+                    if (applyMarkerEntry(boardMarkers,pieces,p,old->second.first,old->second.second) && p.health <= 0)
+                        trapKilledIds.push_back(p.id);
                     old->second={p.row,p.column};
                 }
             }
@@ -2314,6 +2322,7 @@ private:
         if (survivingAttacker->row!=originRow || survivingAttacker->column!=originColumn)
         {
             applyBlightContact(traps,*survivingAttacker);
+            applyMarkerEntry(boardMarkers,pieces,*survivingAttacker,originRow,originColumn);
             if (survivingAttacker->health<=0)
             {
                 destroyPiece(attackerId);
@@ -2364,6 +2373,7 @@ private:
         }
         const bool moved = survivingAttacker->row != originRow ||
             survivingAttacker->column != originColumn;
+        if (moved) placeTraceMarker(boardMarkers,*survivingAttacker,originRow,originColumn);
         const bool leavesTrail = moved && pieceHasTrailAbility(*survivingAttacker);
         const std::string trailSummonTitle = survivingAttacker->summonTitle;
 
@@ -2558,6 +2568,8 @@ private:
         populatePieceFromCard(piece, card, isHero);
         piece.hasActed = false;
         pieces.push_back(piece);
+        if (applyMarkerEntry(boardMarkers,pieces,pieces.back(),-1,-1) && pieces.back().health <= 0)
+            markerSpawnCasualties.push_back(pieces.back().id);
     }
 
     int controlledCount(int playerNumber) const
@@ -2627,7 +2639,12 @@ private:
         player.foresightChoices.clear();
         player.discardsThisTurn = 0;
         player.pieceActionUsedThisTurn = false;
+        const int firstHatchedId = nextPieceId;
         resolveHusksAtTurnStart(pieces, husks, graveyard, exiled, nextPieceId, playerNumber);
+        if (nextPieceId != firstHatchedId)
+            for (Piece& newcomer : pieces)
+                if (newcomer.id >= firstHatchedId && applyMarkerEntry(boardMarkers,pieces,newcomer,-1,-1) && newcomer.health <= 0)
+                    markerSpawnCasualties.push_back(newcomer.id);
         updatePieceControlAtTurnStart(pieces, playerNumber);
         for (Piece& piece : pieces)
         {
@@ -3062,6 +3079,18 @@ private:
 
     void recomputeControl()
     {
+        while (!markerSpawnCasualties.empty())
+        {
+            const int id=markerSpawnCasualties.back();
+            markerSpawnCasualties.pop_back();
+            if (const Piece* casualty=pieceById(id); casualty && casualty->health<=0)
+            {
+                const int owner=pieceOriginalOwner(*casualty);
+                const bool hero=casualty->isHero;
+                destroyPiece(id);
+                if (hero && phaseValue!=Phase::GameOver) checkForWinner(owner);
+            }
+        }
         crushOccupiedHusks(pieces, husks, graveyard, exiled);
         control = recomputeBoardControl(control, pieces);
     }

@@ -1,6 +1,9 @@
 #include "purify_tests.hpp"
 #include "rooted_tests.hpp"
 #include "dash_rescue_engine_tests.hpp"
+#include "trace_marker_tests.hpp"
+#include "board_marker_wire_tests.hpp"
+#include "board_marker_catalog_tests.hpp"
 #include "dash_rescue_wire_tests.hpp"
 #include "runtime_passive_tests.hpp"
 #include "passives_catalog_tests.hpp"
@@ -241,6 +244,9 @@ int main(int argc, char **argv)
     testPurifyingRadiance(check);
     testRooted(check);
     testDashRescueEngine(check);
+    testTraceMarkers(check);
+    testBoardMarkerWire(check);
+    testBoardMarkerCatalog(check);
     testDashRescueWire(check);
     testRuntimePassives(check);
     testPassivesCatalog(check);

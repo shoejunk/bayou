@@ -26,6 +26,7 @@ module;
 #include <optional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -514,6 +515,7 @@ export struct CardEditorEndpoint
 };
 
 #include "activated_ability_editor.inl"
+#include "board_marker_editor.inl"
 
 export class CardEditorScreen
 {
@@ -525,10 +527,11 @@ public:
         : font(screenFont)
         , endpoint(std::move(screenEndpoint))
         , abilityEditor(screenFont,endpoint)
+        , markerEditor(screenFont,endpoint)
         // drawTitlePlaque widens itself to its label and adds authored thorn
         // finials past both ends, so the left-anchored editor plaque needs a
         // little extra clearance before the first tab.
-        , editorTabs({392.0f, 14.0f}, {108.0f, 44.0f}, {"Cards", "Actions", "Abilities"}, screenFont)
+        , editorTabs({EditorTabX, 14.0f}, {EditorTabWidth, 44.0f}, {"Cards", "Actions", "Abilities", "Board Markers"}, screenFont)
     {
         setAssetRoot(std::move(assetRoot));
         buildControls();
@@ -538,6 +541,7 @@ public:
     {
         endpoint = std::move(screenEndpoint);
         abilityEditor.setEndpoint(endpoint);
+        markerEditor.setEndpoint(endpoint);
     }
 
     void open()
@@ -559,6 +563,7 @@ public:
         closeActionDropdown();
         serverSupportsAbilityObjects=false;
         serverSupportsPassives=true;
+        serverSupportsMarkers=true;
         selectedCard.reset();
         selectedAction.reset();
         cardSearchField.setValue("");
@@ -586,13 +591,17 @@ public:
             return;
         }
 
+        if (key=="card-editor-board-markers")
+        {
+            markerEditor.capture(); editorMode=EditorMode::BoardMarkers; editorTabs.setActive(3); return;
+        }
         if (key=="card-editor-abilities")
         {
             abilityEditor.capture();editorMode=EditorMode::Abilities;editorTabs.setActive(2);return;
         }
 
         const bool populatedCardState =
-            key == "card-editor-loaded" || key == "card-editor-passives" || key == "card-editor-ability-reference" || key == "card-editor-instructions" ||
+            key == "card-editor-loaded" || key == "card-editor-passives" || key == "card-editor-traces" || key == "card-editor-ability-reference" || key == "card-editor-instructions" ||
             key == "card-editor-instructions-middle" ||
             key == "card-editor-unsaved" || key == "card-editor-rarity-dropdown" ||
             key == "card-editor-action-dropdown";
@@ -601,8 +610,17 @@ public:
             // Prefer a unit: it carries the fullest set of stat and text fields.
             const auto unit = std::find_if(cards.begin(), cards.end(),
                 [](const card_data::Card& card) { return card.type == "Unit"; });
-            selectCard(static_cast<std::size_t>(
-                (unit == cards.end() ? cards.begin() : unit) - cards.begin()));
+            auto chosen=unit==cards.end()?cards.begin():unit;
+            if (key == "card-editor-traces")
+            {
+                markerEditor.capture();
+                chosen->traits={"Fey"};
+                chosen->keywords.clear();
+                chosen->passives={"Traces"};
+                chosen->tracesMarkerName=markerEditor.library().front().name;
+                chosen->tracesMarker=markerEditor.library().front();
+            }
+            selectCard(static_cast<std::size_t>(chosen-cards.begin()));
             setStatus("Loaded from card server", Muted);
         }
 
@@ -812,15 +830,18 @@ public:
             return shouldClose;
         }
 
-        if (editorMode==EditorMode::Abilities)
+        if (editorMode==EditorMode::Abilities || editorMode==EditorMode::BoardMarkers)
         {
-            if (!abilityEditor.hasModal())
+            const bool markerMode=editorMode==EditorMode::BoardMarkers;
+            const bool modal=markerMode?markerEditor.hasModal():abilityEditor.hasModal();
+            if (!modal)
                 if (const auto* key=event.getIf<sf::Event::KeyPressed>();key && key->code==sf::Keyboard::Key::Escape)
                 {const bool close=requestTransition(PendingTransition::CloseScreen);window.setView(previousView);return close;}
-            if (!abilityEditor.hasModal())
+            if (!modal)
                 if (const auto* click=event.getIf<sf::Event::MouseButtonPressed>(); click && click->button==sf::Mouse::Button::Left && window.mapPixelToCoords(click->position).y<80)
                 { const bool close=handleClick(window.mapPixelToCoords(click->position));window.setView(previousView);return close; }
-            abilityEditor.event(event,window);
+            if (markerMode) markerEditor.event(event,window);
+            else abilityEditor.event(event,window);
             window.setView(previousView);
             return false;
         }
@@ -1064,6 +1085,7 @@ public:
         saveButton.setEnabled(hasUnsavedCardChanges());
         saveButton.update(mouse);
         saveActionButton.update(mouse);
+        if (editorMode==EditorMode::BoardMarkers) {markerEditor.update(mouse,deltaTime);return;}
         if (editorMode==EditorMode::Abilities) {abilityEditor.update(mouse,deltaTime);return;}
         deleteButton.update(mouse);
         editorTabs.update(mouse);
@@ -1175,6 +1197,7 @@ public:
         else
         {
             if (editorMode==EditorMode::Abilities) abilityEditor.draw(window);
+            else if (editorMode==EditorMode::BoardMarkers) markerEditor.draw(window);
             else drawListPanel(window);
             if (editorMode == EditorMode::Cards)
             {
@@ -1200,8 +1223,12 @@ private:
     {
         Cards,
         Actions,
-        Abilities
+        Abilities,
+        BoardMarkers
     };
+
+    static constexpr float EditorTabX = 366.0f;
+    static constexpr float EditorTabWidth = 97.0f;
 
     enum class PendingTransition
     {
@@ -1210,6 +1237,7 @@ private:
         ShowCards,
         ShowActions,
         ShowAbilities,
+        ShowBoardMarkers,
         NewCard,
         NewAction,
         RefreshCards,
@@ -1225,6 +1253,7 @@ private:
         std::vector<card_data::Card> cards;
         bool includesAbilities = false;
         bool includesPassives = false;
+        bool includesMarkers = false;
     };
 
     struct CommandResult
@@ -1274,6 +1303,7 @@ private:
     sf::Font& font;
     CardEditorEndpoint endpoint;
     ActivatedAbilityEditor abilityEditor;
+    BoardMarkerEditor markerEditor;
     EditorMode editorMode = EditorMode::Cards;
     int lastAudioSurface = -1;
     std::vector<card_data::Card> cards;
@@ -1364,6 +1394,9 @@ private:
     bool serverSupportsSlow = false;
     bool serverSupportsAbilityObjects = false;
     bool serverSupportsPassives = false;
+    bool serverSupportsMarkers = false;
+    std::string tracesMarkerName;
+    EditorButton tracesMarkerButton;
     InputBox cardAbilityReferenceField;
     InputBox sacrificeAbilityReferenceField;
     InputBox actionStatusTurnsField;
@@ -1502,6 +1535,7 @@ private:
         bool actionIncludesSlow = false;
         bool includesAbilities = false;
         bool includesPassives = false;
+        bool includesMarkers = false;
         if (!card_data::readCardListHeader(
                 response,
                 count,
@@ -1512,7 +1546,7 @@ private:
                 &actionIncludesInfest,
                 &actionIncludesPull,
                 &actionIncludesLifedrain,
-                &actionIncludesSlow, &includesAbilities, &includesPassives))
+                &actionIncludesSlow, &includesAbilities, &includesPassives, &includesMarkers))
         {
             socket.disconnect();
             return {false, "Unsupported card list payload"};
@@ -1533,7 +1567,7 @@ private:
                     actionIncludesInfest,
                     actionIncludesPull,
                     actionIncludesLifedrain,
-                    actionIncludesSlow, includesAbilities, includesPassives))
+                    actionIncludesSlow, includesAbilities, includesPassives, includesMarkers))
             {
                 socket.disconnect();
                 return {false, "Invalid card list payload"};
@@ -1543,7 +1577,7 @@ private:
         }
 
         socket.disconnect();
-        return {success, message, std::move(loadedCards), includesAbilities, includesPassives};
+        return {success, message, std::move(loadedCards), includesAbilities, includesPassives, includesMarkers};
     }
 
     ActionListResult fetchActionsFromServer()
@@ -1622,6 +1656,11 @@ private:
     {
         if (!serverSupportsPassives)
             return {false, "Card editing requires a card server that supports separate Passives (schema 15)."};
+        if (game_data::hasKeyword(inputCard.passives, "traces"))
+        {
+            if (!serverSupportsMarkers) return {false, "Traces requires a board marker-capable card server."};
+            if (inputCard.tracesMarkerName.empty()) return {false, "Choose a saved board marker for Traces before saving."};
+        }
         card_data::Card card = inputCard;
         normalizeCardImagePath(card);
 
@@ -1632,8 +1671,8 @@ private:
         }
 
         sf::Packet request;
-        request << static_cast<std::uint8_t>(network::MessageType::CardUpsertWithPassivesRequest);
-        card_data::writeCard(request, card, false, true, true);
+        request << static_cast<std::uint8_t>(serverSupportsMarkers ? network::MessageType::CardUpsertWithMarkersRequest : network::MessageType::CardUpsertWithPassivesRequest);
+        card_data::writeCard(request, card, false, true, true, serverSupportsMarkers);
         if (socket.send(request) != sf::Socket::Status::Done)
         {
             socket.disconnect();
@@ -1649,6 +1688,11 @@ private:
     {
         if (!serverSupportsPassives)
             return {false, "Card editing requires a card server that supports separate Passives (schema 15)."};
+        if (game_data::hasKeyword(inputCard.passives, "traces"))
+        {
+            if (!serverSupportsMarkers) return {false, "Traces requires a board marker-capable card server."};
+            if (inputCard.tracesMarkerName.empty()) return {false, "Choose a saved board marker for Traces before saving."};
+        }
         card_data::Card card = inputCard;
         normalizeCardImagePath(card);
 
@@ -1659,9 +1703,9 @@ private:
         }
 
         sf::Packet request;
-        request << static_cast<std::uint8_t>(network::MessageType::CardUpdateWithPassivesRequest);
+        request << static_cast<std::uint8_t>(serverSupportsMarkers ? network::MessageType::CardUpdateWithMarkersRequest : network::MessageType::CardUpdateWithPassivesRequest);
         request << originalTitle;
-        card_data::writeCard(request, card, false, true, true);
+        card_data::writeCard(request, card, false, true, true, serverSupportsMarkers);
         if (socket.send(request) != sf::Socket::Status::Done)
         {
             socket.disconnect();
@@ -1778,6 +1822,7 @@ private:
         deleteButton = EditorButton(font, "Delete", {528.0f, 690.0f}, {120.0f, 42.0f}, Warn);
         addTraitButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addKeywordButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
+        tracesMarkerButton = EditorButton(font, "Choose marker", {340.0f, 372.0f}, {392.0f, 32.0f}, AccentDark);
         addPassiveButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addIntegerButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
         addStringButton = EditorButton(font, "+", {778.0f, 372.0f}, {32.0f, 28.0f}, AccentDark);
@@ -1872,6 +1917,7 @@ private:
     {
         traitFields.clear();
         keywordFields.clear();
+        tracesMarkerName.clear();
         passiveFields.clear();
         intKeyFields.clear();
         intValueFields.clear();
@@ -1889,6 +1935,7 @@ private:
         {
             keywordFields.push_back(makeCompactField(keyword, {392.0f, 32.0f}));
         }
+        tracesMarkerName=card.tracesMarkerName;
         for (const std::string& passive : card.passives)
         {
             passiveFields.push_back(makeCompactField(passive, {392.0f, 32.0f}));
@@ -2587,6 +2634,7 @@ private:
         appendFields(traitFields);
         appendFields(keywordFields);
         appendFields(passiveFields);
+        appendSnapshotValue(snapshot, tracesMarkerName);
         appendFields(intKeyFields);
         appendFields(intValueFields);
         appendFields(stringKeyFields);
@@ -2659,6 +2707,7 @@ private:
 
     bool hasUnsavedChanges() const
     {
+        if (editorMode==EditorMode::BoardMarkers) return markerEditor.hasUnsavedChanges();
         if (editorMode==EditorMode::Abilities) return abilityEditor.hasUnsavedChanges();
         return editorMode == EditorMode::Cards
             ? hasUnsavedCardChanges()
@@ -2667,6 +2716,7 @@ private:
 
     void restoreCurrentForm()
     {
+        if (editorMode==EditorMode::BoardMarkers) {markerEditor.restore();return;}
         if (editorMode==EditorMode::Abilities) {abilityEditor.restore();return;}
         if (editorMode == EditorMode::Cards)
         {
@@ -2693,9 +2743,15 @@ private:
     {
         closeActionDropdown();
         editorMode = mode;
-        if(mode==EditorMode::Cards && abilityEditor.consumeLibraryChanges())loadCards();
+        if (mode==EditorMode::Cards)
+        {
+            const bool abilitiesChanged=abilityEditor.consumeLibraryChanges();
+            const bool markersChanged=markerEditor.consumeLibraryChanges();
+            if (abilitiesChanged || markersChanged) loadCards();
+        }
         editorTabs.setActive(static_cast<std::size_t>(editorMode));
         rebuildFocusOrder();
+        if (editorMode==EditorMode::BoardMarkers) {markerEditor.ensureLoaded();return;}
         if (editorMode==EditorMode::Abilities) {abilityEditor.ensureLoaded();return;}
         if (editorMode == EditorMode::Cards)
         {
@@ -2722,6 +2778,9 @@ private:
             return true;
         case PendingTransition::ShowCards:
             setEditorMode(EditorMode::Cards);
+            break;
+        case PendingTransition::ShowBoardMarkers:
+            setEditorMode(EditorMode::BoardMarkers);
             break;
         case PendingTransition::ShowAbilities:
             setEditorMode(EditorMode::Abilities);
@@ -2801,10 +2860,12 @@ private:
     {
         const bool saved = editorMode == EditorMode::Cards
             ? saveCurrentCard()
+            : editorMode==EditorMode::BoardMarkers ? markerEditor.save()
             : editorMode==EditorMode::Abilities ? abilityEditor.save() : saveCurrentAction();
         if (!saved)
         {
-            unsavedChangesError = editorMode==EditorMode::Abilities?abilityEditor.message():status;
+            unsavedChangesError = editorMode==EditorMode::BoardMarkers ? markerEditor.message()
+                : editorMode==EditorMode::Abilities?abilityEditor.message():status;
             return false;
         }
         unsavedChangesPopupVisible = false;
@@ -2867,6 +2928,7 @@ private:
         const CardListResult result = fetchCardsFromServer();
         serverSupportsAbilityObjects=result.success && result.includesAbilities;
         serverSupportsPassives=result.success && result.includesPassives;
+        serverSupportsMarkers=result.success && result.includesMarkers;
         if(serverSupportsAbilityObjects)abilityEditor.refreshLibrary();
         if (!result.success)
         {
@@ -3199,6 +3261,7 @@ private:
         typeField.setValue("Unit");
         traitFields.clear();
         keywordFields.clear();
+        tracesMarkerName.clear();
         passiveFields.clear();
         intKeyFields.clear();
         intValueFields.clear();
@@ -3279,6 +3342,7 @@ private:
                 card.keywords.push_back(value);
             }
         }
+        if (formHasTraces()) card.tracesMarkerName=tracesMarkerName;
         for (const InputBox& field : passiveFields)
         {
             const std::string value = trim(field.getValue());
@@ -3666,6 +3730,36 @@ private:
         layoutArrayControls();
     }
 
+    static bool isTracesLabel(const std::string& value)
+    {
+        constexpr std::string_view passive="traces";
+        std::size_t begin=0, end=value.size();
+        while (begin<end && std::isspace(static_cast<unsigned char>(value[begin]))) ++begin;
+        while (begin<end && std::isspace(static_cast<unsigned char>(value[end-1]))) --end;
+        if (end-begin!=passive.size()) return false;
+        for (std::size_t i=0;i<passive.size();++i)
+            if (std::tolower(static_cast<unsigned char>(value[begin+i]))!=passive[i]) return false;
+        return true;
+    }
+
+    bool formHasTraces() const
+    {
+        for (const InputBox& field : passiveFields)
+            if (isTracesLabel(field.getValue())) return true;
+        return false;
+    }
+
+    void cycleTracesMarker()
+    {
+        if (!serverSupportsMarkers) {setStatus("This server does not support Board Markers.", Warn);return;}
+        markerEditor.ensureLoaded();
+        const auto& library=markerEditor.library();
+        if (library.empty()) {setStatus("Save a definition on the Board Markers tab first.", Warn);return;}
+        const auto current=std::find_if(library.begin(),library.end(),[&](const auto& d){return d.name==tracesMarkerName;});
+        const auto next=current==library.end()?library.begin():current+1;
+        tracesMarkerName=(next==library.end()?library.begin():next)->name;
+    }
+
     void layoutArrayControls()
     {
         arraySectionLabels.clear();
@@ -3739,6 +3833,14 @@ private:
             y += 40.0f;
         }
         y += 12.0f;
+
+        if (formHasTraces())
+        {
+            arraySectionLabels.push_back({"Traces marker", {340.0f,y}});
+            const std::string value=tracesMarkerName.empty()?"Choose a saved marker":tracesMarkerName;
+            tracesMarkerButton=EditorButton(font, elideToWidth(font,value,15,374), {340.0f,y+25}, {392.0f,32.0f}, AccentDark);
+            y+=66.0f;
+        }
 
         addSection("Integer Fields", addIntegerButton);
         if (intKeyFields.empty())
@@ -4259,7 +4361,8 @@ private:
             closeActionDropdown();
             return requestTransition(requestedMode == EditorMode::Cards
                 ? PendingTransition::ShowCards
-                : requestedMode==EditorMode::Abilities?PendingTransition::ShowAbilities:PendingTransition::ShowActions);
+                : requestedMode==EditorMode::BoardMarkers ? PendingTransition::ShowBoardMarkers
+                : requestedMode==EditorMode::Abilities ? PendingTransition::ShowAbilities : PendingTransition::ShowActions);
         }
         if (newButton.clicked(mouse))
         {
@@ -4387,6 +4490,11 @@ private:
             if (isVisibleInArrayViewport(addKeywordButton.bounds()) && addKeywordButton.clicked(mouse))
             {
                 addKeyword();
+                return false;
+            }
+            if (formHasTraces() && isVisibleInArrayViewport(tracesMarkerButton.bounds()) && tracesMarkerButton.clicked(mouse))
+            {
+                cycleTracesMarker();
                 return false;
             }
             if (isVisibleInArrayViewport(addPassiveButton.bounds()) && addPassiveButton.clicked(mouse))
@@ -4637,8 +4745,8 @@ private:
             address.setPosition({952.0f - address.getLocalBounds().size.x, 39.0f});
             bayou::client::drawCrispText(window, address);
             editorTabs.draw(window);
-            sf::RectangleShape activeTabKey({92.0f, 3.0f});
-            activeTabKey.setPosition({400.0f + static_cast<float>(static_cast<int>(editorMode)*108), 62.0f});
+            sf::RectangleShape activeTabKey({EditorTabWidth-16.0f, 3.0f});
+            activeTabKey.setPosition({EditorTabX + 8.0f + static_cast<float>(editorMode)*EditorTabWidth, 62.0f});
             activeTabKey.setFillColor(VioletBright);
             window.draw(activeTabKey);
             instructionsButton.draw(window);
@@ -4802,6 +4910,7 @@ private:
         y = addInstructionBullet("ability: transform, dematerialize, dig, summon, command, raise undead, Swap, Power Boost, shriek, silence, or area heal. Transform-style abilities switch action states; dig creates a tunnel hole; summon creates the unit named by the summon string field in the space in front; command lets one ready adjacent friendly piece take any normal action without ending the turn; raise undead chooses an Undead Unit from the graveyard for a free 1-Health card that is exiled on its next death.", y);
         y = addInstructionBullet("Dematerialize: set ability=dematerialize and define an action in State 1 (or a Next state of 1) so the ability can cycle between visible State 0 and hidden State 1. Nonzero states hide the piece from the opponent. Bumping into or striking a hidden piece materializes and disables it for 1 turn. The Dematerialize passive also enables hiding through action state changes.", y);
         y = addInstructionBullet("Rescue: add to Passives. Currently assigned only to mounted Nettle Starbright. Once per round, when another adjacent ally is attacked, move it to the first empty legal square clockwise around this unit, starting after its current square. The attack still targets the original square. Without a legal landing square, the rescue stays ready.", y);
+        y = addInstructionBullet("Traces: define a reusable marker on the Board Markers tab, then add Traces to the card's Passives and choose a saved marker in its Traces selector. Eligibility is relative to the marker owner. Strength specifies the amount of healing or damage.", y);
         y = addInstructionBullet("Reveal: add reveal to Passives. At the end of its owner's turn, adjacent enemy Dematerialize pieces in State 1 return to State 0 without the collision stun. Diagonals and large footprints count.", y);
         y = addInstructionBullet("Undying: add Undying to Passives. The first time a Unit would be defeated, it remains on the board with 1 Health. Once per board lifetime, preserving identity, attachments, readiness and conditions. Prevents the defeat before Infest, Rebirth, exile, Evacuate or Chrysalis. This is a passive, not an activated ability.", y);
         y = addInstructionBullet("Chrysalis: add Chrysalis to Passives. Once per card copy per game, defeat leaves a nonblocking Husk. Any unit, friendly or enemy, occupying its footprint destroys it. At the original owner's next turn, return at 1 Health if empty, otherwise discard. Existing Infest/Rebirth, raised-card exile and successful Evacuate take precedence. This is passive, not an action or activated ability.", y);
@@ -5477,6 +5586,7 @@ private:
         drawVisibleButton(window, addTraitButton);
         drawVisibleButton(window, addKeywordButton);
         drawVisibleButton(window, addPassiveButton);
+        if (formHasTraces()) drawVisibleButton(window,tracesMarkerButton);
         drawVisibleButton(window, addIntegerButton);
         drawVisibleButton(window, addStringButton);
         drawVisibleButton(window, addListButton);
@@ -5904,7 +6014,17 @@ private:
 
         float y = drawTagSection("TRAITS", card.traits, 582.0f);
         y = drawTagSection("KEYWORDS", card.keywords, y);
-        y = drawTagSection("PASSIVES", card.passives, y);
+        auto displayedPassives = card.passives;
+        if (!card.tracesMarkerName.empty())
+        {
+            for (auto& label : displayedPassives)
+            {
+                if (!isTracesLabel(label)) continue;
+                label += ": " + card.tracesMarkerName;
+                break;
+            }
+        }
+        y = drawTagSection("PASSIVES", displayedPassives, y);
         if (creature)
         {
             drawText(window, font, fmt::format("{} action{}", card.actionNames.size(), card.actionNames.size() == 1 ? "" : "s"),

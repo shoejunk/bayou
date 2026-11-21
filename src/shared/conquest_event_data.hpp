@@ -428,20 +428,20 @@ inline void writeBattleData(sf::Packet& packet, const BattleData& value)
            << value.playerOne << value.playerTwo;
     deck_data::writeDeck(packet, value.deckOne);
     deck_data::writeDeck(packet, value.deckTwo);
-    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(value.cardsOne.size()), true, true, true);
+    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(value.cardsOne.size()), true, true, true, true);
     for (const card_data::Card& card : value.cardsOne)
     {
-        card_data::writeCard(packet, card, true, true, true);
+        card_data::writeCard(packet, card, true, true, true, true);
     }
-    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(value.cardsTwo.size()), true, true, true);
+    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(value.cardsTwo.size()), true, true, true, true);
     for (const card_data::Card& card : value.cardsTwo)
     {
-        card_data::writeCard(packet, card, true, true, true);
+        card_data::writeCard(packet, card, true, true, true, true);
     }
-    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(value.catalog.size()), true, true, true);
+    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(value.catalog.size()), true, true, true, true);
     for (const card_data::Card& card : value.catalog)
     {
-        card_data::writeCard(packet, card, true, true, true);
+        card_data::writeCard(packet, card, true, true, true, true);
     }
     packet << static_cast<std::uint32_t>(value.actions.size());
     for (const BattleAction& action : value.actions)
@@ -456,10 +456,10 @@ inline bool readBattleData(sf::Packet& packet, BattleData& value)
         std::uint32_t count = 0;
         packet >> count;
         const bool modern = count == card_data::CardListSchemaMarker;
+        std::uint32_t version = 0;
         if (modern)
         {
-            std::uint32_t version = 0;
-            if (!(packet >> version >> count) || version != card_data::CardListSchemaVersion)
+            if (!(packet >> version >> count) || version < 15 || version > card_data::CardListSchemaVersion)
                 return false;
         }
         if (!packet || count > maximum)
@@ -470,7 +470,7 @@ inline bool readBattleData(sf::Packet& packet, BattleData& value)
         cards.resize(count);
         for (card_data::Card& card : cards)
         {
-            if (!card_data::readCard(packet, card, true, true, true, true, true, true, true, modern, modern))
+            if (!card_data::readCard(packet, card, true, true, true, true, true, true, true, modern, modern, version>=16))
             {
                 return false;
             }

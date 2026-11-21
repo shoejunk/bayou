@@ -28,12 +28,12 @@ namespace
 constexpr unsigned short CardServerPort = 55004;
 constexpr auto InitialRequestTimeout = std::chrono::seconds(2);
 
-void writeCards(sf::Packet& packet, const std::vector<card_data::Card>& cards, bool includesSlow, bool includesAbilities = false, bool includesPassives = false)
+void writeCards(sf::Packet& packet, const std::vector<card_data::Card>& cards, bool includesSlow, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false)
 {
-    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(cards.size()), includesSlow, includesAbilities, includesPassives);
+    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(cards.size()), includesSlow, includesAbilities, includesPassives, includesMarkers);
     for (const card_data::Card& card : cards)
     {
-        card_data::writeCard(packet, card, includesSlow, includesAbilities, includesPassives);
+        card_data::writeCard(packet, card, includesSlow, includesAbilities, includesPassives, includesMarkers);
     }
 }
 
@@ -344,6 +344,7 @@ private:
             "UPDATE card_actions SET display_name = action_name WHERE display_name = ''");
         migrateLegacyActions();
         card_database::initializeCardPassives(*database);
+        card_database::initializeBoardMarkers(*database);
         card_database::initializeActivatedAbilities(*database);
     }
 
@@ -387,7 +388,7 @@ private:
             {
                 std::uint32_t version=12;
                 if (!request.endOfPacket() && !(request >> version)) return;
-                handleListCards(client,version>=13,version>=14,version>=15);
+                handleListCards(client,version>=13,version>=14,version>=15,version>=16);
                 break;
             }
             case MessageType::ActivatedAbilityListRequest:
@@ -395,6 +396,18 @@ private:
             case MessageType::ActivatedAbilityUpdateRequest:
             case MessageType::ActivatedAbilityDeleteRequest:
                 handleActivatedAbility(client,request,static_cast<MessageType>(msgType));
+                break;
+            case MessageType::BoardMarkerListRequest:
+            case MessageType::BoardMarkerUpsertRequest:
+            case MessageType::BoardMarkerUpdateRequest:
+            case MessageType::BoardMarkerDeleteRequest:
+                handleBoardMarker(client,request,static_cast<MessageType>(msgType));
+                break;
+            case MessageType::CardUpsertWithMarkersRequest:
+                handleUpsertCard(client,request,true,true,true);
+                break;
+            case MessageType::CardUpdateWithMarkersRequest:
+                handleUpdateCard(client,request,true,true,true);
                 break;
             case MessageType::CardUpsertWithPassivesRequest:
                 handleUpsertCard(client,request,true,true);
@@ -473,7 +486,43 @@ private:
         catch (const std::exception& error) { sendCommandResponse(client,responseType,false,error.what()); }
     }
 
-    void handleListCards(bayou::tls::Socket& client, bool includesSlow, bool includesAbilities = false, bool includesPassives = false)
+    void handleBoardMarker(bayou::tls::Socket& client,sf::Packet& request,MessageType type)
+    {
+        const auto responseType=type==MessageType::BoardMarkerListRequest?MessageType::BoardMarkerListResponse:
+            type==MessageType::BoardMarkerUpdateRequest?MessageType::BoardMarkerUpdateResponse:
+            type==MessageType::BoardMarkerDeleteRequest?MessageType::BoardMarkerDeleteResponse:MessageType::BoardMarkerUpsertResponse;
+        try {
+            if (type==MessageType::BoardMarkerListRequest) {
+                if (!request.endOfPacket()) throw std::runtime_error("Unexpected Board Marker list payload");
+                const auto definitions=card_database::loadBoardMarkers(*database);
+                if (definitions.size()>card_data::MaxSerializedItems) throw std::runtime_error("Too many Board Markers");
+                sf::Packet response;
+                response << static_cast<std::uint8_t>(responseType) << true << std::string("OK")
+                    << static_cast<std::uint32_t>(definitions.size());
+                for (const auto& definition:definitions) marker_data::write(response,definition);
+                [[maybe_unused]] auto sent=client.send(response);
+                return;
+            }
+            std::string original;
+            if ((type==MessageType::BoardMarkerUpdateRequest || type==MessageType::BoardMarkerDeleteRequest) &&
+                (!(request >> original) || !marker_data::validName(original)))
+                throw std::runtime_error("Invalid Board Marker name");
+            if (type==MessageType::BoardMarkerDeleteRequest) {
+                if (!request.endOfPacket()) throw std::runtime_error("Unexpected Board Marker delete payload");
+                card_database::deleteBoardMarker(*database,original);
+            } else {
+                marker_data::Definition definition;
+                if (!marker_data::read(request,definition) || !request.endOfPacket())
+                    throw std::runtime_error("Invalid Board Marker definition");
+                card_database::saveBoardMarker(*database,definition,original);
+            }
+            sendCommandResponse(client,responseType,true,"Board Marker saved");
+        } catch (const std::exception& error) {
+            sendCommandResponse(client,responseType,false,error.what());
+        }
+    }
+
+    void handleListCards(bayou::tls::Socket& client, bool includesSlow, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::CardListResponse);
@@ -482,18 +531,18 @@ private:
         {
             const std::vector<card_data::Card> cards = loadCards();
             response << true << std::string("OK");
-            writeCards(response, cards, includesSlow, includesAbilities, includesPassives);
+            writeCards(response, cards, includesSlow, includesAbilities, includesPassives, includesMarkers);
         }
         catch (const std::exception& error)
         {
             response << false << std::string(error.what());
-            card_data::writeCardListHeader(response, 0, includesSlow, includesAbilities, includesPassives);
+            card_data::writeCardListHeader(response, 0, includesSlow, includesAbilities, includesPassives, includesMarkers);
         }
 
         [[maybe_unused]] auto result = client.send(response);
     }
 
-    void handleUpsertCard(bayou::tls::Socket& client, sf::Packet& request, bool includesAbilities = false, bool includesPassives = false)
+    void handleUpsertCard(bayou::tls::Socket& client, sf::Packet& request, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false)
     {
         if (!includesPassives)
         {
@@ -501,7 +550,7 @@ private:
             return;
         }
         card_data::Card card;
-        if (!card_data::readReferencedCard(request, card, includesAbilities, includesPassives) || !request.endOfPacket())
+        if (!card_data::readReferencedCard(request, card, includesAbilities, includesPassives, includesMarkers) || !request.endOfPacket())
         {
             sendUpsertResponse(client, false, "Invalid card payload");
             return;
@@ -515,7 +564,7 @@ private:
 
         try
         {
-            saveCard("", card, includesAbilities);
+            saveCard("", card, includesAbilities, includesMarkers);
             card_database::initializeActivatedAbilities(*database);
             sendUpsertResponse(client, true, "Card saved");
         }
@@ -525,7 +574,7 @@ private:
         }
     }
 
-    void handleUpdateCard(bayou::tls::Socket& client, sf::Packet& request, bool includesAbilities = false, bool includesPassives = false)
+    void handleUpdateCard(bayou::tls::Socket& client, sf::Packet& request, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false)
     {
         if (!includesPassives)
         {
@@ -535,7 +584,7 @@ private:
         std::string originalTitle;
         card_data::Card card;
         request >> originalTitle;
-        if (!request || !card_data::readReferencedCard(request, card, includesAbilities, includesPassives) || !request.endOfPacket())
+        if (!request || !card_data::readReferencedCard(request, card, includesAbilities, includesPassives, includesMarkers) || !request.endOfPacket())
         {
             sendCommandResponse(client, MessageType::CardUpdateResponse, false, "Invalid card update payload");
             return;
@@ -555,7 +604,7 @@ private:
 
         try
         {
-            saveCard(originalTitle, card, includesAbilities);
+            saveCard(originalTitle, card, includesAbilities, includesMarkers);
             card_database::initializeActivatedAbilities(*database);
             sendCommandResponse(client, MessageType::CardUpdateResponse, true, "Card saved");
         }
@@ -704,10 +753,23 @@ private:
         saveCard("", card);
     }
 
-    void saveCard(const std::string& originalTitle, const card_data::Card& card, bool includesAbilities = false)
+    void saveCard(const std::string& originalTitle, const card_data::Card& card, bool includesAbilities = false, bool includesMarkers = false)
     {
         card_data::Card normalizedCard = card;
         const auto existingCards=loadCards();
+        if (!includesMarkers && std::any_of(existingCards.begin(),existingCards.end(),[&](const auto& item){
+            return !item.tracesMarkerName.empty() && (item.title==originalTitle || item.title==card.title);
+        })) throw std::runtime_error("Update the Card Editor to edit a card with Traces.");
+        const bool traces=std::any_of(card.passives.begin(),card.passives.end(),[](const auto& name){
+            return card_data::passiveKey(name)=="traces";
+        });
+        if (traces != !card.tracesMarkerName.empty())
+            throw std::runtime_error("Traces requires exactly one Board Marker reference.");
+        if (traces && card.type!="Unit" && card.type!="Hero")
+            throw std::runtime_error("Only a Unit or Hero can leave Traces.");
+        normalizedCard.tracesMarker=card_database::loadBoardMarker(*database,card.tracesMarkerName);
+        if (traces && !normalizedCard.tracesMarker)
+            throw std::runtime_error("Unknown Board Marker reference");
         const auto old=std::find_if(existingCards.begin(),existingCards.end(),[&](const auto& item) {
             return item.title==(originalTitle.empty()?card.title:originalTitle);
         });
@@ -757,6 +819,7 @@ private:
         insertTraits(normalizedCard);
         insertKeywords(normalizedCard);
         insertPassives(normalizedCard);
+        card_database::setCardBoardMarker(*database,normalizedCard.title,normalizedCard.tracesMarkerName);
         insertIntegerValues(normalizedCard);
         insertStringValues(normalizedCard);
         insertStringLists(normalizedCard);
@@ -789,6 +852,7 @@ private:
                  "card_traits",
                  "card_keywords",
                  "card_passives",
+                 "card_board_markers",
                  "card_activated_abilities",
                  "card_ability_object_migrations",
                  "card_integer_values",

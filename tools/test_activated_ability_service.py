@@ -113,6 +113,15 @@ def main():
         assert r.byte() == message["ActivatedAbilityListResponse"][0] and r.byte() == 1
         assert r.string() == "OK"
         definitions = r.array(lambda: read_definition(r)); r.done(); return definitions
+    def marker_bytes(name, eligibility=0, effect=0, strength=1):
+        return STRING(name) + bytes([eligibility, effect]) + I32(strength)
+    def read_marker(r):
+        return dict(name=r.string(), eligibility=r.byte(), effect=r.byte(), strength=r.integer())
+    def marker_library():
+        r = exchange(message["BoardMarkerListRequest"])
+        assert r.byte() == message["BoardMarkerListResponse"][0] and r.byte() == 1
+        assert r.string() == "OK"
+        definitions = r.array(lambda: read_marker(r)); r.done(); return definitions
     def catalog(version):
         r = exchange(message["CardListRequest"] + U32(version))
         assert r.byte() == 11 and r.byte() == 1 and r.string() == "OK" and r.u32() == 0xffffffff
@@ -134,12 +143,20 @@ def main():
             if version >= 15:
                 card["explicit"] = bool(r.byte())
                 card["passives"] = r.strings()
+            if version >= 16:
+                card["markerRef"] = r.string()
+                card["marker"] = read_marker(r) if r.byte() else None
             cards.append(card)
         r.done(); return cards
-    def card_body(title, ability):
-        return (STRING(title) + STRING("Unit") + STRING("") + STRINGS(["Fey"]) + STRINGS(["Plant", "Undying"]) +
-                U32(1) + STRING("health") + I32(4) + U32(0) + U32(0) + STRINGS([]) + STRINGS([]) + U32(0) +
-                STRING(ability) + STRING("") + b"\0\0\1" + STRINGS(["Bodyguard"]))
+    def card_body(title, ability, marker_ref=None, marker_override=None, passives=None):
+        if passives is None:
+            passives = ["Bodyguard", "Traces"] if marker_ref else ["Bodyguard"]
+        result = (STRING(title) + STRING("Unit") + STRING("") + STRINGS(["Fey"]) + STRINGS(["Plant", "Undying"]) +
+                  U32(1) + STRING("health") + I32(4) + U32(0) + U32(0) + STRINGS([]) + STRINGS([]) + U32(0) +
+                  STRING(ability) + STRING("") + b"\0\0\1" + STRINGS(passives))
+        if marker_ref is not None:
+            result += STRING(marker_ref) + (b"\1" + marker_override if marker_override else b"\0")
+        return result
     env = os.environ.copy()
     env.update(BAYOU_TLS_CERT_FILE=str(work / "server.pem"), BAYOU_TLS_KEY_FILE=str(work / "server-key.pem"))
     with (work / "cardserver.log").open("wb") as log:
@@ -175,12 +192,50 @@ def main():
             command("CardDeleteRequest", STRING("Renamed Unit"))
             command("ActivatedAbilityDeleteRequest", STRING("Renamed Heal"))
             assert not library() and not catalog(14)
+            assert not marker_library()
+            command("BoardMarkerUpsertRequest", marker_bytes("Trail Heal"))
+            command("BoardMarkerUpsertRequest", marker_bytes("trail heal"), success=False)
+            command("BoardMarkerUpsertRequest", marker_bytes("Blight", 1, 1), success=False)
+            assert marker_library() == [dict(name="Trail Heal", eligibility=0, effect=0, strength=1)]
+
+            command("CardUpsertWithMarkersRequest", card_body("Tracer", "", "Missing Marker"),
+                    "CardUpsertResponse", False)
+            command("CardUpsertWithMarkersRequest", card_body("Tracer", "", "", passives=["Traces"]),
+                    "CardUpsertResponse", False)
+            # The service resolves the stored marker and never trusts client-supplied effect details.
+            command("CardUpsertWithMarkersRequest",
+                    card_body("Tracer", "", "trail heal", marker_bytes("trail heal", 1, 1, 9)),
+                    "CardUpsertResponse")
+            modern = catalog(16)[0]
+            assert modern["markerRef"] == "Trail Heal" and modern["marker"] == marker_library()[0]
+            assert modern["passives"] == ["Bodyguard", "Traces"]
+            assert catalog(15)[0]["passives"] == ["Bodyguard"]
+            for legacy_version in (13, 14):
+                assert "Traces" not in catalog(legacy_version)[0]["keywords"]
+
+            command("CardUpdateWithPassivesRequest", STRING("Tracer") + card_body("Tracer", ""),
+                    "CardUpdateResponse", False)
+            command("CardUpsertWithPassivesRequest", card_body("Tracer", ""), "CardUpsertResponse", False)
+            assert catalog(16)[0]["markerRef"] == "Trail Heal"
+            command("BoardMarkerDeleteRequest", STRING("TRAIL HEAL"), success=False)
+            command("BoardMarkerUpdateRequest", STRING("Trail Heal") + marker_bytes("Trace Gift", 2, 0, 3))
+            updated = catalog(16)[0]
+            assert updated["markerRef"] == "Trace Gift"
+            assert updated["marker"] == dict(name="Trace Gift", eligibility=2, effect=0, strength=3)
+            command("BoardMarkerDeleteRequest", STRING("Trace Gift"), success=False)
+            command("CardUpdateWithMarkersRequest",
+                    STRING("Tracer") + card_body("Tracer", "", ""), "CardUpdateResponse")
+            assert catalog(16)[0]["markerRef"] == "" and catalog(16)[0]["marker"] is None
+            command("BoardMarkerDeleteRequest", STRING("Trace Gift"))
+            command("CardDeleteRequest", STRING("Tracer"))
+            assert not marker_library() and not catalog(16)
         finally:
             process.terminate()
             try: process.wait(timeout=5)
             except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=5)
     connection = sqlite3.connect("file:" + str(work / "cards.db") + "?mode=ro", uri=True)
     assert connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+    assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
     connection.close()
     report = {"checks": checks, "databaseIntegrity": "ok", "isolatedDirectory": str(work), "productionContacted": False,"tlsClient":"OpenSSL with CA and hostname verification"}
     (work / "result.json").write_text(json.dumps(report, indent=2) + "\n")
