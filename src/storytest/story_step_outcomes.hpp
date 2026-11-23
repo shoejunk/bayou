@@ -100,6 +100,7 @@ struct StepClaimSpec
 // reordered step, or renamed heading is therefore a release-gate failure until
 // the claimed mechanic and its assertion are reviewed together.
 inline constexpr StepClaimSpec StepClaims[] = {
+    {"bt16_clean_shot", 0, "REACH THE FENCE", ClaimKind::BasicMove, {}, 0, {"normal-activation"}},
     {"mw01_river_teeth", 0, "MOVE REED BACK - FIRST STEP",
         ClaimKind::BasicMove, {}, 0, {"normal-activation", "omni-movement"}},
     {"mw01_river_teeth", 2, "THE GATOR LUNGES", ClaimKind::BasicMove},
@@ -491,10 +492,10 @@ inline constexpr StepClaimSpec StepClaims[] = {
 
 };
 
-inline constexpr std::size_t ExpectedOutcomeCheckCount = 172;
+inline constexpr std::size_t ExpectedOutcomeCheckCount = 173;
 // Counts are an explicit release gate: additions require a reviewed, executable
 // before/after assertion and an intentional mastery-claim budget update here.
-inline constexpr std::size_t ExpectedAuthoredMasteryClaimCount = 156;
+inline constexpr std::size_t ExpectedAuthoredMasteryClaimCount = 157;
 static_assert(
     std::size(StepClaims) == ExpectedOutcomeCheckCount,
     "A Story outcome check was added or removed; review and update the fail-closed coverage budget.");

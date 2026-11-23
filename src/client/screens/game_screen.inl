@@ -4145,7 +4145,7 @@
                 {
                 stepHeading = "PLACE YOUR HEROES";
                 stepBody =
-                        "Select every Hero and place it inside your highlighted two-by-four home zone before the one-shot two-minute placement deadline. Each footprint must land on empty squares; placements do not reset this timer.";
+                        "Place all your Heroes in the lit home zone. Each needs empty squares. You have two minutes to place them all.";
                 }
                 else
                 {
@@ -4204,9 +4204,8 @@
                 stepHeading = "Mission Complete";
                 const std::string completionBody = storyMissionIndex + 1 <
                         static_cast<int>(storyMissions(storyCampaign).size())
-                    ? "The next mission is unlocked. Continue when you are ready."
-                    : "You have completed " + std::string(storyCampaignName(storyCampaign)) +
-                        " story arc.";
+                    ? "The next mission is ready."
+                    : "You reached the end of this campaign.";
                 stepBody = compactGameHud
                     ? std::string(mission.title) + " complete. " + completionBody
                     : completionBody;
@@ -4217,11 +4216,7 @@
                 stepHeading = "Mission Failed";
                 const std::string failureBody = !boardSnapshot.status.empty()
                     ? boardSnapshot.status
-                    : mirewatchStory
-                        ? "The Company stopped the resistance. Retry and adapt your position and attack order."
-                        : seelieStory
-                            ? "The Seelie defense broke. Retry with a safer formation and action order."
-                            : "The resistance stopped the Company. Retry and adapt your position and attack order.";
+                    : "Try again. Check the mission goal before your first move.";
                 stepBody = compactGameHud
                     ? std::string(mission.title) + ": " + failureBody
                     : failureBody;
@@ -4441,24 +4436,24 @@
                 if (boardSnapshot.activePlayer != me)
                 {
                     stepHeading = "HOLD THE LINE";
-                    stepBody = "The enemy is acting. Your next move is coming.";
+                    stepBody = "Wait for the enemy to finish its turn.";
                 }
                 else if (boardSnapshot.relentlessPieceId != 0)
                 {
                     stepHeading = "KEEP GOING";
-                    stepBody = "Your unit can act again. Drag it to another lit target, or use End Turn.";
+                    stepBody = "This unit can act again. Choose another lit target or use End Turn.";
                 }
                 else if (mine.pieceActionUsedThisTurn && boardSnapshot.hand.empty())
                 {
                     stepHeading = "END YOUR TURN";
-                    stepBody = "Your unit has acted. Use End Turn. After the enemy acts, you can move or attack again.";
+                    stepBody = "Choose End Turn. You can move or attack again on your next turn.";
                 }
                 else
                 {
                     stepHeading = mission.objectiveSpec.kind == StoryObjectiveKind::DefeatRole
                         ? "DEFEAT THE TARGET" : "BREAK THROUGH";
                     stepBody = storyKeyboardNavigationActive
-                        ? "Enter selects a unit. Arrows choose a lit target; Enter acts. Then End Turn. "
+                        ? "Press Enter to select a unit. Choose a lit target with the arrows and press Enter again. Then use End Turn. "
                         : "Drag a unit to a lit square to move, or onto a lit enemy to attack. Release, then End Turn. ";
                     stepBody += mission.objectiveSpec.kind == StoryObjectiveKind::DefeatAllEnemies
                         ? std::to_string(authoritativeStoryEnemyProgress(mission).remaining) + " enemies remain."

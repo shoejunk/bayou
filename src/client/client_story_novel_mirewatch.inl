@@ -4,178 +4,140 @@ void reviseMirewatchNovel(std::vector<StoryMission>& missions)
 {
     novelScene(missions, "mw01_river_teeth", "Teeth in the River", "Chapter 1",
         "Help Reed and his friends reach the riverbank.", {
-        panel("Narrator", "Reed is eighteen and hiding from the people who killed his family. He rides toward Mirewatch in the merchant Telos's boat. A crocodile grabs his boot and pulls him overboard!", "cards/reedBaelstone.png", "water"),
-        panel("Narrator", "Erevan, a half-elf scout, catches Reed's shirt. On the bank, a gnome healer named Donella raises her staff as another crocodile closes in.", "cards/donellaOfTheMarsh.png"),
-        panel("Erevan", "Reed! Take my hand. Donella, can you stop the other one?", "cards/erevanTheShadow.png"),
-        panel("Donella", "Bring the boat to the bank. I can raise a root beneath its jaws!", "cards/donellaOfTheMarsh.png")}, {
-        panel("Narrator", "They reach shore together. Donella treats Reed's leg and joins the boat. Ahead, Mirewatch's crowded docks wait beneath the flags of the Blackthorn company.", "cards/donellaOfTheMarsh.png")});
+        panel("Narrator", "A gator grabs Reed's boot and pulls him off the boat.", "cards/reedBaelstone.png", "water"),
+        panel("Erevan", "Reed! Grab my hand!", "cards/erevanTheShadow.png")}, {
+        panel("Donella", "There's the dock. Reed, lean on me. Easy now.", "cards/donellaOfTheMarsh.png")});
 
     novelScene(missions, "mw03_town_under_company", "Trouble on the Docks", "Chapters 1-3",
         "Help the families find shelter in Mirewatch.", {
-        panel("Narrator", "Mirewatch rises above the water on wooden posts. Families fleeing soldiers crowd its docks. Blackthorn guards are taking their belongings.", "cards/mirewatchInformant.png"),
-        panel("Reed", "Those people need their food and blankets. Let them through!", "cards/reedBaelstone.png"),
-        panel("Joni", "Bring them to my inn. We can make room. But keep your eyes open: a company wagon just passed with someone locked inside.", "cards/joniPumpernickel.png")}, {
-        panel("Narrator", "The families reach Joni's inn. Across the channel, a frightened child calls from the boatyard. Erevan turns toward the sound.", "cards/erevanTheShadow.png", "creak")});
+        panel("Narrator", "Blackthorn guards block the dock. Families are stuck between the guards and the river.", "cards/mirewatchInformant.png"),
+        panel("Joni", "My inn has room. Help me get these people inside.", "cards/joniPumpernickel.png")}, {
+        panel("Reed", "Wait. I hear a kid calling from the boatyard.", "cards/reedBaelstone.png", "creak")});
 
     novelScene(missions, "mw04_watcher_protects", "Juniper Holds the Line", "Mirewatch game scene / alongside Chapters 1-3",
         "Help Juniper and Erevan bring the children to safety.", {
-        panel("Narrator", "At the boatyard, two children hide under loose timber. Juniper, a local rescuer, reaches them just as company guards arrive.", "cards/juniperFlash.png"),
-        panel("Juniper", "Crawl toward my voice. I have you. Erevan, keep those guards away!", "cards/juniperFlash.png"),
-        panel("Erevan", "Use your Spark from here. I'll stop the one coming close.", "cards/erevanTheShadow.png")}, {
-        panel("Narrator", "Juniper carries the smaller child to the boat. Back at the inn, an orange cat floats through the doorway. He has come looking for help.", "cards/princeVesper.png")});
+        panel("Narrator", "Two children hide under a boat. Juniper kneels to pull them out. The guards are coming back.", "cards/juniperFlash.png"),
+        panel("Juniper", "Take my hand. Erevan, keep them away from us!", "cards/juniperFlash.png")}, {
+        panel("Juniper", "Both kids are safe. Let's get them to Joni's inn.", "cards/juniperFlash.png")});
 
-    novelScene(missions, "s01_hospitality", "The Cat Who Lost His Past", "Chapters 3, 6 and 9",
-        "Learn why Vesper must recover his stolen Mirror.", {
-        panel("Vesper", "Prince Vesper, if you please. I need help finding a thief named Briar. I trusted him. He stole my Mirror of Nine Lives.", "cards/princeVesper.png"),
-        panel("Donella", "What happens if you cannot get it back?", "cards/donellaOfTheMarsh.png"),
-        panel("Vesper", "I forget the lives I lived before this one. I must look into it each day. There are people I love whose faces are already fading.", "cards/princeVesper.png"),
-        panel("Narrator", "A dock worker saw Briar take the Mirror to the old counting house. Erevan goes with Vesper. Birdie, a local scout, keeps watch on the prisoner wagon.", "cards/erevanTheShadow.png")});
+    novelScene(missions, "s01_hospitality", "The Cat and the Empty Case", "Chapters 3, 6 and 9",
+        "Find out why Vesper needs his mirror back.", {
+        panel("Narrator", "Back at the inn, a cat floats up to Reed with an empty case tucked under one paw.", "cards/princeVesper.png"),
+        panel("Vesper", "Every morning that mirror gives me my memories back. A man named Briar took it. Did you see him?", "cards/princeVesper.png"),
+        panel("Erevan", "Something silver just flashed by the river steps. Come on!", "cards/erevanTheShadow.png")});
 
     auto& handover = novelScene(missions, "mw05_watched_office", "The Stolen Mirror", "Chapter 7",
         "Slip past the guards and help Vesper escape.", {
-        panel("Narrator", "Briar has set a table for supper. Beside the plates sits Vesper's Mirror. A Blackthorn boat waits below the steps.", "cards/princeVesper.png"),
-        panel("Vesper", "You promised supper. You took my memories instead. Give it back.", "cards/princeVesper.png"),
-        panel("Narrator", "Briar lifts the case to leave. Erevan grabs one corner while Vesper catches the handle. They nearly have it! Then a guard traps Vesper in a sack.", "cards/erevanTheShadow.png")}, {
-        panel("Erevan", "Hold on, Vesper!", "cards/erevanTheShadow.png"),
-        panel("Narrator", "Erevan releases the case and cuts his friend free. Briar escapes with the Mirror to Thaeron Baelstone's house. Thaeron is Reed's uncle.", "cards/erevanTheShadow.png")});
+        panel("Narrator", "Briar lowers the mirror into a boat. Vesper hangs on to its handle until a guard drops a sack over his head.", "cards/princeVesper.png"),
+        panel("Erevan", "Let go of the mirror! I'll get you out.", "cards/erevanTheShadow.png")}, {
+        panel("Narrator", "Erevan cuts Vesper free. Briar gets away by boat, but Birdie sees where he's headed. Reed's uncle lives on that bend.", "cards/erevanTheShadow.png")});
     for (auto& entry : handover.briefing)
         if (entry.speaker == "Coach")
-            entry.text = "Use Erevan's shadow actions to pass the guards and push the last one away.";
+            entry.text = "Slip past the guards with Erevan. Push the last guard away.";
 
     novelScene(missions, "mw06_cost_seen", "Break Open the Wagon", "Chapters 6, 8 and 9",
         "Stop the prisoner wagon and bring all four captives home.", {
-        panel("Birdie", "The wagon leaves at dawn. Scooter, stay close. We need the road clear and the boats ready.", "cards/birdieTheWise.png"),
-        panel("Narrator", "Scooter is Birdie's otter. Together they scout the water's edge. Erevan has found the weak joint in the wagon's iron guardian.", "cards/scooter.png"),
-        panel("Vesper", "Nettle is inside! She is a fairy from the queen's court. They have hurt her wings. We must get her out.", "cards/princeVesper.png")}, {
-        panel("Narrator", "The wagon stops. Erevan strikes the iron guardian's weak joint. Scooter opens the back latch. Nettle, her winged snail Zippy, and two other prisoners reach Joni's inn. The Mirror is still with Reed's uncle.", "cards/nettleStarbright.png")});
+        panel("Birdie", "Hear that banging? Someone's locked in that wagon.", "cards/birdieTheWise.png"),
+        panel("Vesper", "I'd know Nettle's voice anywhere! Birdie, can your otter reach the latch?", "cards/princeVesper.png")}, {
+        panel("Narrator", "Scooter pops the wagon latch. Nettle tumbles out with three other prisoners. Once they're safe, Reed heads for his uncle's house.", "cards/scooter.png")});
 
     novelScene(missions, "mw08_lesson_night", "The Uncle Behind the Door", "Chapters 10-14",
         "Follow Reed's escape from Thaeron's house.", {
-        panel("Narrator", "Thaeron offers to discuss the Mirror if Reed visits. Reed goes alone. He hopes the uncle he loves can explain who destroyed his family.", "cards/reedBaelstone.png"),
-        panel("Thaeron", "Your father was going to ruin everything. I knew your mother was there. I chose to preserve what I could.", "cards/thaeronBaelstone.png"),
-        panel("Reed", "You knew my mother was in the house. You let it happen to save the company?", "cards/reedBaelstone.png"),
-        panel("Narrator", "A guard wounds Reed. Thaeron pins him with magic. Reed knocks over a lamp, breaks free, and jumps from the window into the dark water.", "cards/thaeronBaelstone.png"),
-        panel("Birdie", "Scooter found him! Reed, hold the oar. Vesper, bring Donella!", "cards/birdieTheWise.png"),
-        panel("Narrator", "Friends carry Reed to Maggie, an old healer whose house rides on a giant gator named Mangletooth. While Reed recovers, they trace the Mirror's carrier south to a prison: the Shrouded Vault.", "cards/maggieMudroot.png")});
+        panel("Reed", "Uncle, I came for the mirror. Why are your guards drawing swords?", "cards/reedBaelstone.png"),
+        panel("Thaeron", "I let your parents die to save this company. What makes you think I'll spare you?", "cards/thaeronBaelstone.png"),
+        panel("Narrator", "Reed dives through a window. Mog, a guard riding in Birdie's boat, catches him. Across the river, the guards carry the mirror into a prison.", "cards/birdieTheWise.png")});
 
     novelScene(missions, "mw10_beautiful_plan", "Open the Shrouded Vault", "Chapters 18-21",
-        "Free the prisoners and recover Vesper's Mirror.", {
-        panel("Narrator", "The Vault stands beside an old river lock. Vesper meets Pavo, a captive satyr, through a gap beneath the landing. Pavo has seen the Mirror inside.", "cards/pavoQuickstep.png"),
-        panel("Vanya", "I'm Vanya. I help the people Blackthorn drives from their homes. I've found boats and shelter for whoever you bring out.", "cards/vanyaBluewater.png"),
-        panel("Birdie", "We have boats, rowers, and blankets. Open the cells first. Keep the way back clear.", "cards/birdieTheWise.png"),
-        panel("Narrator", "Iven, another prisoner, asks them to save a living branch stolen from her grove. It can help damaged roots grow together. Donella promises to carry it when the guards are out of the way.", "cards/donellaOfTheMarsh.png")}, {
-        panel("Narrator", "Donella carries the branch out with Iven, and Erevan retrieves the Mirror. The branch can heal only its home grove. Then a hidden hand pulls a cord. Iron shutters slam down. Water floods the hall.", "cards/erevanTheShadow.png")});
+        "Free the prisoners and recover Vesper's mirror.", {
+        panel("Narrator", "The guards leave the mirror on a cart outside a cell. A prisoner reaches through the bars and grabs its handle.", "cards/vanyaBluewater.png"),
+        panel("Vanya", "Keep that mirror. I'm getting you out first.", "cards/vanyaBluewater.png")}, {
+        panel("Narrator", "Vanya pulls the cell doors wide. The prisoner hands Vesper his mirror just as a floodgate opens. Water pours down the stairs.", "cards/princeVesper.png")});
 
     novelScene(missions, "mw11_no_plan_saves_all", "The Last Boat", "Chapters 21-22 / rescue board adaptation",
         "Protect the escape route while the boats pull free.", {
-        panel("Narrator", "Water rises beneath the landing. The boats cannot leave while people are still trapped inside. Reed and Birdie hold the escape route open.", "cards/reedBaelstone.png"),
-        panel("Birdie", "Keep moving toward the boats! We will hold the path.", "cards/birdieTheWise.png"),
-        panel("Coach", "This card battle retells the rescue with your team. Clear the paths and use Juniper's Intercept to protect the runner.", "cards/juniperFlash.png")}, {
-        panel("Narrator", "As Reed gets the living branch aboard, a post falls and crushes his right arm. Birdie ropes him to a safe piling. The rower pulls the post clear, and together they lift him into the boat.", "cards/birdieTheWise.png"),
-        panel("Narrator", "Birdie frees Scooter too. Donella tries to open the deeper cells with magic. An iron trap turns the spell back, burning her hands and badly hurting Nettle. The last boat escapes with the Mirror, but people remain trapped behind the iron wall.", "cards/donellaOfTheMarsh.png")});
+        panel("Birdie", "Hold that boat! Our runner is still on the landing with the children.", "cards/birdieTheWise.png"),
+        panel("Juniper", "I'll stay beside him. If that guard swings, I'll take the hit.", "cards/juniperFlash.png")}, {
+        panel("Narrator", "The runner makes it. A post traps Reed's arm. The prisoners lift it and Birdie hauls him aboard. The boat carries the wounded home.", "cards/birdieTheWise.png")});
 
     novelScene(missions, "s03_published_mystery", "What the Mirror Remembers", "Chapters 23-25",
-        "Help the survivors rest and hear Vesper's returning memories.", {
-        panel("Narrator", "Maggie splints Reed's arm. Donella asks before helping Nettle again. Nobody can promise a quick recovery. Vesper finally opens his Mirror.", "cards/maggieMudroot.png"),
-        panel("Vesper", "Queen Caltheriel! I remember her face. She was taken prisoner. I was searching for her when I lost the Mirror.", "cards/princeVesper.png"),
-        panel("Vesper", "And Sylvara, our friend in the forest. Her life is tied to her tree. If the company hurts it, she will suffer too. These are my old memories. They cannot tell me what has happened since.", "cards/princeVesper.png"),
-        panel("Narrator", "Iven stays with Maggie to heal and tend her living branch. It belongs to another grove, so it cannot repair Sylvara's tree. The friends need to find Sylvara herself.", "cards/donellaOfTheMarsh.png"),
-        panel("Coach", "Later battles use the full card team to retell events. A card's normal moves do not mean Reed's injured arm has healed.", "cards/reedBaelstone.png")});
+        "Find out who Vesper remembers.", {
+        panel("Narrator", "Maggie sets Reed's broken arm. Beside his bed, Vesper looks into the mirror.", "cards/maggieMudroot.png"),
+        panel("Vesper", "I remember who I was looking for! They took my queen, Caltheriel. My friend Sylvara knows that part of the forest.", "cards/princeVesper.png")});
 
-    novelScene(missions, "s04_wounds_that_vote", "Elliot's Empty Workshop", "Chapters 11, 16, 23 and 25",
-        "Follow the clues left by Rowan's missing friend.", {
-        panel("Rowan", "I'm Rowan. I'm looking for my friend Elliot, a woodcarver. He helped Victor Greyshard, the company's expedition leader, reach Sylvara's home. Then he tried to stop them. Now he is missing.", "cards/rowanLeafbound.png"),
-        panel("Narrator", "Elliot's workshop is empty. His notebook holds a drawing of Sylvara, paths through the trees, and a little stone house. Vesper recognizes the house.", "cards/elliotGreentide.png"),
-        panel("Vesper", "I visited them there. Elliot served my tea in a bowl. If the house still stands, I think I can find it.", "cards/princeVesper.png"),
-        panel("Narrator", "Victor has taken workers and empty cages east through a crossing into the Feywild. Rowan wants to find Elliot. The others want to learn what is happening to Sylvara and the tree.", "cards/rowanLeafbound.png")});
+    novelScene(missions, "s04_wounds_that_vote", "Footprints on the East Road", "Chapters 11, 16, 23 and 25",
+        "Follow the workers into the forest.", {
+        panel("Narrator", "Weeks later, Reed can draw his bow again. Rowan meets him at the dock.", "cards/reedBaelstone.png"),
+        panel("Rowan", "Blackthorn marched more workers past my door this morning. My friend Elliot went after them. Come with me. I know the east road.", "cards/rowanLeafbound.png"),
+        panel("Vesper", "The east road goes right past Sylvara's tree. Grab your coat, Rowan.", "cards/princeVesper.png")});
 
-    novelScene(missions, "mw14_public_lie", "A Door They Must Leave", "Chapters 14 and 26-28",
-        "Prepare to leave Mirewatch and follow Victor east.", {
-        panel("Narrator", "Blackthorn gave Joni a choice: surrender her inn or return the freed prisoners. She chose to keep the people safe. Now the company takes her building, and friends carry out what they can.", "cards/joniPumpernickel.png"),
-        panel("Reed", "My uncle did this. I cannot make it right by promising money I do not have. Tell me what I can carry.", "cards/reedBaelstone.png"),
-        panel("Joni", "Start with your own pack. Take care of one another. Come home when you can.", "cards/joniPumpernickel.png"),
-        panel("Narrator", "Maggie stays with those who need care. Birdie checks the boats. With Vesper's Mirror packed safely, the search party sets out for the eastern crossing.", "cards/birdieTheWise.png")});
+    novelScene(missions, "mw14_public_lie", "Bread for the Road", "Chapters 14 and 26-28",
+        "Follow Rowan east to find the missing workers.", {
+        panel("Narrator", "Guards seize Joni's inn for sheltering the prisoners. Outside, she hands Reed a warm loaf.", "cards/joniPumpernickel.png"),
+        panel("Joni", "Feed the first hungry soul you meet. I'll find us another kitchen.", "cards/joniPumpernickel.png")});
 
     auto& departure = novelScene(missions, "mw15_title_follows_burden", "Open the Road East", "Chapters 27-29 / departure board adaptation",
         "Clear a path for the party to reach the eastern crossing.", {
-        panel("Narrator", "Company patrols watch the roads out of Mirewatch. The party needs a clear route to the crossing before it can follow Victor's wagons.", "cards/birdieTheWise.png"),
-        panel("Donella", "Stay together. We have wounded friends and a long road ahead.", "cards/donellaOfTheMarsh.png"),
-        panel("Coach", "Use the team on this battle board to open the departure route. Follow the guide and keep the required allies safe.", "cards/joniPumpernickel.png")}, {
-        panel("Narrator", "The path opens. Beyond the crossing, the forest feels strange and watchful. Ahead lie two searches: news of the captured queen, and the trail to Sylvara and Elliot.", "cards/princeVesper.png")});
+        panel("Narrator", "The wounded Veteran limps onto the east road. Blackthorn guards close in from both sides.", "cards/birdieTheWise.png"),
+        panel("Donella", "Hold on to that spear. I'm coming to get you.", "cards/donellaOfTheMarsh.png")}, {
+        panel("Narrator", "Everyone makes it across. A worker stumbles out of the trees, his wrists raw from rope.", "cards/mirewatchInformant.png")});
     departure.script[2].heading = "THE FIRST PATH IS CLEAR";
     departure.script[3].heading = "KEEP THE ROAD OPEN";
     departure.script[3].instruction = "Your allies cross the first cleared path. The wounded Veteran still needs help.";
-    departure.script[9].instruction = "The others keep watch while Donella reaches the wounded Veteran.";
+    departure.script[9].instruction = "Birdie keeps watch while Donella checks the Veteran's wound.";
 
-    novelScene(missions, "mw18_allies_dishonestly", "Wake and Keep Moving", "Chapters 30-35 / forest escape board adaptation",
-        "Help the team break through danger on the forest road.", {
-        panel("Narrator", "In a forest dream, Reed is home. His parents are alive. His hand is whole. He reaches for them, wishing he could stay. Then a friend's voice breaks through.", "cards/reedBaelstone.png"),
-        panel("Vesper", "Reed! Wake up. Follow my voice!", "cards/princeVesper.png"),
-        panel("Narrator", "Reed wakes beside his friends, his arm still in its splint. An escaped worker leads them toward Blackthorn's camp, but guards block the road. They must fight their way through.", "cards/mirewatchInformant.png")}, {
-        panel("Narrator", "Past the guards, the worker points out Elliot's stone house. A roar shakes the trees as the friends approach its door.", "cards/elliotGreentide.png")});
+    novelScene(missions, "mw18_allies_dishonestly", "Four Guards on the Road", "Chapters 30-35 / forest escape board adaptation",
+        "Get past the four guards blocking the road to the camp.", {
+        panel("Narrator", "The worker eats half of Joni's loaf before he can speak. Four guards block the road back to his friends.", "cards/mirewatchInformant.png"),
+        panel("Reed", "Keep the rest. We'll get your friends out.", "cards/reedBaelstone.png")}, {
+        panel("Narrator", "On the way to camp, the worker tells Rowan how Elliot died trying to free the prisoners. Rowan stops. Up ahead, something huge limps out of the trees.", "cards/mirewatchInformant.png")});
 
     novelScene(missions, "mw20_monster_rules", "The Face Beneath the Monster", "Chapters 36-39",
-        "Discover who Ashenfang is and what the engine is doing.", {
-        panel("Narrator", "At Elliot's house, a wounded creature called Ashenfang charges from the trees. Vesper flies toward her, then stops in shock.", "cards/Ashenfang.png"),
-        panel("Vesper", "Sylvara? It is you! What have they done to you?", "cards/princeVesper.png"),
-        panel("Narrator", "Her tree has been cut. A machine forces its dead treetop to stay joined to the living stump. Every pull hurts Sylvara. Her own tree is tearing her apart.", "cards/Sylvara.png"),
-        panel("Rowan", "The company guard who buried Elliot told me the truth. Victor drowned him. I cannot save my friend. But we can stop this machine and help the people still here.", "cards/rowanLeafbound.png")});
+        "Find out why the creature is hurt.", {
+        panel("Vesper", "Sylvara? Those are your eyes. What did they do to you?", "cards/princeVesper.png"),
+        panel("Narrator", "A chain runs from Sylvara's tree to a machine inside the camp. When the chain snaps tight, Sylvara cries out.", "cards/Ashenfang.png"),
+        panel("Rowan", "Is that what's hurting her? Show me the way in.", "cards/rowanLeafbound.png")});
 
     auto& camp = novelScene(missions, "mw24_agent_not_heir", "Open the Workers' Camp", "Chapters 39-40 / camp rescue board adaptation",
         "Defeat Grask and open the workers' escape route.", {
-        panel("Narrator", "Grask, the company's brutal guard, blocks the camp's escape route. An escaped worker returns to help. Mog, a company soldier, decides she will open the way out.", "cards/Mog.png"),
-        panel("Mog", "I'll cut the fence. Keep Grask away while they pass through!", "cards/Mog.png"),
-        panel("Narrator", "The rescuers split the work: free the camp, stop the engine, and give Donella room to reach Sylvara. Each group needs the others to succeed.", "cards/donellaOfTheMarsh.png")}, {
-        panel("Narrator", "As Grask falls, workers escape through Mog's gap in the fence. Erevan and two workers stop the engine. Near the tree, Donella starts cutting Sylvara free. Victor runs toward the engine's controls.", "cards/Mog.png")});
+        panel("Narrator", "Grask guards the gate. Mog slips her knife under the camp fence, right by a worker's outstretched hand.", "cards/Mog.png"),
+        panel("Mog", "I helped lock these people in. I'll cut the fence. Keep Grask away from me!", "cards/Mog.png")}, {
+        panel("Narrator", "As Grask falls, Mog cuts the wire. Two workers stay behind long enough to shut off the machine. The others run for the gap.", "cards/Mog.png")});
     camp.objective = "Defeat Grask. Keep Reed, Vanya, and Joni alive until the battle ends.";
     camp.hint = "Clear a path to Grask. Use ranged attacks, healing, and your allies' abilities. Other enemies may remain when Grask falls.";
     for (auto& entry : camp.briefing)
         if (entry.speaker == "Coach")
-            entry.text = "Defeat Grask. Reed, Vanya, and Joni must survive. This battle board gathers your card team for the camp rescue.";
+            entry.text = "Defeat Grask. Keep Reed, Vanya, and Joni alive.";
 
     novelScene(missions, "mw21_four_losses", "The Engine Starts Again", "Chapter 41",
         "Stop Victor's engine before it tears the living roots apart.", {
-        panel("Narrator", "Victor restarts the engine. Chains pull tight. The dead treetop drags against the living stump, and Sylvara cries out.", "cards/victorGreyshard.png"),
-        panel("Erevan", "The engine has to stop. Show me which part releases it!", "cards/erevanTheShadow.png"),
-        panel("Narrator", "Erevan and the workers break the engine's support. It crashes to a stop. But Fizzlewick, the company's engineer, rides a huge metal walker into the clearing. Its spinning saw swings toward Donella.", "cards/fizzlewickGearwright.png"),
-        panel("Birdie", "Get down! I can stop that saw. Give me a clear shot.", "cards/birdieTheWise.png")});
+        panel("Narrator", "Victor, the camp boss, throws the switch. The chains bite into Sylvara's tree again. Erevan and the workers shove the engine off its stand.", "cards/victorGreyshard.png"),
+        panel("Birdie", "Look up! The saw on that metal walker is still running!", "cards/birdieTheWise.png")});
 
     novelScene(missions, "mw22_clean_shot", "An Arrow for the Saw", "Chapter 41",
         "Help Birdie protect Sylvara from the machine.", {
-        panel("Narrator", "Birdie steadies her bow. Sylvara moves in pain beside the engine. The saw leaves only a narrow opening for a shot.", "cards/birdieTheWise.png"),
-        panel("Birdie", "Wait. Keep clear. Now!", "cards/birdieTheWise.png"),
-        panel("Narrator", "Her arrow jams the saw's moving joint. Reed and Nettle use a lever to lift fallen iron off one small living root. Donella has room to work again.", "cards/reedBaelstone.png"),
-        panel("Donella", "Sylvara, I can cut away the dead treetop. I need you to let it go. I will wait for you.", "cards/donellaOfTheMarsh.png")});
+        panel("Birdie", "Donella! Get down!", "cards/birdieTheWise.png"),
+        panel("Narrator", "Birdie's arrow jams the saw. Donella reaches Sylvara's tree. One cut will free its roots, if Sylvara can let the dead top fall.", "cards/birdieTheWise.png")});
 
     novelScene(missions, "mw23_choice_not_cure", "Let the Dead Branches Go", "Chapter 41",
         "Help Sylvara free her living tree from its dead treetop.", {
-        panel("Vesper", "Sylvara, you do not have to keep holding it. We are here.", "cards/princeVesper.png"),
-        panel("Narrator", "Sylvara reaches toward a branch that will never move again. Then she lets the living wound open beneath Donella's hand. She is ready.", "cards/Sylvara.png"),
-        panel("Donella", "Hold it steady, Nettle. One more cut. There!", "cards/donellaOfTheMarsh.png"),
-        panel("Narrator", "The dead treetop comes free. Its branches stay dead. Below them, the roots Reed and Nettle saved grow into the machine's joints. Metal cracks. Fizzlewick's walker falls.", "cards/donellaOfTheMarsh.png"),
-        panel("Narrator", "Sylvara's own face begins to show beneath the bark. Donella stays beside her, holding the wound. Victor turns toward them with his sword.", "cards/Sylvara.png")});
+        panel("Sylvara", "I remember climbing those branches. Cut here. The roots are still alive.", "cards/Sylvara.png"),
+        panel("Narrator", "Donella cuts the dead treetop free. The living roots burst through the walker. It tips over with a crash.", "cards/donellaOfTheMarsh.png")});
 
     novelScene(missions, "mw24a_victor_in_custody", "Victor's Last Attack", "Chapter 41 / conclusion of the tree battle",
-        "See how the fight ends and who escapes.", {
-        panel("Narrator", "Victor runs at Donella with his sword raised. Her hands are still holding Sylvara's wound. Pavo knocks the blade aside, but Victor shoves him down.", "cards/victorGreyshard.png"),
-        panel("Erevan", "Donella!", "cards/erevanTheShadow.png"),
-        panel("Narrator", "Erevan reaches Victor from behind and strikes with his sword. Victor falls dead. Donella is safe, but the others are hurt, and the camp is still burning.", "cards/erevanTheShadow.png"),
-        panel("Narrator", "Fizzlewick escapes through a hatch in his fallen machine. The freed workers gather their wounded. The guard who buried Elliot survives too.", "cards/fizzlewickGearwright.png"),
-        panel("Rowan", "We came looking for Elliot. Now we know where he is. I am bringing my friend home.", "cards/rowanLeafbound.png")});
+        "Get the wounded workers home.", {
+        panel("Narrator", "Donella still has both hands on a root when Victor draws his sword on her. Erevan strikes first and kills him. The workers carry their wounded through the gate.", "cards/erevanTheShadow.png"),
+        panel("Rowan", "My boat's down here. Who needs a hand getting in?", "cards/rowanLeafbound.png")});
 
-    novelScene(missions, "mw25_deed_own_hand", "Bring Elliot Home", "Chapters 43-44",
-        "Return to Maggie with Elliot and the wounded.", {
-        panel("Narrator", "The journey home is slow. Reed's arm still needs care. Rowan brings Elliot's body to Maggie, who has brought others back from death.", "cards/rowanLeafbound.png"),
-        panel("Narrator", "Maggie brings Elliot back as undead. His fingers close around Rowan's hand. He has no pulse, and speaking takes effort. Rowan stays beside him through the night.", "cards/theGhostOfElliotGreentide.png"),
-        panel("Elliot", "Rowan?", "cards/theGhostOfElliotGreentide.png"),
-        panel("Rowan", "I'm here. Sylvara is alive. We found her.", "cards/rowanLeafbound.png"),
-        panel("Narrator", "At dawn, Elliot spots a leak above the window. He struggles to say, 'Roof.' Donella puts a bowl beneath it and tells him the work can wait.", "cards/donellaOfTheMarsh.png")});
+    novelScene(missions, "mw25_deed_own_hand", "The Last Boat Home", "Chapters 43-44",
+        "Bring the last workers home.", {
+        panel("Narrator", "Rowan steers the last boat into Mirewatch. The two children Juniper saved are waiting on the dock.", "cards/rowanLeafbound.png"),
+        panel("Juniper", "Did you get them all?", "cards/juniperFlash.png"),
+        panel("Rowan", "Every last worker. Give me a hand with the rope?", "cards/rowanLeafbound.png")});
 
     novelScene(missions, "s06_town_owns_itself", "A New Kitchen, an Open Road", "Chapter 45",
-        "Rejoin the friends and see what remains ahead.", {
-        panel("Narrator", "Joni's old inn belongs to the company now. In a new kitchen, friends share meals and make room for one another. Reed is still recovering. Everyone has something to carry.", "cards/joniPumpernickel.png"),
-        panel("Narrator", "Vesper, Pavo, and Nettle keep the Mirror safe as they continue their search for Queen Caltheriel. Back in Mirewatch, a new invitation arrives from Reed's uncle.", "cards/princeVesper.png"),
-        panel("Reed", "He wants another private meeting. I will not go. If he has something to say, he can say it where other people can hear. I'm staying with my friends.", "cards/reedBaelstone.png"),
-        panel("Narrator", "Thaeron is still free, and Fizzlewick escaped. Iven tends her living branch. Sylvara has saved a seed. There are people and growing things left to care for.", "cards/Sylvara.png"),
-        panel("Joni", "There is food on the stove. Sit down while it is warm.", "cards/joniPumpernickel.png")});
+        "Join the freed workers for supper.", {
+        panel("Narrator", "The freed workers crowd Joni's new kitchen. Vesper sets his mirror beside his bowl. Sylvara draws him a map on the back of Joni's menu.", "cards/joniPumpernickel.png"),
+        panel("Sylvara", "See this road, Vesper? I saw them take Caltheriel through Nyxara's gates.", "cards/Sylvara.png"),
+        panel("Reed", "Uncle Thaeron is still free. He wants me to visit him alone. I won't go.", "cards/reedBaelstone.png"),
+        panel("Joni", "Good. Grab a spoon. Your soup's getting cold.", "cards/joniPumpernickel.png")});
 }

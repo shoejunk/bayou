@@ -1,3 +1,4 @@
+#include "story_review.hpp"
 #include "../client/client_story.hpp"
 #include "../client/client_story_cards.hpp"
 #include "../client/client_story_keyboard.hpp"
@@ -1937,12 +1938,6 @@ void validateNovelAdaptation()
                 any(mirror, {"memor", "past"}),
             label + "the Mirror restores Vesper's memory repeatedly, not as a permanent cure");
         const auto ending = sceneCopy("s06_town_owns_itself");
-        const auto graft = mirror + ending + sceneCopy(campaign == StoryCampaign::Mirewatch
-            ? "s04_wounds_that_vote" : "bt10_stolen_road");
-        check(any(graft, {"iven"}) && any(graft, {"graft", "living branch"}) &&
-                any(graft, {"surviv", "alive", "her hands heal", "to heal"}) && any(graft, {"maggie"}) &&
-                any(graft, {"remain", "stay", "stays", "left behind"}),
-            label + "Iven survives and the living graft stays behind at Maggie's");
         const auto reckoning = sceneCopy(campaign == StoryCampaign::Mirewatch
             ? "mw24a_victor_in_custody" : "bt17c_victor_reckoning");
         check(any(reckoning, {"victor"}) && any(reckoning, {"erevan"}) &&
@@ -1959,11 +1954,7 @@ void validateNovelAdaptation()
         check(any(ending, {"thaeron"}) && any(ending, {"free", "at large"}) &&
                 any(ending, {"refus", "declin", "will not go", "won't go"}),
             label + "Reed refuses Thaeron while his uncle remains free");
-        const auto elliot = ending + (campaign == StoryCampaign::Mirewatch
-            ? sceneCopy("mw25_deed_own_hand") : std::string{});
-        check(any(elliot, {"elliot"}) && (any(elliot, {"undead"}) ||
-                (any(elliot, {"no pulse"}) && any(elliot, {"not come back to ordinary life"}))),
-            label + "Elliot returns as undead rather than a healed living man");
+
     }
 }
 
@@ -2310,7 +2301,12 @@ void validateBlackthornTrainingContract()
 
     for (const StoryMission& mission : storyMissions(StoryCampaign::Blackthorn))
     {
-        if (mission.objectiveSpec.kind != StoryObjectiveKind::StoryOnly)
+        if (mission.id == "bt16_clean_shot")
+        {
+            check(!mission.optionalRehearsal && mission.script.size() == 1 && mission.script.front().actorRole == "mog",
+                "Mog opens the escape route with one required board move");
+        }
+        else if (mission.objectiveSpec.kind != StoryObjectiveKind::StoryOnly)
         {
             check(mission.optionalRehearsal && !mission.catchUpForSkippedRehearsals,
                 std::string(mission.id) + ": card practice is optional and creates no later story gate");
@@ -2472,7 +2468,8 @@ void validateBlackthornTrainingContract()
         std::transform(synthesisCopy.begin(), synthesisCopy.end(), synthesisCopy.begin(),
             [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
         const bool briefingExplainsAutomation = synthesisCopy.find("26") != std::string::npos &&
-            synthesisCopy.find("turns pass automatically") != std::string::npos;
+            (synthesisCopy.find("turns pass automatically") != std::string::npos ||
+             synthesisCopy.find("turns pass on their own") != std::string::npos);
         check(
             guidedSynthesis->autoResolvePlayerEndTurns &&
                 automaticPlayerPasses == 24 &&
@@ -3947,8 +3944,26 @@ void validateStoryDialoguePresentation()
 
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
+    if (argc == 3 && std::string_view(argv[1]) == "--export-tutorial")
+    {
+        try
+        {
+            story_review::exportCatalog(argv[2]);
+            return 0;
+        }
+        catch (const std::exception& error)
+        {
+            fmt::println(stderr, "Tutorial export failed: {}", error.what());
+            return 1;
+        }
+    }
+    if (argc != 1)
+    {
+        fmt::println(stderr, "Usage: storymodetest [--export-tutorial DIRECTORY]");
+        return 2;
+    }
     const bayou::storytest::ClaimCatalogResult claimCatalog =
         bayou::storytest::validateClaimCatalog();
     check(
@@ -4056,7 +4071,7 @@ int main()
     validateExpandedMirewatchBattles();
     validateBlackthornTrainingContract();
     validateCampaign(StoryCampaign::Mirewatch, 26, 14, mirewatchOrder);
-    validateCampaign(StoryCampaign::Blackthorn, 21, 10, blackthornOrder);
+    validateCampaign(StoryCampaign::Blackthorn, 21, 11, blackthornOrder);
     validateCampaign(StoryCampaign::Seelie, 33, 16, seelieOrder);
     validateCumulativeMasteryEvidence();
     {
@@ -4103,12 +4118,8 @@ int main()
     for (const auto campaign : {StoryCampaign::Mirewatch, StoryCampaign::Blackthorn})
     {
         const std::vector<std::string_view> boundaries = campaign == StoryCampaign::Mirewatch
-            ? std::vector<std::string_view>{"mw01_river_teeth", "s01_hospitality",
-                "mw08_lesson_night", "s04_wounds_that_vote", "mw18_allies_dishonestly",
-                "mw20_monster_rules", "mw25_deed_own_hand"}
-            : std::vector<std::string_view>{"bt01_harness_hunger", "s01_hospitality",
-                "bt08_north_lock", "bt10_stolen_road", "bt13a_poisoned_root_road",
-                "bt15_monster_rules", "bt18_deed_own_hand"};
+            ? std::vector<std::string_view>{"mw01_river_teeth", "mw08_lesson_night", "s04_wounds_that_vote"}
+            : std::vector<std::string_view>{"bt01_harness_hunger", "bt05_freight_office", "bt10_stolen_road"};
         for (const auto id : boundaries)
         {
             const int index = routeIndex(campaign, id);

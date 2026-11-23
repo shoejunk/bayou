@@ -1082,7 +1082,7 @@ StoryMission sharedS02()
         "Mirewatch story",
         {
         panel("Coach",
-            "Try a three-against-three battle using any legal moves. You can skip this practice and return to it from Missions.",
+            "You have three fighters. So does Blackthorn. This time you choose every move.",
             "cards/reedBaelstone.png")
     });
 }
@@ -1098,7 +1098,7 @@ StoryMission mirewatchFirstOpenCheck()
     mission.briefing.push_back(panel("Controls",
         "Mouse: drag a unit to a lit square or target and release the mouse button. Keyboard: focus a unit and press Enter. Choose a target with the arrows, then press Enter again. Press I to inspect a card or A for an available ability.", "cards/donellaOfTheMarsh.png"));
     mission.briefing.push_back(panel("Coach",
-        "Choose Start Practice when you are ready, or Skip Practice. You can return to this battle from Missions.", "cards/reedBaelstone.png"));
+        "Choose Start Practice or Skip Practice. You can come back from Missions.", "cards/reedBaelstone.png"));
     mission.aftermath = {
         panel("Coach",
             "You won by choosing your own moves. You can replay this battle from Missions.",
@@ -1130,19 +1130,19 @@ StoryMission blackthornFirstOpenCheck(const MissionEntry& entry)
     mission.lesson =
         "OPTIONAL OPEN BATTLE - CHOOSE YOUR MOVES";
     mission.objective =
-        "Defeat all three enemies and keep Thaeron alive. Choose your own moves in this optional practice battle.";
+        "Defeat all three enemies. Keep Thaeron alive.";
     mission.hint =
-        "Drag a unit to a lit square to move or onto a lit enemy to attack. Release to act, then use End Turn. The opponent will fight back.";
+        "Keep Thaeron alive and defeat all three enemies. Drag a unit onto a lit enemy to attack, or a lit square to move. Release, then use End Turn.";
     mission.briefing = {
         panel("Practice battle",
-            "Choose your moves against three training opponents, or continue the story. To win, defeat all three enemies and keep Thaeron alive.",
+            "Keep Thaeron alive against three enemies. Drag your unit to a lit target and release.",
             "cards/Grask.png"),
         panel("Controls",
-            "Mouse: hold the left button on a unit, drag to a glowing target, and release. Keyboard: focus a unit, press Enter, choose a target with arrows, then Enter. Press I to inspect, A for an ability, and End Turn when done.",
+            "Press Tab to reach the board. Use the arrows and Enter to choose a unit, then its target. Press I to inspect or A for an ability. Finish with End Turn.",
             "cards/blackthornAlchemist.png")};
     mission.aftermath = {
         panel("Coach",
-            "You won by choosing your own moves. You can replay this battle from Missions.",
+            "Thaeron made it through. You can replay this battle from Missions.",
             "cards/blackthornAlchemist.png")};
     mission.pieces = {
         piece("thaeron", "Thaeron Baelstone", 1, 1, 1),
@@ -1331,7 +1331,7 @@ StoryMission mirewatchOpening()
     mission.objective =
         "Move Reed back one square on each of two turns. Defeat three wounded gators. Move Telos aside to clear Reed's final shot.";
     mission.hint =
-        "Mouse: drag the named piece to its target and release the mouse button. Keyboard: use arrows to focus the piece, press Enter, use arrows to choose a target, then press Enter again.";
+        "Drag the named piece to the lit square and release. Keyboard: press Enter to select the marked piece, then Enter again for its target. Press E for End Turn.";
     mission.briefing = {
         panel("Narrator",
             "Reed crosses toward Mirewatch with Donella, a healer, and Erevan, a scout. Their boatman, Telos, steers for shore. They came to help dock worker Hara free prisoners. Gators in Blackthorn Company harnesses rush the boat.",
@@ -1340,10 +1340,10 @@ StoryMission mirewatchOpening()
             "They're coming for us! Reed, move back. One step now. Take the second when you get another turn.",
             "cards/reedBaelstone.png"),
         panel("Coach",
-            "Keyboard: Tab switches between the board and buttons. On the board, arrows move focus. Press Enter to select a piece, choose its target with arrows, then press Enter again. I inspects a card; A uses a selected piece's available ability. Mouse: drag to the target and release the mouse button.",
+            "The board starts with Reed in focus. The lit square shows where he can get away.",
             "cards/reedBaelstone.png"),
         panel("Coach",
-            "Normally, one ready piece acts before End Turn unless its card allows more. Badges show Health: blue for your pieces, red for enemies. These gators each have 1 Health. One damage removes them from the battle. The nearest gator follows Reed after End Turn.",
+            "Normally, one ready piece acts each turn. Use End Turn and watch which gator follows Reed.",
             "cards/reedBaelstone.png")};
     mission.aftermath = {
         panel("Erevan",
@@ -1370,17 +1370,17 @@ StoryMission mirewatchOpening()
         scriptedPieceAction(
             StoryActionKind::Move, 1, "reed", 5, 2,
             "Step", "MOVE REED BACK - FIRST STEP",
-            "Move Reed to C6. Mouse: drag him there and release the mouse button. Keyboard: use arrows to focus Reed and press Enter. Focus jumps to C6; press Enter again. Arrows let you change targets. Step moves one square in any direction.",
+            "Drag Reed to C6 and release. Keyboard: press Enter to select Reed. The cursor jumps to C6. Press Enter again to move.",
             "Move Reed one square to marked C6."),
         scripted(
             StoryActionKind::EndTurn, 1, "", -1, -1,
             "END YOUR TURN",
-            "End Turn so the nearest gator can lunge.",
+            "Choose End Turn or press E. Watch the nearest gator.",
             "Use End Turn. Reed must wait until your next turn to move again.",
             {}, {},
             {
                 panel("Narrator",
-                    "Reed reaches C6. The nearest gator turns toward him, ready to lunge.",
+                    "The nearest gator swings its head toward Reed.",
                     "story/mw/mw01/01_gator_ambush_v2.png")
             }),
         scriptedPieceAction(
@@ -1407,7 +1407,7 @@ StoryMission mirewatchOpening()
         scriptedPieceAction(
             StoryActionKind::Attack, 1, "donella", 4, 3,
             "Spark", "DONELLA - SPARK",
-            "Use Donella's Spark from F5 to hit the gator at D5. Spark reaches two squares along the row. Its 1 damage takes the gator from 1 Health to 0.",
+            "Aim Donella's Spark at D5. The red badge shows the gator's Health. Deal 1 damage and it drops to 0. Your team's badges are blue.",
             "Use Spark on the marked gator at D5.",
             "center_gator"),
         scripted(
@@ -1417,13 +1417,13 @@ StoryMission mirewatchOpening()
             "End Turn to continue the rescue."),
         scripted(
             StoryActionKind::EndTurn, 2, "", -1, -1,
-            "THE OTHER TWO CIRCLE",
+            "TWO GATORS WAIT",
             "The remaining gators hold.",
             "This step could not finish. Restart the battle."),
         scriptedPieceAction(
             StoryActionKind::Attack, 1, "erevan", 3, 3,
             "Shadow Blade", "EREVAN - SHADOW BLADE",
-            "Use Shadow Blade on the gator beside Erevan at D4. This attack defeats the gator and moves Erevan into its square.",
+            "Strike the gator at D4 with Erevan's Shadow Blade. Erevan steps into its square when it falls.",
             "Use Erevan's Shadow Blade on the gator at D4.",
             "knife_gator"),
         scripted(
@@ -1439,15 +1439,15 @@ StoryMission mirewatchOpening()
         scriptedPieceAction(
             StoryActionKind::Move, 1, "telos", 4, 0,
             "Travel", "TELOS - TRAVEL",
-            "Use Travel to move Telos from B4 to A5. This one-square move takes him out of Bite range. It also clears column B for Reed's shot.",
+            "Move Telos to A5. Reed needs a clear shot past the boat.",
             "Move Telos to marked A5 with Travel.",
             {}, {},
             {
                 panel("Telos",
-                    "I'm moving, Reed! Get ready. You'll have a clear shot.",
+                    "Hold your shot, Reed! Let me get clear.",
                     "cards/telosTheMerchant.png"),
                 panel("Coach",
-                    "Travel moves Telos one square. B4 to A5 clears column B so Reed can use Bow.",
+                    "Use Travel to get Telos out of column B. Reed can shoot straight up that column.",
                     "cards/telosTheMerchant.png")
             }),
         scripted(
@@ -1463,7 +1463,7 @@ StoryMission mirewatchOpening()
         scriptedPieceAction(
             StoryActionKind::Attack, 1, "reed", 2, 1,
             "Bow", "REED - BOW",
-            "Use Reed's Bow from B6 to hit the gator at B3. Bow reaches three squares along this column. Telos has moved out of the way, so the shot is clear.",
+            "The way is clear. Use Reed's Bow on the last gator at B3.",
             "Use Reed's Bow on the gator at B3.",
             "cargo_gator")
     };
@@ -1496,21 +1496,18 @@ StoryMission blackthornOpening()
             "This town obeys whoever has power. Get the gator back in its pen. Make sure it obeys me.",
             "cards/victorGreyshard.png"),
         panel("Optional practice",
-            "Practice moving, healing, Disable, and attacking, or continue the story. These card battles do not change the plot. You can replay them from Missions.",
+            "Try the guard cards against three gators, or follow the wagon. You can replay this drill from Missions.",
             "cards/blackthornLumberjack.png")};
     const std::vector<StoryPanel> practiceInstructions = {
         panel("Controls",
-            "Mouse: hold the left button on the Lumberjack at B5. Drag to C5 and release. Keyboard: use arrows to focus B5, press Enter, use arrows to choose C5, then press Enter again. Press I to inspect a focused unit.",
+            "Drag the Lumberjack from B5 to C5. With a keyboard, press Tab to reach the board. Use the arrows and Enter to choose B5, then C5.",
             "cards/blackthornLumberjack.png"),
         panel("Coach",
-            "A ready piece can act now. One piece normally acts each turn. Then use End Turn. Some card rules allow extra actions. Guided Actions counts finished actions, not clicks or drags.",
-            "cards/blackthornLumberjack.png"),
-        panel("Coach",
-            "Health badges show how much Health is left. Healing cannot raise it above the card's maximum. Damage makes a survivor miss its next turn. Paralysis Potion deals no damage but makes the target miss its next two turns.",
-            "cards/blackthornAlchemist.png")};
+            "One piece normally acts per turn. Use End Turn after it acts.",
+            "cards/blackthornLumberjack.png")};
     mission.aftermath = {
         panel("Coach",
-            "You moved, healed an ally, used Disable, and landed an attack. The north gator missed its first turn. A later lesson shows the full two-turn effect.",
+            "All three gators are alive. Disable bought the crew time to help the wounded worker.",
             "cards/bullGator.png")};
     mission.pieces = {
         piece("alchemist", "Blackthorn Alchemist", 1, 3, 1),
@@ -1526,8 +1523,8 @@ StoryMission blackthornOpening()
     mission.requiredSurvivorRoles = {"alchemist", "lumberjack", "worker"};
     mission.script = {
         scriptedPieceAction(StoryActionKind::Move, 1, "lumberjack", 4, 2,
-            "Axe Swing", "MOVE THE LUMBERJACK", "Select the Lumberjack at B5. Choose Axe Swing, then glowing C5. This action can move one square along a row or column.",
-            "Hold the left mouse button on the Lumberjack, drag it to C5, then release. Or focus it, press Enter, choose C5, and press Enter again."),
+            "Axe Swing", "MOVE THE LUMBERJACK", "Move the Lumberjack from B5 to the lit square at C5.",
+            "Drag the Lumberjack from B5 and release on C5. Or press Tab to reach the board. Use the arrows and Enter to choose B5, then C5."),
         scripted(StoryActionKind::EndTurn, 1, "", -1, -1,
             "END YOUR TURN", "Use End Turn after moving the Lumberjack.", "Use End Turn to continue."),
         scripted(StoryActionKind::EndTurn, 2, "", -1, -1,
@@ -1613,13 +1610,13 @@ StoryMission mirewatchDeployment()
             "Play Mirewatch Informant on C4. Joni has the required Civilized Trait. Three nearby friendly pieces control this empty square.", "informant"),
         scriptedPieceAction(StoryActionKind::Attack, 1, "spearman", 6, 3,
             "Hooked Spear", "SPEARMAN - HOOKED SPEAR",
-            "Use Hooked Spear from B5 to hit the Lumberjack at D7. The guard survives the 1 damage. Pull brings it to empty C6. The Spearman stays at B5.",
+            "Strike the Lumberjack at D7 with Hooked Spear. He survives 1 damage, so Pull drags him to C6. Your Spearman stays at B5.",
             "Playing a card leaves your normal piece action free. Use Hooked Spear on the marked Lumberjack.", "notice_guard"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "JONI'S AURA", "End Turn. Joni heals pieces beside her, up to their maximum Health.",
             "End Turn to let Joni's healing aura work."),
         scripted(StoryActionKind::EndTurn, 2, {}, -1, -1,
-            "RESOURCES AND TAX", "Your turn begins. Each controlled square earns 1 Resource. The Informant's Tax 10 also takes up to 10 Resources from the enemy and gives them to you. It cannot take more than the enemy has.",
+            "RESOURCES AND TAX", "Your turn starts. You earn 1 Resource per square you control. Tax 10 takes up to 10 more from the enemy. If they have less, you get what they have.",
             "This step could not finish. Restart the battle."),
         scriptedPieceAction(StoryActionKind::Attack, 1, "informant", 4, 3,
             "Lunge", "INFORMANT - LUNGE", "Use Lunge diagonally from C4 into the Debt Collector at D5.",
@@ -1675,21 +1672,18 @@ StoryMission blackthornDeployment()
             "My money pays your soldiers, Victor. Reed is my nephew. Bring him home alive. Remember that before you send in your men.",
             "cards/thaeronBaelstone.png"),
         panel("Optional practice",
-            "Practice playing cards, calling allies, and healing, or continue the story.",
+            "Call up a crew on the practice board, or find out who frees Vesper.",
             "cards/blackthornAlchemist.png")};
     const std::vector<StoryPanel> practiceInstructions = {
         panel("Coach",
-            "Deploy Units on empty squares you control. C4 is one. Each Trait on the card must match a living friendly Hero. Thaeron has the Alchemist's Traits. It arrives exhausted and must wait until your next turn. Playing it leaves your normal piece action free.",
+            "You control the empty square at C4. Thaeron has both Traits on the Alchemist's card, so you can play it there. Each Trait on a Unit must match one on a living friendly Hero.",
             "cards/blackthornAlchemist.png"),
-        panel("Practice battle",
-            "Command gives a ready ally beside Thaeron an extra action. Summon calls a Lumberjack. Trail leaves a Sapling behind the Grove Sister. Each controlled square earns 1 Resource at your turn's start. Then Gather and Tax add more. Turns pass automatically here.",
-            "cards/blackthornDebtCollector.png"),
         panel("How to place a card",
-            "Mouse: hold the left mouse button on the card, drag it to C4, then release. Keyboard: press Tab until your hand is focused. Choose the card with arrows and press Enter. Choose C4 with arrows, then press Enter again.",
+            "Drag the card to C4 and release. With a keyboard, press Tab to reach your hand. Use the arrows and Enter to choose the card, then C4.",
             "cards/blackthornAlchemist.png")};
     mission.aftermath = {
         panel("Coach",
-            "You played a card, used Command and Summon, and made a Sapling with Trail. You also used both Sapling actions.",
+            "With Command, two allies can act in one turn. Try it when a friend needs help across the board.",
             "cards/blackthornForeman.png")};
     mission.pieces = {
         piece("thaeron", "Thaeron Baelstone", 1, 3, 1),
@@ -1715,7 +1709,7 @@ StoryMission blackthornDeployment()
             "Use glowing C4. Thaeron has the Arcane and Civilized Traits the card needs.", "alchemist"),
         scriptedPieceAction(StoryActionKind::Move, 1, "foreman", 4, 2,
             "Slide", "FOREMAN - SLIDE",
-            "Use Slide to move the Foreman from B5 to C5. D5 stays empty for Summon.",
+            "The new Alchemist must wait a turn. You still have your normal piece action. Use Slide to move the Foreman from B5 to C5.",
             "Choose Slide and move the Foreman to C5."),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "NEXT TURN", "Your turn ends automatically.",
@@ -1736,7 +1730,7 @@ StoryMission blackthornDeployment()
             "READY YOUR NEW UNITS", "Your turn ends. The Alchemist and summoned Lumberjack can act on your next turn.",
             "The turn ends automatically."),
         scripted(StoryActionKind::EndTurn, 2, {}, -1, -1,
-            "GAIN RESOURCES", "Your new turn brings income from controlled squares. Lumberjacks Gather Resources, and the Collector uses Tax to take Resources from the other side.",
+            "GAIN RESOURCES", "Each square you control pays 1 Resource. Your Lumberjacks Gather more. Your Collector uses Tax to take Resources from the other side.",
             "This step could not finish. Restart the practice battle."),
         scriptedPieceAction(StoryActionKind::Attack, 1, "alchemist", 2, 1,
             "Healing Elixer", "ALCHEMIST - HEALING ELIXER", "Use Healing Elixer on your wounded Lumberjack at B3.",
@@ -1748,8 +1742,8 @@ StoryMission blackthornDeployment()
             "THE OPPONENT WAITS", "The opponent passes.", "This step could not finish. Restart the practice battle."),
         scriptedPieceAction(StoryActionKind::Attack, 1, "sapling", 7, 4,
             "Heal", "SAPLING - HEAL",
-            "Use the Sapling's Heal on the wounded Lumberjack at E8. Healing stops at the card's maximum Health.",
-            "Choose Heal and target your Lumberjack at E8.", "sapling_patient"),
+            "Select the Sapling at E7. Use Heal on the wounded Lumberjack at E8. Healing stops at the card's maximum Health.",
+            "Choose the Sapling at E7, then Heal. Target your Lumberjack at E8.", "sapling_patient"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "NEXT TURN",
             "Your turn ends automatically.",
@@ -1760,7 +1754,7 @@ StoryMission blackthornDeployment()
             "This step could not finish. Restart the practice battle."),
         scriptedPieceAction(StoryActionKind::Attack, 1, "sapling", 6, 5,
             "Entangle", "SAPLING - ENTANGLE",
-            "Use Entangle on the Bull Gator at F7. It deals no damage and makes the gator miss two turns. The Sapling needs one turn to cool down.",
+            "Use the E7 Sapling's Entangle on the Bull Gator at F7. It deals no damage. The gator misses two turns, and the Sapling rests for one turn.",
             "Choose Entangle and target F7. The Sapling cannot act during its next turn.", "sapling_target"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "DISABLE: FIRST TURN",
@@ -1890,7 +1884,7 @@ StoryMission mirewatchCapstone(bool fullPractice = false)
             "THE SPEARMAN READIES", "The enemy turn ends.", "This step could not finish. Restart the battle."),
         scriptedPieceAction(StoryActionKind::Attack, 1, "reinforcement", 4, 3,
             "Hooked Spear", "SPEARMAN - HOOKED SPEAR",
-            "Use Hooked Spear from B7 to the Alchemist at D5. The target has 1 Health and is defeated. Pull cannot move a defeated target.",
+            "Hit the Alchemist at D5 with Hooked Spear from B7. He has 1 Health. The hit defeats him before Pull can move him.",
             "Use Hooked Spear on D5, two diagonal squares away.", "spear_guard"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "CLEAR THE NEXT PATH", "End Turn after the Spearman acts.",
@@ -1916,7 +1910,7 @@ StoryMission mirewatchCapstone(bool fullPractice = false)
             "THE ENEMY ENDS ITS TURN", "The opposing side passes.", "This step could not finish. Restart the battle."),
         scriptedPieceAction(StoryActionKind::Move, 1, "donella", 5, 3,
             "Sprint", "DONELLA - SPRINT",
-            "Use Sprint from E7 to D6. This diagonal move puts Donella beside the wounded Veteran at E5.",
+            "Sprint diagonally from E7 to D6. From there, Donella can reach the wounded Veteran at E5.",
             "Use Sprint to reach D6."),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "READY THE MEND", "End Turn with Donella beside the wounded Veteran.",
@@ -1941,7 +1935,7 @@ StoryMission mirewatchCapstone(bool fullPractice = false)
         mission.title = "Mirewatch: Team Workshop";
         mission.lesson = "DEPLOY, REPEAT, SHOOT, AND HEAL";
         mission.sourceChapter = "Optional card practice after the story";
-        mission.objective = "Play a card, combine attacks, and heal an ally. This practice is separate from the burning square.";
+        mission.objective = "Play the Spearman, fight your way to the Veteran, and heal him.";
         mission.hint = "Each step names the real card action and target. You can skip this practice and return from Missions.";
         mission.optionalRehearsal = true;
         mission.briefing = {
@@ -2017,15 +2011,15 @@ StoryMission blackthornCapstone()
     StoryMission mission = playableFromEntry(entry);
     mission.briefing = {
         panel("Optional practice",
-            "The story is complete. Try 26 guided actions covering the starter deck, or skip this review. You can replay it from Missions.",
+            "Try all 26 starter deck actions here. You can skip this review and replay it from Missions.",
             "cards/thaeronBaelstone.png")};
     const std::vector<StoryPanel> practiceInstructions = {
         panel("Coach",
-            "Follow the glowing instructions. Turns pass automatically between actions. Watch Gather, Tax, healing, cooldowns, and Disable as each turn starts or ends.",
+            "Victor goes first. Aim his axe at the guard on G7. Turns pass on their own in this drill.",
             "cards/blackthornForeman.png")};
     mission.aftermath = {
         panel("Coach",
-            "You used every action in the Blackthorn starter deck. Next, choose your own moves in a small open battle.",
+            "You've used every action in the Blackthorn starter deck. In Open Practice, you choose the moves.",
             "cards/thaeronBaelstone.png")};
     mission.pieces = {
         piece("victor", "Victor Greyshard", 1, 7, 7),
@@ -2071,7 +2065,7 @@ StoryMission blackthornCapstone()
             "Axe Dance", "VICTOR - AXE DANCE", "Use Axe Dance on the Debt Collector at G7.",
             "Choose Victor's Axe Dance and target G7.", "first_guard"),
         scriptedPieceAction(StoryActionKind::Attack, 1, "victor", 5, 5,
-            "Axe Dance", "VICTOR - EXTRA ATTACK", "Victor defeated an enemy, so Relentless offers another action. Take it: use Axe Dance on the Debt Collector at F6.",
+            "Axe Dance", "VICTOR - EXTRA ATTACK", "Victor defeated an enemy. Relentless lets him strike again. Use Axe Dance on the Debt Collector at F6.",
             "Use Victor again. In normal play, you may use End Turn to skip this extra action.", "second_guard"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "END THE EXTRA ATTACKS", "Your turn ends, passing up another Relentless action.",
@@ -2165,8 +2159,8 @@ StoryMission blackthornCapstone()
             "This step could not finish. Restart the practice battle."),
         scriptedPieceAction(StoryActionKind::Attack, 1, "sapling", 1, 7,
             "Heal", "SAPLING - HEAL",
-            "Use the Sapling's Heal on your wounded Lumberjack at H2.",
-            "Choose Heal and target the friendly Lumberjack at H2.", "sapling_heal_target"),
+            "Select the Sapling at H1. Use Heal on your wounded Lumberjack at H2.",
+            "Choose the Sapling at H1, then Heal. Target your Lumberjack at H2.", "sapling_heal_target"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "NEXT TURN", "Your turn ends automatically.",
             "The turn ends automatically."),
@@ -2174,7 +2168,7 @@ StoryMission blackthornCapstone()
             "THE OPPONENT WAITS", "The opponent passes.", "This step could not finish. Restart the practice battle."),
         scriptedPieceAction(StoryActionKind::Attack, 1, "sapling", 0, 6,
             "Entangle", "SAPLING - ENTANGLE",
-            "Use Entangle on the Bull Gator at G1. The gator misses two turns. The Sapling needs one turn to cool down.",
+            "Use the H1 Sapling's Entangle on the Bull Gator at G1. The gator misses two turns. The Sapling needs one turn to cool down.",
             "Choose Entangle and target G1. This action deals no damage.", "sapling_disable_target"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "ENTANGLE: FIRST TURN",
@@ -2307,10 +2301,10 @@ StoryMission blackthornCapstone()
             "Choose Ambush and target G5.", "collector_target"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "FINAL PRACTICE COMPLETE",
-            "Your turn ends. You have used every action in the Blackthorn starter deck.",
+            "Your Ambusher is visible again. Your turn ends.",
             "The turn ends automatically."),
         scripted(StoryActionKind::EndTurn, 2, {}, -1, -1,
-            "READY FOR OPEN BATTLE", "The opponent passes. You have finished the Blackthorn card practice.",
+            "READY FOR OPEN BATTLE", "The opponent passes.",
             "This step could not finish. Restart the practice battle.")};
     mission.masteryCards = {
         "Thaeron Baelstone", "Ashenfang", "Blackthorn Debt Collector",
@@ -2346,20 +2340,17 @@ StoryMission blackthornFieldJudgment()
     mission.objective =
         "Defeat four opposing units while keeping Thaeron alive.";
     mission.hint =
-        "Drag a unit to a lit square or enemy and release to act. If two actions fit that target, choose one when the action menu appears. Then use End Turn.";
+        "Keep Thaeron alive and defeat all four enemies. Drag a unit to a lit target and release. If two actions fit, choose one. Then use End Turn.";
     mission.briefing = {
         panel("Practice battle",
-            "Choose your moves in this optional battle. Four Blackthorn cards face four training opponents. The opponent will fight back.",
+            "Four enemies stand between your crew and a win. Keep Thaeron alive as you fight them. In this drill, the enemy fights back.",
             "cards/blackthornAlchemist.png"),
         panel("Coach",
-            "Drag a unit to a lit square to move, or onto a lit enemy to attack. Release to act, then use End Turn. Keyboard: select with Enter, aim with arrows, then Enter again.",
-            "cards/thaeronBaelstone.png"),
-        panel("Coach",
-            "Defeat all four enemies and keep Thaeron alive. Choose when to move, heal, attack, use Command, or Summon a new unit.",
-            "cards/blackthornForeman.png")};
+            "Drag a unit onto a lit square to move or a lit enemy to attack. Release to act. Or press Tab to reach the board, then use the arrows and Enter to pick a unit and its target. Finish with End Turn.",
+            "cards/thaeronBaelstone.png")};
     mission.aftermath = {
         panel("Coach",
-            "You won by choosing your own moves. Next is an optional full match with decks, Hero placement, Resources, and clocks. You can skip it before the timers start.",
+            "Your crew held out. Next up is an optional timed match. You can skip it before the clocks start.",
             "cards/thaeronBaelstone.png")};
     mission.pieces = {
         piece("thaeron", "Thaeron Baelstone", 1, 5, 0),
@@ -2388,41 +2379,38 @@ StoryMission blackthornOpenMastery()
     mission.objective =
         "Place Heroes in 2 minutes. Each turn has a 2-minute timer. Your match clock starts at 15 minutes. Defeat the enemy Heroes or run out their match clock to win.";
     mission.hint =
-        "Place all your Heroes before the 2-minute deadline. Drag each Hero card to an empty glowing home square. With a keyboard, focus a Hero, press Enter, choose a glowing square with the arrows, and press Enter again.";
+        "Place both Heroes in 2 minutes. Drag each to a glowing home square, or use the arrows and Enter to pick a Hero and its square. Beat Maggie and Joni or outlast their clock. Keep a Hero alive and watch your own clock.";
     mission.briefing = {
-        panel("Coach",
-            "Put your Blackthorn skills to work in a full match. You choose your Hero positions, card plays, and attacks. There are no guided moves.",
-            "cards/thaeronBaelstone.png"),
         panel("Practice match",
-            "Your Blackthorn starter deck faces Maggie and Joni. The story is over; this match is for practice.",
+            "Take on Maggie and Joni in a full practice match. You choose where your Heroes start and how they fight.",
             "cards/Grask.png"),
         panel("Your deck",
-            "Both decks are ready to play. Yours has twenty regular cards and two Heroes: Thaeron and Ashenfang. Their Traits let you play the Units in your hand.",
+            "You have twenty regular cards and two Heroes, Thaeron and Ashenfang. Match the Traits on Unit cards to your Heroes to play them.",
             "cards/blackthornForeman.png"),
         panel("Place your Heroes",
-            "You have 2 minutes to place all Heroes. Hold a Hero card, drag it to an empty glowing home square, then release. Or focus it, press Enter, choose a square with the arrows, then press Enter. Placing one does not reset the deadline. Enemy Heroes stay hidden until both sides finish. Match clocks pause during placement.",
+            "You have 2 minutes for both Heroes. Hold a Hero card, drag it to an empty glowing home square and release. Or focus a card, press Enter, aim with the arrows and press Enter again. Enemy Heroes stay hidden and match clocks stay paused until both sides finish.",
             "cards/maggieMudroot.png"),
         panel("Your hand",
-            "You start with four cards your opponent cannot see. Player 1 goes first. Each hand holds up to four cards and does not refill on its own. Pay 50 Resources to draw. Once per turn, you may discard a card to the bottom of your deck.",
+            "Player 1 goes first. You start with four cards. Only you can see your hand. It holds up to four cards and never refills on its own. Pay 50 Resources to draw one. Once per turn, you can put a card from your hand on the bottom of your deck.",
             "cards/blackthornDebtCollector.png"),
         panel("Earn Resources",
-            "A piece controls the squares it stands on and adds influence to empty squares beside it. The side with more influence controls an empty square. A tie keeps its current owner. Each square you control gives 1 Resource at your turn's start, before Tax, Gather, and other automatic effects.",
+            "A visible piece controls its square. Around each empty square, count the visible pieces from both sides, even on diagonals. The side with more controls it. A tie leaves it as it was. At the start of your turn, collect 1 Resource per square before Tax, Gather, and other effects.",
             "cards/groveSister.png"),
         panel("Watch the clocks",
-            "Each side starts with a 15-minute match clock and a 2-minute turn timer. A successful card play, piece action, ability, paid draw, discard, or pass resets the turn timer. The first 30 of these actions also add 10 seconds each to your match clock.",
+            "You get 15 minutes for the match and 2 minutes per turn. Play a card, act with a piece, use an ability, draw, discard, or pass to reset the turn timer. Your first 30 such actions each add 10 seconds to your match clock.",
             "cards/Ashenfang.png"),
         panel("When time runs out",
-            "If your turn timer runs out, play passes to the opponent. Repeated timeouts cut your next turn limits to 1 minute, then 30 seconds. If your match clock runs out, you lose. You can use Exit or Restart during this practice match.",
+            "If your turn timer runs out, the opponent plays. Time out again and your turn limit drops to 1 minute, then 30 seconds. You lose if your match clock runs out. You can Exit or Restart during practice.",
             "cards/thaeronBaelstone.png"),
         panel("How to win",
-            "Defeat every Hero that started on the enemy side, or let their match clock run out. Defeating ordinary Units alone will not win. You lose if both Thaeron and Ashenfang fall, or if your match clock runs out.",
+            "Defeat Maggie and Joni, or outlast their match clock. Keep at least one of your own Heroes alive.",
             "cards/thaeronBaelstone.png"),
         panel("Ready to start",
-            "Start Timed Match starts the 2-minute Hero placement timer at once. Hold a Hero card, drag it to a glowing home square, then release. Or focus a Hero, press Enter, choose its square, and press Enter again. You can skip this match before starting its timers.",
+            "Choose Start Timed Match when you're ready to drag or focus your first Hero. The 2-minute placement timer starts right away. You can still skip the match now.",
             "cards/Ashenfang.png")};
     mission.aftermath = {
         panel("Coach",
-            "You won a full match with decks, Hero placement, Resources, and clocks. You can replay any lesson or match from Missions.",
+            "You won the full match. To play it again, choose Full Match from Missions.",
             "cards/thaeronBaelstone.png")};
     mission.standardMatch = true;
     mission.playerDeck = {
@@ -2543,7 +2531,7 @@ const std::vector<MissionEntry> MirewatchEntries = {
         "Chapter 12",
         "REPEAT AND DIAGONAL ATTACKS",
         "Defeat both guards with Vanya, then use Sidestep.",
-        "Repeat 1 allows one more use of the same action, or Pass, before another piece acts.",
+        "Repeat 1 gives Vanya one more Blade Dance. Use it on the second guard before choosing another piece.",
         "Vanya Bluewater",
         "Joni Pumpernickel",
         "Birdie the Wise",
@@ -2894,7 +2882,7 @@ StoryMission mirewatchWatcher()
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "END YOUR TURN", "End Turn. Erevan can act on your next turn.", "End Turn to continue."),
         scripted(StoryActionKind::EndTurn, 2, {}, -1, -1,
-            "COMPANY TURN ENDS", "The children crawl toward the boat. Your next turn begins.",
+            "COMPANY TURN ENDS", "The children crawl out from under the boat. Your next turn begins.",
             "This step could not finish. Restart the battle."),
         scriptedPieceAction(StoryActionKind::Attack, 1, "erevan", 5, 2,
             "Shadow Blade", "EREVAN AT CLOSE RANGE", "Use Shadow Blade on the Debt Collector beside Erevan at C6.",
@@ -3055,7 +3043,7 @@ StoryMission mirewatchWagonRescue(bool fullPractice = false)
             "COMPANY TURN ENDS", "The enemy turn ends.", "This step could not finish. Restart the battle."),
         scriptedPieceAction(StoryActionKind::Attack, 1, "spearman", 2, 3,
             "Hooked Spear", "SPEARMAN - HOOKED SPEAR",
-            "Use Hooked Spear from B5 to hit the Debt Collector at D3. The guard has 1 Health and is defeated. Pull cannot move a defeated target. The Spearman stays at B5.",
+            "Hit the Debt Collector at D3 with Hooked Spear. He falls, so there's no one left to Pull. Your Spearman stays at B5.",
             "Use Hooked Spear on the guard at D3, two diagonal squares away.", "spear_guard"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "READY THE TRACKER", "End Turn for the mounted scout's jump.", "End Turn to continue."),
@@ -3119,7 +3107,7 @@ StoryMission mirewatchWagonRescue(bool fullPractice = false)
         mission.title = "Mirewatch: Card Workshop";
         mission.lesson = "DRAW, REPEAT, JUMP, AND REBIRTH";
         mission.sourceChapter = "Optional card practice after the story";
-        mission.objective = "Try the full set of moves with Birdie, Scooter, and their allies. This practice is separate from the wagon rescue.";
+        mission.objective = "Guide Birdie and Scooter around the guards. Try a second dash, a jump, and an attack on foot.";
         mission.hint = "Each step names the real card action and target. You can skip this practice and return from Missions.";
         mission.optionalRehearsal = true;
         mission.briefing = {
@@ -3233,7 +3221,7 @@ StoryMission mirewatchVaultCost()
             "I can hold this gate open. Keep moving!",
             "cards/reedBaelstone.png"),
         panel("Coach",
-            "Clear the paths. Then move Juniper beside the runner. When a guard attacks him, Intercept swaps her into his place. She takes the hit. This happens automatically. Focus her and press I to read her card.",
+            "Move Juniper beside the runner. When the guard attacks him, Intercept automatically swaps their places. Juniper takes the hit.",
             "cards/juniperFlash.png")
     };
     mission.aftermath = {
@@ -3266,7 +3254,7 @@ StoryMission mirewatchVaultCost()
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "PASS THE NORTH LANE", "End Turn after Birdie acts.", "End Turn to continue."),
         scripted(StoryActionKind::EndTurn, 2, {}, -1, -1,
-            "THE FIRST PATH IS CLEAR", "The first children cross the cleared path toward the runner.", "This step could not finish. Restart the battle."),
+            "THE FIRST PATH IS CLEAR", "The first children run down the open path.", "This step could not finish. Restart the battle."),
         scriptedPieceAction(StoryActionKind::Attack, 1, "reed", 6, 4,
             "Bow", "OPEN THE SOUTH LANE",
             "Use Reed's Bow from B7 through C7 and D7 to the Debt Collector at E7.",
@@ -3289,7 +3277,7 @@ StoryMission mirewatchVaultCost()
             "This step could not finish. Restart the battle.", "runner")};
     mission.script[6].panelsBefore = {
         panel("Juniper",
-            "He is going for the runner. I will get between them. Keep the children moving!",
+            "He's after the runner! Get the children aboard. I'll handle him.",
             "cards/juniperFlash.png")};
     mission.masteryCards = {"Reed Baelstone", "Juniper Flash"};
     mission.masteryRules = {
@@ -3308,12 +3296,12 @@ StoryMission mirewatchRevealReconstruction()
     mission.hint = "Reveal happens at the end of its owner's turn. It makes adjacent enemies hidden by Dematerialize visible again.";
     mission.briefing = {
         panel("Coach",
-            "Try a quiet practice with the Swamp Tracker. A hidden Ambusher waits nearby. Jump beside it, then End Turn to reveal it. You can skip this lesson.",
+            "Watch where the Ambusher goes. Your Swamp Tracker can find him even after he vanishes.",
             "cards/swampTracker_mounted.png")
     };
     mission.aftermath = {
         panel("Coach",
-            "At the end of your turn, Reveal made the nearby hidden enemy visible. It dealt no damage.",
+            "There's the Ambusher. Reveal showed his square without hurting him.",
             "cards/swampTracker_mounted.png")
     };
     mission.pieces = {
@@ -3336,11 +3324,11 @@ StoryMission mirewatchRevealReconstruction()
             "This step could not finish. Restart the battle."),
         scriptedPieceAction(StoryActionKind::Move, 1, "tracker", 2, 2,
             "Frogback Leap", "TRACKER - FROGBACK LEAP",
-            "Use Frogback Leap from B5 to C3. This knight jump moves two squares up and one across. It lands beside the hidden Ambusher at D3.",
+            "Use Frogback Leap from B5 to C3. Jump two squares up and one across to land beside the hidden Ambusher at D3.",
             "Move the Swamp Tracker to highlighted C3."),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "END TURN TO TRIGGER REVEAL",
-            "End Turn. Reveal checks nearby enemies and makes the hidden Ambusher visible again.",
+            "Choose End Turn. Reveal spots the hidden Ambusher beside your Tracker.",
             "Use End Turn with the Tracker beside the hidden enemy.")};
     mission.masteryCards = {"Swamp Tracker"};
     mission.masteryRules = {
@@ -3354,6 +3342,7 @@ StoryMission blackthornCustoms()
     StoryMission mission = playableFromEntry(BlackthornEntries[0]);
     mission.objective =
         "Practice extra attacks, long moves, gun actions, and Tax.";
+    mission.hint = "Start with Victor at A1. Use Axe Dance on the guard at B2.";
     mission.briefing = {
         panel("Narrator",
             "Victor sends Mog to take the same family's boat. Reed, a boy helping prisoners escape, stands on its deck. Mog sees the torn hull he helped drag ashore.",
@@ -3362,21 +3351,15 @@ StoryMission blackthornCustoms()
             "Mog lets the rope slide through his fingers. Reed pushes off before the other guards turn. For the first time, Mog is glad he failed an order.",
             "cards/reedBaelstone.png"),
         panel("Optional practice",
-            "Practice extra attacks, long moves, gun actions, and Tax, or continue the story.",
+            "Try Victor's extra attack on the practice board, or follow Reed to the river steps.",
             "cards/victorGreyshard.png")};
     const std::vector<StoryPanel> practiceInstructions = {
         panel("Practice battle",
-            "Try the patrol's cards against training targets. Victor's Relentless lets him act again after he defeats an enemy. Take the first extra action. Then use End Turn to skip the next one.",
-            "cards/victorGreyshard.png"),
-        panel("Coach",
-            "Resources pay for cards. Tax takes Resources from the other side when your turn starts. Raise Gun before using Fire.",
-            "cards/blackthornDebtCollector.png"),
-        panel("Coach",
-            "Pieces control the squares they stand on and add influence to empty squares beside them. More influence wins an empty square. A tie keeps its current owner. Each square you control earns 1 Resource when your turn starts.",
-            "cards/blackthornDebtCollector.png")};
+            "Take Victor's side for this drill. The guard at B2 has just 1 Health.",
+            "cards/victorGreyshard.png")};
     mission.aftermath = {
         panel("Coach",
-            "You used Relentless, Charge, the Sharpshooter's gun actions, and Knife Stab. Tax works at the start of your turn.",
+            "Watch Victor after he defeats an enemy. Relentless gives him the choice to strike again.",
             "cards/blackthornDebtCollector.png")};
     mission.pieces = {
         piece("victor", "Victor Greyshard", 1, 0, 0),
@@ -3393,15 +3376,15 @@ StoryMission blackthornCustoms()
     mission.script = {
         scriptedPieceAction(StoryActionKind::Attack, 1, "victor", 1, 1,
             "Axe Dance", "VICTOR - AXE DANCE",
-            "Use Axe Dance on the enemy at B2. It has 1 Health. Defeat it to trigger Relentless.",
+            "Use Victor's Axe Dance on the guard at B2.",
             "Choose Victor's Axe Dance and target B2.", "relentless_target_one"),
         scriptedPieceAction(StoryActionKind::Attack, 1, "victor", 2, 2,
             "Axe Dance", "VICTOR - EXTRA ATTACK",
-            "Relentless lets Victor act again. Use Axe Dance on the enemy at C3. It also has 1 Health.",
+            "Victor beat the guard. His Relentless skill lets him act again. Use Axe Dance on C3.",
             "Use Victor again. The extra action belongs to him. In normal play, you may use End Turn to skip it.", "relentless_target_two"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "SKIP THE EXTRA ACTION",
-            "The second defeat triggers Relentless again. Use End Turn to skip this extra action.",
+            "Victor earned another attack. Choose End Turn to pass it up.",
             "Use End Turn to continue."),
         scripted(StoryActionKind::EndTurn, 2, {}, -1, -1,
             "THE OPPONENT WAITS",
@@ -3428,7 +3411,7 @@ StoryMission blackthornCustoms()
             "WATCH TAX", "Use End Turn. The Debt Collector takes Resources when your next turn starts.",
             "Use End Turn to continue."),
         scripted(StoryActionKind::EndTurn, 2, {}, -1, -1,
-            "TAX TAKES AVAILABLE RESOURCES", "Tax takes Resources from the opponent. It cannot take more than the opponent has.",
+            "TAX TAKES AVAILABLE RESOURCES", "Your Collector takes Resources when your turn starts. That's Tax. If the enemy has none, you get none from Tax.",
             "This step could not finish. Restart the practice battle."),
         scriptedPieceAction(StoryActionKind::Attack, 1, "collector", 7, 2,
             "Knife Stab", "COLLECTOR - KNIFE STAB", "Use Knife Stab diagonally on the enemy Debt Collector at C8.",
@@ -3486,18 +3469,18 @@ StoryMission blackthornTerms()
             "The father grips Mog's cup. Braun, another guard, steps in front of Grask and asks about the next wagon. Mog leaves the cup with the prisoner. Braun gives him a quick nod.",
             "cards/braunStonefist.png"),
         panel("Optional practice",
-            "Practice hiding, moving past blockers, and attacking hidden targets, or continue the story.",
+            "Try to catch a hidden scout in practice, or join Mog at the bridge.",
             "cards/goblinAmbusher.png")};
     const std::vector<StoryPanel> practiceInstructions = {
         panel("Practice battle",
-            "Now use two Ambushers on the practice board. The opposing Erevan the Shadow card is your training scout. Use the named action even if its target square looks empty.",
+            "Two Ambushers are yours. Erevan is the scout you're hunting. When he hides, you can still aim at his square.",
             "cards/goblinAmbusher.png"),
         panel("Coach",
-            "Dematerialize hides an Ambusher. While hidden, Sneak Around can pass through pieces. Ambush deals damage and can hit even a hidden enemy. Sneak Around does not deal that damage.",
+            "Use Dematerialize to hide. Sneak Around lets you slip past other pieces while hidden. When you're ready to strike, use Ambush.",
             "cards/goblinAmbusher.png")};
     mission.aftermath = {
         panel("Coach",
-            "You hid, passed through blockers, and attacked a hidden target. You also used Stab while visible.",
+            "An empty-looking square can hold a scout. Ambush can hit him there.",
             "cards/goblinAmbusher.png")};
     mission.pieces = {
         piece("ambusher_path", "Goblin Ambusher", 1, 3, 1),
@@ -3584,18 +3567,18 @@ StoryMission blackthornOffice()
             "Hara does not come out of the yard. Erevan brings her map to Reed. They will use it to free the prisoners, then search for her.",
             "cards/reedBaelstone.png"),
         panel("Optional practice",
-            "Practice Capture, damage, and long attacks, or continue the story.",
+            "Try Grask's axes on a practice board.",
             "cards/Grask.png")};
     const std::vector<StoryPanel> practiceInstructions = {
         panel("Practice battle",
-            "Try Swing Axes, Grask's diagonal Capture action. Then use Mog's Axe Swing and Grask's Charge against the training targets.",
+            "Start with Grask. His Swing Axes can hit a target on a diagonal.",
             "cards/Mog.png"),
         panel("Coach",
-            "Capture moves toward a target and attacks. If the target falls, Grask takes its square. If it survives, he stops just before it. Damage makes a survivor miss its next turn. Charge needs a clear row or column.",
+            "When Grask uses Capture, he takes a fallen target's square. A survivor keeps its square but misses its next turn. Grask stops just short of it.",
             "cards/Grask.png")};
     mission.aftermath = {
         panel("Coach",
-            "You saw a target survive Capture and keep its square. Then you used Axe Swing and a long Charge.",
+            "Charge needs a clear row or column. If you see a straight path to an enemy, check how far Grask can reach.",
             "cards/Grask.png")};
     mission.pieces = {
         piece("grask", "Grask", 1, 3, 1),
@@ -3661,15 +3644,15 @@ StoryMission blackthornMonsterRules()
             "I'll cut Sylvara's cable with an arrow. Reed, take the prisoners through Mog's gate. Donella, get the Root Key to the Tree. We move together.",
             "cards/birdieTheWise.png"),
         panel("Optional practice",
-            "Practice a diagonal attack and two turns of Disable, or continue the rescue.",
+            "Try Ashenfang's lunge in practice, or help Mog get the workers out.",
             "cards/Ashenfang.png")};
     const std::vector<StoryPanel> practiceInstructions = {
         panel("Coach",
-            "Use the Ashenfang card for this drill. Entangling Lunge moves and attacks one or two squares diagonally. A surviving target keeps its square and misses its next two turns.",
+            "Ashenfang can use Entangling Lunge to reach one or two squares on a diagonal. Hit the Veteran and watch his next two turns.",
             "cards/Ashenfang.png")};
     mission.aftermath = {
         panel("Coach",
-            "Entangling Lunge left the Veteran Disabled for two turns. You watched both turns and saw Disable end.",
+            "The Veteran kept his square. Now that his two turns of Disable are over, he can fight again.",
             "cards/Ashenfang.png")};
     mission.script = {
         scriptedPieceAction(StoryActionKind::Attack, 1, "ashenfang", 5, 3,
@@ -3803,15 +3786,15 @@ StoryMission seelieTwoMenOneVacancy()
     mission.lesson =
         "REACH THE MARKED SQUARE";
     mission.objective =
-        "Move Rowan Leafbound to G4. Keep him alive so the workers can keep leaving the lifts. You can leave other enemies standing.";
+        "Get Rowan Leafbound safely to G4 to clear a path for the wounded.";
     mission.hint =
-        "Drag units to lit squares or enemies to act. Keep Rowan and the Knight near allies to protect them. The Sister heals nearby friends and enemies. The Messenger can fly past pieces.";
+        "Move Rowan to G4. A Knight beside him can take a hit for him. Drag Rowan to a lit square to advance.";
     mission.briefing = {
         panel("Reed",
-            "The lifts are still coming. Keep this landing clear. The wounded need room to pass.",
+            "Another lift! Rowan, make room. They're carrying someone out.",
             "cards/reedBaelstone.png"),
         panel("Coach",
-            "Move Rowan Leafbound onto glowing G4. Keep him alive. You do not need to defeat every enemy.",
+            "Move Rowan Leafbound to glowing G4. You can leave enemies behind once he's safe.",
             "cards/rowanLeafbound.png")};
     mission.aftermath = {
         panel("Narrator",
@@ -3847,26 +3830,26 @@ StoryMission seelieCathedralDefense()
     mission.objective =
         "Follow the glowing ACT unit and TARGET. Defeat all four Gloom Fairies and keep your four allies alive.";
     mission.hint =
-        "Mouse: hold the left mouse button on ACT, drag to TARGET, then release. Keyboard: Tab until a board square is highlighted. Use arrows to ACT, Enter, then arrows to TARGET and Enter. Use End Turn after one unit acts.";
+        "Drag ACT to TARGET. Release to act. With a keyboard, press Tab to reach the board. Use arrows and Enter to choose ACT, then TARGET. After one unit acts, use End Turn.";
     mission.briefing = {
         panel("Vesper",
-            "Enemy fairies are coming through the windows! Keep them away from the families hiding behind those benches.",
+            "Fairies at the windows! The families are under the benches. Keep those fairies back!",
             "cards/princeVesper.png"),
         panel("Coach",
-            "This guided fight teaches normal play: one ready piece acts each turn. Then use End Turn. Blue Health is yours; red belongs to enemies. Each 1 damage removes 1 Health. At 0, a piece leaves play.",
+            "One ready piece can act each turn. After it acts, use End Turn. Blue numbers show your Health. Red shows enemy Health. Each hit lowers Health by the damage it deals. At 0, the piece leaves play.",
             ""),
         panel("Coach",
-            "Mouse: hold the left mouse button on the glowing ACT unit, drag to TARGET, then release. Double-click a unit to read its card.",
+            "Drag the glowing ACT unit to TARGET with the left mouse button. Release to act. Double-click any unit to read its card.",
             ""),
         panel("Coach",
-            "Keyboard: press Tab until a board square is highlighted. Use arrows to highlight ACT, then Enter. Highlight TARGET with arrows and press Enter. To read a unit's card, highlight it and press I.",
+            "Press Tab to highlight the board. Use the arrows to reach ACT and press Enter. Do the same for TARGET. To read a card, highlight its unit and press I.",
             "")};
     mission.aftermath = {
         panel("Cathedral witness",
-            "I know the prison road. Caltheriel's cage follows her light. If friends hold that light outside the bars, the cage cannot find her. Keep it outside until she leaves.",
+            "I know how that cage works. It follows Caltheriel's light. If we can carry her light for her, she can slip past the bars.",
             ""),
         panel("Narrator",
-            "Reed, the team's guide, opens the road gates his family kept locked for tolls. He waves the waiting families through. Nettle helps him lift a fallen gate.",
+            "Reed's family used to charge people to pass these gates. Today he waves everyone through. When one gate falls, Nettle helps him lift it.",
             "cards/reedBaelstone.png")};
     mission.pieces = {
         piece("messenger", "Fey Messenger", 1, 2, 1),
@@ -3884,7 +3867,7 @@ StoryMission seelieCathedralDefense()
     mission.script = {
         scriptedPieceAction(StoryActionKind::Move, 1, "messenger", 2, 3,
             "Courier Flight", "FLY TO D3",
-            "Drag the Messenger from B3 to D3. Keyboard: press Tab until a square is highlighted. Use arrows to B3 and press Enter, then arrows to D3 and Enter. Courier Flight crosses Pavo.",
+            "Drag the Messenger from B3 over Pavo and release on D3. Keyboard: press Tab to reach the board. Use the arrows and Enter to choose B3, then D3.",
             "Move the Messenger from B3 to D3. Keyboard: Tab to highlight the board, arrows to B3, Enter, then arrows to D3 and Enter."),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "END YOUR TURN", "One unit has acted. Use End Turn to let the enemy take its turn.",
@@ -3913,7 +3896,7 @@ StoryMission seelieCathedralDefense()
             "This step could not run."),
         scriptedPieceAction(StoryActionKind::Attack, 1, "duchess", 5, 3,
             "Dewbell's Decree", "USE DEWBELL'S DECREE",
-            "Attack the Fairy at D6 with Dewbell's Decree. Dewbell moves toward it. A surviving target keeps its square and gains Disable 2: it cannot act on its side's next two turns.",
+            "Use Dewbell's Decree on the Fairy at D6. Dewbell moves as she attacks. If her target survives the hit, it stays put. Disable 2 makes it miss its next two turns.",
             "Use Dewbell's Decree on the glowing Fairy at D6.", "fairy_decree"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "ONE FAIRY LEFT", "Use End Turn. Lark has a clear diagonal to the last Fairy.",
@@ -3943,7 +3926,7 @@ StoryMission seelieBrokenBridge()
     mission.objective =
         "Clear the path. Keep the Messenger, Sister, Knight, and Unicorn alive.";
     mission.hint =
-        "Move the Sister beside the wounded Unicorn. She heals adjacent pieces, including enemies, at the end of your turn. Adjacent means one square away, including diagonals. Keep the Knight beside the Messenger so Bodyguard can take the hit.";
+        "Keep the Sister beside the Unicorn and the Knight beside the Messenger. At End Turn the Sister heals her neighbors, even enemies. The Knight takes hits for the Messenger.";
     mission.briefing = {
         panel("Ruvan, a courier",
             "The bridge has fallen. I can lead the families along the bank. Help us clear the path!",
@@ -3952,14 +3935,14 @@ StoryMission seelieBrokenBridge()
             "Bring the wounded close. Knight, stay with the courier. I will help the Unicorn.",
             "cards/heartwoodSister.png"),
         panel("Coach",
-            "At the end of your turn, Healing Aura restores 1 Health to each piece adjacent to the Sister, up to its maximum. It heals enemies too. Adjacent means one square away, including diagonals.",
+            "The Sister heals every piece one square away, even on a diagonal. Each gains 1 Health at End Turn, up to its maximum. That includes enemies.",
             "cards/heartwoodSister.png"),
         panel("Coach",
-            "Bodyguard takes damage aimed at an adjacent ally that lacks Bodyguard. It also takes Disable caused by that hit. Effects that deal no damage stay on their target. Keep all four allies alive.",
+            "A Bodyguard takes the hit for an adjacent ally who lacks Bodyguard. That includes Disable if the hit caused it. Effects that deal no damage stay on their target.",
             "cards/starbloomKnight.png")};
     mission.aftermath = {
         panel("Ruvan",
-            "The bank is clear. I will take the first group. Nettle, help the people who cannot walk.",
+            "First group, follow me along the bank! Nettle, can you carry anyone who needs a ride?",
             "cards/feyMessenger.png")};
     mission.pieces = {
         piece("sister", "Heartwood Sister", 1, 6, 0),
@@ -4036,22 +4019,22 @@ StoryMission seelieRoadOfSmallLights(bool fullPractice = false)
     mission.sourceChapter = "Book Two, Chapter 18 - Road of Small Lights";
     mission.lesson = "NETTLE RETURNS ON FOOT";
     mission.objective =
-        "Follow Nettle's glowing actions. Keep Nettle, the Griffin, and Vesper alive while you clear a way to shelter.";
+        "Clear a way to shelter. Keep Nettle, the Griffin, and Vesper alive. Nettle can carry on if she falls off Zippy.";
     mission.hint =
         "Rebirth replaces the defeated mounted card with Nettle on foot. She can act on her next turn. Zippy survives and rests out of the fight.";
     mission.briefing = {
         panel("Nettle",
-            "Zippy is my flying snail. He carries me because my wings are gone. Zippy, take me over the broken road. Ruvan needs our help.",
+            "Hold on to my belt. That's it. My snail can fly us over that gap. Up, Zippy!",
             "cards/nettleStarbright_mounted.png"),
         panel("Coach",
-            "Follow the glowing unit and target. Nettle will be knocked off Zippy. Her Rebirth replaces the defeated mounted card with Nettle Starbright Unmounted on the same square.",
+            "Follow the glowing unit and target. If Nettle falls off Zippy, look for her on the same square. Rebirth lets her fight on foot next turn.",
             "cards/thornGriffin.png")};
     mission.aftermath = {
         panel("Narrator",
-            "Ruvan brings the last family into shelter. A worker with one arm joins them. He points to a little lamp that has followed the group all the way.",
+            "Ruvan ushers the last family inside. A worker named Tavin points back at the road. A little lamp floats to a stop just outside their door.",
             "cards/feyMessenger.png"),
         panel("Tavin, a worker",
-            "That is Lash's spy lamp. I worked on his engine until it took my arm. Do not let him follow us again.",
+            "One of Lash's spy lamps. I used to work for him. Lost an arm in his engine. Quick, break that lamp!",
             "")};
     mission.pieces = {
         piece("nettle", "Nettle Starbright", 1, 5, 1),
@@ -4085,7 +4068,7 @@ StoryMission seelieRoadOfSmallLights(bool fullPractice = false)
             "Use End Turn."),
         scriptedPieceAction(StoryActionKind::Attack, 2, "bristle_rebirth", 5, 3,
             "Bristle Charge", "NETTLE RETURNS ON FOOT",
-            "The Bristlejack knocks Nettle off Zippy. Zippy flies clear and survives. The hit deals 2 damage and defeats the mounted card. Rebirth places Nettle Starbright Unmounted on the same square. She cannot act again this turn.",
+            "The Bristlejack hits for 2 damage. Nettle falls, but Zippy flies clear. Rebirth puts Nettle Starbright Unmounted on the same square. She can act next turn.",
             "This step could not run.", "nettle"),
         scripted(StoryActionKind::EndTurn, 2, {}, -1, -1,
             "NETTLE GETS READY", "The enemy turn ends. Nettle is ready to act on foot.",
@@ -4132,10 +4115,10 @@ StoryMission seelieRoadOfSmallLights(bool fullPractice = false)
         mission.title = "Practice Flight and Rebirth";
         mission.sourceChapter = "Optional card practice after the story";
         mission.lesson = "FLIGHT, REBIRTH, AND HERO ACTIONS";
-        mission.objective = "Practice flying attacks with Nettle, the Griffin, and Vesper. Keep all three alive.";
+        mission.objective = "Keep Nettle, the Griffin, and Vesper alive. When Nettle falls off Zippy, help her fight on foot.";
         mission.hint = "Follow each glowing piece and target. Flying can cross occupied squares. Read each card to check its range.";
         mission.optionalRehearsal = true;
-        mission.briefing = {panel("Coach", "Try the full flight lesson with Nettle, the Griffin, and Vesper. You can skip this practice and return from Missions.", "cards/thornGriffin.png")};
+        mission.briefing = {panel("Coach", "Help the Griffin fly over a blocker and give Vesper a clear shot. You can come back to this lesson from Missions.", "cards/thornGriffin.png")};
         mission.aftermath = {panel("Coach", "Nettle fought on foot after losing her mount. The Griffin attacked as it flew. Vesper flew, then fired from a distance.", "cards/thornGriffin.png")};
         for (auto& step : mission.script)
         {
@@ -4171,16 +4154,16 @@ StoryMission seelieReadingRoomRehearsal()
         "Follow the glowing cards and squares. Choose Start Practice to try this board, or Skip Practice to leave this lesson.";
     mission.briefing = {
         panel("Coach",
-            "Optional practice: play a card, draw with Foresight, and discard. Choose Start Practice to try it, or Skip Practice to leave this lesson.",
+            "Mosswake can help you pick the next card you draw. Choose Start Practice to try his card or Skip Practice to leave.",
             "cards/archivistMosswake.png"),
         panel("Coach",
-            "Your banner shows your Resources. Each square you control earns 1 Resource at the start of your turn. This practice starts with 100. Spend Resources to play cards or draw.",
+            "You start with 100 Resources. Look for them on your banner. At the start of your turn, each square you control earns 1 more. Spend them to draw or play cards.",
             ""),
         panel("Coach",
-            "Deploy Units on empty ground you control. Match each of the Unit's required Traits to a Trait on one of your living Heroes. Different Heroes can supply different Traits. Pay the Unit's Resource cost.",
+            "Play a Unit on an empty square you control. Pay its Resource cost. Your living Heroes must have all the Traits the Unit needs. Two Heroes can share that job.",
             ""),
         panel("Coach",
-            "Mouse: drag the card to B4 with the left mouse button held. Keyboard: press Tab until your hand is highlighted. Choose the card with arrows and press Enter. Choose B4 with arrows, then press Enter again.",
+            "Drag the card to B4 with the left mouse button. On a keyboard, press Tab to reach your hand. Use the arrows and Enter to pick the card, then B4.",
             "cards/archivistMosswake.png")};
     mission.aftermath = {
         panel("Coach",
@@ -4203,7 +4186,7 @@ StoryMission seelieReadingRoomRehearsal()
             "Play Archivist Mosswake from your hand onto B4.", "mosswake"),
         scripted(StoryActionKind::DrawCard, 1, {}, -1, -1,
             "DRAW WITH FORESIGHT",
-            "Click DRAW, or highlight it and press D or Enter. Drawing costs 50 Resources. Foresight shows two cards. Keep one; the other goes to the deck's bottom.",
+            "Click DRAW, or highlight it and press D or Enter. Pay 50 Resources to draw. Foresight shows two cards. Keep one. The other goes to the bottom of the deck.",
             "Use DRAW to see two cards."),
         scriptedCard(StoryActionKind::ChooseForesight, 1, "Fey Messenger", -1, -1,
             "CHOOSE FEY MESSENGER",
@@ -4239,7 +4222,7 @@ StoryMission seelieNyxaraInfestReconstruction()
         "Practice with Nyxara",
         "Optional rules practice",
         {panel("Coach",
-            "Optional practice: mark a target with Infest, then defeat it. Choose Start Practice to try it, or Skip Practice to leave this lesson.",
+            "Can you turn a Warden into a Bristlejack? Choose Start Practice to try Nyxara's mark or Skip Practice to leave.",
             "cards/queenNyxara.png")});
     mission.lesson =
         "OPTIONAL PRACTICE: INFEST";
@@ -4264,7 +4247,7 @@ StoryMission seelieNyxaraInfestReconstruction()
     mission.script = {
         scriptedPieceAction(StoryActionKind::Attack, 1, "nyxara", 2, 3,
             "Nyxaran Infest", "MARK THE WARDEN",
-            "Use Nyxaran Infest from B5 to the Warden at D3. The diagonal attack deals 1 damage. The Warden survives with an Infest mark.",
+            "Use Nyxaran Infest on the Warden at D3, two squares diagonally from B5. It takes 1 damage. Watch for the mark on the Warden.",
             "Use Nyxaran Infest on the glowing Warden at D3.",
             "infest_target"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
@@ -4288,7 +4271,7 @@ StoryMission seelieNyxaraInfestReconstruction()
             "THE ENEMY PASSES", "The enemy ends its turn.", "This step could not run."),
         scriptedPieceAction(StoryActionKind::Move, 1, "nyxara", 4, 3,
             "Royal Advance", "MOVE THE QUEEN",
-            "Use Royal Advance from B5 to D5, two squares along the row.",
+            "Your Bristlejack is ready now. For this last move, bring Nyxara up behind it. Use Royal Advance from B5 to D5.",
             "Move Nyxara to empty D5.")};
     mission.masteryCards = {"Queen Nyxara"};
     mission.masteryRules = {
@@ -4312,10 +4295,10 @@ StoryMission seelieQueensPriceRehearsal()
         "Control changes a non-Hero's side now and through your next two turns. It returns when the enemy's following turn starts. Hidden Lark can cross pieces but must stop on empty ground.";
     mission.briefing = {
         panel("Coach",
-            "Optional practice: Control and Hidden. Choose Start Practice to try these rules, or Skip Practice to leave this lesson.",
+            "Turn an enemy into an ally, then slip Lark past two guards. Choose Start Practice to play or Skip Practice to leave.",
             "cards/pavoQuickstep.png"),
         panel("Coach",
-            "Enchanting Pipes deals no damage. Control changes a non-Hero's side through your next two turns. It cannot affect a Hero. This is the game rule used when Pavo briefly breaks the Emperor's hold in the story.",
+            "Pavo played these pipes for the soldier at the shelter. In a match, Enchanting Pipes brings a non-Hero to your side through your next two turns. It deals no damage.",
             "cards/pavoQuickstep.png"),
         panel("Coach",
             "While Hidden, Lark adds no territory influence. Sneak Around can pass through pieces, but she must stop on an empty square.",
@@ -4338,7 +4321,7 @@ StoryMission seelieQueensPriceRehearsal()
     mission.script = {
         scriptedPieceAction(StoryActionKind::Attack, 1, "pavo", 2, 2,
             "Enchanting Pipes", "USE CONTROL",
-            "Use Enchanting Pipes on the Bristlejack at C3. It takes no damage. Control changes its side now and through your next two turns. It returns when the enemy's following turn starts.",
+            "Use Enchanting Pipes on the Bristlejack at C3. It joins your side without taking damage. You keep it through your next two turns. It goes back when the enemy starts the following turn.",
             "Use Enchanting Pipes on the glowing Bristlejack at C3.", "pipes_target"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "CONTROL HAS A LIMIT",
@@ -4389,7 +4372,7 @@ StoryMission seelieNoCrownRehearsal()
         "This optional board teaches Caltheriel's card. Charm deals no damage and cannot affect a Hero.";
     mission.briefing = {
         panel("Coach",
-            "Optional practice: Caltheriel's Healing Aura, Fey Flight, and Charm. Choose Start Practice to try her card, or Skip Practice to leave this lesson.",
+            "Help Caltheriel heal a Knight and charm an enemy. Choose Start Practice to play or Skip Practice to leave.",
             "characters/caltheriel.png"),
         panel("Coach",
             "Healing Aura restores 1 Health to every adjacent piece at the end of your turn, up to its maximum. It heals friends and enemies. Fey Flight moves her diagonally.",
@@ -4433,7 +4416,7 @@ StoryMission seelieNoCrownRehearsal()
             "This step could not run."),
         scriptedPieceAction(StoryActionKind::Attack, 1, "caltheriel", 1, 4,
             "Charm", "CHARM THE BRISTLEJACK",
-            "Use Charm on the Bristlejack at E2. It deals no damage. Control changes its side now and through your next two turns. The Bristlejack returns when the enemy's following turn starts.",
+            "Use Charm on the Bristlejack at E2. It joins your side without taking damage. It stays through your next two turns, then goes back when the enemy starts the following turn.",
             "Use Charm on the glowing Bristlejack at E2.", "charm_target")};
     mission.masteryCards = {"Caltheriel"};
     mission.masteryRules = {
@@ -4455,14 +4438,14 @@ StoryMission seeliePearlAndRootRehearsal()
         "Sovereign Thorns must deal damage to cause Disable. Disable 2 keeps a unit from acting on its side's next two turns.";
     mission.briefing = {
         panel("Coach",
-            "Optional practice: damage and Disable 2. Choose Start Practice to try it, or Skip Practice to leave this lesson.",
+            "Hit a Warden with Sylvara's thorns and see how long it stays still. Choose Start Practice to play or Skip Practice to leave.",
             "cards/Sylvara.png"),
         panel("Coach",
             "A unit with Disable 2 cannot act on its side's next two turns. Hit the Warden, then watch both turns pass.",
             "")};
     mission.aftermath = {
         panel("Coach",
-            "The Warden missed two turns before Disable wore off. Keep that timing in mind when you choose your next target.",
+            "The first Warden can act again. The one Dewbell just hit will miss its next two turns.",
             "")};
     mission.pieces = {
         piece("sylvara", "Sylvara", 1, 4, 0),
@@ -4516,7 +4499,7 @@ StoryMission seelieRulesUnderPressure()
     mission.sourceChapter = "Harbor rescue - territory control";
     mission.lesson = "CONTROL 22 SQUARES";
     mission.objective =
-        "Control 22 board squares and keep Pavo alive. You do not need to defeat both enemies.";
+        "Claim 22 squares for the boats. Keep Pavo alive.";
     mission.hint =
         "Spread your team to turn more ground your color. Taking ground is different from using Pavo's Control on an enemy.";
     mission.briefing = {
@@ -4524,7 +4507,7 @@ StoryMission seelieRulesUnderPressure()
             "The barrier stopped the cannon fire. These last attackers are still among the boats. Give the families room to land.",
             "cards/pavoQuickstep.png"),
         panel("Coach",
-            "Each visible unit claims its square and affects the eight squares around it. On empty ground, the side with more nearby influence takes control. A tie leaves ownership as it is.",
+            "Each visible unit claims its square and helps claim the eight around it. On an empty square, the side with more influence wins. On a tie, the owner keeps it.",
             ""),
         panel("Coach",
             "You start with 15 squares. Reach 22 and keep Pavo alive. Choose one unit action, then use End Turn.",
@@ -4534,7 +4517,7 @@ StoryMission seelieRulesUnderPressure()
             "cards/heartwoodSister.png")};
     mission.aftermath = {
         panel("Narrator",
-            "The families reach the docks. Behind them, another cannon shot bursts against Lash's bright wall. A child claps. Nettle cannot help smiling too.",
+            "Pavo hauls the last boat to the dock. A child leans over the rail and gives him a dripping hug.",
             "")};
     mission.pieces = {
         piece("pavo", "Pavo Quickstep", 1, 2, 1),
@@ -4563,17 +4546,17 @@ StoryMission seelieWarmChannel()
         "Choose your own moves: drag a unit to a lit square or enemy. The Griffin and mounted Nettle can fly past pieces. Lark needs a clear diagonal. Vesper attacks at range.";
     mission.briefing = {
         panel("Vesper",
-            "Lash's wall stops the ships ahead of us. But those Fairies are showing them a gap along the shore. Put out their signals!",
+            "See those lights on the shore? The fairies are showing the ships a gap in Lash's wall. Put out those signals!",
             "cards/princeVesper.png"),
         panel("Nettle",
-            "Zippy has rested. We will take the lower path. Vesper, keep those ships away from the boats we just saved.",
+            "Zippy's ready to fly again. We'll take the low path. Vesper, watch the boats!",
             "cards/nettleStarbright_mounted.png"),
         panel("Coach",
-            "Defeat the whole enemy group. Choose your own actions. Griffin Flight crosses pieces. Lark's Swoop needs a clear diagonal. Vesper attacks from range. Nettle's Slingshot hits a nearby target. Use End Turn after one unit acts.",
+            "Defeat each enemy to put out the signals. Try flying the Griffin over a blocker or firing at a fairy with Vesper. Use End Turn after one unit acts.",
             "cards/thornGriffin.png")};
     mission.aftermath = {
         panel("Narrator",
-            "The signals go dark. The ships turn away from the hidden gap. Then the barrier flares brighter. On the dock, a woman falls to her knees. Light is pulling out of her hands.",
+            "The signals go dark. The ships turn away. On the dock, a woman drops to her knees. Light streams from her palms into Lash's wall.",
             "")};
     mission.pieces = {
         piece("griffin", "Thorn Griffin", 1, 2, 1),
@@ -4601,13 +4584,13 @@ StoryMission seelieCryptDefense()
     mission.objective =
         "Defeat every attacker in the prison hall so Caltheriel and the other prisoners can leave.";
     mission.hint =
-        "Knights can protect adjacent allies. The Sister and Caltheriel heal adjacent friends and enemies at End Turn. Pavo's Enchanting Pipes deals no damage and Controls a non-Hero through your next two turns.";
+        "Defeat every attacker in the prison hall. Try keeping a Knight beside Caltheriel to take hits for her. Keep enemies away from her healing aura.";
     mission.briefing = {
         panel("Caltheriel",
-            "I am through the bars. The cage still commands the guards! Pavo, weaken its hold while we get the other prisoners out.",
+            "I'm through! The guards still obey that cage. Pavo, play for them. We'll get everyone out.",
             "characters/caltheriel.png"),
         panel("Coach",
-            "Defeat every attacker. Drag a unit to a lit square to move, or onto a lit enemy to attack. Release to act, then End Turn. You choose the route; no fixed steps.",
+            "Defeat every guard in the hall. Drag a unit onto a lit enemy to attack. Release, then use End Turn.",
             ""),
         panel("Coach",
             "Bodyguard takes damage aimed at an adjacent ally that lacks Bodyguard. If several Knights can help, they split the damage. Keep your healers close. Their auras heal adjacent enemies too.",
@@ -4645,15 +4628,15 @@ StoryMission seelieControlledFall()
     mission.sourceChapter = "Book Three - The workers escape";
     mission.lesson = "REACH A SQUARE UNDER ATTACK";
     mission.objective =
-        "Move the marked Starbloom Knight to G5. Keep that Knight alive so the workers can escape.";
+        "Get the marked Starbloom Knight safely to G5 so the workers can escape.";
     mission.hint =
         "The Griffin and Unicorn can clear the path. Keep the Sister close enough to heal. You can leave enemies standing once the marked Knight reaches G5.";
     mission.briefing = {
         panel("Ruvan",
-            "The workers are reaching the lifts. Guards attack whenever the doors open. Get to the landing and cover them as they come up.",
+            "Guards rush the lift doors every time they open. Get someone up there before the next lift comes!",
             "cards/feyMessenger.png"),
         panel("Coach",
-            "Move the marked Starbloom Knight onto glowing G5. Keep that Knight alive. The enemies will fight back. Clear only as much space as you need to reach it.",
+            "Get the marked Starbloom Knight to G5. You can fight through the guards or go around them.",
             "cards/starbloomKnight.png")};
     mission.aftermath = {
         panel("Narrator",
@@ -4689,10 +4672,10 @@ StoryMission seelieEmperorAtTree()
     mission.objective =
         "Defeat every attacker and keep Sylvara alive. Hold the landing while the workers come up.";
     mission.hint =
-        "Keep Sylvara alive. Sovereign Thorns hits one or two squares diagonally. If it deals damage, the target gains Disable 2 and cannot act on its side's next two turns. Use Bodyguard and healing to protect your line.";
+        "Defeat every attacker and keep Sylvara alive. Aim Sovereign Thorns one or two squares diagonally. A target it wounds misses its next two turns.";
     mission.briefing = {
         panel("Narrator",
-            "The next lift arrives as the Emperor's army reaches the theater. Workers hurry out behind the defenders. The landing must stay clear.",
+            "The lift doors slide apart. Workers hurry out. Across the landing, the Emperor marches into the theater with his army.",
             ""),
         panel("The Emperor",
             "Lash promised me this city. Move aside, or I will take you with it.",
@@ -4701,7 +4684,7 @@ StoryMission seelieEmperorAtTree()
             "Keep the workers behind us. They have come too far to stop here!",
             "cards/princeVesper.png"),
         panel("Coach",
-            "Defeat every enemy on this board. Sylvara must survive. Keep guards adjacent to the allies they protect. Your healers restore Health to adjacent friends and enemies, so watch where each piece stands.",
+            "Defeat all the attackers and keep Sylvara alive. Station a guard beside her. Watch your healers, too. An enemy standing next to one gets healed.",
             "cards/starbloomKnight.png")};
     mission.aftermath = {
         panel("Narrator",
@@ -4739,15 +4722,15 @@ StoryMission seelieHoldWitnessRail()
     mission.sourceChapter = "Book Three - The last escape";
     mission.lesson = "FINAL BATTLE: CONTROL 28 SQUARES";
     mission.objective =
-        "Control 28 board squares. Keep Reed and Rowan alive. You do not need to defeat every enemy.";
+        "Claim 28 squares to make room for the wounded. Keep Reed and Rowan alive.";
     mission.hint =
         "Spread out to claim ground, but protect Reed and Rowan. Each visible piece claims its square and influences all eight nearby squares. More influence wins empty ground. A tie leaves its owner unchanged. Hidden pieces add no influence.";
     mission.briefing = {
         panel("Narrator",
-            "The last lift brings the wounded workers up. Beside the landing, the Emperor's captain attacks soldiers who drop their weapons. Reed stands between them.",
+            "The last lift rises. At the landing, soldiers drop their weapons. Their own captain swings at them. Reed steps in his way.",
             "cards/reedBaelstone.png"),
         panel("Reed",
-            "Put your weapons down and come behind us. We will get you out.",
+            "Leave your swords there. Follow me into the street.",
             "cards/reedBaelstone.png"),
         panel("Coach",
             "Control 28 squares and keep Reed and Rowan alive. Spread out to make room. Keep guards and healers near the people they protect. The Sister heals adjacent enemies too.",
@@ -4858,13 +4841,13 @@ const std::vector<StoryMission> SeelieMissions = [] {
         "Book Two - The rescue begins",
         {
             panel("Narrator",
-                "Prince Vesper is an orange cat. Caltheriel, the woman he loves, is trapped in a cage of light. Every day, she grows weaker.",
+                "From a cage of light, Queen Caltheriel calls to the prince she loves. An orange cat named Vesper lifts his head.",
                 "characters/caltheriel.png"),
             panel("Vesper",
-                "She asked Queen Nyxara for shelter. Now the Queen will not let her leave. I heard Caltheriel calling for help. We have to reach her.",
+                "Caltheriel! She asked Queen Nyxara for shelter. Now Nyxara keeps her locked up. Her voice gets fainter every day.",
                 "cards/princeVesper.png"),
             panel("Narrator",
-                "Nettle, a fairy who has lost her wings, finds another way past the Queen's gates. She leads Vesper toward a cathedral crowded with fleeing families.",
+                "Nettle knows a way past the queen's gates. The little fairy lost her wings long ago. Vesper follows her on foot to a church where families have taken shelter.",
                 "cards/nettleStarbright_mounted.png")
         }));
 
@@ -4880,13 +4863,13 @@ const std::vector<StoryMission> SeelieMissions = [] {
         "Book Two - The stolen road",
         {
             panel("Narrator",
-                "Nettle smashes the spy lamp. Far away, the merchant Lash bends over a map. His engineer has marked every tunnel the families used to reach their home city, Emberhaven.",
+                "Nettle smashes the lamp. Miles away, the merchant Lash unrolls a map. His engineer has drawn the tunnels the families took home to Emberhaven.",
                 "cards/fizzlewickGearwright.png"),
             panel("Lash's engineer",
-                "We have lost the lamp. But the whole road is here. The Emperor's army can follow it into the city.",
+                "Look where this tunnel comes out. Soldiers could walk from the beach straight into the city.",
                 "cards/fizzlewickGearwright.png"),
             panel("Lash",
-                "Then sell it to him. The families could never pay that much.",
+                "Send the Emperor our price. He'll pay well for a way into Emberhaven.",
                 "")
         }));
 
@@ -4902,7 +4885,7 @@ const std::vector<StoryMission> SeelieMissions = [] {
                 "She asked to leave. Hear her, even if you do not like her answer.",
                 "cards/princeVesper.png"),
             panel("Nettle",
-                "My back hurts every day. I will try your honey. But if I still choose to leave, you open the prison road.",
+                "My back hurts every day. I'll try a spoonful. If I can walk away from it, you take us to Caltheriel. Deal?",
                 "cards/nettleStarbright_mounted.png"),
             panel("Queen Nyxara",
                 "Agreed. One spoon will be enough.",
@@ -4915,16 +4898,16 @@ const std::vector<StoryMission> SeelieMissions = [] {
         "Book Two - Honey Without Hunger",
         {
             panel("Nettle",
-                "One spoon. Ten minutes. Pavo, take away the spoon and lead me away when time is up, even if I beg to stay.",
+                "Pavo, give me ten minutes. Then take my hand and walk me out, even if I ask for more.",
                 "cards/nettleStarbright_mounted.png"),
             panel("Narrator",
-                "The honey takes away her pain. Nettle smiles for the first time in days. After ten minutes, she begs for more. Pavo takes the spoon from her hand and leads her away.",
+                "Nettle stands up straight without a wince. Ten minutes later, Pavo holds out his hand. She reaches for the honey jar, stops, and takes his hand instead.",
                 "cards/pavoQuickstep.png"),
             panel("Nettle",
-                "I still want it. I still choose to leave. Caltheriel deserves that choice too.",
+                "I'd give a lot for another spoonful. Come on, Your Majesty. You promised.",
                 "cards/nettleStarbright_mounted.png"),
             panel("Narrator",
-                "Nyxara watches Nettle leave the honey behind. Then she opens the road herself. She walks beside Nettle to the prison.",
+                "Nyxara puts the lid on the jar. She unlocks the gate and walks beside Nettle all the way to the prison.",
                 "cards/queenNyxara.png")
         }));
 
@@ -4934,16 +4917,16 @@ const std::vector<StoryMission> SeelieMissions = [] {
         "Book Two - Nine Lives, One Choice",
         {
             panel("Narrator",
-                "The prison keeper unlocks the cells as Nyxara orders. Only Caltheriel remains trapped. Her cage feeds on her light. A key cannot open it.",
+                "At Nyxara's word, the keeper unlocks every cell he can. Caltheriel's cage still glows. There's no keyhole.",
                 "cards/theTockman.png"),
             panel("Vesper",
                 "Caltheriel, you can barely stand! Let the cage take me instead.",
                 "cards/princeVesper.png"),
             panel("Caltheriel",
-                "No. Stay outside. Pass my light to our friends. The cage cannot follow it when many people hold it. Help me leave.",
+                "Stay there, Vesper. I'll pass my light through the bars. One bit for each friend. The cage can't follow us all.",
                 "characters/caltheriel.png"),
             panel("Vesper",
-                "I was afraid I would lose you. All right. I will hold one share. Who will help me?",
+                "Here. Put some in my paw. Nettle, can you take the next bit?",
                 "cards/princeVesper.png")
         }));
 
@@ -4953,10 +4936,10 @@ const std::vector<StoryMission> SeelieMissions = [] {
         "Book Two - The shared light",
         {
             panel("Narrator",
-                "Caltheriel reaches through the bars. A little light passes into each waiting hand. The bars grow dim. Nettle's fingers begin to shake.",
+                "One by one, their hands fill with light. The bars fade. Nettle's fingers shake.",
                 "characters/caltheriel.png"),
             panel("Nettle",
-                "Reed, take some of mine. I cannot hold it all.",
+                "Reed, quick. Open your hand. This is more than I can hold.",
                 "cards/nettleStarbright_mounted.png"),
             panel("Narrator",
                 "Reed takes part of Nettle's share. Nyxara holds another. Caltheriel slips through the fading bars. The guards still obey the cage. They rush toward the opening.",
@@ -4971,13 +4954,13 @@ const std::vector<StoryMission> SeelieMissions = [] {
         "Book Two - No Crown Can Hold Light",
         {
             panel("Caltheriel",
-                "I am outside. Open your hands. Let my light come home.",
+                "We made it. Open your hands. I'd like my light back.",
                 "characters/caltheriel.png"),
             panel("Narrator",
                 "The light returns to her beyond the cage's reach. Vesper takes one step forward, then waits. Caltheriel kneels and holds out her hand.",
                 "cards/princeVesper.png"),
             panel("Caltheriel",
-                "Yes, come here. Then take me home. All of us.",
+                "Come here, you scruffy cat. Let's go home.",
                 "characters/caltheriel.png")
         }));
 
@@ -4987,10 +4970,10 @@ const std::vector<StoryMission> SeelieMissions = [] {
         "Book Three - The city under attack",
         {
             panel("Narrator",
-                "At dawn, the team reaches Emberhaven. Empire ships are already firing at the harbor. Families crowd small boats. Lash waits on the dock beside a switch.",
+                "At dawn, the Emperor's ships fire on Emberhaven. Soldiers land on the beach and slip into the tunnel on Lash's map. In the harbor, families huddle in small boats.",
                 ""),
             panel("Lash",
-                "My engine is ready beneath the theater. It can raise a wall of light across this harbor. Say yes before the next shot.",
+                "My engine can raise a wall of light across the harbor. I've got the switch right here. Shall I stop the next shot?",
                 ""),
             panel("Nettle",
                 "You hid spy lamps among those families. Now you want us to trust you?",
@@ -5002,7 +4985,7 @@ const std::vector<StoryMission> SeelieMissions = [] {
                 "My family paid for that engine. Our guards stay with it. I keep the switch. Raise the wall.",
                 "cards/reedBaelstone.png"),
             panel("Narrator",
-                "The wall flashes up. A cannon shot bursts against it above a boat full of children. They are alive. Pavo runs down to help them land.",
+                "A wall of light springs up. A cannon shot bursts against it. Under the flash, a boat full of children bobs on the water. Pavo runs for a rope.",
                 "cards/pavoQuickstep.png")
         }));
 
@@ -5022,13 +5005,13 @@ const std::vector<StoryMission> SeelieMissions = [] {
                 "That switch only stopped the wall. The engine beneath the theater keeps taking our strength. Workers are strapped to it. I know a way in.",
                 ""),
             panel("Nettle",
-                "Then we break it. Right now.",
+                "Give me a hammer.",
                 "cards/nettleStarbright_mounted.png"),
             panel("Tavin",
                 "It also runs the lifts out of the workrooms. Fire has blocked the stairs below. Stop it now, and the wounded will be trapped there.",
                 ""),
             panel("Reed",
-                "Then the people come out first. Show us the way.",
+                "Keep the lifts running. Tavin, take us to the workers.",
                 "cards/reedBaelstone.png")
         }));
 
@@ -5038,10 +5021,10 @@ const std::vector<StoryMission> SeelieMissions = [] {
         "Book Three - The shelter door",
         {
             panel("Narrator",
-                "Near the theater, an Empire soldier staggers toward a shelter. Liora, an archer, draws her bow. Her sister is inside, caring for the wounded.",
+                "A soldier staggers toward the shelter with her sword drawn. Liora raises her bow. Her sister is tending the wounded behind that door.",
                 ""),
             panel("Empire soldier",
-                "His voice is in my head. He wants me to kill. I do not want to hurt anyone. Please stop my sword arm.",
+                "Grab my sword arm. Please! The Emperor's in my head. He's telling me to swing.",
                 ""),
             panel("Pavo writes",
                 "My tune can weaken the Emperor's spell for a moment. Put your sword down while it lasts.",
@@ -5057,13 +5040,13 @@ const std::vector<StoryMission> SeelieMissions = [] {
         "Book Three - A Harness Anyone Can Leave",
         {
             panel("Narrator",
-                "Nettle ties a rescue harness around Tavin to lower him beside the lifts. Before he goes down, he tries to open its buckle with his one working hand.",
+                "Nettle straps Tavin into a harness beside the lifts. He reaches back with his one hand. His fingers barely brush the buckle.",
                 "cards/nettleStarbright_mounted.png"),
             panel("Tavin",
-                "I cannot reach it. Put it here, in front. I need to get out of this without waiting for you.",
+                "Here, put it in front. How am I supposed to help anyone down there if I can't get out of this thing?",
                 ""),
             panel("Nettle",
-                "I thought it was ready. I should have asked you. Show me where.",
+                "Good catch. Show me where it goes.",
                 "cards/nettleStarbright_mounted.png"),
             panel("Narrator",
                 "They move the buckle and test it again on the floor. Tavin opens it easily. Nettle lowers him to the workers. Ruvan flies down beside him to guide them into the lifts.",
@@ -5082,7 +5065,7 @@ const std::vector<StoryMission> SeelieMissions = [] {
         "Book Three - The raised stage",
         {
             panel("Narrator",
-                "Lash holds his stage high with stolen magic. Below it, Ruvan helps a worker into the lift. Liora draws her bow from the theater door.",
+                "Stolen light holds Lash and his stage high above the floor. Ruvan ducks underneath to help a worker into the lift. At the door, Liora draws her bow.",
                 ""),
             panel("Nettle",
                 "Wait! Lash is holding that stage up. Ruvan is under it!",
@@ -5091,13 +5074,13 @@ const std::vector<StoryMission> SeelieMissions = [] {
                 "Lash points at the shelter across the street. Fire pours from his hand into its doorway. Liora sees her sister carrying a stretcher toward the flames.",
                 ""),
             panel("Liora",
-                "I can stop his hand. I cannot wait.",
+                "My sister's in that doorway.",
                 ""),
             panel("Narrator",
                 "She fires. The arrow hits Lash. The fire goes out, but his stage crashes down. Ruvan cries out beneath a fallen beam. Lash lies wounded beside the controls.",
                 ""),
             panel("Narrator",
-                "Liora drops her bow and runs into the dust. She finds Ruvan's hand and holds it. She cannot pull him free.",
+                "Liora drops her bow and runs into the dust. Ruvan catches her hand. The beam across his leg won't budge.",
                 "")
         }));
 
@@ -5107,7 +5090,7 @@ const std::vector<StoryMission> SeelieMissions = [] {
         "Book Three - The workers refuse",
         {
             panel("Narrator",
-                "Lash reaches for the controls. His engineer blocks his hand. Behind them, workers struggle against the bands that feed their strength into the engine.",
+                "Lash reaches for the controls. His engineer catches his wrist. Behind them, the engine still draws light from the workers strapped to it.",
                 "cards/fizzlewickGearwright.png"),
             panel("Lash",
                 "Turn it all the way up. Take what they have left. I can still win this.",
@@ -5126,7 +5109,7 @@ const std::vector<StoryMission> SeelieMissions = [] {
         "Book Three - Under the stage",
         {
             panel("Narrator",
-                "A fallen beam pins Ruvan's leg. Liora tries to lift it alone. It does not move.",
+                "Liora puts her shoulder under the beam that pins Ruvan. She needs another pair of hands.",
                 ""),
             panel("Nettle",
                 "Zippy, take this rope through the gap. Come back when you are across.",
@@ -5159,13 +5142,13 @@ const std::vector<StoryMission> SeelieMissions = [] {
                 "Yes. Open your hands.",
                 "characters/caltheriel.png"),
             panel("Narrator",
-                "He opens one hand. Outside, a soldier stands and walks away. The Emperor reaches after her. Then he closes his fist.",
+                "He opens one hand. A soldier gets up and walks away. His fingers snap shut.",
                 ""),
             panel("The Emperor",
                 "Come back! I said come back!",
                 ""),
             panel("Narrator",
-                "He pulls harder. Too much light pours into him. He falls beside the engine. Caltheriel calls a healer, but the Emperor is dead. Outside, his soldiers rise. His voice has stopped.",
+                "The stolen light surges through his fist. He falls. Caltheriel calls for a healer, but the Emperor is already dead. Outside, the soldiers stand. His voice is gone.",
                 "")
         }));
 
@@ -5181,7 +5164,7 @@ const std::vector<StoryMission> SeelieMissions = [] {
                 "My family has taken enough. Nettle, stop it.",
                 "cards/reedBaelstone.png"),
             panel("Narrator",
-                "Nettle turns the wheel. The engine stops. The last stolen light returns to the people outside. Reed breaks its controls with a hammer. No one will start it again.",
+                "Nettle turns the wheel. As the engine slows to a stop, light flows back into the hands of the people outside. Reed takes a hammer to the controls.",
                 "cards/nettleStarbright_mounted.png"),
             panel("Narrator",
                 "The guards carry Lash to the healers, then lock his door. His engineer goes with them. Tavin walks beside the freed workers into the morning air.",
@@ -5197,10 +5180,10 @@ const std::vector<StoryMission> SeelieMissions = [] {
                 "Ruvan, Nettle told me you were below the stage. I fired anyway. I stopped the fire, but I nearly killed you.",
                 ""),
             panel("Ruvan",
-                "I know. I am not ready to talk about it. Help me get home. Please walk slowly.",
+                "Help me get home, Liora. We can talk another day. Easy on the steps.",
                 "cards/feyMessenger.png"),
             panel("Narrator",
-                "Liora carries one end of his stretcher. In the weeks that follow, she helps repair the streets he uses. When Ruvan asks her to wait, she waits.",
+                "Liora takes one end of the stretcher. At the first step she waits for Ruvan to give the word.",
                 ""),
             panel("Narrator",
                 "Months later, Nettle rides Zippy into the reopened theater. Reed and Tavin move chairs to make room. Vesper curls up beside Caltheriel. Pavo starts the song in the wrong key. Everyone laughs and begins again.",

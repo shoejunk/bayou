@@ -48,21 +48,21 @@
                 {360.0f, 76.0f},
                 sf::Color(190, 198, 214),
                 392.0f);
-            drawText(
-                window,
-                font,
-                elideToWidth(
-                    font, std::string(mission.lesson), 10, 392.0f),
-                10,
-                {360.0f, 90.0f},
-                sf::Color(190, 198, 214),
-                392.0f);
+            if (!storyOnly)
+            {
+                drawText(
+                    window, font,
+                    elideToWidth(font, std::string(mission.lesson), 10, 392.0f),
+                    10, {360.0f, 90.0f}, sf::Color(190, 198, 214), 392.0f);
+            }
             std::string actGoal(storyActShortGoal(storyCampaign, storyMissionIndex));
             if (actGoal.empty())
             {
                 actGoal = std::string(storyActGoal(storyCampaign, storyMissionIndex));
             }
-            if (!actGoal.empty())
+            const bool startsAct = storyMissionIndex == 0 ||
+                actName != storyActName(storyCampaign, storyMissionIndex - 1);
+            if (startsAct && !actGoal.empty())
             {
                 drawBeveledPlate(
                     window,
@@ -240,7 +240,7 @@
                 const std::string objectiveText = masteryCatchUpMayBeSkipped
                     ? "Move on to the next battle, or practice these cards again."
                     : firstGuidedMission
-                        ? "Follow the glowing action. Keep all four friends alive. The guide will explain each move."
+                        ? "Get Reed out of the water. Move him to the glowing square."
                         : std::string(mission.objective);
                 const std::string guidanceNote = masteryCatchUpMayBeSkipped
                     ? "You finished all seven practice battles. You can move on."
@@ -248,7 +248,7 @@
                     ? (mission.standardMatch
                         ? "Try this match, or skip it before the clocks start."
                         : "Try this practice, or skip it. You can return from Missions.")
-                    : "Finish this battle to move on. Leaving now keeps it unfinished.";
+                    : "Win this battle to unlock the next scene.";
                 const auto wrappedBlockHeight = [&](const std::string& value,
                                                      unsigned int size,
                                                      float lineGap) {

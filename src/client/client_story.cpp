@@ -416,22 +416,14 @@ StoryActInfo storyActInfo(StoryCampaign campaign, int missionIndex)
             "Practice more card moves."};
     }
     static constexpr StoryActInfo mirewatch[] = {
-        {"mw01_river_teeth", "ACT I - REACH THE SHORE", "Survive the river and help the people trapped in Mirewatch.", "Reach shore. Help the town."},
-        {"s01_hospitality", "ACT II - THE STOLEN MIRROR", "Help Vesper recover his memories and free the wagon's prisoners.", "Save Vesper and the captives."},
-        {"mw08_lesson_night", "ACT III - NO ONE LEFT ALONE", "Escape Reed's uncle, then follow the Mirror to the prison.", "Find the Mirror. Get people out."},
-        {"s04_wounds_that_vote", "ACT IV - THE MISSING FRIEND", "Follow Elliot's trail beyond the town.", "Find out what happened to Elliot."},
-        {"mw18_allies_dishonestly", "ACT V - WAKE UP", "Escape the forest's dreams and reach the timber camp.", "Wake your friends. Keep moving."},
-        {"mw20_monster_rules", "ACT VI - SAVE WHAT LIVES", "Free the workers and stop the machines hurting Sylvara.", "Free the workers. Help Sylvara."},
-        {"mw25_deed_own_hand", "ACT VII - A PLACE AT THE TABLE", "Bring your friends home and make room for the people you saved.", "Bring your friends home."},
+        {"mw01_river_teeth", "ACT I - THE RIVER", "Get the people on the river to safety.", "Help the people on the river."},
+        {"mw08_lesson_night", "ACT II - THE PRISON", "Follow the stolen mirror into the river prison.", "Get the captives out."},
+        {"s04_wounds_that_vote", "ACT III - THE CAMP", "Find the workers in the forest and bring them home.", "Bring the workers home."},
     };
     static constexpr StoryActInfo blackthorn[] = {
-        {"bt01_harness_hunger", "ACT I - BEHIND THE GATES", "See what Blackthorn's power costs the people caught in it.", "Look behind the Company gates."},
-        {"s01_hospitality", "ACT II - THE RESCUERS", "Follow the stolen Mirror and the people trying to recover it.", "Find out where the Mirror went."},
-        {"bt08_north_lock", "ACT III - THE PRICE OF POWER", "Follow Reed's escape and the rescue at the flooded prison.", "Get Reed and the captives out."},
-        {"bt10_stolen_road", "ACT IV - BEYOND THE RIVER", "Follow the missing workers into the forest.", "Find the missing workers."},
-        {"bt13a_poisoned_root_road", "ACT V - THE CUTTING GROUND", "Learn what the timber machines are doing to people and trees.", "Reach the camp. Find the danger."},
-        {"bt15_monster_rules", "ACT VI - BREAK THE MACHINE", "Open an escape route and free Sylvara from the machine.", "Open the gates. Stop the engine."},
-        {"bt18_deed_own_hand", "ACT VII - WHAT COMES NEXT", "Help the survivors begin again while the search for Caltheriel continues.", "Bring people home. Keep searching."},
+        {"bt01_harness_hunger", "ACT I - THE RIVER", "Help Mog get the people on the wagon to safety.", "Help the people on the river."},
+        {"bt05_freight_office", "ACT II - THE PRISON", "Help the rescuers reach the river prison.", "Get the captives out."},
+        {"bt10_stolen_road", "ACT III - THE CAMP", "Help Mog free the workers she once guarded.", "Bring the workers home."},
     };
     static constexpr StoryActInfo seelie[] = {
         {"se00_what_mirror_remembers", "ACT I - FREE CALTHERIEL", "Reach Caltheriel and help her escape the cage.", "Help Caltheriel leave the cage."},

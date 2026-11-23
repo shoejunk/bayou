@@ -54,7 +54,8 @@
             drawWrappedText(
                 window,
                 gloomthornFontLoaded ? gloomthornFont : font,
-                std::string(storyCampaignName(campaign)),
+                campaign == StoryCampaign::Mirewatch
+                    ? "Mirewatch" : std::string(storyCampaignName(campaign)),
                 23,
                 position + sf::Vector2f(18.0f, 140.0f),
                 palette::Ink,
@@ -91,7 +92,7 @@
             {
                 const std::string pathLabel = campaign == StoryCampaign::Seelie
                     ? "SEQUEL - STORY SPOILERS"
-                    : "TRAPS, POWER, AND BETRAYAL";
+                    : "THE SAME RESCUE";
                 drawText(
                     window,
                     font,
@@ -148,22 +149,22 @@
             StoryCampaign::Blackthorn,
             {32.0f, 112.0f},
             sf::Color(207, 151, 69),
-            "cards/victorGreyshard.png",
-            "A stolen Mirror. A prison break. A forest in danger. See the Company's side and learn Blackthorn cards.",
+            "cards/Mog.png",
+            "Mog guards the people Reed came to free. Play her side of the rescue.",
             storyBlackthornButton);
         drawCampaign(
             StoryCampaign::Mirewatch,
             {288.0f, 112.0f},
             sf::Color(103, 188, 153),
             "cards/reedBaelstone.png",
-            "Survive the river. Free the captives. Help Reed and his friends save a forest guardian from a terrible machine.",
+            "Play as Reed. Escape the gators, find the missing workers, and lead them out of Blackthorn's camp.",
             storyMirewatchButton);
         drawCampaign(
             StoryCampaign::Seelie,
             {544.0f, 112.0f},
             sf::Color(160, 139, 224),
             "cards/princeVesper.png",
-            "Free a captive. Defend a burning city. Help a small band of friends face an army.",
+            "Help Vesper free Caltheriel from a cage of light. Then help a city fight back.",
             storySeelieButton);
 
         storySelectBackButton.draw(window, animationTime);
