@@ -13,6 +13,8 @@ std::string actionTypeName(const game_data::ActionProfile& action)
     const bool healing = action.heal > 0 && action.damage == 0;
     if (ranged)
     {
+        if (card_data::actionHasPurify(action.targetFilter) && action.heal==0 && action.damage==0)
+            return "Ranged Purify";
         return healing ? "Ranged Heal" : "Ranged Attack";
     }
     if (kind == game_data::ActionKind::Capture)
@@ -354,7 +356,7 @@ ActionDescription actionDescription(const game_data::ActionProfile& action, std:
     description.pull = action.pull;
     description.lifedrain = action.lifedrain;
     description.roots = card_data::actionAppliesRooted(action.targetFilter);
-    description.purify = action.heal > 0 && card_data::actionHasPurify(action.targetFilter);
+    description.purify = card_data::actionHasPurify(action.targetFilter);
     description.targetFilter.reserve(action.targetFilter.size());
     for (const std::string& filter : action.targetFilter)
     {

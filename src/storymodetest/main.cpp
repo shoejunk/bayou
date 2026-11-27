@@ -1972,7 +1972,7 @@ void validateSeelieCardTruth()
     const std::array<ExpectedCard, 21> expected = {{
         {"Archivist Mosswake", 35, 0, 1, {"ancient", "wild"}, {"Rootwalk"}},
         {"Caltheriel", 1, 15, 1, {"fey", "honorable"}, {"Fey Flight", "Charm"}},
-        {"Crystal Unicorn", 50, 0, 2, {"honorable", "wild"}, {"Prismatic Charge"}},
+        {"Crystal Unicorn", 50, 0, 2, {"honorable", "wild"}, {"Prismatic Charge", "Purifying Horn"}},
         {"Duchess Dewbell", 45, 0, 3, {"ancient"}, {"Dewbell's Decree"}},
         {"Fey Messenger", 25, 0, 1, {"fey"}, {"Courier Flight", "Star Dart"}},
         {"Heartwood Sister", 35, 0, 1, {"ancient", "fey"}, {"Grovewalk"}},

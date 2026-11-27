@@ -402,9 +402,10 @@ inline bool actionCanTarget(
     if (target.owner == piece.owner)
     {
         if (card_data::actionAppliesRooted(targetFilter)) return false;
-        return heal > 0 && target.health > 0 &&
-            (target.health < target.maxHealth || card_data::actionHasPurify(targetFilter));
+        return card_data::actionHasPurify(targetFilter) ||
+            (heal > 0 && target.health < target.maxHealth);
     }
+    if (card_data::actionHasPurify(targetFilter)) return false;
     if (pieceIsSheltered(pieces, target))
     {
         return false;
@@ -814,7 +815,7 @@ inline ActionResolution resolvePieceAction(
         candidate.pull = action.pull && kind == ActionKind::Ranged;
         candidate.lifedrain = action.lifedrain;
         candidate.roots = card_data::actionAppliesRooted(action.targetFilter);
-        candidate.purify = action.heal > 0 && card_data::actionHasPurify(action.targetFilter);
+        candidate.purify = card_data::actionHasPurify(action.targetFilter);
         candidate.repeat = action.repeat;
         candidate.stagingRow = piece.row;
         candidate.stagingColumn = piece.column;

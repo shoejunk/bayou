@@ -525,6 +525,9 @@ GameCard seelieStoryCard(std::string_view title)
         card.tokenPath = "characters/crystallineUnicorn.png";
         card.actions = {action(
             "Prismatic Charge", MovePattern::Ortho, 1, 4, true, true, 2)};
+        auto horn=action("Purifying Horn",MovePattern::Omni,1,2,false,true,0,ActionKind::Ranged);
+        horn.targetFilter={card_data::PurifyActionFlag};
+        card.actions.push_back(horn);
         noIdle(card);
         return card;
     }

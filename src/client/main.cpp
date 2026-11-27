@@ -8325,8 +8325,9 @@ int main(int argc, char** argv)
             }
             if (!healedTargetNames.empty())
             {
-                const std::string healed = "healed " + joinTargets(healedTargetNames) +
-                    " for " + std::to_string(action.heal) + " each";
+                const std::string healed = action.purify && action.heal==0
+                    ? "purified " + joinTargets(healedTargetNames)
+                    : "healed " + joinTargets(healedTargetNames) + " for " + std::to_string(action.heal) + " each";
                 next.status += next.status.empty()
                     ? attackerName + " " + healed
                     : " and " + healed;
@@ -14667,6 +14668,46 @@ int main(int argc, char** argv)
                 failCaptureValidation("Rescue sandbox check: expected clockwise rescue, attack miss and Blight damage.");
             }
             inspectedPieceId = nettleId;
+        }
+        else if (screen=="game-unicorn-purify-actions" || screen=="game-unicorn-purify-target" ||
+                 screen=="game-unicorn-purify-result")
+        {
+            seedCaptureMatch("midgame");
+            auto unicorn=*packagedStoryCard("Crystal Unicorn");
+            if (!captureRequest->gameCardFixture.empty()) {
+                std::ifstream file(captureRequest->gameCardFixture,std::ios::binary);
+                const std::string bytes((std::istreambuf_iterator<char>(file)),{});
+                sf::Packet packet;packet.append(bytes.data(),bytes.size());
+                if (!file || !game_data::readGameCard(packet,unicorn) || !packet.endOfPacket())
+                    throw std::runtime_error("Invalid isolated Unicorn catalog fixture.");
+            }
+            if (unicorn.title!="Crystal Unicorn" || unicorn.actions.size()!=2 || unicorn.actions[1].name!="Purifying Horn" ||
+                !actionDescription(unicorn.actions[1],1).purify || actionDescription(unicorn.actions[1],1).heal!=0)
+                throw std::runtime_error("Purifying Horn must be visible as a pure Purify action.");
+            sandboxMode=true;storyMode=false;gameSnapshot.pieces.clear();gameSnapshot.hand.clear();
+            gameSnapshot.traps={{1,3,4,1}};gameSnapshot.boardMarkers.clear();gameSnapshot.enchantments.clear();
+            spawnSandboxPiece(gameSnapshot,nextSandboxPieceId,1,unicorn,3,2,false);
+            const int casterId=gameSnapshot.pieces.back().id;
+            auto ally=*packagedStoryCard("Starbloom Knight");
+            spawnSandboxPiece(gameSnapshot,nextSandboxPieceId,1,ally,3,4,false);
+            const int targetId=gameSnapshot.pieces.back().id;
+            auto& target=gameSnapshot.pieces.back();
+            target.health=2;target.power=3;target.disabledTurns=2;target.sleepTurnsRemaining=2;
+            target.rootedTurnsRemaining=1;target.slowTurnsRemaining=2;target.silencedTurnsRemaining=2;
+            target.silencedExpiryPlayer=1;target.weakenedPower=2;target.hasActed=true;target.movedThisTurn=true;
+            gameSnapshot.status="Purifying Horn: cleanse at range two; Health and positive Power stay unchanged.";
+            if (screen=="game-unicorn-purify-result") {
+                sandboxActWithPiece(casterId,3,4,1);
+                const auto* clean=pieceByIdInSnapshot(gameSnapshot,targetId);
+                const auto* caster=pieceByIdInSnapshot(gameSnapshot,casterId);
+                if (!clean || !caster || clean->disabledTurns || clean->sleepTurnsRemaining || clean->rootedTurnsRemaining ||
+                    clean->slowTurnsRemaining || clean->silencedTurnsRemaining || clean->weakenedPower ||
+                    clean->health!=2 || clean->power!=3 || !clean->hasActed || !clean->movedThisTurn ||
+                    clean->row!=3 || clean->column!=4 || caster->row!=3 || caster->column!=2 ||
+                    gameSnapshot.traps.size()!=1 || gameSnapshot.traps[0].strength!=1)
+                    throw std::runtime_error("Client Purifying Horn failed cleanse/preservation checks.");
+            }
+            inspectedPieceId=screen=="game-unicorn-purify-actions"?casterId:targetId;
         }
         else if (screen == "game-fey-messenger-foresight" || screen == "game-fey-messenger-foresight-chosen")
         {

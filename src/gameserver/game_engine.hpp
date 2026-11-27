@@ -2426,10 +2426,9 @@ private:
             }
             if (!healedTargetNames.empty())
             {
-                const std::string healed = fmt::format(
-                    "healed {} for {} each",
-                    joinTargets(healedTargetNames),
-                    action.heal);
+                const std::string healed = action.purify && action.heal==0
+                    ? fmt::format("purified {}",joinTargets(healedTargetNames))
+                    : fmt::format("healed {} for {} each",joinTargets(healedTargetNames),action.heal);
                 result += result.empty()
                     ? fmt::format("{} {}", attackerName, healed)
                     : " and " + healed;

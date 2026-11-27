@@ -82,7 +82,8 @@ enum class ClaimKind : std::uint8_t
     ControlRestored,
     RelentlessPending,
     RelentlessCleared,
-    HiddenCollision
+    HiddenCollision,
+    PurifyAction
 };
 
 struct StepClaimSpec
@@ -393,8 +394,10 @@ inline constexpr StepClaimSpec StepClaims[] = {
         ClaimKind::InterceptRedirect, "knight", 1, {"bodyguard", "damage-redirection"}},
     {"se02_broken_bridge", 3, "THE KNIGHT TAKES THE HIT",
         ClaimKind::StatusAtTurnBoundary, "knight", 0},
-    {"se02_broken_bridge", 5, "READY NEXT TURN",
+    {"se02_broken_bridge", 6, "READY NEXT TURN",
         ClaimKind::RebirthReplacementReady, "knight", 1},
+    {"se02_broken_bridge", 4, "PURIFY THE KNIGHT",
+        ClaimKind::PurifyAction, "knight", 0, {"purify-negative-status"}},
 
     {"se03a_flight_workshop", 0, "FLY PAST THE GRIFFIN", ClaimKind::PassThroughAction,
         {}, 0, {"flying-pass-through"}},
@@ -492,10 +495,10 @@ inline constexpr StepClaimSpec StepClaims[] = {
 
 };
 
-inline constexpr std::size_t ExpectedOutcomeCheckCount = 173;
+inline constexpr std::size_t ExpectedOutcomeCheckCount = 174;
 // Counts are an explicit release gate: additions require a reviewed, executable
 // before/after assertion and an intentional mastery-claim budget update here.
-inline constexpr std::size_t ExpectedAuthoredMasteryClaimCount = 157;
+inline constexpr std::size_t ExpectedAuthoredMasteryClaimCount = 158;
 static_assert(
     std::size(StepClaims) == ExpectedOutcomeCheckCount,
     "A Story outcome check was added or removed; review and update the fail-closed coverage budget.");
@@ -717,6 +720,21 @@ inline ClaimResult evaluateClaim(
                 spec,
                 "deployment did not spend the exact card/cost, create the authored exhausted unit, and preserve the normal piece action");
         }
+        return {};
+    }
+    case ClaimKind::PurifyAction:
+    {
+        const ClaimResult ready=requireActorAndAction();
+        if (!ready.ok) return ready;
+        if (!subjectBefore || !subjectAfter || !card_data::actionHasPurify(action->targetFilter) ||
+            action->damage!=0 || action->heal!=0 || action->canMove || !subjectBefore->hasActed ||
+            subjectAfter->hasActed!=subjectBefore->hasActed ||
+            subjectAfter->disabledTurns || subjectAfter->sleepTurnsRemaining || subjectAfter->rootedTurnsRemaining ||
+            subjectAfter->slowTurnsRemaining || subjectAfter->silencedTurnsRemaining || subjectAfter->weakenedPower ||
+            subjectAfter->health!=subjectBefore->health || subjectAfter->power!=subjectBefore->power ||
+            subjectAfter->row!=subjectBefore->row || subjectAfter->column!=subjectBefore->column ||
+            actorAfter->row!=actorBefore->row || actorAfter->column!=actorBefore->column || !actorAfter->hasActed)
+            return failure(spec,"Purifying Horn did not preserve spent readiness, Health, Power and positions");
         return {};
     }
     case ClaimKind::HealingAction:

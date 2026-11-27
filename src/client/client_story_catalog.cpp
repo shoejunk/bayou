@@ -3946,7 +3946,7 @@ StoryMission seelieBrokenBridge()
             "cards/feyMessenger.png")};
     mission.pieces = {
         piece("sister", "Heartwood Sister", 1, 6, 0),
-        piece("knight", "Starbloom Knight", 1, 6, 3),
+        piece("knight", "Starbloom Knight", 1, 4, 3),
         piece("messenger", "Fey Messenger", 1, 5, 2),
         piece("unicorn", "Crystal Unicorn", 1, 3, 3, 1),
         piece("bristle", "Bristlejack", 2, 5, 3),
@@ -3972,17 +3972,21 @@ StoryMission seelieBrokenBridge()
             "THE KNIGHT TAKES THE HIT",
             "Bodyguard sends the 2 damage and its Disable to the nearby Knight. The Knight loses Health and cannot act next turn.",
             "This step could not run."),
+        scriptedPieceAction(StoryActionKind::Attack, 1, "unicorn", 4, 3,
+            "Purifying Horn", "PURIFY THE KNIGHT",
+            "The hit already cost the Knight this turn's action. Try Purifying Horn from D4 on the Knight at D5. It cleanses negative statuses, but cannot restore an action already lost or heal the Knight.",
+            "Select the Unicorn, choose Purifying Horn, and target the Knight at D5.", "knight"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
-            "THE KNIGHT MUST REST",
-            "The hit left the Knight Disabled. It cannot act this turn. Use End Turn.",
-            "Use End Turn while the Knight recovers."),
+            "END AFTER PURIFY",
+            "Purifying Horn spent this turn's one regular action. Use End Turn; the Knight can act next turn.",
+            "Use End Turn after cleansing the Knight."),
         scripted(StoryActionKind::EndTurn, 2, {}, -1, -1,
             "READY NEXT TURN",
             "The enemies wait. The Knight can act on your next turn.",
             "This step could not run."),
         scriptedPieceAction(StoryActionKind::Attack, 1, "knight", 5, 3,
             "Starbloom Charge", "CHARGE THE BRISTLEJACK",
-            "Use Starbloom Charge one square up to D6. Defeat the Bristlejack.",
+            "Use Starbloom Charge one square down to D6. Defeat the Bristlejack.",
             "Use Starbloom Charge on the glowing Bristlejack.", "bristle"),
         scripted(StoryActionKind::EndTurn, 1, {}, -1, -1,
             "THE UNICORN IS NEXT", "Use End Turn. The Unicorn can attack down the long path next.",
@@ -4007,7 +4011,7 @@ StoryMission seelieBrokenBridge()
     mission.masteryCards = {"Heartwood Sister", "Starbloom Knight", "Crystal Unicorn"};
     mission.masteryRules = {
         "diagonal-movement", "healing-aura", "maximum-health", "bodyguard",
-        "damage-redirection", "surviving-target-stops-movement", "defeated-target-occupation"};
+        "damage-redirection", "purify-negative-status", "surviving-target-stops-movement", "defeated-target-occupation"};
     return mission;
 }
 

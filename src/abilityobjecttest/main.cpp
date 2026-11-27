@@ -1,4 +1,5 @@
 #include "purify_tests.hpp"
+#include "purifying_horn_tests.hpp"
 #include "rooted_tests.hpp"
 #include "dash_rescue_engine_tests.hpp"
 #include "trace_marker_tests.hpp"
@@ -464,6 +465,37 @@ int main(int argc, char **argv)
         check(packet.endOfPacket() && cards.size() == count, "archived catalog consumed completely");
         migration(cards);
         fmt::println("Archived migration coverage: {} cards", cards.size());
+    }
+    if (argc==5 && std::string(argv[1])=="--verify-unicorn-purify")
+    {
+        const auto before=card_database::loadCardsFromFile(argv[2]);
+        const auto after=card_database::loadCardsFromFile(argv[3]);
+        const auto find=[](const auto& cards,const std::string& title)->const card_data::Card& {
+            const auto it=std::find_if(cards.begin(),cards.end(),[&](const auto& c){return c.title==title;});
+            if(it==cards.end()) throw std::runtime_error("Missing rehearsal card: "+title);
+            return *it;
+        };
+        const auto& changed=find(after,"Crystal Unicorn");
+        check(before.size()==after.size(),"Horn preserves catalog size");
+        for(const auto& card:before) {
+            auto expected=card;
+            if(card.title=="Crystal Unicorn") {
+                expected.actionNames.push_back("Purifying Horn");expected.actionDisplayNames.push_back("Purifying Horn");
+                expected.actions.push_back(changed.actions.at(1));
+            }
+            sf::Packet a,b;card_data::writeCard(a,expected,true,true,true,true,true);
+            card_data::writeCard(b,find(after,card.title),true,true,true,true,true);
+            check(a.getDataSize()==b.getDataSize() &&
+                std::equal(static_cast<const char*>(a.getData()),static_cast<const char*>(a.getData())+a.getDataSize(),
+                    static_cast<const char*>(b.getData())),"Horn catalog readback preserves every unrelated field/card/action");
+        }
+        auto unicorn=game_data::toGameCard(changed);
+        testPurifyingHorn(check,unicorn);
+        sf::Packet packet;game_data::writeGameCard(packet,unicorn);
+        std::ofstream fixture(argv[4],std::ios::binary);
+        fixture.write(static_cast<const char*>(packet.getData()),packet.getDataSize());
+        check(static_cast<bool>(fixture),"isolated Unicorn catalog exported for normal client action verification");
+        fmt::println("Purifying Horn isolated catalog comparison: {} cards",after.size());
     }
     if (argc == 5 && std::string(argv[1]) == "--verify-fey-foresight")
     {
