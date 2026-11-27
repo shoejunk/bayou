@@ -23,7 +23,8 @@ Locally completed 2026-11-21: Nettle Starbright - Rescue implemented locally and
 Reviewed 2026-11-21: Archivist Mosswake - Joe chose to keep Foresight and the existing card as-is. No card changes requested or made.
 Locally completed 2026-11-21: Duchess Dewbell - Traces leaves the reusable Bloom Board Marker (Friendly; Heal 1) on the origin of a qualifying move. Isolated card assignment, Release regressions, isolated TLS CRUD, and board/editor captures passed. No deployment or live catalog assignment. See docs/BOARD_MARKERS.md.
 Completed 2026-11-27: Fey Messenger - Joseph selected the existing Foresight passive, using Archivist Mosswake's canonical assignment. Local catalog rehearsal, paid-draw/choice behavior and normal Windows client captures passed. Joseph then explicitly approved the live assignment: the existing single-card editor path added only foresight in the schema-14 legacy keyword channel. Independent public TLS readback compared all 97 cards: Courier Flight, Star Dart, cost 25, health 1, Fey trait, starter status and every other field/card unchanged. All 12 authoritative DB tables compared against protected backup cards-pre-fey-foresight-20261127T182747Z.db: exactly one added card_keywords row, integrity/FKs ok. Compiled catalog/parser checks passed 538/0 on the live feed. No binary deployment, service restart, client publish, Bloom change or live match. See docs/FEY_MESSENGER_FORESIGHT.md.
-Next card: Starbloom Knight (verified immediately after Fey Messenger in design/Card Ability Suggestions.docx).
+Reviewed 2026-11-27: Starbloom Knight - Joseph chose to keep the existing Bodyguard and card as-is. No card, client code or live data changes requested or made.
+Next card: Crystal Unicorn (verified immediately after Starbloom Knight in design/Card Ability Suggestions.docx).
 
 PieceBaseBlue characters/bases/piece-base-blue.png
 PieceBaseRed characters/bases/piece-base-red.png
