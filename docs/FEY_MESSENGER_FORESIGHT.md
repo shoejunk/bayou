@@ -36,15 +36,26 @@ replace production with this copy.
 
 ## Live status
 
-Locally verified; no production mutation, deployment or publishing performed.
-The supplied live baseline is schema 14 with no Messenger passive. The normal
-server installer deliberately does not copy card databases, so deploying code
-alone will not assign this passive. A separately authorized catalog rollout
-must add only Foresight to Fey Messenger using the current authoritative Card
-Editor/catalog path, retain Courier Flight and Star Dart, and read back the
-result. Native taxonomy uses Passives; the current schema-14 server represents
-implemented passives in its legacy keyword channel, as it does for Mosswake.
-Live gameplay verification was waived, not performed.
+Live assignment verified on 2026-11-27 after Joseph explicitly approved it.
+The existing single-card schema-14 editor request added `foresight` to Fey
+Messenger, matching Mosswake's legacy keyword representation. No binary
+rollout, restart, client publication or other live card assignment was needed.
+
+Independent CA/hostname-validated public TLS readback from
+`game.gloomthorn.com:55004` compared all 97 cards: only Messenger's Foresight
+assignment changed. Courier Flight, Star Dart, cost 25, health 1, Fey trait,
+starter metadata, and all other fields/cards are unchanged. The readback also
+passed the application's compiled catalog parser/conversion checks: 538 checks,
+zero failures. No live match was played.
+
+Before the editor save, a consistent protected rollback backup was verified at
+`/var/lib/bayou/shared/cards-pre-fey-foresight-20261127T182747Z.db`.
+A read-only comparison of all 12 authoritative database tables after the save
+found exactly one added row: `card_keywords('Fey Messenger','foresight')`.
+Database integrity and foreign-key checks passed. The normal server installer
+still does not copy catalog databases; no rehearsal database was installed.
+Detailed public feed and DB verification artifacts are retained locally under
+`output/fey-messenger-live/` and are not committed.
 
 Card Progress advances to Starbloom Knight, the next card in the local ability
 suggestions document. Its listed suggestions remain undecided.
