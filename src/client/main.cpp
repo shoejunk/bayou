@@ -14668,6 +14668,41 @@ int main(int argc, char** argv)
             }
             inspectedPieceId = nettleId;
         }
+        else if (screen == "game-fey-messenger-foresight" || screen == "game-fey-messenger-foresight-chosen")
+        {
+            seedCaptureMatch("midgame");
+            auto messenger=*packagedStoryCard("Fey Messenger");
+            if (!captureRequest->gameCardFixture.empty()) {
+                std::ifstream file(captureRequest->gameCardFixture,std::ios::binary);
+                const std::string bytes((std::istreambuf_iterator<char>(file)),{});
+                sf::Packet packet; packet.append(bytes.data(),bytes.size());
+                if (!file || !game_data::readGameCard(packet,messenger) || !packet.endOfPacket())
+                    throw std::runtime_error("Invalid isolated game card fixture.");
+            }
+            if (messenger.title!="Fey Messenger" || messenger.passives!=packagedStoryCard("Archivist Mosswake")->passives ||
+                messenger.actions.size()!=2 || messenger.actions[0].name!="Courier Flight" || messenger.actions[1].name!="Star Dart")
+                throw std::runtime_error("Fey Messenger capture needs canonical Foresight and both existing actions.");
+            GameEngine engine(77,{});
+            engine.loadScenario({{1,messenger,3,3,false}}, {}, {},100,100,1,"Fey Messenger Foresight");
+            card_data::Card first; first.title="Starbloom Knight"; first.type="Unit";
+            first.imagePath="cards/starbloomKnight.png";
+            card_data::Card second=first; second.title="Heartwood Sister"; second.imagePath="cards/heartwoodSister.png";
+            engine.submitDeck(1,{first,second});
+            if (!engine.drawCard(1) || engine.snapshotFor(1).foresightChoices.size()!=2 ||
+                engine.playerState(1).resources!=50 || !engine.snapshotFor(2).foresightChoices.empty())
+                throw std::runtime_error("Fey Messenger paid Foresight draw failed.");
+            if (screen=="game-fey-messenger-foresight-chosen") {
+                const auto chosen=engine.snapshotFor(1).foresightChoices[1].title;
+                if (!engine.chooseForesightCard(1,1) || engine.playerState(1).hand.back().title!=chosen ||
+                    engine.playerState(1).drawPile.size()!=1 || engine.snapshotFor(1).players[0].pieceActionUsedThisTurn)
+                    throw std::runtime_error("Fey Messenger normal Foresight choice failed.");
+            }
+            gameSnapshot=engine.snapshotFor(1);
+            gameSnapshotReceivedAt=std::chrono::steady_clock::now();
+            haveSnapshot=true;
+            sandboxMode=false;
+            storyMode=false;
+        }
         else if (screen == "game-bloom")
         {
             seedCaptureMatch("midgame");

@@ -541,6 +541,7 @@ GameCard seelieStoryCard(std::string_view title)
     if (title == "Fey Messenger")
     {
         GameCard card = baseCard(title, "Unit", 25, 0, 1, {"Fey"});
+        card.passives = {"foresight"};
         ActionProfile flight = action(
             "Courier Flight", MovePattern::Omni, 1, 7, true, false);
         flight.passThrough = true;

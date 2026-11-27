@@ -22,7 +22,8 @@ Reviewed 2026-11-19: Pavo Quickstep - Joe chose the existing card as-is. No card
 Locally completed 2026-11-21: Nettle Starbright - Rescue implemented locally and assigned to mounted Nettle only in the isolated rehearsal catalog. Once per round, the first legal clockwise relocation can evade the original attack; normal landing effects apply. No standalone Dash card; the unmounted form is unchanged. No push, deployment, or live catalog assignment.
 Reviewed 2026-11-21: Archivist Mosswake - Joe chose to keep Foresight and the existing card as-is. No card changes requested or made.
 Locally completed 2026-11-21: Duchess Dewbell - Traces leaves the reusable Bloom Board Marker (Friendly; Heal 1) on the origin of a qualifying move. Isolated card assignment, Release regressions, isolated TLS CRUD, and board/editor captures passed. No deployment or live catalog assignment. See docs/BOARD_MARKERS.md.
-Next card: Fey Messenger.
+Locally completed 2026-11-27: Fey Messenger - Joseph selected the existing Foresight passive, using Archivist Mosswake's canonical assignment. Isolated catalog rehearsal adds only Foresight; Courier Flight, Star Dart, cost 25, health 1, Fey trait, starter status and all other card fields remain unchanged. Packaged offline card updated; catalog readback, existing paid-draw/choice behavior and normal Windows client captures locally verified. No new activated ability. Live baseline remains schema 14 with no Fey Messenger passive: production assignment/rollout is still outstanding and was not authorized or performed. No live match played. See docs/FEY_MESSENGER_FORESIGHT.md.
+Next card: Starbloom Knight (verified immediately after Fey Messenger in design/Card Ability Suggestions.docx).
 
 PieceBaseBlue characters/bases/piece-base-blue.png
 PieceBaseRed characters/bases/piece-base-red.png

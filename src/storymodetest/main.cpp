@@ -2034,6 +2034,7 @@ void validateSeelieCardTruth()
     }
 
     const auto mosswake = bayou::client::packagedStoryCard("Archivist Mosswake");
+    const auto messenger = bayou::client::packagedStoryCard("Fey Messenger");
     const auto caltheriel = bayou::client::packagedStoryCard("Caltheriel");
     const auto heartwood = bayou::client::packagedStoryCard("Heartwood Sister");
     const auto mountedNettle = bayou::client::packagedStoryCard("Nettle Starbright");
@@ -2048,6 +2049,9 @@ void validateSeelieCardTruth()
         mosswake && std::find(mosswake->passives.begin(), mosswake->passives.end(), "foresight") !=
             mosswake->passives.end(),
         "Archivist Mosswake supplies the exact live Foresight passive");
+    check(messenger && mosswake && messenger->passives==mosswake->passives &&
+        messenger->ability.empty() && messenger->sacrifice.empty(),
+        "Fey Messenger reuses Mosswake's existing Foresight passive without adding an activated action");
     check(
         caltheriel && heartwood && caltheriel->healingAura == 1 &&
             heartwood->healingAura == 1,

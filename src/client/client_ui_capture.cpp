@@ -1290,6 +1290,8 @@ const std::vector<std::string>& knownScreens()
         "game-chrysalis",
         "game-blight",
         "game-bloom",
+        "game-fey-messenger-foresight",
+        "game-fey-messenger-foresight-chosen",
         "game-dash-rescue",
         "game-swap",
         "game-hand-hover",
@@ -1506,6 +1508,10 @@ std::optional<Request> parseCommandLine(int argc, char** argv)
         {
             request.outputDirectory = std::string(argument.substr(std::string_view("--ui-capture=").size()));
             requested = true;
+        }
+        else if (startsWith(argument, "--ui-capture-game-card="))
+        {
+            request.gameCardFixture = std::string(argument.substr(std::string_view("--ui-capture-game-card=").size()));
         }
         else if (startsWith(argument, "--ui-capture-marker-definition="))
         {

@@ -465,6 +465,50 @@ int main(int argc, char **argv)
         migration(cards);
         fmt::println("Archived migration coverage: {} cards", cards.size());
     }
+    if (argc == 5 && std::string(argv[1]) == "--verify-fey-foresight")
+    {
+        const auto before=card_database::loadCardsFromFile(argv[2]);
+        const auto after=card_database::loadCardsFromFile(argv[3]);
+        const auto find=[](const auto& cards,const std::string& title) -> const card_data::Card& {
+            const auto it=std::find_if(cards.begin(),cards.end(),[&](const auto& c){return c.title==title;});
+            if(it==cards.end()) throw std::runtime_error("Missing rehearsal card: "+title);
+            return *it;
+        };
+        const auto& reference=find(after,"Archivist Mosswake");
+        const auto& messenger=find(after,"Fey Messenger");
+        check(before.size()==after.size(),"Fey assignment preserves catalog size");
+        for(const auto& card:before) {
+            auto expected=card;
+            if(card.title=="Fey Messenger") expected.passives=reference.passives;
+            sf::Packet a,b;
+            card_data::writeCard(a,expected,true,true,true,true,true);
+            card_data::writeCard(b,find(after,card.title),true,true,true,true,true);
+            check(a.getDataSize()==b.getDataSize() &&
+                std::equal(static_cast<const char*>(a.getData()),static_cast<const char*>(a.getData())+a.getDataSize(),
+                    static_cast<const char*>(b.getData())),"catalog readback preserves every unrelated card field/action");
+        }
+        const auto unit=game_data::toGameCard(messenger);
+        check(unit.passives==std::vector<std::string>{"foresight"} && unit.ability.empty() && unit.sacrifice.empty(),
+            "Fey Messenger uses Mosswake's Foresight passive without an activated or sacrifice ability");
+        GameEngine engine(77,after);
+        engine.loadScenario({{1,unit,3,3,false}}, {}, {},100,100,1,"Fey Messenger Foresight");
+        card_data::Card first; first.title="First draw"; first.type="Unit";
+        card_data::Card second=first; second.title="Second draw";
+        engine.submitDeck(1,{first,second});
+        check(engine.drawCard(1) && engine.snapshotFor(1).foresightChoices.size()==2 &&
+            engine.playerState(1).resources==50 && engine.snapshotFor(2).foresightChoices.empty(),
+            "Fey Messenger's normal paid draw offers two private choices for 50 Resources");
+        const auto chosen=engine.snapshotFor(1).foresightChoices.at(1).title;
+        check(!engine.endTurn(1) && engine.chooseForesightCard(1,1) &&
+            engine.playerState(1).hand.back().title==chosen && engine.playerState(1).drawPile.size()==1 &&
+            !engine.snapshotFor(1).players[0].pieceActionUsedThisTurn,
+            "Fey Messenger Foresight choice resolves without spending either regular action");
+        sf::Packet fixture; game_data::writeGameCard(fixture,unit);
+        std::ofstream output(argv[4],std::ios::binary);
+        output.write(static_cast<const char*>(fixture.getData()),fixture.getDataSize());
+        check(static_cast<bool>(output),"isolated catalog card exported for normal client renderer");
+        fmt::println("Fey Messenger isolated catalog comparison: {} cards",after.size());
+    }
     if (argc == 4 && std::string(argv[1]) == "--compare-db")
     {
         const auto before = card_database::loadCardsFromFile(argv[2]);
