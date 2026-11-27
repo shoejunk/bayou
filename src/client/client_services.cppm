@@ -410,6 +410,7 @@ CardListResult fetchCards()
         bool includesAbilities = false;
     bool includesPassives = false;
     bool includesMarkers = false;
+    bool includesMarkerArt = false;
     if (!card_data::readCardListHeader(
             response,
             count,
@@ -420,7 +421,7 @@ CardListResult fetchCards()
             &actionIncludesInfest,
             &actionIncludesPull,
             &actionIncludesLifedrain,
-            &actionIncludesSlow, &includesAbilities, &includesPassives, &includesMarkers))
+            &actionIncludesSlow, &includesAbilities, &includesPassives, &includesMarkers, &includesMarkerArt))
     {
         socket.disconnect();
         return {false, "Unsupported card list payload"};
@@ -441,7 +442,7 @@ CardListResult fetchCards()
                 actionIncludesInfest,
                 actionIncludesPull,
                 actionIncludesLifedrain,
-                actionIncludesSlow, includesAbilities, includesPassives, includesMarkers))
+                actionIncludesSlow, includesAbilities, includesPassives, includesMarkers, includesMarkerArt))
         {
             socket.disconnect();
             return {false, "Invalid card list payload"};
@@ -1486,7 +1487,8 @@ ServerResult joinGameServer(
     bool supportsPassives = false;
     bool supportsDashRescue = false;
             bool supportsBoardMarkers = false;
-    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow, &supportsChrysalis, &supportsAreaHeal, &supportsSilence, &supportsParameters, &supportsUndying, &supportsObjects, &supportsTraps, &supportsRooted, &supportsPassives, &supportsDashRescue, &supportsBoardMarkers))
+    bool supportsMarkerArt = false;
+    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow, &supportsChrysalis, &supportsAreaHeal, &supportsSilence, &supportsParameters, &supportsUndying, &supportsObjects, &supportsTraps, &supportsRooted, &supportsPassives, &supportsDashRescue, &supportsBoardMarkers, &supportsMarkerArt))
     {
         sf::Packet optIn;
         optIn << static_cast<std::uint8_t>(network::MessageType::EnableCommandRestrictionSnapshots);
@@ -1502,6 +1504,7 @@ ServerResult joinGameServer(
         if (supportsPassives) optIn << game_data::PassivesSnapshotCapability;
         if (supportsDashRescue) optIn << game_data::DashRescueSnapshotCapability;
                 if (supportsBoardMarkers) optIn << game_data::BoardMarkerSnapshotCapability;
+        if (supportsMarkerArt) optIn << game_data::BoardMarkerArtCapability;
         if (socket->send(optIn) != sf::Socket::Status::Done)
             return {false, "Could not negotiate game snapshots"};
     }

@@ -16,6 +16,7 @@ struct Definition
     Eligibility eligibility = Eligibility::Friendly;
     Effect effect = Effect::Heal;
     int strength = 1;
+    std::string imagePath; // Optional asset relative to assets/, owned by this object.
     bool operator==(const Definition&) const = default;
 };
 
@@ -34,37 +35,56 @@ inline bool validName(std::string_view name)
     return true;
 }
 
+inline bool validImagePath(std::string_view path)
+{
+    if (path.size() > 512 || (!path.empty() && (path.front() == '/' || path.front() == '\\')) ||
+        path.find(':') != path.npos || path.find('\\') != path.npos) return false;
+    std::size_t start = 0;
+    while (start < path.size()) {
+        const auto end = path.find('/',start);
+        const auto part = path.substr(start,end == path.npos ? path.size()-start : end-start);
+        if (part.empty() || part == "." || part == "..") return false;
+        if (end == path.npos) break;
+        start = end+1;
+    }
+    for (unsigned char c : path) if (c < 32 || c == 127) return false;
+    return true;
+}
+
 inline bool valid(const Definition& value)
 {
-    return validName(value.name) && value.eligibility <= Eligibility::Any &&
+    return validName(value.name) && validImagePath(value.imagePath) && value.eligibility <= Eligibility::Any &&
            value.effect <= Effect::Damage && value.strength > 0;
 }
 
-inline void write(sf::Packet& packet, const Definition& value)
+inline void write(sf::Packet& packet, const Definition& value, bool includesArt = false)
 {
     packet << value.name << static_cast<std::uint8_t>(value.eligibility)
            << static_cast<std::uint8_t>(value.effect) << value.strength;
+    if (includesArt) packet << value.imagePath;
 }
 
-inline bool read(sf::Packet& packet, Definition& value)
+inline bool read(sf::Packet& packet, Definition& value, bool includesArt = false)
 {
+    value.imagePath.clear();
     std::uint8_t eligibility=0,effect=0;
     if (!(packet >> value.name >> eligibility >> effect >> value.strength)) return false;
     value.eligibility=static_cast<Eligibility>(eligibility);
     value.effect=static_cast<Effect>(effect);
+    if (includesArt && !(packet >> value.imagePath)) return false;
     return valid(value);
 }
 
-inline void writeOptional(sf::Packet& packet, const std::optional<Definition>& value)
+inline void writeOptional(sf::Packet& packet, const std::optional<Definition>& value, bool includesArt = false)
 {
     packet << static_cast<std::uint8_t>(value.has_value());
-    if (value) write(packet,*value);
+    if (value) write(packet,*value,includesArt);
 }
 
-inline bool readOptional(sf::Packet& packet, std::optional<Definition>& value)
+inline bool readOptional(sf::Packet& packet, std::optional<Definition>& value, bool includesArt = false)
 {
     value.reset();
     std::uint8_t present=0;
-    return (packet >> present) && present <= 1 && (present==0 || read(packet,value.emplace()));
+    return (packet >> present) && present <= 1 && (present==0 || read(packet,value.emplace(),includesArt));
 }
 } // namespace marker_data

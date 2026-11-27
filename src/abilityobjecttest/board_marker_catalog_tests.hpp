@@ -58,7 +58,43 @@ void testBoardMarkerCatalog(Check check)
     try { auto same=rename; same.name="Friendly step"; card_database::saveBoardMarker(db,same); }
     catch(const std::exception&) { duplicate=true; }
     check(duplicate && card_database::loadBoardMarkers(db).size()==1, "case-only duplicate is refused");
+    auto illustrated=rename;
+    illustrated.imagePath="characters/bloomMarker.png";
+    card_database::saveBoardMarker(db,illustrated,rename.name);
+    check(card_database::loadBoardMarker(db,rename.name)==illustrated,
+        "optional marker object art survives isolated catalog save/readback");
+    auto renamedArt=illustrated; renamedArt.name="Renamed art object";
+    card_database::saveBoardMarker(db,renamedArt,illustrated.name);
+    check(card_database::loadBoardMarker(db,renamedArt.name)==renamedArt,
+        "art belongs to the reusable object across renaming");
+    rename=renamedArt;
+    source.tracesMarker=renamedArt; source.tracesMarkerName=renamedArt.name;
+    sf::Packet artCatalog;
+    writeCardListHeader(artCatalog,1,true,true,true,true,true);
+    writeCard(artCatalog,source,true,true,true,true,true);
+    bool art=false;
+    check(readCardListHeader(artCatalog,count,old,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,
+        &objects,&passives,&markers,&art) && art &&
+        readCard(artCatalog,decoded,true,true,true,true,true,true,true,true,true,true,true) &&
+        artCatalog.endOfPacket() && decoded.tracesMarker==source.tracesMarker,
+        "schema 17 carries object artwork without coupling it to a card name");
+    sf::Packet legacyArt;
+    writeCard(legacyArt,source,true,true,true,true);
+    check(readCard(legacyArt,decoded,true,true,true,true,true,true,true,true,true,true) &&
+        legacyArt.endOfPacket() && decoded.tracesMarker && decoded.tracesMarker->imagePath.empty(),
+        "schema 16 keeps its existing layout when object has art");
+    check(!marker_data::validImagePath("../outside.png") && !marker_data::validImagePath("https://example.com/x.png") &&
+        marker_data::validImagePath(illustrated.imagePath), "marker artwork accepts relative assets only");
     card_database::setCardBoardMarker(db,"Nettle","");
     card_database::deleteBoardMarker(db,rename.name);
     check(card_database::loadBoardMarkers(db).empty(), "unassigned marker can be deleted");
+    SQLite::Database oldDb(":memory:",SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
+    oldDb.exec("CREATE TABLE cards(title TEXT PRIMARY KEY); CREATE TABLE board_markers (name TEXT PRIMARY KEY, eligibility INTEGER,effect INTEGER,strength INTEGER); INSERT INTO board_markers VALUES('Old Bloom',0,0,1)");
+    check(card_database::loadBoardMarker(oldDb,"Old Bloom")->imagePath.empty(),
+        "old read-only catalog loads without an art column");
+    card_database::initializeBoardMarkers(oldDb);
+    card_database::initializeBoardMarkers(oldDb);
+    check(card_database::loadBoardMarker(oldDb,"Old Bloom")->imagePath.empty(),
+        "optional art migration is repeatable and preserves existing marker definitions");
+
 }

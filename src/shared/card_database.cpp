@@ -522,6 +522,8 @@ void initializeBoardMarkers(SQLite::Database& database)
         "marker_name TEXT NOT NULL COLLATE NOCASE,"
         "FOREIGN KEY(title) REFERENCES cards(title) ON DELETE CASCADE,"
         "FOREIGN KEY(marker_name) REFERENCES board_markers(name) ON UPDATE CASCADE ON DELETE RESTRICT)");
+    if (!columnExists(database,"board_markers","image_path"))
+        database.exec("ALTER TABLE board_markers ADD COLUMN image_path TEXT NOT NULL DEFAULT ''");
     txn.commit();
 }
 
@@ -530,7 +532,7 @@ static marker_data::Definition boardMarkerFromRow(SQLite::Statement& rows)
     const int eligibility=rows.getColumn(1).getInt(), effect=rows.getColumn(2).getInt();
     marker_data::Definition result{rows.getColumn(0).getString(),
         static_cast<marker_data::Eligibility>(eligibility),static_cast<marker_data::Effect>(effect),
-        rows.getColumn(3).getInt()};
+        rows.getColumn(3).getInt(), rows.getColumn(4).getString()};
     if (eligibility<0 || eligibility>2 || effect<0 || effect>1 || !marker_data::valid(result))
         throw std::runtime_error("Invalid stored Board Marker: "+result.name);
     return result;
@@ -538,7 +540,8 @@ static marker_data::Definition boardMarkerFromRow(SQLite::Statement& rows)
 
 std::vector<marker_data::Definition> loadBoardMarkers(SQLite::Database& database)
 {
-    SQLite::Statement rows(database,"SELECT name,eligibility,effect,strength FROM board_markers ORDER BY name");
+    SQLite::Statement rows(database,std::string("SELECT name,eligibility,effect,strength,") +
+        (columnExists(database,"board_markers","image_path") ? "image_path" : "''") + " FROM board_markers ORDER BY name");
     std::vector<marker_data::Definition> result;
     while (rows.executeStep()) result.push_back(boardMarkerFromRow(rows));
     return result;
@@ -547,7 +550,8 @@ std::vector<marker_data::Definition> loadBoardMarkers(SQLite::Database& database
 std::optional<marker_data::Definition> loadBoardMarker(SQLite::Database& database,const std::string& name)
 {
     if (name.empty()) return std::nullopt;
-    SQLite::Statement rows(database,"SELECT name,eligibility,effect,strength FROM board_markers WHERE name=?");
+    SQLite::Statement rows(database,std::string("SELECT name,eligibility,effect,strength,") +
+        (columnExists(database,"board_markers","image_path") ? "image_path" : "''") + " FROM board_markers WHERE name=?");
     rows.bind(1,name);
     if (!rows.executeStep()) return std::nullopt;
     return boardMarkerFromRow(rows);
@@ -560,14 +564,14 @@ void saveBoardMarker(SQLite::Database& database,const marker_data::Definition& m
     if (originalName.empty()) {
         if (auto defined=loadBoardMarker(database,marker.name); defined && defined->name!=marker.name)
             throw std::runtime_error("A Board Marker already uses this name");
-        SQLite::Statement query(database,"INSERT INTO board_markers(name,eligibility,effect,strength) VALUES(?,?,?,?) "
-            "ON CONFLICT(name) DO UPDATE SET eligibility=excluded.eligibility,effect=excluded.effect,strength=excluded.strength");
+        SQLite::Statement query(database,"INSERT INTO board_markers(name,eligibility,effect,strength,image_path) VALUES(?,?,?,?,?) "
+            "ON CONFLICT(name) DO UPDATE SET eligibility=excluded.eligibility,effect=excluded.effect,strength=excluded.strength,image_path=excluded.image_path");
         query.bind(1,marker.name); query.bind(2,static_cast<int>(marker.eligibility));
-        query.bind(3,static_cast<int>(marker.effect)); query.bind(4,marker.strength); query.exec();
+        query.bind(3,static_cast<int>(marker.effect)); query.bind(4,marker.strength); query.bind(5,marker.imagePath); query.exec();
     } else {
-        SQLite::Statement query(database,"UPDATE board_markers SET name=?,eligibility=?,effect=?,strength=? WHERE name=?");
+        SQLite::Statement query(database,"UPDATE board_markers SET name=?,eligibility=?,effect=?,strength=?,image_path=? WHERE name=?");
         query.bind(1,marker.name); query.bind(2,static_cast<int>(marker.eligibility));
-        query.bind(3,static_cast<int>(marker.effect)); query.bind(4,marker.strength); query.bind(5,originalName);
+        query.bind(3,static_cast<int>(marker.effect)); query.bind(4,marker.strength); query.bind(5,marker.imagePath); query.bind(6,originalName);
         if (query.exec()!=1) throw std::runtime_error("Board Marker not found");
         // Case-only spelling changes are equal to SQLite NOCASE so its cascade
         // is not fired. Canonicalize every persisted reference explicitly.

@@ -29,6 +29,27 @@ void testBoardMarkerWire(Check check)
         received.pieces[0].passives==std::vector<std::string>{"Rescue"} &&
         !received.pieces[0].tracesMarker && received.hand[0].passives.empty() && received.traps.size()==1,
         "DRS1 projections hide unsupported Traces and preserve Rescue and Blight");
+    source.boardMarkers[0].definition.imagePath="characters/bloomMarker.png";
+    source.pieces[0].tracesMarker->imagePath="characters/bloomMarker.png";
+    sf::Packet artSnapshot;
+    writeSnapshot(artSnapshot,source,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true);
+    check(readSnapshot(artSnapshot,received) && artSnapshot.endOfPacket() &&
+        received.boardMarkers[0].definition.imagePath=="characters/bloomMarker.png" &&
+        received.pieces[0].tracesMarker->imagePath=="characters/bloomMarker.png" && received.traps.size()==1,
+        "BMA1 carries object art on public markers and Traces while retaining Blight secrecy");
+    sf::Packet oldArtSnapshot; send(oldArtSnapshot,true);
+    check(readSnapshot(oldArtSnapshot,received) && oldArtSnapshot.endOfPacket() &&
+        received.boardMarkers[0].definition.imagePath.empty(),
+        "BMR1 remains byte-compatible and omits artwork for legacy clients");
+    sf::Packet savedArt; writePiece(savedArt,source.pieces[0]);
+    Piece restoredArt;
+    check(readPiece(savedArt,restoredArt) && savedArt.endOfPacket() &&
+        restoredArt.tracesMarker==source.pieces[0].tracesMarker,
+        "standalone saved piece retains art and its reusable marker selection");
+    auto truncatedArt=artSnapshot;
+    sf::Packet truncated;
+    truncated.append(truncatedArt.getData(),truncatedArt.getDataSize()-1);
+    check(!readSnapshot(truncated,received),"truncated marker art snapshot fails closed");
     source.boardMarkers.push_back({2,3,3,{"bLoOm"}});
     sf::Packet duplicate; send(duplicate,true);
     check(!readSnapshot(duplicate,received),"case-insensitive same-kind duplicate on square is refused");
@@ -47,4 +68,23 @@ void testBoardMarkerWire(Check check)
     check(offersCommandRestrictionSnapshots(response,&slow,&chrysalis,&heal,&silence,&parameters,
         &undying,&objects,&traps,&rooted,&passives,&dash,&markers) && markers,
         "BMR1 only advertised after legacy readiness capabilities");
+    response.clear();
+    response << SlowSnapshotCapability << ChrysalisSnapshotCapability << AreaHealSnapshotCapability
+        << SilenceSnapshotCapability << AbilityParametersCapability << UndyingSnapshotCapability
+        << AbilityObjectsSnapshotCapability << TrapSnapshotCapability << RootedSnapshotCapability
+        << PassivesSnapshotCapability << DashRescueSnapshotCapability << BoardMarkerSnapshotCapability;
+    bool art=false;
+    check(readSlowSnapshotOptIn(response,slow,&chrysalis,&heal,&silence,&parameters,&undying,
+        &objects,&traps,&rooted,&passives,&dash,&markers,&art) && markers && !art,
+        "legacy BMR1 opt-in remains accepted without marker art");
+    response.clear();
+    response << SlowSnapshotCapability << ChrysalisSnapshotCapability << AreaHealSnapshotCapability
+        << SilenceSnapshotCapability << AbilityParametersCapability << UndyingSnapshotCapability
+        << AbilityObjectsSnapshotCapability << TrapSnapshotCapability << RootedSnapshotCapability
+        << PassivesSnapshotCapability << DashRescueSnapshotCapability << BoardMarkerSnapshotCapability
+        << BoardMarkerArtCapability;
+    check(readSlowSnapshotOptIn(response,slow,&chrysalis,&heal,&silence,&parameters,&undying,
+        &objects,&traps,&rooted,&passives,&dash,&markers,&art) && art,
+        "BMA1 art requires explicit negotiated opt-in");
+
 }

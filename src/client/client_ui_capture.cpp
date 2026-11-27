@@ -1507,6 +1507,10 @@ std::optional<Request> parseCommandLine(int argc, char** argv)
             request.outputDirectory = std::string(argument.substr(std::string_view("--ui-capture=").size()));
             requested = true;
         }
+        else if (startsWith(argument, "--ui-capture-marker-definition="))
+        {
+            request.markerDefinitionFixture = std::string(argument.substr(std::string_view("--ui-capture-marker-definition=").size()));
+        }
         else if (startsWith(argument, "--ui-capture-screens="))
         {
             request.screens =

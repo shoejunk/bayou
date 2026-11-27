@@ -467,6 +467,7 @@ private:
     bool supportsPassivesSnapshots = false;
     bool supportsDashRescueSnapshots = false;
         bool supportsBoardMarkerSnapshots = false;
+        bool supportsMarkerArt = false;
     };
 
     class Session
@@ -761,7 +762,7 @@ private:
             ready << static_cast<std::uint8_t>(network::MessageType::ConquestBattleReady)
                   << true << data.battleId << connection.playerNumber
                   << std::string("Conquest battle ready") << game_data::CommandRestrictionSnapshotCapability
-                  << game_data::SlowSnapshotCapability << game_data::ChrysalisSnapshotCapability << game_data::AreaHealSnapshotCapability << game_data::SilenceSnapshotCapability << game_data::AbilityParametersCapability << game_data::UndyingSnapshotCapability << game_data::AbilityObjectsSnapshotCapability << game_data::TrapSnapshotCapability << game_data::RootedSnapshotCapability << game_data::PassivesSnapshotCapability << game_data::DashRescueSnapshotCapability << game_data::BoardMarkerSnapshotCapability;
+                  << game_data::SlowSnapshotCapability << game_data::ChrysalisSnapshotCapability << game_data::AreaHealSnapshotCapability << game_data::SilenceSnapshotCapability << game_data::AbilityParametersCapability << game_data::UndyingSnapshotCapability << game_data::AbilityObjectsSnapshotCapability << game_data::TrapSnapshotCapability << game_data::RootedSnapshotCapability << game_data::PassivesSnapshotCapability << game_data::DashRescueSnapshotCapability << game_data::BoardMarkerSnapshotCapability << game_data::BoardMarkerArtCapability;
             if (connection.socket->send(ready, ClientSendTimeout) !=
                 sf::Socket::Status::Done)
             {
@@ -807,7 +808,7 @@ private:
                 }
                 const auto type = static_cast<network::MessageType>(rawType);
                 if (type == network::MessageType::EnableCommandRestrictionSnapshots &&
-                    game_data::readSlowSnapshotOptIn(packet, connection.supportsSlowSnapshots, &connection.supportsChrysalisSnapshots, &connection.supportsAreaHealSnapshots, &connection.supportsSilenceSnapshots, &connection.supportsAbilityParameters, &connection.supportsUndyingSnapshots, &connection.supportsAbilityObjects, &connection.supportsTrapSnapshots, &connection.supportsRootedSnapshots, &connection.supportsPassivesSnapshots, &connection.supportsDashRescueSnapshots, &connection.supportsBoardMarkerSnapshots))
+                    game_data::readSlowSnapshotOptIn(packet, connection.supportsSlowSnapshots, &connection.supportsChrysalisSnapshots, &connection.supportsAreaHealSnapshots, &connection.supportsSilenceSnapshots, &connection.supportsAbilityParameters, &connection.supportsUndyingSnapshots, &connection.supportsAbilityObjects, &connection.supportsTrapSnapshots, &connection.supportsRootedSnapshots, &connection.supportsPassivesSnapshots, &connection.supportsDashRescueSnapshots, &connection.supportsBoardMarkerSnapshots, &connection.supportsMarkerArt))
                 {
                     connection.supportsCommandRestrictionSnapshots = true;
                     sf::Packet acknowledged;
@@ -1029,7 +1030,7 @@ private:
                 snapshot.status = statusOverride;
             }
             game_data::writeSnapshot(packet, snapshot, true, true, connection.supportsTransformSnapshots,
-                                     connection.supportsCommandRestrictionSnapshots, connection.supportsSlowSnapshots, connection.supportsChrysalisSnapshots, connection.supportsAreaHealSnapshots, connection.supportsSilenceSnapshots, connection.supportsAbilityParameters, connection.supportsUndyingSnapshots, connection.supportsAbilityObjects, connection.supportsTrapSnapshots, connection.supportsRootedSnapshots, connection.supportsPassivesSnapshots, connection.supportsDashRescueSnapshots, connection.supportsBoardMarkerSnapshots);
+                                     connection.supportsCommandRestrictionSnapshots, connection.supportsSlowSnapshots, connection.supportsChrysalisSnapshots, connection.supportsAreaHealSnapshots, connection.supportsSilenceSnapshots, connection.supportsAbilityParameters, connection.supportsUndyingSnapshots, connection.supportsAbilityObjects, connection.supportsTrapSnapshots, connection.supportsRootedSnapshots, connection.supportsPassivesSnapshots, connection.supportsDashRescueSnapshots, connection.supportsBoardMarkerSnapshots, connection.supportsMarkerArt);
             if (connection.socket->send(packet, ClientSendTimeout) !=
                 sf::Socket::Status::Done)
             {

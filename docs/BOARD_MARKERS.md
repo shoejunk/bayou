@@ -8,6 +8,10 @@ relocation by another piece do not place a marker.
 
 In Card Editor, open Board Markers to create a named definition. Choose
 Friendly, Enemy, or Any eligibility, Heal or Damage, and a positive strength.
+The optional Marker Art field accepts an asset path relative to `assets/`.
+For Bloom, set `characters/bloomMarker.png` on the **Bloom Board Marker**;
+Traces continues selecting the saved marker and has no art assignment of its own.
+Saving or clearing this field affects the reusable definition.
 A Unit or Hero with Traces selects one existing definition on its card. Editing
 a definition updates its users; renaming preserves links; an assigned
 definition cannot be deleted. The catalog server resolves definitions by name.
@@ -29,8 +33,9 @@ definition cannot be deleted. The catalog server resolves definitions by name.
   placement and movement/contact rules. Its name is reserved. When both are
   applicable to an entry, Blight resolves first. Remaining applicable authored
   markers resolve in placement order while the entrant is alive.
-- Bloom uses a distinct board-scale placeholder, including when it shares a
-  square with Blight. Final art is not needed for the mechanics.
+- The game renderer draws the image stored in the marker definition. Empty or
+  unavailable art uses the existing placeholder. The owner outline stays visible,
+  and its offset does not depend on hidden Blight, including on shared squares.
 
 ## Catalog and release
 
@@ -48,6 +53,12 @@ legacy edit cannot remove an assigned marker. Match snapshots negotiate BMR1
 after DRS1; older clients do not see authored markers, so update them together
 for accurate play.
 
+Schema 17 adds optional object art while schema 16 keeps its exact layout.
+BMA1 is advertised after BMR1 and is sent only after explicit client opt-in.
+New readers accept the older marker records and saved pieces. Existing catalogs
+can be read without the new column; initialization adds a blank `image_path`
+column without assigning any art. Legacy marker edits preserve assigned art.
+
 ## Local verification
 
 Build the Windows client and services with CMake. Run abilityobjecttest,
@@ -56,4 +67,8 @@ isolated loopback card-service test with tools/test_activated_ability_service.py
 --server build/Release/cardserver.exe. Invoke the Release client from the repo
 root with --ui-capture=output/dewbell-markers/ui and
 --ui-capture-screens=game-bloom,card-editor-board-markers,card-editor-traces,card-editor-interactions.
-Check the capture manifest and screenshots.
+Check the capture manifest and screenshots. For a catalog-to-render check, pass
+`--ui-capture-marker-definition=<isolatedDirectory>/marker-art.fixture` from the
+loopback service test to `game-bloom`. That fixture contains the object read back
+from the isolated catalog under a different name, exercising the regular renderer
+without relying on a Bloom or card-name art lookup.

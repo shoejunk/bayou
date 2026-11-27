@@ -86,6 +86,7 @@ struct JoinedPlayer
     bool supportsPassivesSnapshots = false;
     bool supportsDashRescueSnapshots = false;
         bool supportsBoardMarkerSnapshots = false;
+    bool supportsMarkerArt = false;
 };
 
 struct MatchResult
@@ -895,7 +896,7 @@ private:
         response << static_cast<uint8_t>(MessageType::GameReady);
         response << matchId;
         response << playerNumber;
-        response << std::string("Game ready") << CommandRestrictionSnapshotCapability << SlowSnapshotCapability << ChrysalisSnapshotCapability << AreaHealSnapshotCapability << SilenceSnapshotCapability << AbilityParametersCapability << UndyingSnapshotCapability << AbilityObjectsSnapshotCapability << TrapSnapshotCapability << game_data::RootedSnapshotCapability << game_data::PassivesSnapshotCapability << game_data::DashRescueSnapshotCapability << game_data::BoardMarkerSnapshotCapability;
+        response << std::string("Game ready") << CommandRestrictionSnapshotCapability << SlowSnapshotCapability << ChrysalisSnapshotCapability << AreaHealSnapshotCapability << SilenceSnapshotCapability << AbilityParametersCapability << UndyingSnapshotCapability << AbilityObjectsSnapshotCapability << TrapSnapshotCapability << game_data::RootedSnapshotCapability << game_data::PassivesSnapshotCapability << game_data::DashRescueSnapshotCapability << game_data::BoardMarkerSnapshotCapability << game_data::BoardMarkerArtCapability;
         [[maybe_unused]] auto result = client.send(response);
     }
 
@@ -917,7 +918,7 @@ private:
         packet >> msgType;
         if (packet && static_cast<MessageType>(msgType) == MessageType::EnableCommandRestrictionSnapshots)
         {
-            if (!readSlowSnapshotOptIn(packet, player.supportsSlowSnapshots, &player.supportsChrysalisSnapshots, &player.supportsAreaHealSnapshots, &player.supportsSilenceSnapshots, &player.supportsAbilityParameters, &player.supportsUndyingSnapshots, &player.supportsAbilityObjects, &player.supportsTrapSnapshots, &player.supportsRootedSnapshots, &player.supportsPassivesSnapshots, &player.supportsDashRescueSnapshots, &player.supportsBoardMarkerSnapshots)) return false;
+            if (!readSlowSnapshotOptIn(packet, player.supportsSlowSnapshots, &player.supportsChrysalisSnapshots, &player.supportsAreaHealSnapshots, &player.supportsSilenceSnapshots, &player.supportsAbilityParameters, &player.supportsUndyingSnapshots, &player.supportsAbilityObjects, &player.supportsTrapSnapshots, &player.supportsRootedSnapshots, &player.supportsPassivesSnapshots, &player.supportsDashRescueSnapshots, &player.supportsBoardMarkerSnapshots, &player.supportsMarkerArt)) return false;
             player.supportsCommandRestrictionSnapshots = true;
             packet.clear();
             if (player.socket->receive(packet) != sf::Socket::Status::Done) return false;
@@ -1052,7 +1053,7 @@ private:
         sf::Packet packet;
         packet << static_cast<uint8_t>(MessageType::GameStateUpdate);
         writeSnapshot(packet, engine.snapshotFor(player.playerNumber), true, player.supportsShriekSnapshots,
-                      player.supportsTransformSnapshots, player.supportsCommandRestrictionSnapshots, player.supportsSlowSnapshots, player.supportsChrysalisSnapshots, player.supportsAreaHealSnapshots, player.supportsSilenceSnapshots, player.supportsAbilityParameters, player.supportsUndyingSnapshots, player.supportsAbilityObjects, player.supportsTrapSnapshots, player.supportsRootedSnapshots, player.supportsPassivesSnapshots, player.supportsDashRescueSnapshots, player.supportsBoardMarkerSnapshots);
+                      player.supportsTransformSnapshots, player.supportsCommandRestrictionSnapshots, player.supportsSlowSnapshots, player.supportsChrysalisSnapshots, player.supportsAreaHealSnapshots, player.supportsSilenceSnapshots, player.supportsAbilityParameters, player.supportsUndyingSnapshots, player.supportsAbilityObjects, player.supportsTrapSnapshots, player.supportsRootedSnapshots, player.supportsPassivesSnapshots, player.supportsDashRescueSnapshots, player.supportsBoardMarkerSnapshots, player.supportsMarkerArt);
         [[maybe_unused]] auto result = player.socket->send(packet);
     }
 

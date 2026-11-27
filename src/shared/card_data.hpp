@@ -17,7 +17,7 @@ namespace card_data
 // crafted packet cannot trigger a huge allocation.
 constexpr std::uint32_t MaxSerializedItems = 4096;
 constexpr std::uint32_t CardListSchemaMarker = 0xffffffffu;
-constexpr std::uint32_t CardListSchemaVersion = 16;
+constexpr std::uint32_t CardListSchemaVersion = 17;
 constexpr int DefaultNextState = (-2147483647 - 1);
 
 struct KeyIntPair
@@ -322,9 +322,9 @@ inline Card legacyPassiveProjection(Card card)
     return card;
 }
 
-inline void writeCardListHeader(sf::Packet& packet, std::uint32_t count, bool includesSlow = true, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false)
+inline void writeCardListHeader(sf::Packet& packet, std::uint32_t count, bool includesSlow = true, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false, bool includesMarkerArt = false)
 {
-    packet << CardListSchemaMarker << (includesMarkers ? CardListSchemaVersion : includesPassives ? 15u : includesAbilities ? 14u : includesSlow ? 13u : 12u) << count;
+    packet << CardListSchemaMarker << (includesMarkerArt && includesMarkers ? CardListSchemaVersion : includesMarkers ? 16u : includesPassives ? 15u : includesAbilities ? 14u : includesSlow ? 13u : 12u) << count;
 }
 
 inline bool readCardListHeader(
@@ -337,7 +337,7 @@ inline bool readCardListHeader(
     bool* actionIncludesInfest = nullptr,
     bool* actionIncludesPull = nullptr,
     bool* actionIncludesLifedrain = nullptr,
-    bool* actionIncludesSlow = nullptr, bool* includesAbilities = nullptr, bool* includesPassives = nullptr, bool* includesMarkers = nullptr)
+    bool* actionIncludesSlow = nullptr, bool* includesAbilities = nullptr, bool* includesPassives = nullptr, bool* includesMarkers = nullptr, bool* includesMarkerArt = nullptr)
 {
     std::uint32_t markerOrCount = 0;
     packet >> markerOrCount;
@@ -379,6 +379,7 @@ inline bool readCardListHeader(
         if (includesAbilities) *includesAbilities = version >= 14;
         if (includesPassives) *includesPassives = version >= 15;
         if (includesMarkers) *includesMarkers = version >= 16;
+        if (includesMarkerArt) *includesMarkerArt = version >= 17;
         return static_cast<bool>(packet) && version >= 6 && version <= CardListSchemaVersion &&
             count <= MaxSerializedItems;
     }
@@ -413,6 +414,7 @@ inline bool readCardListHeader(
     if (includesAbilities) *includesAbilities = false;
     if (includesPassives) *includesPassives = false;
     if (includesMarkers) *includesMarkers = false;
+    if (includesMarkerArt) *includesMarkerArt = false;
     return count <= MaxSerializedItems;
 }
 
@@ -473,7 +475,7 @@ inline Card legacyAbilityProjection(Card card)
     return card;
 }
 
-inline void writeCard(sf::Packet& packet, const Card& input, bool includesSlow = true, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false)
+inline void writeCard(sf::Packet& packet, const Card& input, bool includesSlow = true, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false, bool includesMarkerArt = false)
 {
     Card card=includesAbilities ? withoutLegacyAbilityFields(input) : legacyAbilityProjection(input);
     if (!includesMarkers)
@@ -541,7 +543,7 @@ inline void writeCard(sf::Packet& packet, const Card& input, bool includesSlow =
     if (includesMarkers)
     {
         packet << card.tracesMarkerName;
-        marker_data::writeOptional(packet,card.tracesMarker);
+        marker_data::writeOptional(packet,card.tracesMarker,includesMarkerArt);
     }
 }
 
@@ -558,7 +560,7 @@ inline bool readCardRemaining(
     bool actionIncludesInfest = true,
     bool actionIncludesPull = true,
     bool actionIncludesLifedrain = true,
-    bool actionIncludesSlow = true, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false)
+    bool actionIncludesSlow = true, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false, bool includesMarkerArt = false)
 {
     card.abilityReferencesExplicit=includesAbilities;
     card.passives.clear();
@@ -685,7 +687,7 @@ inline bool readCardRemaining(
     card.tracesMarkerName.clear();
     card.tracesMarker.reset();
     if (includesMarkers) {
-        if (!(packet >> card.tracesMarkerName) || !marker_data::readOptional(packet,card.tracesMarker)) return false;
+        if (!(packet >> card.tracesMarkerName) || !marker_data::readOptional(packet,card.tracesMarker,includesMarkerArt)) return false;
         const bool traces=std::any_of(card.passives.begin(),card.passives.end(),[](const auto& name) { return passiveKey(name)=="traces"; });
         if (traces != !card.tracesMarkerName.empty() ||
             (traces && !marker_data::validName(card.tracesMarkerName)) ||
@@ -704,7 +706,7 @@ inline bool readCard(
     bool actionIncludesInfest = true,
     bool actionIncludesPull = true,
     bool actionIncludesLifedrain = true,
-    bool actionIncludesSlow = true, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false)
+    bool actionIncludesSlow = true, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false, bool includesMarkerArt = false)
 {
     packet >> card.title >> card.type >> card.imagePath;
     if (!packet || !readStringVector(packet, card.traits) || !readStringVector(packet, card.keywords))
@@ -724,14 +726,14 @@ inline bool readCard(
         actionIncludesInfest,
         actionIncludesPull,
         actionIncludesLifedrain,
-        actionIncludesSlow, includesAbilities, includesPassives, includesMarkers);
+        actionIncludesSlow, includesAbilities, includesPassives, includesMarkers, includesMarkerArt);
 }
 
 // Deck submissions and editor card saves use action references; their embedded
 // definitions are ignored by the server. Keep their existing schema-12 layout.
-inline bool readReferencedCard(sf::Packet& packet, Card& card, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false)
+inline bool readReferencedCard(sf::Packet& packet, Card& card, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false, bool includesMarkerArt = false)
 {
-    return readCard(packet, card, true, true, true, true, true, true, false, includesAbilities, includesPassives, includesMarkers);
+    return readCard(packet, card, true, true, true, true, true, true, false, includesAbilities, includesPassives, includesMarkers, includesMarkerArt);
 }
 
 inline bool readLegacyCard(sf::Packet& packet, Card& card)
@@ -755,7 +757,7 @@ inline bool readListedCard(
     bool actionIncludesInfest = true,
     bool actionIncludesPull = true,
     bool actionIncludesLifedrain = true,
-    bool actionIncludesSlow = true, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false)
+    bool actionIncludesSlow = true, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false, bool includesMarkerArt = false)
 {
     return legacyFormat
         ? readLegacyCard(packet, card)
@@ -768,6 +770,6 @@ inline bool readListedCard(
             actionIncludesInfest,
             actionIncludesPull,
             actionIncludesLifedrain,
-            actionIncludesSlow, includesAbilities, includesPassives, includesMarkers);
+            actionIncludesSlow, includesAbilities, includesPassives, includesMarkers, includesMarkerArt);
 }
 }

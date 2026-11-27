@@ -1536,6 +1536,7 @@ private:
         bool includesAbilities = false;
         bool includesPassives = false;
         bool includesMarkers = false;
+        bool includesMarkerArt = false;
         if (!card_data::readCardListHeader(
                 response,
                 count,
@@ -1546,7 +1547,7 @@ private:
                 &actionIncludesInfest,
                 &actionIncludesPull,
                 &actionIncludesLifedrain,
-                &actionIncludesSlow, &includesAbilities, &includesPassives, &includesMarkers))
+                &actionIncludesSlow, &includesAbilities, &includesPassives, &includesMarkers, &includesMarkerArt))
         {
             socket.disconnect();
             return {false, "Unsupported card list payload"};
@@ -1567,7 +1568,7 @@ private:
                     actionIncludesInfest,
                     actionIncludesPull,
                     actionIncludesLifedrain,
-                    actionIncludesSlow, includesAbilities, includesPassives, includesMarkers))
+                    actionIncludesSlow, includesAbilities, includesPassives, includesMarkers, includesMarkerArt))
             {
                 socket.disconnect();
                 return {false, "Invalid card list payload"};

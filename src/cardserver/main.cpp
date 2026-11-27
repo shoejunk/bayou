@@ -28,12 +28,12 @@ namespace
 constexpr unsigned short CardServerPort = 55004;
 constexpr auto InitialRequestTimeout = std::chrono::seconds(2);
 
-void writeCards(sf::Packet& packet, const std::vector<card_data::Card>& cards, bool includesSlow, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false)
+void writeCards(sf::Packet& packet, const std::vector<card_data::Card>& cards, bool includesSlow, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false, bool includesMarkerArt = false)
 {
-    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(cards.size()), includesSlow, includesAbilities, includesPassives, includesMarkers);
+    card_data::writeCardListHeader(packet, static_cast<std::uint32_t>(cards.size()), includesSlow, includesAbilities, includesPassives, includesMarkers, includesMarkerArt);
     for (const card_data::Card& card : cards)
     {
-        card_data::writeCard(packet, card, includesSlow, includesAbilities, includesPassives, includesMarkers);
+        card_data::writeCard(packet, card, includesSlow, includesAbilities, includesPassives, includesMarkers, includesMarkerArt);
     }
 }
 
@@ -388,7 +388,7 @@ private:
             {
                 std::uint32_t version=12;
                 if (!request.endOfPacket() && !(request >> version)) return;
-                handleListCards(client,version>=13,version>=14,version>=15,version>=16);
+                handleListCards(client,version>=13,version>=14,version>=15,version>=16,version>=17);
                 break;
             }
             case MessageType::ActivatedAbilityListRequest:
@@ -493,13 +493,18 @@ private:
             type==MessageType::BoardMarkerDeleteRequest?MessageType::BoardMarkerDeleteResponse:MessageType::BoardMarkerUpsertResponse;
         try {
             if (type==MessageType::BoardMarkerListRequest) {
-                if (!request.endOfPacket()) throw std::runtime_error("Unexpected Board Marker list payload");
+                bool art=false;
+                if (!request.endOfPacket()) { std::uint32_t version=0;
+                    if (!(request >> version) || version!=17 || !request.endOfPacket())
+                        throw std::runtime_error("Unexpected Board Marker list payload");
+                    art=true;
+                }
                 const auto definitions=card_database::loadBoardMarkers(*database);
                 if (definitions.size()>card_data::MaxSerializedItems) throw std::runtime_error("Too many Board Markers");
                 sf::Packet response;
                 response << static_cast<std::uint8_t>(responseType) << true << std::string("OK")
                     << static_cast<std::uint32_t>(definitions.size());
-                for (const auto& definition:definitions) marker_data::write(response,definition);
+                for (const auto& definition:definitions) marker_data::write(response,definition,art);
                 [[maybe_unused]] auto sent=client.send(response);
                 return;
             }
@@ -512,8 +517,15 @@ private:
                 card_database::deleteBoardMarker(*database,original);
             } else {
                 marker_data::Definition definition;
-                if (!marker_data::read(request,definition) || !request.endOfPacket())
+                if (!marker_data::read(request,definition))
                     throw std::runtime_error("Invalid Board Marker definition");
+                if (!request.endOfPacket()) {
+                    std::uint32_t version=0;
+                    if (!(request >> version >> definition.imagePath) || version!=17 || !request.endOfPacket())
+                        throw std::runtime_error("Invalid Board Marker art payload");
+                } else if (auto previous=card_database::loadBoardMarker(*database,original.empty()?definition.name:original)) {
+                    definition.imagePath=previous->imagePath; // Legacy authoring preserves art.
+                }
                 card_database::saveBoardMarker(*database,definition,original);
             }
             sendCommandResponse(client,responseType,true,"Board Marker saved");
@@ -522,7 +534,7 @@ private:
         }
     }
 
-    void handleListCards(bayou::tls::Socket& client, bool includesSlow, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false)
+    void handleListCards(bayou::tls::Socket& client, bool includesSlow, bool includesAbilities = false, bool includesPassives = false, bool includesMarkers = false, bool includesMarkerArt = false)
     {
         sf::Packet response;
         response << static_cast<uint8_t>(MessageType::CardListResponse);
@@ -531,12 +543,12 @@ private:
         {
             const std::vector<card_data::Card> cards = loadCards();
             response << true << std::string("OK");
-            writeCards(response, cards, includesSlow, includesAbilities, includesPassives, includesMarkers);
+            writeCards(response, cards, includesSlow, includesAbilities, includesPassives, includesMarkers, includesMarkerArt);
         }
         catch (const std::exception& error)
         {
             response << false << std::string(error.what());
-            card_data::writeCardListHeader(response, 0, includesSlow, includesAbilities, includesPassives, includesMarkers);
+            card_data::writeCardListHeader(response, 0, includesSlow, includesAbilities, includesPassives, includesMarkers, includesMarkerArt);
         }
 
         [[maybe_unused]] auto result = client.send(response);

@@ -12,6 +12,7 @@ public:
           saveButton(font,"Save Marker",{1045,690},{175,42},AccentDark)
     {
         name = InputBox(font, "", {350,166}, {520,34});
+        imagePath = InputBox(font, "", {350,326}, {770,40});
         strength = InputBox(font, "", {900,246}, {220,40});
         restore();
     }
@@ -37,6 +38,8 @@ public:
         try
         {
             const auto d = form();
+            if (!marker_data::validImagePath(d.imagePath))
+                throw std::runtime_error("Marker Art must be a relative asset path, or blank.");
             if (!marker_data::valid(d)) throw std::runtime_error("Enter a valid name and positive whole-number strength.");
             const bool updating = selected && *selected < definitions.size();
             if (!updating && std::any_of(definitions.begin(),definitions.end(),[&](const auto& item) {
@@ -47,6 +50,7 @@ public:
                                                           : network::MessageType::BoardMarkerUpsertRequest);
             if (updating) request << definitions[*selected].name;
             marker_data::write(request,d);
+            request << std::uint32_t{17} << d.imagePath;
             command(request,updating ? network::MessageType::BoardMarkerUpdateResponse
                                      : network::MessageType::BoardMarkerUpsertResponse);
             changed=true;
@@ -105,16 +109,17 @@ public:
             }
             name.setActive(name.contains(mouse));
             strength.setActive(strength.contains(mouse));
+            imagePath.setActive(imagePath.contains(mouse));
             return;
         }
-        for (InputBox* field : {&name,&strength})
+        for (InputBox* field : {&name,&strength,&imagePath})
             if (field->isActive()) field->handleEvent(event,window);
     }
     void update(sf::Vector2f mouse, float dt)
     {
         for (auto* button : {&eligibility,&effect,&create,&refresh,&remove,&saveButton}) button->update(mouse);
-        name.update(mouse); strength.update(mouse);
-        name.updateCursor(dt); strength.updateCursor(dt);
+        name.update(mouse); strength.update(mouse); imagePath.update(mouse);
+        name.updateCursor(dt); strength.updateCursor(dt); imagePath.updateCursor(dt);
     }
     void draw(sf::RenderWindow& window)
     {
@@ -136,6 +141,8 @@ public:
         drawText(window,font,"ELIGIBILITY (click to cycle)",13,{350,226},Muted);
         drawText(window,font,"EFFECT (click to cycle)",13,{625,226},Muted);
         drawText(window,font,"STRENGTH",13,{900,226},Muted);
+        drawText(window,font,"MARKER ART (optional asset path, e.g. characters/bloomMarker.png)",13,{350,306},Muted);
+        imagePath.draw(window);
         name.draw(window);
         strength.draw(window);
         EditorButton sideValue(font,sides[side],{350,246},{245,40},AccentDark);
@@ -158,7 +165,7 @@ private:
     std::vector<marker_data::Definition> definitions;
     std::optional<std::size_t> selected;
     marker_data::Definition saved;
-    InputBox name,strength;
+    InputBox name,strength,imagePath;
     EditorButton eligibility,effect,create,refresh,remove,saveButton;
     int offset=0,side=0,mode=0;
     bool loaded=false,changed=false,deleting=false;
@@ -175,13 +182,15 @@ private:
         }
         catch (const std::exception&) {}
         static constexpr marker_data::Eligibility sides[]={marker_data::Eligibility::Friendly,marker_data::Eligibility::Enemy,marker_data::Eligibility::Any};
-        return {trim(name.getValue()),sides[side],mode==0?marker_data::Effect::Heal:marker_data::Effect::Damage,value};
+        return {trim(name.getValue()),sides[side],mode==0?marker_data::Effect::Heal:marker_data::Effect::Damage,value,trim(imagePath.getValue())};
     }
     void select(std::optional<std::size_t> index)
     {
         selected=index;
         saved=index && *index<definitions.size()?definitions[*index]:marker_data::Definition{};
         name.setValue(saved.name);
+        imagePath.setValue(saved.imagePath);
+        imagePath.setActive(false);
         side=saved.eligibility==marker_data::Eligibility::Friendly?0:saved.eligibility==marker_data::Eligibility::Enemy?1:2;
         mode=saved.effect==marker_data::Effect::Heal?0:1;
         strength.setValue(std::to_string(saved.strength));
@@ -216,7 +225,7 @@ private:
         try
         {
             sf::Packet request;
-            request << static_cast<std::uint8_t>(network::MessageType::BoardMarkerListRequest);
+            request << static_cast<std::uint8_t>(network::MessageType::BoardMarkerListRequest) << std::uint32_t{17};
             auto response=exchange(request);
             checkResponse(response,network::MessageType::BoardMarkerListResponse);
             std::uint32_t count=0;
@@ -226,7 +235,7 @@ private:
             for (std::uint32_t i=0;i<count;++i)
             {
                 marker_data::Definition d;
-                if (!marker_data::read(response,d)) throw std::runtime_error("Invalid marker definition.");
+                if (!marker_data::read(response,d,true)) throw std::runtime_error("Invalid marker definition.");
                 next.push_back(std::move(d));
             }
             if (!response.endOfPacket()) throw std::runtime_error("Unexpected marker library data.");

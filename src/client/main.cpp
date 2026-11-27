@@ -39,6 +39,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <future>
+#include <fstream>
 #include <iterator>
 #include <list>
 #include <limits>
@@ -14670,8 +14671,20 @@ int main(int argc, char** argv)
         else if (screen == "game-bloom")
         {
             seedCaptureMatch("midgame");
-            const marker_data::Definition bloom{"Bloom", marker_data::Eligibility::Friendly,
-                marker_data::Effect::Heal, 1};
+            // Offline fixture assignment belongs to the reusable marker, never to Traces.
+            marker_data::Definition bloom{"Bloom", marker_data::Eligibility::Friendly,
+                marker_data::Effect::Heal, 1, "characters/bloomMarker.png"};
+            if (!captureRequest->markerDefinitionFixture.empty())
+            {
+                std::ifstream file(captureRequest->markerDefinitionFixture, std::ios::binary);
+                const std::string bytes((std::istreambuf_iterator<char>(file)), {});
+                sf::Packet object;
+                object.append(bytes.data(),bytes.size());
+                if (!file || !marker_data::read(object,bloom,true) || !object.endOfPacket())
+                    throw std::runtime_error("Invalid isolated marker definition fixture.");
+            }
+            if (bloom.imagePath.empty() || !textures.load(bloom.imagePath))
+                throw std::runtime_error("Bloom capture marker art must load from the reusable object.");
             sandboxMode = true;
             storyMode = false;
             gameSnapshot.pieces.clear();
@@ -14736,7 +14749,10 @@ int main(int argc, char** argv)
                 failCaptureValidation("Traces sandbox check: lethal damage should consume the public marker and destroy the entrant.");
 
             seedCaptureMatch("midgame");
-            gameSnapshot.boardMarkers = {{1, 3, 3, bloom}, {2, 4, 4, bloom}};
+            gameSnapshot.boardMarkers = {{1, 3, 3, bloom}, {2, 4, 4, bloom},
+                {1, 2, 4, {"No art",marker_data::Eligibility::Friendly,marker_data::Effect::Heal,1}},
+                {2, 5, 3, {"Missing art",marker_data::Eligibility::Enemy,marker_data::Effect::Damage,1,
+                    "characters/capture-missing-marker-art.png"}}};
             gameSnapshot.traps = {{1, 3, 3, 1}, {2, 4, 4, 1}};
             gameSnapshot.status = "Bloom markers are public. An overlapping Blight stays private.";
         }

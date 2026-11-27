@@ -2965,21 +2965,37 @@
             const unsigned earlierHere = traceCounts[game_data::squareIndex(marker.row, marker.column)]++;
             // Always offset Traces, independent of hidden information.
             const sf::Vector2f center = anchor + sf::Vector2f{21.0f, -12.0f - 14.0f * earlierHere};
-            sf::CircleShape petals(9.0f, 8);
-            petals.setOrigin({9.0f, 9.0f});
+            sf::Texture* markerArt = marker.definition.imagePath.empty()
+                ? nullptr : textures.load(marker.definition.imagePath);
+            const float markerRadius = markerArt ? 20.0f : 9.0f;
+            sf::CircleShape petals(markerRadius, 8);
+            petals.setOrigin({markerRadius, markerRadius});
             petals.setPosition(center);
-            petals.setFillColor(sf::Color(39, 105, 80, 245));
+            petals.setFillColor(markerArt ? sf::Color::Transparent : sf::Color(39, 105, 80, 245));
             petals.setOutlineThickness(2.0f);
             petals.setOutlineColor(marker.owner == boardSnapshot.yourPlayer
                 ? sf::Color(157, 222, 250) : sf::Color(255, 183, 164));
             window.draw(petals);
-            sf::CircleShape seed(3.0f);
-            seed.setOrigin({3.0f, 3.0f});
-            seed.setPosition(center);
-            seed.setFillColor(sf::Color(255, 224, 119));
-            window.draw(seed);
+            if (markerArt)
+            {
+                sf::Sprite sprite(*markerArt);
+                const auto size = markerArt->getSize();
+                const float scale = 40.0f / static_cast<float>(std::max(size.x, size.y));
+                sprite.setOrigin({size.x * 0.5f, size.y * 0.5f});
+                sprite.setPosition(center);
+                sprite.setScale({scale, scale});
+                window.draw(sprite);
+            }
+            else
+            {
+                sf::CircleShape seed(3.0f);
+                seed.setOrigin({3.0f, 3.0f});
+                seed.setPosition(center);
+                seed.setFillColor(sf::Color(255, 224, 119));
+                window.draw(seed);
+            }
             drawText(window, font, marker.definition.name, 12,
-                {center.x - 15.0f, center.y - 22.0f}, sf::Color(212, 255, 197), 86.0f);
+                {center.x - 15.0f, center.y - (markerArt ? 30.0f : 22.0f)}, sf::Color(212, 255, 197), 86.0f);
         }
 
         // Persistent attachments remain visible on their board targets.

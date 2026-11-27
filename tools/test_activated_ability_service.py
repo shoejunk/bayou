@@ -115,13 +115,15 @@ def main():
         definitions = r.array(lambda: read_definition(r)); r.done(); return definitions
     def marker_bytes(name, eligibility=0, effect=0, strength=1):
         return STRING(name) + bytes([eligibility, effect]) + I32(strength)
-    def read_marker(r):
-        return dict(name=r.string(), eligibility=r.byte(), effect=r.byte(), strength=r.integer())
-    def marker_library():
-        r = exchange(message["BoardMarkerListRequest"])
+    def read_marker(r, art=False):
+        result=dict(name=r.string(), eligibility=r.byte(), effect=r.byte(), strength=r.integer())
+        if art: result["image"] = r.string()
+        return result
+    def marker_library(art=False):
+        r = exchange(message["BoardMarkerListRequest"] + (U32(17) if art else b""))
         assert r.byte() == message["BoardMarkerListResponse"][0] and r.byte() == 1
         assert r.string() == "OK"
-        definitions = r.array(lambda: read_marker(r)); r.done(); return definitions
+        definitions = r.array(lambda: read_marker(r,art)); r.done(); return definitions
     def catalog(version):
         r = exchange(message["CardListRequest"] + U32(version))
         assert r.byte() == 11 and r.byte() == 1 and r.string() == "OK" and r.u32() == 0xffffffff
@@ -145,7 +147,7 @@ def main():
                 card["passives"] = r.strings()
             if version >= 16:
                 card["markerRef"] = r.string()
-                card["marker"] = read_marker(r) if r.byte() else None
+                card["marker"] = read_marker(r,version>=17) if r.byte() else None
             cards.append(card)
         r.done(); return cards
     def card_body(title, ability, marker_ref=None, marker_override=None, passives=None):
@@ -218,7 +220,20 @@ def main():
             command("CardUpsertWithPassivesRequest", card_body("Tracer", ""), "CardUpsertResponse", False)
             assert catalog(16)[0]["markerRef"] == "Trail Heal"
             command("BoardMarkerDeleteRequest", STRING("TRAIL HEAL"), success=False)
+            art="characters/bloomMarker.png"
+            command("BoardMarkerUpdateRequest", STRING("Trail Heal") + marker_bytes("Trail Heal") + U32(17) + STRING(art))
+            assert marker_library(True)[0]["image"] == art
+            assert catalog(17)[0]["marker"]["image"] == art
+            assert "image" not in marker_library()[0] and "image" not in catalog(16)[0]["marker"]
+            # Export actual service readback for the normal Windows game renderer.
+            stored=marker_library(True)[0]
+            (work/"marker-art.fixture").write_bytes(marker_bytes(stored["name"],stored["eligibility"],stored["effect"],stored["strength"])+STRING(stored["image"]))
+            command("BoardMarkerUpdateRequest", STRING("Trail Heal") + marker_bytes("Trail Heal") + U32(17) + STRING("../outside.png"),success=False)
+            assert marker_library(True)[0]["image"] == art
             command("BoardMarkerUpdateRequest", STRING("Trail Heal") + marker_bytes("Trace Gift", 2, 0, 3))
+            assert marker_library(True)[0]["image"] == art, "legacy rename must preserve marker art"
+            command("BoardMarkerUpdateRequest", STRING("Trace Gift") + marker_bytes("Trace Gift",2,0,3) + U32(17) + STRING(""))
+            assert marker_library(True)[0]["image"] == "", "explicit new authoring can clear optional art"
             updated = catalog(16)[0]
             assert updated["markerRef"] == "Trace Gift"
             assert updated["marker"] == dict(name="Trace Gift", eligibility=2, effect=0, strength=3)
@@ -237,7 +252,7 @@ def main():
     assert connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
     assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
     connection.close()
-    report = {"checks": checks, "databaseIntegrity": "ok", "isolatedDirectory": str(work), "productionContacted": False,"tlsClient":"OpenSSL with CA and hostname verification"}
+    report = {"markerArtFixture": str(work/"marker-art.fixture"), "checks": checks, "databaseIntegrity": "ok", "isolatedDirectory": str(work), "productionContacted": False,"tlsClient":"OpenSSL with CA and hostname verification"}
     (work / "result.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2))
 

@@ -1284,6 +1284,7 @@ constexpr std::uint32_t SlowSnapshotCapability = 0x534c5731; // SLW1
 constexpr std::uint32_t AreaHealSnapshotCapability = 0x48454131; // HEA1
 constexpr std::uint32_t AbilityParametersCapability = 0x41425031; // ABP1
 constexpr std::uint32_t SilenceSnapshotCapability = 0x53494c31; // SIL1
+constexpr std::uint32_t BoardMarkerArtCapability = 0x424d4131; // BMA1, negotiated marker art
 constexpr std::uint32_t BoardMarkerSnapshotCapability = 0x424d5231; // BMR1
 constexpr std::uint32_t DashRescueSnapshotCapability = 0x44525331; // DRS1
 constexpr std::uint32_t PassivesSnapshotCapability = 0x50415331; // PAS1
@@ -1295,7 +1296,7 @@ constexpr std::uint32_t ChrysalisSnapshotCapability = 0x43485231; // CHR1
 
 // Ready responses can advertise extensions without changing the join requests
 // that older servers parse strictly. An absent advertisement uses the legacy format.
-inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr, bool* undying = nullptr, bool* objects = nullptr, bool* traps = nullptr, bool* rooted = nullptr, bool* passives = nullptr, bool* dashRescue = nullptr, bool* boardMarkers = nullptr)
+inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nullptr, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr, bool* undying = nullptr, bool* objects = nullptr, bool* traps = nullptr, bool* rooted = nullptr, bool* passives = nullptr, bool* dashRescue = nullptr, bool* boardMarkers = nullptr, bool* markerArt = nullptr)
 {
     std::uint32_t marker = 0;
     if (slow) *slow = false;
@@ -1310,6 +1311,7 @@ inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nu
     if (passives) *passives = false;
     if (dashRescue) *dashRescue = false;
     if (boardMarkers) *boardMarkers = false;
+    if (markerArt) *markerArt = false;
     if (ready.endOfPacket() || !(ready >> marker) || marker != CommandRestrictionSnapshotCapability)
         return false;
     if (slow && !ready.endOfPacket())
@@ -1336,11 +1338,13 @@ inline bool offersCommandRestrictionSnapshots(sf::Packet& ready, bool* slow = nu
         *dashRescue = (ready >> marker) && marker == DashRescueSnapshotCapability;
     if (boardMarkers && dashRescue && *dashRescue && !ready.endOfPacket())
         *boardMarkers = (ready >> marker) && marker == BoardMarkerSnapshotCapability;
+    if (markerArt && boardMarkers && *boardMarkers && !ready.endOfPacket())
+        *markerArt = (ready >> marker) && marker == BoardMarkerArtCapability;
     return true;
 }
 
 // Older clients opt in to CMD1 with an empty payload.
-inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr, bool* undying = nullptr, bool* objects = nullptr, bool* traps = nullptr, bool* rooted = nullptr, bool* passives = nullptr, bool* dashRescue = nullptr, bool* boardMarkers = nullptr)
+inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysalis = nullptr, bool* areaHeal = nullptr, bool* silence = nullptr, bool* parameters = nullptr, bool* undying = nullptr, bool* objects = nullptr, bool* traps = nullptr, bool* rooted = nullptr, bool* passives = nullptr, bool* dashRescue = nullptr, bool* boardMarkers = nullptr, bool* markerArt = nullptr)
 {
     slow = false;
     if (chrysalis) *chrysalis = false;
@@ -1354,6 +1358,7 @@ inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysali
     if (passives) *passives = false;
     if (dashRescue) *dashRescue = false;
     if (boardMarkers) *boardMarkers = false;
+    if (markerArt) *markerArt = false;
     if (packet.endOfPacket()) return true;
     std::uint32_t marker = 0;
     slow = (packet >> marker) && marker == SlowSnapshotCapability;
@@ -1393,8 +1398,9 @@ inline bool readSlowSnapshotOptIn(sf::Packet& packet, bool& slow, bool* chrysali
     if (packet.endOfPacket()) return true;
     if (!dashRescue || !(*dashRescue = (packet >> marker) && marker == DashRescueSnapshotCapability)) return false;
     if (packet.endOfPacket()) return true;
-    return boardMarkers && (*boardMarkers = (packet >> marker) &&
-        marker == BoardMarkerSnapshotCapability && packet.endOfPacket());
+    if (!boardMarkers || !(*boardMarkers = (packet >> marker) && marker == BoardMarkerSnapshotCapability)) return false;
+    if (packet.endOfPacket()) return true;
+    return markerArt && (*markerArt = (packet >> marker) && marker == BoardMarkerArtCapability && packet.endOfPacket());
 }
 
 template <typename T>
@@ -1614,14 +1620,14 @@ template <typename T> inline bool readPassiveLists(sf::Packet& packet, T& value)
 }
 
 template <typename T>
-inline void writeTraceMarker(sf::Packet& packet, const T& value)
+inline void writeTraceMarker(sf::Packet& packet, const T& value, bool art = false)
 {
     packet << static_cast<std::uint8_t>(value.tracesMarker.has_value());
-    if (value.tracesMarker) marker_data::write(packet, *value.tracesMarker);
+    if (value.tracesMarker) marker_data::write(packet, *value.tracesMarker,art);
 }
 
 template <typename T>
-inline bool readTraceMarker(sf::Packet& packet, T& value)
+inline bool readTraceMarker(sf::Packet& packet, T& value, bool art = false)
 {
     std::uint8_t present = 0;
     if (!(packet >> present) || present > 1) return false;
@@ -1629,14 +1635,14 @@ inline bool readTraceMarker(sf::Packet& packet, T& value)
     value.tracesMarker.reset();
     if (present) {
         marker_data::Definition definition;
-        if (!marker_data::read(packet, definition)) return false;
+        if (!marker_data::read(packet, definition,art)) return false;
         value.tracesMarkerName = definition.name;
         value.tracesMarker = std::move(definition);
     }
     return (present != 0) == hasKeyword(value.passives,"traces");
 }
 
-inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFields = true, bool areaHealFields = true, bool parameterFields = true, bool objectFields = true, bool trapObjects = true, bool passiveFields = true, bool boardMarkerFields = true)
+inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFields = true, bool areaHealFields = true, bool parameterFields = true, bool objectFields = true, bool trapObjects = true, bool passiveFields = true, bool boardMarkerFields = true, bool markerArt = true)
 {
     packet << card.title << card.type;
     card_data::writeStringVector(packet, card.traits);
@@ -1680,7 +1686,7 @@ inline void writeGameCard(sf::Packet& packet, const GameCard& card, bool auraFie
                     if (passiveFields) {
                         const bool includeTraces = boardMarkerFields && card.tracesMarker.has_value();
                         packet << PassivesSnapshotCapability; writePassiveLists(packet,card,includeTraces);
-                        if (includeTraces) { packet << BoardMarkerSnapshotCapability; writeTraceMarker(packet,card); }
+                        if (includeTraces) { packet << (markerArt && !card.tracesMarker->imagePath.empty() ? BoardMarkerArtCapability : BoardMarkerSnapshotCapability); writeTraceMarker(packet,card,markerArt && !card.tracesMarker->imagePath.empty()); }
                     }
                 }
             }
@@ -1771,11 +1777,11 @@ inline bool readGameCard(sf::Packet& packet, GameCard& card, bool auraFields = t
     if (packet.endOfPacket()) return true;
     if (!(packet >> parameterMarker) || parameterMarker != PassivesSnapshotCapability || !readPassiveLists(packet,card)) return false;
     if (packet.endOfPacket()) return !hasKeyword(card.passives,"traces");
-    return (packet >> parameterMarker) && parameterMarker == BoardMarkerSnapshotCapability &&
-        readTraceMarker(packet,card) && packet.endOfPacket();
+    return (packet >> parameterMarker) && (parameterMarker == BoardMarkerSnapshotCapability || parameterMarker == BoardMarkerArtCapability) &&
+        readTraceMarker(packet,card,parameterMarker == BoardMarkerArtCapability) && packet.endOfPacket();
 }
 
-inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields = true, bool dashRescueFields = true, bool boardMarkerFields = true)
+inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields = true, bool dashRescueFields = true, bool boardMarkerFields = true, bool markerArt = true)
 {
     packet << piece.id << piece.owner << piece.originalOwner << piece.row << piece.column << piece.name;
     card_data::writeStringVector(packet, piece.traits);
@@ -1823,7 +1829,7 @@ inline void writePiece(sf::Packet& packet, const Piece& piece, bool auraFields =
         packet << PassivesSnapshotCapability; writePassiveLists(packet,piece,includeTraces);
         if (dashRescueFields) {
             packet << DashRescueSnapshotCapability << static_cast<std::uint8_t>(piece.dashRescueUsedThisRound);
-            if (includeTraces) { packet << BoardMarkerSnapshotCapability; writeTraceMarker(packet,piece); }
+            if (includeTraces) { packet << (markerArt && !piece.tracesMarker->imagePath.empty() ? BoardMarkerArtCapability : BoardMarkerSnapshotCapability); writeTraceMarker(packet,piece,markerArt && !piece.tracesMarker->imagePath.empty()); }
         }
     }
 }
@@ -1929,8 +1935,8 @@ inline bool readPiece(sf::Packet& packet, Piece& piece, bool auraFields = true)
         used > 1) return false;
     piece.dashRescueUsedThisRound = used != 0;
     if (packet.endOfPacket()) return !hasKeyword(piece.passives,"traces");
-    return (packet >> parameterMarker) && parameterMarker == BoardMarkerSnapshotCapability &&
-        readTraceMarker(packet,piece) && packet.endOfPacket();
+    return (packet >> parameterMarker) && (parameterMarker == BoardMarkerSnapshotCapability || parameterMarker == BoardMarkerArtCapability) &&
+        readTraceMarker(packet,piece,parameterMarker == BoardMarkerArtCapability) && packet.endOfPacket();
 }
 
 inline void writeEnchantment(sf::Packet& packet, const Enchantment& enchantment)
@@ -1970,7 +1976,7 @@ inline bool readPlayerSnapshot(sf::Packet& packet, PlayerSnapshot& player)
 // Writes a complete snapshot payload (without the leading message-type byte).
 inline void writeSnapshot(sf::Packet& packet, const Snapshot& source, bool auraFields = true,
                           bool shriekFields = true, bool transformFields = true, bool commandFields = true,
-                          bool slowFields = true, bool chrysalisFields = true, bool areaHealFields = true, bool silenceFields = true, bool parameterFields = true, bool undyingFields = true, bool objectFields = true, bool trapFields = false, bool rootedFields = false, bool passiveFields = false, bool dashRescueFields = false, bool boardMarkerFields = false)
+                          bool slowFields = true, bool chrysalisFields = true, bool areaHealFields = true, bool silenceFields = true, bool parameterFields = true, bool undyingFields = true, bool objectFields = true, bool trapFields = false, bool rootedFields = false, bool passiveFields = false, bool dashRescueFields = false, bool boardMarkerFields = false, bool markerArt = false)
 {
     Snapshot legacy;
     const bool project = !rootedFields && std::any_of(source.pieces.begin(), source.pieces.end(), [](const Piece& p) {
@@ -2146,15 +2152,15 @@ inline void writeSnapshot(sf::Packet& packet, const Snapshot& source, bool auraF
                                                                 for (const auto& piece : snapshot.pieces)
                                                                     packet << static_cast<std::uint8_t>(piece.dashRescueUsedThisRound);
                                                                 if (boardMarkerFields) {
-                                                                    packet << BoardMarkerSnapshotCapability << static_cast<std::uint32_t>(snapshot.boardMarkers.size());
+                                                                    packet << (markerArt ? BoardMarkerArtCapability : BoardMarkerSnapshotCapability) << static_cast<std::uint32_t>(snapshot.boardMarkers.size());
                                                                     for (const auto& m : snapshot.boardMarkers) {
                                                                         packet << m.owner << m.row << m.column;
-                                                                        marker_data::write(packet,m.definition);
+                                                                        marker_data::write(packet,m.definition,markerArt);
                                                                     }
-                                                                    for (const auto& piece : snapshot.pieces) writeTraceMarker(packet,piece);
+                                                                    for (const auto& piece : snapshot.pieces) writeTraceMarker(packet,piece,markerArt);
                                                                     for (const auto* zone : {&snapshot.hand,&snapshot.foresightChoices,&snapshot.graveyard,&snapshot.exiled,&snapshot.raiseUndeadChoices})
-                                                                        for (const auto& card : *zone) writeTraceMarker(packet,card);
-                                                                    for (const auto& husk : snapshot.husks) writeTraceMarker(packet,husk.card);
+                                                                        for (const auto& card : *zone) writeTraceMarker(packet,card,markerArt);
+                                                                    for (const auto& husk : snapshot.husks) writeTraceMarker(packet,husk.card,markerArt);
                                                                 }
                                                             }
                                                         }
@@ -2439,20 +2445,21 @@ inline bool readSnapshot(sf::Packet& packet, Snapshot& snapshot, bool auraFields
                 }
                 if (!packet.endOfPacket()) {
                     std::uint32_t count = 0;
-                    if (!(packet >> marker >> count) || marker != BoardMarkerSnapshotCapability || count > MaxBoardMarkers)
+                    if (!(packet >> marker >> count) || (marker != BoardMarkerSnapshotCapability && marker != BoardMarkerArtCapability) || count > MaxBoardMarkers)
                         return false;
+                    const bool markerArt = marker == BoardMarkerArtCapability;
                     std::set<std::tuple<int,int,std::string>> seen;
                     for (std::uint32_t i=0; i<count; ++i) {
                         BoardMarker m;
                         if (!(packet >> m.owner >> m.row >> m.column) || m.owner < 1 || m.owner > 2 ||
-                            m.row < 0 || m.row >= BoardSize || m.column < 0 || m.column >= BoardSize || !marker_data::read(packet,m.definition) ||
+                            m.row < 0 || m.row >= BoardSize || m.column < 0 || m.column >= BoardSize || !marker_data::read(packet,m.definition,markerArt) ||
                             !seen.emplace(m.row,m.column,marker_data::nameKey(m.definition.name)).second) return false;
                         snapshot.boardMarkers.push_back(std::move(m));
                     }
-                    for (auto& piece : snapshot.pieces) if (!readTraceMarker(packet,piece)) return false;
+                    for (auto& piece : snapshot.pieces) if (!readTraceMarker(packet,piece,markerArt)) return false;
                     for (auto* zone : {&snapshot.hand,&snapshot.foresightChoices,&snapshot.graveyard,&snapshot.exiled,&snapshot.raiseUndeadChoices})
-                        for (auto& card : *zone) if (!readTraceMarker(packet,card)) return false;
-                    for (auto& husk : snapshot.husks) if (!readTraceMarker(packet,husk.card)) return false;
+                        for (auto& card : *zone) if (!readTraceMarker(packet,card,markerArt)) return false;
+                    for (auto& husk : snapshot.husks) if (!readTraceMarker(packet,husk.card,markerArt)) return false;
                 }
             }
         }

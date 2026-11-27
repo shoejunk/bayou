@@ -585,7 +585,8 @@ ConquestBattleJoinResult joinConquestBattle(
     bool supportsPassives = false;
     bool supportsDashRescue = false;
             bool supportsBoardMarkers = false;
-    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow, &supportsChrysalis, &supportsAreaHeal, &supportsSilence, &supportsParameters, &supportsUndying, &supportsObjects, &supportsTraps, &supportsRooted, &supportsPassives, &supportsDashRescue, &supportsBoardMarkers))
+    bool supportsMarkerArt = false;
+    if (game_data::offersCommandRestrictionSnapshots(response, &supportsSlow, &supportsChrysalis, &supportsAreaHeal, &supportsSilence, &supportsParameters, &supportsUndying, &supportsObjects, &supportsTraps, &supportsRooted, &supportsPassives, &supportsDashRescue, &supportsBoardMarkers, &supportsMarkerArt))
     {
         sf::Packet optIn;
         optIn << static_cast<std::uint8_t>(MessageType::EnableCommandRestrictionSnapshots);
@@ -601,6 +602,7 @@ ConquestBattleJoinResult joinConquestBattle(
         if (supportsPassives) optIn << game_data::PassivesSnapshotCapability;
         if (supportsDashRescue) optIn << game_data::DashRescueSnapshotCapability;
                 if (supportsBoardMarkers) optIn << game_data::BoardMarkerSnapshotCapability;
+        if (supportsMarkerArt) optIn << game_data::BoardMarkerArtCapability;
         if (socket->send(optIn) != sf::Socket::Status::Done)
             return {false, "Could not negotiate Conquest snapshots"};
         result.awaitingSnapshotUpgrade = true;

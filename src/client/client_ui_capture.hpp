@@ -58,6 +58,7 @@ struct InputSnapshot
 struct Request
 {
     std::filesystem::path outputDirectory;
+    std::filesystem::path markerDefinitionFixture; // Optional isolated-catalog object for game-bloom.
     // Screen keys to visit, in order. Empty means "every known screen".
     std::vector<std::string> screens;
     unsigned int width = 1920;
